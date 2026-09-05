@@ -4,12 +4,12 @@ import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import {
   parsePreviewStatus,
+  purgePreview,
   type LifecycleDeps,
   type PreviewStatus,
 } from "../preview-db/lifecycle.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import type { ContainerPorts } from "../preview/containers.ts";
-import { destroyPreviewResources } from "../sweep/live-ports.ts";
 import {
   planOrphanFindings,
   type OrphanFinding,
@@ -141,21 +141,25 @@ export function drop(deps: IntrospectionDeps) {
     }
 
     // Confirmation is intentionally unversioned (repo + prId only); see purgePreview.
-    const result = await destroyPreviewResources(
-      {
-        db: deps.db,
-        previewDb: deps.previewDb,
-        containers: deps.containers,
-      },
-      {
-        disposition: "purge",
-        repo: body.canonical_repo_id,
-        prId: body.pr_id,
-      },
-    );
+    const result = await purgePreview(deps, {
+      repo: body.canonical_repo_id,
+      prId: body.pr_id,
+    });
     if (!result.ok) {
       set.status = result.status;
       return { error: result.error };
+    }
+
+    // Best-effort like sweep: control plane is already gone; leave orphan for doctor.
+    if (result.value.purged) {
+      try {
+        await deps.containers.remove({
+          slug: result.value.slug,
+          prId: result.value.prId,
+        });
+      } catch {
+        /* leave for doctor / next sweep */
+      }
     }
 
     return { ok: true, status: "removed" };

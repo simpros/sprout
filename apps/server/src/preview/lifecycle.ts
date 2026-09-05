@@ -484,13 +484,9 @@ async function teardownUnlocked(
   return destroyPreviewRow(deps, existing, "tombstone");
 }
 
-export type PurgeSnapshot = {
-  ok: true;
-  status: "removed";
-  /** Present when a live row was purged — for best-effort container remove. */
-  slug?: string;
-  prId?: number;
-};
+export type PurgeSnapshot =
+  | { ok: true; status: "removed"; purged: false }
+  | { ok: true; status: "removed"; purged: true; slug: string; prId: number };
 
 /**
  * Ensure a preview DB + app container exist for (repo, prId).
@@ -544,7 +540,10 @@ export function purgePreview(
   return withPreviewLock(input.repo, input.prId, async () => {
     const existing = await getPreviewRow(deps.db, input.repo, input.prId);
     if (!existing || existing.status === "removed") {
-      return { ok: true, value: { ok: true, status: "removed" } };
+      return {
+        ok: true,
+        value: { ok: true, status: "removed", purged: false },
+      };
     }
 
     const status = parsePreviewStatus(existing.status);
@@ -557,6 +556,7 @@ export function purgePreview(
       value: {
         ok: true,
         status: "removed",
+        purged: true,
         slug: existing.slug,
         prId: existing.prId,
       },

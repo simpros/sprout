@@ -87,12 +87,17 @@ async function dropSettled(
   return succeeded;
 }
 
+export type OrphanDeletion = Extract<
+  SweepDeletion,
+  { reason: "sweep:orphan-db" | "sweep:orphan-container" }
+>;
+
 export function planOrphans(
   previewKeys: Set<string>,
   catalog: CatalogDbRef[],
   containers: PreviewRef[],
-): SweepDeletion[] {
-  const out: SweepDeletion[] = [];
+): OrphanDeletion[] {
+  const out: OrphanDeletion[] = [];
   for (const db of catalog) {
     if (previewKeys.has(`${db.slug}:${db.prId}`)) continue;
     out.push({
@@ -133,19 +138,25 @@ export function planOrphanFindings(
   containers: PreviewRef[],
 ): OrphanFinding[] {
   return planOrphans(previewKeys, catalog, containers).map((deletion) => {
-    if (deletion.reason === "sweep:orphan-db") {
-      return {
-        kind: "orphan-db" as const,
-        slug: deletion.slug,
-        pr_id: deletion.prId,
-        db_name: deletion.dbName,
-      };
+    switch (deletion.reason) {
+      case "sweep:orphan-db":
+        return {
+          kind: "orphan-db" as const,
+          slug: deletion.slug,
+          pr_id: deletion.prId,
+          db_name: deletion.dbName,
+        };
+      case "sweep:orphan-container":
+        return {
+          kind: "orphan-container" as const,
+          slug: deletion.slug,
+          pr_id: deletion.prId,
+        };
+      default: {
+        const _exhaustive: never = deletion;
+        throw new Error(`unexpected orphan reason: ${JSON.stringify(_exhaustive)}`);
+      }
     }
-    return {
-      kind: "orphan-container" as const,
-      slug: deletion.slug,
-      pr_id: deletion.prId,
-    };
   });
 }
 
