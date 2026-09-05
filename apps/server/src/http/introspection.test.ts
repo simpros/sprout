@@ -259,4 +259,47 @@ describe("POST /v1/drop", () => {
     );
     expect(await list.json()).toEqual({ previews: [] });
   });
+
+  test("container remove failure still returns ok; doctor sees orphan", async () => {
+    const { deployToken } = await setup();
+    await postDeploy(deployToken, {
+      canonical_repo_id: REPO,
+      pr_id: 42,
+      slug: "myapp",
+      hostname: "pr-42.myapp.preview.example.com",
+    });
+    testApp!.containers.seed({
+      containerId: "c-42",
+      containerName: "pb-myapp-pr-42",
+      slug: "myapp",
+      prId: 42,
+    });
+    testApp!.containers.remove = async () => {
+      throw new Error("docker hung");
+    };
+
+    const res = await postDrop({
+      canonical_repo_id: REPO,
+      pr_id: 42,
+      yes: true,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, status: "removed" });
+    expect(fakePreviewDb!.dropped).toEqual(["prev_myapp_pr42"]);
+
+    // Restore list so doctor can see the leftover container.
+    testApp!.containers.remove = async () => {};
+    const doctorRes = await testApp!.app.handle(
+      new Request("http://localhost/v1/doctor", {
+        headers: bearer(testApp!.adminToken),
+      }),
+    );
+    expect(doctorRes.status).toBe(503);
+    const doctorBody = await doctorRes.json();
+    expect(doctorBody.orphans).toContainEqual({
+      kind: "orphan-container",
+      slug: "myapp",
+      pr_id: 42,
+    });
+  });
 });

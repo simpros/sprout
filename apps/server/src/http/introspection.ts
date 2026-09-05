@@ -3,13 +3,17 @@ import { t } from "elysia";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import {
-  teardownPreview,
+  parsePreviewStatus,
   type LifecycleDeps,
+  type PreviewStatus,
 } from "../preview-db/lifecycle.ts";
 import { validatePrId } from "../preview-db/names.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
 import type { ContainerPorts } from "../preview/containers.ts";
-import { planOrphans } from "../sweep/reconcile.ts";
+import { destroyPreviewResources } from "../sweep/live-ports.ts";
+import {
+  planOrphanFindings,
+  type OrphanFinding,
+} from "../sweep/reconcile.ts";
 
 export type ListedPreview = {
   canonical_repo_id: string;
@@ -17,30 +21,13 @@ export type ListedPreview = {
   slug: string;
   db_name: string;
   hostname: string;
-  status: string;
+  status: PreviewStatus;
   created_at: string;
 };
 
-export type DoctorOrphan =
-  | {
-      kind: "orphan-db";
-      slug: string;
-      pr_id: number;
-      db_name: string;
-    }
-  | {
-      kind: "orphan-container";
-      slug: string;
-      pr_id: number;
-    };
+export type DoctorOrphan = OrphanFinding;
 
-export type DoctorDeps = {
-  db: StateDb;
-  previewDb: PreviewDb;
-  containers: ContainerPorts;
-};
-
-export type DropDeps = LifecycleDeps & {
+export type IntrospectionDeps = LifecycleDeps & {
   containers: ContainerPorts;
 };
 
@@ -57,27 +44,35 @@ export type DropBody = {
 };
 
 export function listPreviews(db: StateDb) {
-  return async () => {
+  return async ({ set }: { set: { status?: number | string } }) => {
     const rows = await db
       .select()
       .from(previews)
       .where(ne(previews.status, "removed"));
 
-    const listed: ListedPreview[] = rows.map((row) => ({
-      canonical_repo_id: row.canonicalRepoId,
-      pr_id: row.prId,
-      slug: row.slug,
-      db_name: row.dbName,
-      hostname: row.hostname,
-      status: row.status,
-      created_at: row.createdAt,
-    }));
+    const listed: ListedPreview[] = [];
+    for (const row of rows) {
+      const status = parsePreviewStatus(row.status);
+      if (!status.ok) {
+        set.status = 500;
+        return { error: status.error };
+      }
+      listed.push({
+        canonical_repo_id: row.canonicalRepoId,
+        pr_id: row.prId,
+        slug: row.slug,
+        db_name: row.dbName,
+        hostname: row.hostname,
+        status: status.value,
+        created_at: row.createdAt,
+      });
+    }
 
     return { previews: listed };
   };
 }
 
-export function doctor(deps: DoctorDeps) {
+export function doctor(deps: IntrospectionDeps) {
   return async ({ set }: { set: { status?: number | string } }) => {
     const { postgres, docker, orphans } = await collectDoctorFindings(deps);
 
@@ -96,7 +91,7 @@ export function doctor(deps: DoctorDeps) {
   };
 }
 
-export function drop(deps: DropDeps) {
+export function drop(deps: IntrospectionDeps) {
   return async ({
     body,
     set,
@@ -126,6 +121,11 @@ export function drop(deps: DropDeps) {
     }
 
     if (!body.yes) {
+      const status = parsePreviewStatus(row.status);
+      if (!status.ok) {
+        set.status = 500;
+        return { error: status.error };
+      }
       set.status = 409;
       return {
         error: "confirmation_required",
@@ -135,92 +135,69 @@ export function drop(deps: DropDeps) {
           slug: row.slug,
           db_name: row.dbName,
           hostname: row.hostname,
-          status: row.status,
+          status: status.value,
         },
       };
     }
 
-    const result = await teardownPreview(deps, {
-      repo: body.canonical_repo_id,
-      prId: body.pr_id,
-    });
+    // Confirmation is intentionally unversioned (repo + prId only); see purgePreview.
+    const result = await destroyPreviewResources(
+      {
+        db: deps.db,
+        previewDb: deps.previewDb,
+        containers: deps.containers,
+      },
+      {
+        disposition: "purge",
+        repo: body.canonical_repo_id,
+        prId: body.pr_id,
+      },
+    );
     if (!result.ok) {
       set.status = result.status;
       return { error: result.error };
     }
 
-    // Best-effort like sweep: DB is already gone; leave orphan-container for doctor.
-    try {
-      await deps.containers.remove({ slug: row.slug, prId: row.prId });
-    } catch {
-      /* leave for doctor / next sweep */
-    }
-
-    await deps.db
-      .delete(previews)
-      .where(
-        and(
-          eq(previews.canonicalRepoId, body.canonical_repo_id),
-          eq(previews.prId, body.pr_id),
-        ),
-      );
-
     return { ok: true, status: "removed" };
   };
 }
 
-async function collectDoctorFindings(deps: DoctorDeps): Promise<{
+async function collectDoctorFindings(deps: IntrospectionDeps): Promise<{
   postgres: "ok" | "unreachable";
   docker: "ok" | "unreachable";
   orphans: DoctorOrphan[];
 }> {
-  let postgres: "ok" | "unreachable" = "ok";
-  try {
-    await deps.previewDb.ping();
-  } catch {
-    postgres = "unreachable";
-  }
-
   const rows = await deps.db
     .select()
     .from(previews)
     .where(ne(previews.status, "removed"));
   const previewKeys = new Set(rows.map((r) => `${r.slug}:${r.prId}`));
 
-  let catalog: { slug: string; prId: number; dbName: string }[] = [];
-  if (postgres === "ok") {
-    try {
-      catalog = await deps.previewDb.listPreviewDatabases();
-    } catch {
-      postgres = "unreachable";
-    }
-  }
+  const [pingResult, catalogResult, containersResult] =
+    await Promise.allSettled([
+      deps.previewDb.ping(),
+      deps.previewDb.listPreviewDatabases(),
+      deps.containers.listPreviewContainers(),
+    ]);
 
-  let docker: "ok" | "unreachable" = "ok";
-  let containers: { slug: string; prId: number }[] = [];
-  try {
-    containers = await deps.containers.listPreviewContainers();
-  } catch {
-    docker = "unreachable";
-  }
+  const postgres: "ok" | "unreachable" =
+    pingResult.status === "fulfilled" && catalogResult.status === "fulfilled"
+      ? "ok"
+      : "unreachable";
 
-  const orphans: DoctorOrphan[] = [];
-  for (const deletion of planOrphans(previewKeys, catalog, containers)) {
-    if (deletion.reason === "sweep:orphan-db") {
-      orphans.push({
-        kind: "orphan-db",
-        slug: deletion.slug,
-        pr_id: deletion.prId,
-        db_name: deletion.dbName,
-      });
-    } else if (deletion.reason === "sweep:orphan-container") {
-      orphans.push({
-        kind: "orphan-container",
-        slug: deletion.slug,
-        pr_id: deletion.prId,
-      });
-    }
-  }
+  const catalog =
+    postgres === "ok" && catalogResult.status === "fulfilled"
+      ? catalogResult.value
+      : [];
 
-  return { postgres, docker, orphans };
+  const docker: "ok" | "unreachable" =
+    containersResult.status === "fulfilled" ? "ok" : "unreachable";
+  const containers =
+    containersResult.status === "fulfilled" ? containersResult.value : [];
+
+  return {
+    postgres,
+    docker,
+    orphans: planOrphanFindings(previewKeys, catalog, containers),
+  };
 }

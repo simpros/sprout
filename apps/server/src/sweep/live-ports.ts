@@ -5,6 +5,7 @@ import { parseUnambiguousUtcMs } from "../infrastructure/db/instant.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import {
   dropOrphanDatabase,
+  purgePreview,
   removePreview,
   type TeardownDeps,
 } from "../preview/lifecycle.ts";
@@ -15,7 +16,7 @@ import type {
   SweepPreview,
 } from "./reconcile.ts";
 
-export type LiveSweepDeps = {
+export type PreviewResourceDeps = {
   db: StateDb;
   previewDb: PreviewDb;
   /** Same bound ops as HTTP — list + remove for catalog and cleanup. */
@@ -25,12 +26,83 @@ export type LiveSweepDeps = {
   log?: SweepPorts["log"];
 };
 
-function teardownDeps(deps: LiveSweepDeps): TeardownDeps {
+function teardownDeps(deps: PreviewResourceDeps): TeardownDeps {
   return {
     db: deps.db,
     previewDb: deps.previewDb,
     app: deps.app,
   };
+}
+
+export type LiveSweepDeps = PreviewResourceDeps & {
+  forge: ForgeClient;
+  ttlHours: number;
+};
+
+/**
+ * Shared destroy path: lifecycle remove (tombstone or purge) under lock,
+ * then best-effort container remove after unlock (same as sweep).
+ */
+export async function destroyPreviewResources(
+  deps: PreviewResourceDeps,
+  target:
+    | {
+        disposition: "tombstone";
+        repo: string;
+        prId: number;
+        slug: string;
+        expectedDbName: string;
+        expectedCreatedAt: string;
+        /** Optional sweep deletion for log context. */
+        deletion?: SweepDeletion;
+      }
+    | {
+        disposition: "purge";
+        repo: string;
+        prId: number;
+      },
+): Promise<
+  { ok: true; removed: boolean } | { ok: false; status: number; error: string }
+> {
+  let slug: string;
+  let prId: number;
+  let logDeletion: SweepDeletion | undefined;
+
+  if (target.disposition === "tombstone") {
+    logDeletion = target.deletion;
+    const result = await removePreview(teardownDeps(deps), {
+      repo: target.repo,
+      prId: target.prId,
+      expectedDbName: target.expectedDbName,
+      expectedCreatedAt: target.expectedCreatedAt,
+    });
+    if (!result.ok) return result;
+    if (!result.value) return { ok: true, removed: false };
+    slug = target.slug;
+    prId = target.prId;
+  } else {
+    const result = await purgePreview(teardownDeps(deps), {
+      repo: target.repo,
+      prId: target.prId,
+    });
+    if (!result.ok) return result;
+    if (result.value.slug === undefined || result.value.prId === undefined) {
+      return { ok: true, removed: false };
+    }
+    slug = result.value.slug;
+    prId = result.value.prId;
+  }
+
+  try {
+    await deps.app.remove(slug, prId);
+  } catch (error) {
+    // Leave for doctor / next orphan-container pass; DB is already gone.
+    deps.log?.(
+      `sweep remove container failed: ${String(error)}`,
+      logDeletion,
+    );
+  }
+  return { ok: true, removed: true };
 }
 
 async function removeControlPlane(
@@ -40,19 +112,20 @@ async function removeControlPlane(
     { reason: "sweep:ttl-expired" | "sweep:pr-not-open" }
   >,
 ): Promise<boolean> {
-  // Lifecycle owns Docker teardown under the preview lock (dbName lock is
-  // SQL-only). Failures surface as incomplete teardown for the next pass.
-  const result = await removePreview(teardownDeps(deps), {
+  const result = await destroyPreviewResources(deps, {
+    disposition: "tombstone",
     repo: deletion.canonicalRepoId,
     prId: deletion.prId,
+    slug: deletion.slug,
     expectedDbName: deletion.dbName,
     expectedCreatedAt: deletion.createdAt,
+    deletion,
   });
   if (!result.ok) {
     deps.log?.(`sweep drop database failed: ${result.error}`, deletion);
     throw new Error(`teardown incomplete: ${deletion.dbName}`);
   }
-  return result.value;
+  return result.removed;
 }
 
 export function createLiveSweepPorts(deps: LiveSweepDeps): SweepPorts {
