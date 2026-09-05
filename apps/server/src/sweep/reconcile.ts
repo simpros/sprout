@@ -87,7 +87,7 @@ async function dropSettled(
   return succeeded;
 }
 
-function planOrphans(
+export function planOrphans(
   previewKeys: Set<string>,
   catalog: CatalogDbRef[],
   containers: PreviewRef[],
