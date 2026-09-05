@@ -4,7 +4,6 @@ import type { PreviewAppOps } from "../app-deployment/replace.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import type { PreviewDb } from "../preview-db/port.ts";
 import type { LifecycleDeps } from "../preview/lifecycle.ts";
-import type { ContainerPorts } from "../preview/containers.ts";
 import {
   createDeployToken,
   createDeployTokenBody,
@@ -18,7 +17,6 @@ export type RouteDeps = {
   db: StateDb;
   previewDb: PreviewDb;
   app: PreviewAppOps;
-  containers: ContainerPorts;
 };
 
 function stubNotImplemented({
@@ -35,12 +33,6 @@ export function createRoutes(deps: RouteDeps) {
     db: deps.db,
     previewDb: deps.previewDb,
     app: deps.app,
-  };
-  const introspection = {
-    db: deps.db,
-    previewDb: deps.previewDb,
-    app: deps.app,
-    containers: deps.containers,
   };
   return new Elysia()
     .get("/healthz", () => ({ ok: true }))
@@ -60,10 +52,10 @@ export function createRoutes(deps: RouteDeps) {
         .get("/previews", listPreviews(deps.db), {
           beforeHandle: requireAdmin,
         })
-        .get("/doctor", doctor(introspection), {
+        .get("/doctor", doctor(lifecycle), {
           beforeHandle: requireAdmin,
         })
-        .post("/drop", drop(introspection), {
+        .post("/drop", drop(lifecycle), {
           beforeHandle: requireAdmin,
           body: dropBody,
         })

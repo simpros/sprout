@@ -5,7 +5,6 @@ import { hashToken } from "../auth/tokens.ts";
 import { createFakeDockerClient } from "../docker/fake.ts";
 import { repos } from "../infrastructure/db/schema.ts";
 import { createFakePreviewDb } from "../preview-db/fake.ts";
-import { createFakeContainers } from "../preview/fake.ts";
 import { createRoutes } from "./routes.ts";
 import {
   bearer,
@@ -305,7 +304,6 @@ describe("ensureAdminToken", () => {
       db: testDb.db,
       previewDb: createFakePreviewDb(),
       app: bindTestPreviewApp(createFakeDockerClient()),
-      containers: createFakeContainers(),
     });
     const res = await app.handle(
       new Request("http://localhost/v1/admin/tokens", {

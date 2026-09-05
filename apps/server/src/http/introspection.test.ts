@@ -3,6 +3,8 @@ import {
   createFakePreviewDb,
   type FakePreviewDb,
 } from "../preview-db/fake.ts";
+import { previewContainerName } from "../preview/naming.ts";
+import type { FakeDockerClient } from "../docker/fake.ts";
 import {
   bearer,
   createTestApp,
@@ -20,6 +22,25 @@ afterEach(async () => {
   testApp = undefined;
   fakePreviewDb = undefined;
 });
+
+function fakeDocker(): FakeDockerClient {
+  return testApp!.docker as FakeDockerClient;
+}
+
+/** Seed a catalog pb-* container without going through deploy. */
+function seedOrphanContainer(slug: string, prId: number, id = "orphan") {
+  const name = previewContainerName(slug, prId);
+  fakeDocker().running.set(name, {
+    id,
+    spec: {
+      name,
+      image: "orphan:latest",
+      env: [],
+      labels: {},
+      networkNames: [],
+    },
+  });
+}
 
 async function setup() {
   fakePreviewDb = createFakePreviewDb();
@@ -99,13 +120,8 @@ describe("GET /v1/doctor", () => {
     await setup();
     // Catalog DB with no SQLite row → orphan-db
     await fakePreviewDb!.createDatabase("prev_myapp_pr99");
-    // Container with no SQLite row → orphan-container
-    testApp!.containers.seed({
-      containerId: "c-99",
-      containerName: "pb-myapp-pr-99",
-      slug: "myapp",
-      prId: 99,
-    });
+    // Container with no SQLite row → orphan-container (same catalog as sweep)
+    seedOrphanContainer("myapp", 99, "c-99");
 
     const res = await testApp!.app.handle(
       new Request("http://localhost/v1/doctor", {
@@ -158,7 +174,7 @@ describe("GET /v1/doctor", () => {
 
   test("returns API error shape when docker is unreachable", async () => {
     await setup();
-    testApp!.containers.listPreviewContainers = async () => {
+    fakeDocker().listPreviewContainers = async () => {
       throw new Error("docker socket down");
     };
 
@@ -202,13 +218,8 @@ describe("POST /v1/drop", () => {
       hostname: "pr-42.myapp.preview.example.com",
       app_image: "myapp:latest",
     });
-    testApp!.containers.seed({
-      containerId: "c-42",
-      containerName: "pb-myapp-pr-42",
-      slug: "myapp",
-      prId: 42,
-    });
 
+    const removedBefore = fakeDocker().removed.length;
     const res = await postDrop({
       canonical_repo_id: REPO,
       pr_id: 42,
@@ -226,7 +237,8 @@ describe("POST /v1/drop", () => {
       },
     });
     expect(fakePreviewDb!.dropped).toEqual([]);
-    expect(testApp!.containers.removed).toEqual([]);
+    expect(fakeDocker().removed.length).toBe(removedBefore);
+    expect(fakeDocker().running.has("pb-myapp-pr-42")).toBe(true);
   });
 
   test("with yes removes database, container, and sqlite row", async () => {
@@ -238,12 +250,6 @@ describe("POST /v1/drop", () => {
       hostname: "pr-42.myapp.preview.example.com",
       app_image: "myapp:latest",
     });
-    testApp!.containers.seed({
-      containerId: "c-42",
-      containerName: "pb-myapp-pr-42",
-      slug: "myapp",
-      prId: 42,
-    });
 
     const res = await postDrop({
       canonical_repo_id: REPO,
@@ -253,7 +259,8 @@ describe("POST /v1/drop", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, status: "removed" });
     expect(fakePreviewDb!.dropped).toEqual(["prev_myapp_pr42"]);
-    expect(testApp!.containers.removed).toEqual([{ slug: "myapp", prId: 42 }]);
+    expect(fakeDocker().removed).toContain("pb-myapp-pr-42");
+    expect(await fakeDocker().listPreviewContainers()).toEqual([]);
 
     const list = await testApp!.app.handle(
       new Request("http://localhost/v1/previews", {
@@ -272,13 +279,9 @@ describe("POST /v1/drop", () => {
       hostname: "pr-42.myapp.preview.example.com",
       app_image: "myapp:latest",
     });
-    testApp!.containers.seed({
-      containerId: "c-42",
-      containerName: "pb-myapp-pr-42",
-      slug: "myapp",
-      prId: 42,
-    });
-    testApp!.containers.remove = async () => {
+    const docker = fakeDocker();
+    const realRemove = docker.removeByName.bind(docker);
+    docker.removeByName = async () => {
       throw new Error("docker hung");
     };
 
@@ -291,8 +294,8 @@ describe("POST /v1/drop", () => {
     expect(res.body).toEqual({ ok: true, status: "removed" });
     expect(fakePreviewDb!.dropped).toEqual(["prev_myapp_pr42"]);
 
-    // Restore list so doctor can see the leftover container.
-    testApp!.containers.remove = async () => {};
+    // Restore list path so doctor can see the leftover container.
+    docker.removeByName = realRemove;
     const doctorRes = await testApp!.app.handle(
       new Request("http://localhost/v1/doctor", {
         headers: bearer(testApp!.adminToken),

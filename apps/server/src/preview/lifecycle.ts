@@ -484,10 +484,6 @@ async function teardownUnlocked(
   return destroyPreviewRow(deps, existing, "tombstone");
 }
 
-export type PurgeSnapshot =
-  | { ok: true; status: "removed"; purged: false }
-  | { ok: true; status: "removed"; purged: true; slug: string; prId: number };
-
 /**
  * Ensure a preview DB + app container exist for (repo, prId).
  * - removed: rewrite identity, CREATE, start/replace app, advance to ready
@@ -532,35 +528,22 @@ export function teardownPreview(
  * No soft-remove → unlock → DELETE window (provision cannot reclaim mid-purge).
  * Operator drop is intentionally unversioned — confirm binds to (repo, prId)
  * only; a concurrent redeploy can still be destroyed without a new plan.
+ * Container remove is best-effort inside destroyPreviewRow (same as teardown).
  */
 export function purgePreview(
   deps: LifecycleDeps,
   input: TeardownInput,
-): Promise<Result<PurgeSnapshot>> {
+): Promise<Result<TeardownSnapshot>> {
   return withPreviewLock(input.repo, input.prId, async () => {
     const existing = await getPreviewRow(deps.db, input.repo, input.prId);
     if (!existing || existing.status === "removed") {
-      return {
-        ok: true,
-        value: { ok: true, status: "removed", purged: false },
-      };
+      return { ok: true, value: { ok: true, status: "removed" } };
     }
 
     const status = parsePreviewStatus(existing.status);
     if (!status.ok) return status;
 
-    const result = await destroyPreviewRow(deps, existing, "purge");
-    if (!result.ok) return result;
-    return {
-      ok: true,
-      value: {
-        ok: true,
-        status: "removed",
-        purged: true,
-        slug: existing.slug,
-        prId: existing.prId,
-      },
-    };
+    return destroyPreviewRow(deps, existing, "purge");
   });
 }
 

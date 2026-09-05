@@ -9,11 +9,7 @@ import {
   type PreviewStatus,
 } from "../preview/lifecycle.ts";
 import { validatePrId } from "../preview-db/names.ts";
-import type { ContainerPorts } from "../preview/containers.ts";
-import {
-  planOrphanFindings,
-  type OrphanFinding,
-} from "../sweep/reconcile.ts";
+import { planOrphans } from "../sweep/reconcile.ts";
 
 export type ListedPreview = {
   canonical_repo_id: string;
@@ -25,11 +21,20 @@ export type ListedPreview = {
   created_at: string;
 };
 
-export type DoctorOrphan = OrphanFinding;
+export type DoctorOrphan =
+  | {
+      kind: "orphan-db";
+      slug: string;
+      pr_id: number;
+      db_name: string;
+    }
+  | {
+      kind: "orphan-container";
+      slug: string;
+      pr_id: number;
+    };
 
-export type IntrospectionDeps = LifecycleDeps & {
-  containers: ContainerPorts;
-};
+export type IntrospectionDeps = LifecycleDeps;
 
 export const dropBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
@@ -141,6 +146,7 @@ export function drop(deps: IntrospectionDeps) {
     }
 
     // Confirmation is intentionally unversioned (repo + prId only); see purgePreview.
+    // Container remove runs inside purgePreview under the preview lock.
     const result = await purgePreview(deps, {
       repo: body.canonical_repo_id,
       prId: body.pr_id,
@@ -150,20 +156,39 @@ export function drop(deps: IntrospectionDeps) {
       return { error: result.error };
     }
 
-    // Best-effort like sweep: control plane is already gone; leave orphan for doctor.
-    if (result.value.purged) {
-      try {
-        await deps.containers.remove({
-          slug: result.value.slug,
-          prId: result.value.prId,
-        });
-      } catch {
-        /* leave for doctor / next sweep */
-      }
-    }
-
     return { ok: true, status: "removed" };
   };
+}
+
+/** Map reconcile orphan deletions to the doctor wire shape. */
+function toDoctorOrphans(
+  previewKeys: Set<string>,
+  catalog: { slug: string; prId: number; dbName: string }[],
+  containers: { slug: string; prId: number }[],
+): DoctorOrphan[] {
+  return planOrphans(previewKeys, catalog, containers).map((deletion) => {
+    switch (deletion.reason) {
+      case "sweep:orphan-db":
+        return {
+          kind: "orphan-db" as const,
+          slug: deletion.slug,
+          pr_id: deletion.prId,
+          db_name: deletion.dbName,
+        };
+      case "sweep:orphan-container":
+        return {
+          kind: "orphan-container" as const,
+          slug: deletion.slug,
+          pr_id: deletion.prId,
+        };
+      default: {
+        const _exhaustive: never = deletion;
+        throw new Error(
+          `unexpected orphan reason: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
+    }
+  });
 }
 
 async function collectDoctorFindings(deps: IntrospectionDeps): Promise<{
@@ -181,7 +206,7 @@ async function collectDoctorFindings(deps: IntrospectionDeps): Promise<{
     await Promise.allSettled([
       deps.previewDb.ping(),
       deps.previewDb.listPreviewDatabases(),
-      deps.containers.listPreviewContainers(),
+      deps.app.list(),
     ]);
 
   const postgres: "ok" | "unreachable" =
@@ -197,11 +222,13 @@ async function collectDoctorFindings(deps: IntrospectionDeps): Promise<{
   const docker: "ok" | "unreachable" =
     containersResult.status === "fulfilled" ? "ok" : "unreachable";
   const containers =
-    containersResult.status === "fulfilled" ? containersResult.value : [];
+    containersResult.status === "fulfilled"
+      ? containersResult.value.map(({ slug, prId }) => ({ slug, prId }))
+      : [];
 
   return {
     postgres,
     docker,
-    orphans: planOrphanFindings(previewKeys, catalog, containers),
+    orphans: toDoctorOrphans(previewKeys, catalog, containers),
   };
 }
