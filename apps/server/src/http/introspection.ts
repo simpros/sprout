@@ -7,7 +7,7 @@ import {
   purgePreview,
   type LifecycleDeps,
   type PreviewStatus,
-} from "../preview-db/lifecycle.ts";
+} from "../preview/lifecycle.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import type { ContainerPorts } from "../preview/containers.ts";
 import {
@@ -175,7 +175,7 @@ async function collectDoctorFindings(deps: IntrospectionDeps): Promise<{
     .select()
     .from(previews)
     .where(ne(previews.status, "removed"));
-  const previewKeys = new Set(rows.map((r) => `${r.slug}:${r.prId}`));
+  const previewKeys = new Set<string>(rows.map((r) => `${r.slug}:${r.prId}`));
 
   const [pingResult, catalogResult, containersResult] =
     await Promise.allSettled([

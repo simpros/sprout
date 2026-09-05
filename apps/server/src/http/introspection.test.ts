@@ -53,6 +53,7 @@ describe("GET /v1/previews", () => {
       pr_id: 42,
       slug: "myapp",
       hostname: "pr-42.myapp.preview.example.com",
+      app_image: "myapp:latest",
     });
     expect(deployed.status).toBe(200);
 
@@ -199,6 +200,7 @@ describe("POST /v1/drop", () => {
       pr_id: 42,
       slug: "myapp",
       hostname: "pr-42.myapp.preview.example.com",
+      app_image: "myapp:latest",
     });
     testApp!.containers.seed({
       containerId: "c-42",
@@ -234,6 +236,7 @@ describe("POST /v1/drop", () => {
       pr_id: 42,
       slug: "myapp",
       hostname: "pr-42.myapp.preview.example.com",
+      app_image: "myapp:latest",
     });
     testApp!.containers.seed({
       containerId: "c-42",
@@ -267,6 +270,7 @@ describe("POST /v1/drop", () => {
       pr_id: 42,
       slug: "myapp",
       hostname: "pr-42.myapp.preview.example.com",
+      app_image: "myapp:latest",
     });
     testApp!.containers.seed({
       containerId: "c-42",
