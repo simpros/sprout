@@ -5,6 +5,7 @@ import { hashToken } from "../auth/tokens.ts";
 import { createFakeDockerClient } from "../docker/fake.ts";
 import { repos } from "../infrastructure/db/schema.ts";
 import { createFakePreviewDb } from "../preview-db/fake.ts";
+import { createFakeContainers } from "../preview/fake.ts";
 import { createRoutes } from "./routes.ts";
 import {
   bearer,
@@ -202,6 +203,30 @@ describe("bearer auth", () => {
     }
   });
 
+  test("deploy token cannot call /v1/drop", async () => {
+    testApp = await createTestApp();
+    const { body } = await postDeployToken(testApp, {
+      canonical_repo_id: REPO,
+      slug: "myapp",
+    });
+
+    const res = await testApp.app.handle(
+      new Request("http://localhost/v1/drop", {
+        method: "POST",
+        headers: {
+          ...bearer(body.token),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          canonical_repo_id: REPO,
+          pr_id: 1,
+          yes: true,
+        }),
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
+
   test("admin token can reach non-admin /v1 routes", async () => {
     testApp = await createTestApp();
     const res = await testApp.app.handle(
@@ -280,6 +305,7 @@ describe("ensureAdminToken", () => {
       db: testDb.db,
       previewDb: createFakePreviewDb(),
       app: bindTestPreviewApp(createFakeDockerClient()),
+      containers: createFakeContainers(),
     });
     const res = await app.handle(
       new Request("http://localhost/v1/admin/tokens", {

@@ -10,4 +10,6 @@ export type PreviewDb = {
   createDatabase(dbName: string): Promise<void>;
   dropDatabase(dbName: string): Promise<void>;
   listPreviewDatabases(): Promise<CatalogDatabase[]>;
+  /** Connectivity check (`SELECT 1`). Throws when unreachable. */
+  ping(): Promise<void>;
 };

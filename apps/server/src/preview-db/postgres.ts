@@ -77,5 +77,9 @@ export function createPostgresPreviewDb(
       }
       return out;
     },
+
+    async ping() {
+      await sql`SELECT 1`;
+    },
   };
 }

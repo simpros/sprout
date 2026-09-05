@@ -15,6 +15,7 @@ function stubPreviewDb(
   return {
     createDatabase: async () => {},
     dropDatabase: async () => {},
+    ping: async () => {},
     ...partial,
   };
 }
