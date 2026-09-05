@@ -17,6 +17,7 @@
 ```bash
 bun install
 bun run dev          # turbo dev, server watch only
+bun run pbuddy …     # CLI against PBUDDY_URL (default http://127.0.0.1:7331)
 bun test
 bun run test:e2e     # compose acceptance harness (needs Docker)
 bun run typecheck    # turbo build (tsc per package)

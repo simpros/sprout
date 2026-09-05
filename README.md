@@ -1,12 +1,13 @@
 # sprout
 
-Per-PR **preview databases** (and optional preview app containers) for
-self-hosted deployments.
+**v0.1.0** — per-PR **preview databases** (and optional preview app containers)
+for self-hosted deployments.
 
 When a pull request opens, CI calls the sprout **gateway**, which
 provisions an isolated **logical database** on a shared Postgres instance,
 starts a preview app container, optionally runs a seed image, and tears
-everything down when the PR closes.
+everything down when the PR closes. Lifecycle is **CI-driven** (`pbuddy
+deploy` / `pbuddy teardown`) — the gateway does not take forge webhooks.
 
 ```
 create → migrate (app) → seed (optional) → hand over → drop
@@ -22,7 +23,7 @@ data isolation per PR.
 ## How
 
 1. Operator deploys **Postgres** + the **gateway** + **Traefik** via
-   [Docker Compose](docs/deploy.md) once.
+   [Docker Compose](docs/deploy.md) once (or builds the [gateway image](docs/deploy.md#gateway-docker-image) alone).
 2. Adopting repo adds `.sprout.yaml` and a CI workflow — see the
    [adoption guide](docs/adoption.md) and
    [`examples/adopting-repo/`](examples/adopting-repo/).
@@ -36,18 +37,32 @@ data isolation per PR.
 6. **Sweep** reconciles drift if CI teardown is missed.
 
 Auth: deploy tokens for CI, admin tokens for operators. Gateway state in
-SQLite. The normative v0.1 specification is tracked in the GitHub issue tracker.
+SQLite.
+
+## Install / run `pbuddy`
+
+From a clone of this repo (after `bun install`):
+
+```bash
+bun run pbuddy health
+# or: bun run apps/cli/src/index.ts health
+```
+
+Set `PBUDDY_URL` (default `http://127.0.0.1:7331`) and `PBUDDY_TOKEN` for
+authenticated commands. Full command surface lands with the CLI ticket; the
+adopting-repo example clones this workspace and wraps the same entrypoint.
 
 ## Docs
 
-- `CONTEXT.md` — domain vocabulary
-- [`docs/deploy.md`](docs/deploy.md) — operator compose stack (Postgres + gateway + Traefik)
+- [`CONTEXT.md`](CONTEXT.md) — domain vocabulary
+- [Spec #12](https://github.com/simpros/preview-buddy/issues/12) — normative v0.1 specification
+- [`docs/deploy.md`](docs/deploy.md) — operator compose stack + gateway image build
 - [`docs/adoption.md`](docs/adoption.md) — adopting-repo guide (yaml, CI, entrypoint)
 - [`examples/adopting-repo/`](examples/adopting-repo/) — copy-paste example files
 - [`e2e/`](e2e/) — acceptance harness against compose (`bun run test:e2e`)
-- Spec — normative v0.1 specification (tracked in the GitHub issue tracker)
-- `docs/adr/` — architecture decisions
+- [`docs/adr/`](docs/adr/) — architecture decisions
 
 ## Status
 
-🚧 v0.1 in progress — specification adopted; implementation catching up.
+**v0.1.0** (git tag `v0.1.0`). Core gateway paths land incrementally; see open
+issues on the tracker for remaining modules.

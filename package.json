@@ -1,5 +1,6 @@
 {
   "name": "sprout",
+  "version": "0.1.0",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -11,6 +12,7 @@
     "test": "turbo test",
     "typecheck": "turbo build",
     "test:e2e": "bun run e2e/run.ts",
+    "pbuddy": "bun run apps/cli/src/index.ts",
     "db:generate": "bun run --cwd apps/server db:generate",
     "db:migrate": "bun run --cwd apps/server db:migrate",
     "db:studio": "bun run --cwd apps/server db:studio"

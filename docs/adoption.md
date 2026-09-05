@@ -123,8 +123,8 @@ The **canonical** workflow is
 [`examples/adopting-repo/.github/workflows/sprout.yml`](../examples/adopting-repo/.github/workflows/sprout.yml)
 — copy it rather than pasting fragments from this guide. It covers:
 
-1. Install `sprout` from a workspace clone (keeps `@sprout/api-client`
-   resolution; pin a tag/SHA when releases exist).
+1. Install `sprout` from a workspace clone pinned to tag `v0.1.0` (keeps
+   `@sprout/api-client` resolution; same as the in-repo `sprout` bin).
 2. Build and push app + seed images tagged with `${{ github.sha }}`.
 3. `sprout deploy -i … -s …`, capture `preview_url=` from `deploy.log`, comment
    on the PR.
