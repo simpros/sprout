@@ -39,6 +39,7 @@ export function createRoutes(deps: RouteDeps) {
   const introspection = {
     db: deps.db,
     previewDb: deps.previewDb,
+    app: deps.app,
     containers: deps.containers,
   };
   return new Elysia()

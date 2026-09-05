@@ -7,6 +7,7 @@ import {
   dropOrphanDatabase,
   purgePreview,
   removePreview,
+  type LifecycleDeps,
   type TeardownDeps,
 } from "../preview/lifecycle.ts";
 import type { PreviewDb } from "../preview-db/port.ts";
@@ -19,14 +20,21 @@ import type {
 export type PreviewResourceDeps = {
   db: StateDb;
   previewDb: PreviewDb;
-  /** Same bound ops as HTTP — list + remove for catalog and cleanup. */
-  app: Pick<PreviewAppOps, "list" | "remove">;
+  app: PreviewAppOps;
   forge: ForgeClient;
   ttlHours: number;
   log?: SweepPorts["log"];
 };
 
 function teardownDeps(deps: PreviewResourceDeps): TeardownDeps {
+  return {
+    db: deps.db,
+    previewDb: deps.previewDb,
+    app: deps.app,
+  };
+}
+
+function lifecycleDeps(deps: PreviewResourceDeps): LifecycleDeps {
   return {
     db: deps.db,
     previewDb: deps.previewDb,
@@ -64,12 +72,7 @@ export async function destroyPreviewResources(
 ): Promise<
   { ok: true; removed: boolean } | { ok: false; status: number; error: string }
 > {
-  let slug: string;
-  let prId: number;
-  let logDeletion: SweepDeletion | undefined;
-
   if (target.disposition === "tombstone") {
-    logDeletion = target.deletion;
     const result = await removePreview(teardownDeps(deps), {
       repo: target.repo,
       prId: target.prId,
@@ -78,30 +81,15 @@ export async function destroyPreviewResources(
     });
     if (!result.ok) return result;
     if (!result.value) return { ok: true, removed: false };
-    slug = target.slug;
-    prId = target.prId;
   } else {
-    const result = await purgePreview(teardownDeps(deps), {
+    const result = await purgePreview(lifecycleDeps(deps), {
       repo: target.repo,
       prId: target.prId,
     });
     if (!result.ok) return result;
-    if (result.value.slug === undefined || result.value.prId === undefined) {
-      return { ok: true, removed: false };
-    }
-    slug = result.value.slug;
-    prId = result.value.prId;
+    if (!result.value.purged) return { ok: true, removed: false };
   }
 
-  try {
-    await deps.app.remove(slug, prId);
-  } catch (error) {
-    // Leave for doctor / next orphan-container pass; DB is already gone.
-    deps.log?.(
-      `sweep remove container failed: ${String(error)}`,
-      logDeletion,
-    );
-  }
   return { ok: true, removed: true };
 }
 
