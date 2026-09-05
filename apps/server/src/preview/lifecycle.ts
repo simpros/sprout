@@ -127,7 +127,7 @@ function withDbNameLock<T>(
   return run;
 }
 
-function parsePreviewStatus(status: string): Result<PreviewStatus> {
+export function parsePreviewStatus(status: string): Result<PreviewStatus> {
   switch (status) {
     case "provisioning":
     case "ready":
@@ -394,9 +394,18 @@ async function provisionUnlocked(
   }
 }
 
-async function dropAndMarkRemoved(
+/** Soft-remove (sweep/teardown) vs hard-delete SQLite row (admin drop). */
+type DestroyDisposition = "tombstone" | "purge";
+
+/**
+ * Drop the preview DB under the dbName lock, then finalize the control-plane
+ * row: soft `removed` (tombstone, reclaimable) or hard DELETE (purge).
+ * Must run inside withPreviewLock; never unlock between DROP and finalize.
+ */
+async function destroyPreviewRow(
   deps: TeardownDeps,
   existing: PreviewRow,
+  disposition: DestroyDisposition,
 ): Promise<Result<TeardownSnapshot>> {
   const repo = existing.canonicalRepoId;
   const prId = existing.prId;
@@ -426,16 +435,24 @@ async function dropAndMarkRemoved(
       return { ok: false, status: 500, error: "preview_db_drop_failed" };
     }
 
-    await deps.db
-      .update(previews)
-      .set({
-        status: "removed",
-        containerId: null,
-        updatedAt: utcIsoNow(),
-      })
-      .where(
-        and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-      );
+    if (disposition === "purge") {
+      await deps.db
+        .delete(previews)
+        .where(
+          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+        );
+    } else {
+      await deps.db
+        .update(previews)
+        .set({
+          status: "removed",
+          containerId: null,
+          updatedAt: utcIsoNow(),
+        })
+        .where(
+          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+        );
+    }
 
     return { ok: true, value: { ok: true, status: "removed" } };
   });
@@ -464,8 +481,16 @@ async function teardownUnlocked(
       break;
   }
 
-  return dropAndMarkRemoved(deps, existing);
+  return destroyPreviewRow(deps, existing, "tombstone");
 }
+
+export type PurgeSnapshot = {
+  ok: true;
+  status: "removed";
+  /** Present when a live row was purged — for best-effort container remove. */
+  slug?: string;
+  prId?: number;
+};
 
 /**
  * Ensure a preview DB + app container exist for (repo, prId).
@@ -507,6 +532,39 @@ export function teardownPreview(
 }
 
 /**
+ * Admin purge: drop the DB and hard-delete the SQLite row under one lock.
+ * No soft-remove → unlock → DELETE window (provision cannot reclaim mid-purge).
+ * Operator drop is intentionally unversioned — confirm binds to (repo, prId)
+ * only; a concurrent redeploy can still be destroyed without a new plan.
+ */
+export function purgePreview(
+  deps: LifecycleDeps,
+  input: TeardownInput,
+): Promise<Result<PurgeSnapshot>> {
+  return withPreviewLock(input.repo, input.prId, async () => {
+    const existing = await getPreviewRow(deps.db, input.repo, input.prId);
+    if (!existing || existing.status === "removed") {
+      return { ok: true, value: { ok: true, status: "removed" } };
+    }
+
+    const status = parsePreviewStatus(existing.status);
+    if (!status.ok) return status;
+
+    const result = await destroyPreviewRow(deps, existing, "purge");
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      value: {
+        ok: true,
+        status: "removed",
+        slug: existing.slug,
+        prId: existing.prId,
+      },
+    };
+  });
+}
+
+/**
  * Sweep control-plane delete: under the same lock as provision/teardown,
  * re-read and abort unless identity + generation still match, then remove.
  * @returns true if the preview was removed; false if the plan was stale.
@@ -530,7 +588,7 @@ export function removePreview(
     const status = parsePreviewStatus(existing.status);
     if (!status.ok) return status;
 
-    const result = await dropAndMarkRemoved(deps, existing);
+    const result = await destroyPreviewRow(deps, existing, "tombstone");
     if (!result.ok) return result;
     return { ok: true, value: true };
   });

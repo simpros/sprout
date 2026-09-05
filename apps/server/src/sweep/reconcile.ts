@@ -113,6 +113,42 @@ export function planOrphans(
   return out;
 }
 
+/** Doctor/API orphan shape — adapter lives next to the planner, not in HTTP. */
+export type OrphanFinding =
+  | {
+      kind: "orphan-db";
+      slug: string;
+      pr_id: number;
+      db_name: string;
+    }
+  | {
+      kind: "orphan-container";
+      slug: string;
+      pr_id: number;
+    };
+
+export function planOrphanFindings(
+  previewKeys: Set<string>,
+  catalog: CatalogDbRef[],
+  containers: PreviewRef[],
+): OrphanFinding[] {
+  return planOrphans(previewKeys, catalog, containers).map((deletion) => {
+    if (deletion.reason === "sweep:orphan-db") {
+      return {
+        kind: "orphan-db" as const,
+        slug: deletion.slug,
+        pr_id: deletion.prId,
+        db_name: deletion.dbName,
+      };
+    }
+    return {
+      kind: "orphan-container" as const,
+      slug: deletion.slug,
+      pr_id: deletion.prId,
+    };
+  });
+}
+
 export async function runSweepPass(ports: SweepPorts): Promise<SweepPassResult> {
   const [previewsResult, catalogResult, containersResult] =
     await Promise.allSettled([
