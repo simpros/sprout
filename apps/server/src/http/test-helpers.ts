@@ -15,10 +15,6 @@ import type { PreviewDocker } from "../docker/port.ts";
 import { connectState, type StateDb } from "../infrastructure/db/client.ts";
 import { createFakePreviewDb } from "../preview-db/fake.ts";
 import type { PreviewDb } from "../preview-db/port.ts";
-import {
-  createFakeContainers,
-  type FakeContainers,
-} from "../preview/fake.ts";
 import { runMigrations } from "../scripts/migrate.ts";
 import { createRoutes } from "./routes.ts";
 
@@ -32,8 +28,7 @@ export type TestApp = {
   db: StateDb;
   adminToken: string;
   previewDb: PreviewDb;
-  docker: PreviewDocker;
-  containers: FakeContainers;
+  docker: FakeDockerClient | PreviewDocker;
   cleanup: () => Promise<void>;
 };
 
@@ -82,7 +77,6 @@ export async function createTestApp(
         adminToken?: string;
         previewDb?: PreviewDb;
         docker?: PreviewDocker;
-        containers?: FakeContainers;
         replaceDeps?: Partial<Omit<ReplacePreviewAppDeps, "docker">>;
       }
     | string = {},
@@ -92,17 +86,15 @@ export async function createTestApp(
   const adminToken = opts.adminToken ?? "test-admin-token";
   const previewDb = opts.previewDb ?? createFakePreviewDb();
   const docker = opts.docker ?? createFakeDockerClient();
-  const containers = opts.containers ?? createFakeContainers();
   const appOps = bindTestPreviewApp(docker, opts.replaceDeps);
   const { db, cleanup } = await createTestDb();
   await ensureAdminToken(db, adminToken);
   return {
-    app: createRoutes({ db, previewDb, app: appOps, containers }),
+    app: createRoutes({ db, previewDb, app: appOps }),
     db,
     adminToken,
     previewDb,
     docker,
-    containers,
     cleanup,
   };
 }
