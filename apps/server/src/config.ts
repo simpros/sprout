@@ -20,6 +20,33 @@ export const OPTIONAL_ENV_DEFAULTS = {
   SPROUT_PORT: 7331,
 } as const;
 
+/** Optional string keys read by `loadConfig` (blank allowed). */
+export const OPTIONAL_ENV_STRINGS = [
+  "PB_REGISTRY_USER",
+  "PB_REGISTRY_PASSWORD",
+  "PB_FORGE_TOKEN",
+  "PB_ADMIN_TOKEN",
+] as const;
+
+/**
+ * Out-of-band gateway env: SQLite path (`resolveStateDbPath`) and preview
+ * injectables documented for compose/operators before app-deploy reads them.
+ */
+export const DOCUMENTED_ENV_EXTRAS = [
+  "PB_STATE_DB_PATH",
+  "PB_PG_HOST",
+  "PB_PG_PORT",
+  "PB_PG_PASSWORD",
+] as const;
+
+/** Operator-facing gateway env catalog — source for `.env.example` contract tests. */
+export const GATEWAY_ENV_CATALOG: readonly string[] = [
+  ...REQUIRED_ENV,
+  ...Object.keys(OPTIONAL_ENV_DEFAULTS),
+  ...OPTIONAL_ENV_STRINGS,
+  ...DOCUMENTED_ENV_EXTRAS,
+];
+
 export type Config = {
   previewPostgresUrl: string;
   /** Hostname preview containers use for PGHOST (often not the admin DSN host). */
