@@ -318,6 +318,34 @@ describe("POST /v1/deploy", () => {
     expect(ageMs).toBeLessThan(72 * 60 * 60 * 1000);
   });
 
+  test("stuck starting → ready keeps createdAt generation", async () => {
+    setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
+    const { deployToken } = await setup();
+    await testApp!.db.insert(previews).values({
+      canonicalRepoId: REPO,
+      prId: 42,
+      slug: "myapp",
+      dbName: "prev_myapp_pr42",
+      hostname: "pr-42.myapp.preview.example.com",
+      status: "starting",
+      createdAt: "2026-08-01T12:00:00.000Z",
+      updatedAt: "2026-08-01T12:00:00.000Z",
+    });
+
+    const res = await postDeploy(deployToken, deployBody());
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ status: "running" });
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row!.createdAt).toBe("2026-08-01T12:00:00.000Z");
+  });
+
   test("recreates database after teardown", async () => {
     const { deployToken } = await setup();
     await postDeploy(deployToken, deployBody());

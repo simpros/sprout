@@ -31,7 +31,6 @@ export type ReplacePreviewAppDeps = {
   healthProbe?: HealthProbe;
   /** Test seam — defaults to Date.now / setTimeout. */
   healthClock?: HealthClock;
-  log?: (message: string) => void;
 };
 
 export type ReplacePreviewAppInput = {
@@ -122,7 +121,8 @@ async function waitPreviewAppHealthy(
   port: number,
   health: HealthSpec,
 ): Promise<"ok" | "timeout"> {
-  const outcome = await pollHealth(
+  // Total: never throws — inspect/resolve blips retry until HealthSpec timeout.
+  return pollHealth(
     probe,
     async () => {
       const ip = await deps.docker.containerIpOnNetwork(
@@ -134,8 +134,4 @@ async function waitPreviewAppHealthy(
     health,
     deps.healthClock,
   );
-  if (outcome === "timeout") {
-    deps.log?.("health:timeout");
-  }
-  return outcome;
 }

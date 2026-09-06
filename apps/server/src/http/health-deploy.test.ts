@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import {
   createFakeDockerClient,
@@ -26,7 +26,6 @@ let testApp: TestApp | undefined;
 let fakePreviewDb: FakePreviewDb | undefined;
 let fakeDocker: FakeDockerClient | undefined;
 let healthHits: string[];
-let logs: string[];
 
 afterEach(async () => {
   await testApp?.cleanup();
@@ -34,7 +33,6 @@ afterEach(async () => {
   fakePreviewDb = undefined;
   fakeDocker = undefined;
   healthHits = [];
-  logs = [];
 });
 
 async function setup(options?: {
@@ -42,7 +40,6 @@ async function setup(options?: {
   healthClock?: { now(): number; sleep(ms: number): Promise<void> };
 }) {
   healthHits = [];
-  logs = [];
   fakePreviewDb = createFakePreviewDb();
   fakeDocker = createFakeDockerClient({
     exposedPorts: { [APP_IMAGE]: 3000 },
@@ -58,9 +55,6 @@ async function setup(options?: {
     docker: fakeDocker,
     healthProbe,
     healthClock: options?.healthClock,
-    log: (message) => {
-      logs.push(message);
-    },
   });
   const { body } = await postDeployToken(testApp, {
     canonical_repo_id: REPO,
@@ -158,34 +152,42 @@ describe("POST /v1/deploy health polling", () => {
 
   test("health timeout marks failed and logs health:timeout", async () => {
     let now = 0;
-    const { deployToken } = await setup({
-      healthProbe: {
-        async getStatus(url) {
-          healthHits.push(url);
-          return 503;
-        },
-      },
-      healthClock: {
-        now: () => now,
-        sleep: async (ms) => {
-          now += ms;
-        },
-      },
+    const warns: unknown[][] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args) => {
+      warns.push(args);
     });
-    const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(500);
-    expect(res.body).toEqual({ error: "health_timeout" });
+    try {
+      const { deployToken } = await setup({
+        healthProbe: {
+          async getStatus(url) {
+            healthHits.push(url);
+            return 503;
+          },
+        },
+        healthClock: {
+          now: () => now,
+          sleep: async (ms) => {
+            now += ms;
+          },
+        },
+      });
+      const res = await postDeploy(deployToken, deployBody());
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({ error: "health_timeout" });
 
-    const [row] = await testApp!.db
-      .select()
-      .from(previews)
-      .where(
-        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
-      )
-      .limit(1);
-    expect(row?.status).toBe("failed");
-    expect(logs.some((m) => m.includes("health:timeout"))).toBe(true);
-    expect(healthHits.length).toBeGreaterThan(1);
+      const [row] = await testApp!.db
+        .select()
+        .from(previews)
+        .where(
+          and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+        )
+        .limit(1);
+      expect(row?.status).toBe("failed");
+      expect(warns.some((args) => args.includes("health:timeout"))).toBe(true);
+      expect(healthHits.length).toBeGreaterThan(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   test("list maps starting to provisioning", async () => {

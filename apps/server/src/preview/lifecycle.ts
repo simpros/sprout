@@ -315,6 +315,7 @@ async function attachAppContainer(
     input.health,
   );
   if (outcome === "timeout") {
+    console.warn("health:timeout");
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return { ok: false, status: 500, error: "health_timeout" };
   }
@@ -446,10 +447,11 @@ async function provisionUnlocked(
           error: "preview_identity_conflict",
         };
       }
-      if (status.value === "running") {
+      if (status.value === "running" || status.value === "starting") {
+        // DB already ensured; re-attach + health without reminting TTL.
         return attachAppContainer(deps, row, attachInput, false);
       }
-      // provisioning / starting: ensure DB then attach + health.
+      // Stuck provisioning: ensure DB then attach (mints generation).
       return resumeProvisioning(deps, row, attachInput);
     }
     case "removing":
