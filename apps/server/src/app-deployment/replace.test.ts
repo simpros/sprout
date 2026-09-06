@@ -6,12 +6,12 @@ const baseDeps = {
   pg: {
     host: "postgres",
     port: 5432,
-    user: "sprout_preview",
+    user: "pb_preview",
     password: "sekrit",
   },
   networks: {
-    traefik: "sprout-traefik",
-    postgres: "sprout-postgres",
+    traefik: "preview-buddy-traefik",
+    postgres: "preview-buddy-postgres",
   },
   previewPortDefault: 8080,
 };
@@ -20,7 +20,7 @@ describe("removePreviewApp", () => {
   test("removes the stable preview container name", async () => {
     const docker = createFakeDockerClient();
     await removePreviewApp(docker, "myapp", 42);
-    expect(docker.removed).toEqual(["sprout-myapp-pr-42"]);
+    expect(docker.removed).toEqual(["pb-myapp-pr-42"]);
   });
 });
 
@@ -43,27 +43,27 @@ describe("replacePreviewApp", () => {
 
     expect(result).toEqual({ containerId: "fake-1", port: 3000 });
     expect(docker.pulls).toEqual([]);
-    expect(docker.removed).toEqual(["sprout-myapp-pr-42"]);
+    expect(docker.removed).toEqual(["pb-myapp-pr-42"]);
     expect(docker.creates).toHaveLength(1);
     const created = docker.creates[0]!;
-    expect(created.name).toBe("sprout-myapp-pr-42");
+    expect(created.name).toBe("pb-myapp-pr-42");
     expect(created.image).toBe("ghcr.io/org/app:sha");
     expect(created.env).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
-      "PGUSER=sprout_preview",
+      "PGUSER=pb_preview",
       "PGPASSWORD=sekrit",
       "PGDATABASE=prev_myapp_pr42",
     ]);
     expect(created.networkNames).toEqual([
-      "sprout-traefik",
-      "sprout-postgres",
+      "preview-buddy-traefik",
+      "preview-buddy-postgres",
     ]);
     expect(created.labels).toEqual({
       "traefik.enable": "true",
-      "traefik.http.routers.sprout-myapp-pr-42.rule":
+      "traefik.http.routers.pb-myapp-pr-42.rule":
         "Host(`pr-42.myapp.preview.example.com`)",
-      "traefik.http.services.sprout-myapp-pr-42.loadbalancer.server.port": "3000",
+      "traefik.http.services.pb-myapp-pr-42.loadbalancer.server.port": "3000",
     });
   });
 
@@ -82,7 +82,7 @@ describe("replacePreviewApp", () => {
     expect(result.containerId).toBe("fake-1");
     expect(
       docker.creates[0]!.labels[
-        "traefik.http.services.sprout-myapp-pr-7.loadbalancer.server.port"
+        "traefik.http.services.pb-myapp-pr-7.loadbalancer.server.port"
       ],
     ).toBe("8080");
   });
@@ -105,9 +105,9 @@ describe("replacePreviewApp", () => {
       { docker, ...baseDeps },
       { ...input, image: "img:v2" },
     );
-    expect(docker.removed).toEqual(["sprout-widgets-pr-3", "sprout-widgets-pr-3"]);
+    expect(docker.removed).toEqual(["pb-widgets-pr-3", "pb-widgets-pr-3"]);
     expect(docker.creates.map((c) => c.image)).toEqual(["img:v1", "img:v2"]);
-    expect(docker.running.get("sprout-widgets-pr-3")?.spec.image).toBe("img:v2");
+    expect(docker.running.get("pb-widgets-pr-3")?.spec.image).toBe("img:v2");
   });
 });
 
@@ -128,7 +128,7 @@ describe("bindPreviewApp", () => {
     expect(containerId).toBe("fake-1");
     expect(docker.pulls).toEqual(["img:1"]);
     await app.remove("myapp", 1);
-    expect(docker.removed).toContain("sprout-myapp-pr-1");
+    expect(docker.removed).toContain("pb-myapp-pr-1");
     expect(await app.list()).toEqual([]);
   });
 

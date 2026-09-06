@@ -15,7 +15,7 @@ describe("createPostgresPreviewDb", () => {
     expect(() =>
       createPostgresPreviewDb({
         url: "postgres://localhost/postgres",
-        previewRole: "sprout_preview",
+        previewRole: "pb_preview",
       }),
     ).not.toThrow();
   });

@@ -184,7 +184,7 @@ describe("POST /v1/deploy health polling", () => {
         .limit(1);
       expect(row?.status).toBe("failed");
       expect(row?.containerId).toBeNull();
-      expect(fakeDocker!.removed).toContain("sprout-myapp-pr-42");
+      expect(fakeDocker!.removed).toContain("pb-myapp-pr-42");
       expect(warns.some((args) => args.includes("health:timeout"))).toBe(true);
       expect(healthHits.length).toBeGreaterThan(1);
     } finally {
