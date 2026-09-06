@@ -1,15 +1,23 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { HealthSpec } from "../app-deployment/health.ts";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
-import type { SeedImageResult, SeedImageSpec } from "../app-deployment/seed.ts";
+import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import { previewDbName } from "../preview-db/names.ts";
 import type { PreviewDb } from "../preview-db/port.ts";
+import {
+  updatePreviewRow,
+  utcIsoNow,
+  type PreviewRow,
+} from "./row.ts";
+import {
+  canResumeSeed,
+  promoteAfterHealthy,
+  resumeIncompleteSeed,
+} from "./seed-phase.ts";
 
-function utcIsoNow(): string {
-  return new Date().toISOString();
-}
+export type { PreviewRow };
 
 /**
  * Internal SQLite phases (spec): provisioning → starting → seeding → running / failed.
@@ -104,8 +112,6 @@ type Result<T> =
   | { ok: true; value: T }
   | { ok: false; status: number; error: string };
 
-export type PreviewRow = typeof previews.$inferSelect;
-
 /**
  * Serialize control-plane mutations per (repo, prId).
  * ADR 0001: one gateway process — in-process queue is the concurrency design.
@@ -183,25 +189,6 @@ async function getPreviewRow(
   return existing ?? null;
 }
 
-function toSnapshot(
-  row: PreviewRow,
-  status: PreviewStatus,
-): PreviewSnapshot {
-  const snap: PreviewSnapshot = {
-    ok: true,
-    canonical_repo_id: row.canonicalRepoId,
-    pr_id: row.prId,
-    slug: row.slug,
-    db_name: row.dbName,
-    hostname: row.hostname,
-    status,
-  };
-  if (status === "running") {
-    snap.preview_url = `https://${row.hostname}`;
-  }
-  return snap;
-}
-
 /** Replace/health failure: clear containerId so Traefik orphans are not claimed. */
 async function markPreviewFailed(
   db: StateDb,
@@ -214,43 +201,6 @@ async function markPreviewFailed(
     .where(
       and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
     );
-}
-
-/** Seed failure: keep containerId so the healthy app stays routable for operators. */
-async function markSeedFailed(
-  db: StateDb,
-  repo: string,
-  prId: number,
-): Promise<void> {
-  await db
-    .update(previews)
-    .set({ status: "failed", updatedAt: utcIsoNow() })
-    .where(
-      and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-    );
-}
-
-/** Update by (repo, prId) + returning; throw if the row vanished mid-phase. */
-async function updatePreviewRow(
-  db: StateDb,
-  row: Pick<PreviewRow, "canonicalRepoId" | "prId">,
-  values: Partial<typeof previews.$inferInsert>,
-  missingError: string,
-): Promise<PreviewRow> {
-  const [updated] = await db
-    .update(previews)
-    .set(values)
-    .where(
-      and(
-        eq(previews.canonicalRepoId, row.canonicalRepoId),
-        eq(previews.prId, row.prId),
-      ),
-    )
-    .returning();
-  if (!updated) {
-    throw new Error(missingError);
-  }
-  return updated;
 }
 
 async function writeProvisioningIntent(
@@ -298,80 +248,6 @@ type AttachInput = {
   appImage: string;
   health: HealthSpec;
 };
-
-/**
- * Seed phase ownership: enter seeding → run → running+seededAt | failed(keep container).
- * Any post-enter throw still markSeedFailed so the row cannot tombstone as seeding.
- */
-async function runSeedPhase(
-  deps: LifecycleDeps,
-  row: PreviewRow,
-  seed: SeedImageSpec,
-): Promise<Result<PreviewSnapshot>> {
-  await updatePreviewRow(
-    deps.db,
-    row,
-    { status: "seeding", updatedAt: utcIsoNow() },
-    "preview_row_missing_on_seeding",
-  );
-
-  try {
-    const seedResult: SeedImageResult = await deps.app.runSeed({
-      slug: row.slug,
-      prId: row.prId,
-      image: seed.image,
-      dbName: row.dbName,
-      env: seed.env,
-      args: seed.args,
-    });
-
-    if (!seedResult.ok) {
-      if (seedResult.timedOut) {
-        console.warn("seed:failed", "timeout");
-      } else {
-        console.warn("seed:failed", seedResult.exitCode);
-      }
-      await markSeedFailed(deps.db, row.canonicalRepoId, row.prId);
-      return { ok: false, status: 500, error: "seed_failed" };
-    }
-
-    const seededAt = utcIsoNow();
-    const updated = await updatePreviewRow(
-      deps.db,
-      row,
-      { status: "running", seededAt, updatedAt: seededAt },
-      "preview_row_missing_on_seeded_running",
-    );
-    return { ok: true, value: toSnapshot(updated, "running") };
-  } catch (err) {
-    console.warn("seed:failed", err);
-    await markSeedFailed(deps.db, row.canonicalRepoId, row.prId);
-    return { ok: false, status: 500, error: "seed_failed" };
-  }
-}
-
-/** Post-health closer: no seed → running; else seed phase. */
-async function promoteAfterHealthy(
-  deps: LifecycleDeps,
-  starting: PreviewRow,
-  seed?: SeedImageSpec,
-): Promise<Result<PreviewSnapshot>> {
-  const shouldSeed =
-    seed !== undefined &&
-    (starting.seededAt === null || starting.seededAt === undefined);
-
-  if (shouldSeed && seed) {
-    return runSeedPhase(deps, starting, seed);
-  }
-
-  const updated = await updatePreviewRow(
-    deps.db,
-    starting,
-    { status: "running", updatedAt: utcIsoNow() },
-    "preview_row_missing_on_running",
-  );
-  return { ok: true, value: toSnapshot(updated, "running") };
-}
 
 /**
  * Replace + health only. Ends at healthy `starting` — seed/promote is a
@@ -507,6 +383,22 @@ function requireDbIdentity(
   return { ok: true, value: true };
 }
 
+/**
+ * Live app, seed not done: resume seed only when image/hostname match;
+ * otherwise replace is earned via attachThenPromote.
+ */
+async function resumeSeedIncomplete(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+  attachInput: AttachInput,
+  seed: SeedImageSpec | undefined,
+): Promise<Result<PreviewSnapshot>> {
+  if (canResumeSeed(row, attachInput)) {
+    return resumeIncompleteSeed(deps, row, seed);
+  }
+  return attachThenPromote(deps, row, attachInput, seed, false);
+}
+
 async function provisionUnlocked(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -553,8 +445,11 @@ async function provisionUnlocked(
       return bringUpNew(deps, intent, attachInput, seed, false);
     }
     case "failed": {
-      // Same slug/dbName: resume without burning TTL generation.
       if (dbIdentityMatches(row, input, requestedDbName)) {
+        // Seed-failed keep-container: same resume as crash-mid-seed.
+        if (canResumeSeed(row, attachInput)) {
+          return resumeIncompleteSeed(deps, row, seed);
+        }
         return bringUpNew(deps, row, attachInput, seed, false);
       }
       const intent = await writeProvisioningIntent(
@@ -565,11 +460,10 @@ async function provisionUnlocked(
       return bringUpNew(deps, intent, attachInput, seed, false);
     }
     case "seeding": {
-      // Crash/restart mid-seed leaves status=seeding; lock already serializes
-      // in-flight seed. App was healthy when seeding began — retry promote only.
+      // Crash/restart mid-seed: lock already serializes in-flight seed.
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return promoteAfterHealthy(deps, row, seed);
+      return resumeSeedIncomplete(deps, row, attachInput, seed);
     }
     case "running":
     case "starting": {
@@ -703,11 +597,14 @@ async function pullImageOrFail(
 /**
  * Ensure a preview DB + healthy app container exist for (repo, prId).
  * - removed: rewrite identity, CREATE, start/replace app, health → running
- * - failed + same slug/dbName: ensure DB + attach without burning generation
+ * - failed + same slug/dbName + live app (seed-incomplete): resume seed only
+ * - failed + same slug/dbName + no live app: ensure DB + attach without burning generation
  * - failed + new slug/dbName: rewrite intent, then bring-up
  * - starting|running + same slug/dbName: re-attach + health (no CREATE retry, no TTL remint)
  * - provisioning + same slug/dbName: ensure DB then attach (mints generation)
- * - seeding + same slug/dbName: resume promote/seed only (no app replace; crash recovery)
+ * - seeding + same slug/dbName + same image/hostname: resume seed only (crash recovery)
+ * - seeding + image/hostname change: attachThenPromote (replace earned)
+ * - seed-incomplete resume without seed_image: 422 seed_image_required_to_resume_seeding
  * - after health: optional seed when seed image present and seeded_at unset
  * - live + slug/dbName mismatch: 409 preview_identity_conflict
  * - removing: 409

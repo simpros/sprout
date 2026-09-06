@@ -1,3 +1,4 @@
+import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { seedImageRunName } from "../preview/naming.ts";
 
@@ -20,30 +21,12 @@ export type SeedImageResult =
   | { ok: false; timedOut: true }
   | { ok: false; timedOut: false; exitCode: number | null };
 
-type SeedPg = {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-};
-
 export type RunSeedImageDeps = {
   docker: PreviewDocker;
-  pg: SeedPg;
+  pg: AppDeployPg;
   networks: { postgres: string };
   seedTimeoutMs: number;
 };
-
-/** Five PG* vars for preview DB access (gateway-owned; appended after user env). */
-export function pgConnectionEnv(pg: SeedPg, dbName: string): string[] {
-  return [
-    `PGHOST=${pg.host}`,
-    `PGPORT=${String(pg.port)}`,
-    `PGUSER=${pg.user}`,
-    `PGPASSWORD=${pg.password}`,
-    `PGDATABASE=${dbName}`,
-  ];
-}
 
 /**
  * Run the adopter seed image once on the Postgres network only.

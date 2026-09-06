@@ -317,7 +317,7 @@ describe("POST /v1/deploy seed image", () => {
     }
   });
 
-  test("retries seed after failed-before-running", async () => {
+  test("retries seed after failed-before-running without app replace", async () => {
     fakePreviewDb = createFakePreviewDb();
     fakeDocker = createFakeDockerClient({
       exposedPorts: { [APP_IMAGE]: 3000 },
@@ -339,6 +339,11 @@ describe("POST /v1/deploy seed image", () => {
     );
     expect(failed.status).toBe(500);
 
+    const appCreatesAfterFail = fakeDocker.creates.filter(
+      (c) => c.name === "pb-myapp-pr-42",
+    ).length;
+    expect(appCreatesAfterFail).toBe(1);
+
     fakeDocker.waitResults.set("pb-myapp-pr-42-seed", { exitCode: 0 });
     const retry = await postDeploy(
       deployToken,
@@ -346,6 +351,13 @@ describe("POST /v1/deploy seed image", () => {
     );
     expect(retry.status).toBe(200);
     expect(retry.body.status).toBe("running");
+    // Same image/hostname: seed-only resume — no second app create.
+    expect(
+      fakeDocker.creates.filter((c) => c.name === "pb-myapp-pr-42"),
+    ).toHaveLength(1);
+    expect(
+      fakeDocker.creates.filter((c) => c.name.endsWith("-seed")),
+    ).toHaveLength(2);
 
     const [row] = await testApp!.db
       .select()
@@ -355,9 +367,10 @@ describe("POST /v1/deploy seed image", () => {
       )
       .limit(1);
     expect(row?.seededAt).toMatch(/Z$/);
+    expect(row?.containerId).toBe("fake-1");
   });
 
-  test("resumes promote/seed when row is stuck in seeding", async () => {
+  test("resumes seed when row is stuck in seeding", async () => {
     const { deployToken } = await setup();
     // Simulate crash after seeding write: healthy app row left mid-seed.
     await testApp!.db.insert(previews).values({
@@ -397,5 +410,39 @@ describe("POST /v1/deploy seed image", () => {
     expect(row?.status).toBe("running");
     expect(row?.seededAt).toMatch(/Z$/);
     expect(row?.containerId).toBe("fake-stuck");
+  });
+
+  test("seed-incomplete resume without seed_image returns 422", async () => {
+    const { deployToken } = await setup();
+    await testApp!.db.insert(previews).values({
+      canonicalRepoId: REPO,
+      prId: 42,
+      slug: "myapp",
+      dbName: "prev_myapp_pr42",
+      hostname: "pr-42.myapp.preview.example.com",
+      status: "seeding",
+      appImage: APP_IMAGE,
+      containerId: "fake-stuck",
+      seededAt: null,
+    });
+
+    const res = await postDeploy(
+      deployToken,
+      deployBody({ health: healthBlock() }),
+    );
+    expect(res.status).toBe(422);
+    expect(res.body).toEqual({
+      error: "seed_image_required_to_resume_seeding",
+    });
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row?.status).toBe("seeding");
+    expect(row?.seededAt).toBeNull();
   });
 });

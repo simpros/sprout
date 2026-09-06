@@ -1,14 +1,9 @@
 import { traefikLabels } from "./labels.ts";
-import { pgConnectionEnv } from "./seed.ts";
+import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
 
-export type AppDeployPg = {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-};
+export type { AppDeployPg };
 
 export type AppDeployNetworks = {
   traefik: string;
