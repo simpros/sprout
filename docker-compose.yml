@@ -10,15 +10,13 @@
 #   docker compose -f docker-compose.yml -f docker-compose.external.yml \
 #     --env-file compose.env up -d --build gateway
 
-# Stable project name keeps Docker volume identity (`preview-buddy_*`) across
-# the package/brand rename so upgrades do not mount a new empty gateway-data.
-name: preview-buddy
+name: sprout
 
 networks:
   traefik:
-    name: ${PB_TRAEFIK_NETWORK:-preview-buddy-traefik}
+    name: ${SPROUT_TRAEFIK_NETWORK:-sprout-traefik}
   postgres:
-    name: ${PB_POSTGRES_NETWORK:-preview-buddy-postgres}
+    name: ${SPROUT_POSTGRES_NETWORK:-sprout-postgres}
 
 volumes:
   gateway-data:
@@ -31,7 +29,7 @@ services:
     networks:
       - postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-pb_admin}
+      POSTGRES_USER: ${POSTGRES_USER:-sprout_admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in compose.env}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
     volumes:
@@ -40,13 +38,13 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-pb_admin} -d ${POSTGRES_DB:-postgres}",
+          "pg_isready -U ${POSTGRES_USER:-sprout_admin} -d ${POSTGRES_DB:-postgres}",
         ]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  # One-shot: create/sync PB_PG_USER over TCP after Postgres is healthy.
+  # One-shot: create/sync SPROUT_PG_USER over TCP after Postgres is healthy.
   # Stock postgres entrypoint stays PID 1 — no custom supervisor.
   ensure-preview-role:
     image: postgres:16-alpine
@@ -54,13 +52,13 @@ services:
     networks:
       - postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-pb_admin}
+      POSTGRES_USER: ${POSTGRES_USER:-sprout_admin}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in compose.env}
-      PGHOST: ${PB_PG_HOST:-postgres}
-      PGPORT: ${PB_PG_PORT:-5432}
-      PB_PG_USER: ${PB_PG_USER:-pb_preview}
-      PB_PG_PASSWORD: ${PB_PG_PASSWORD:?set PB_PG_PASSWORD in compose.env}
+      PGHOST: ${SPROUT_PG_HOST:-postgres}
+      PGPORT: ${SPROUT_PG_PORT:-5432}
+      SPROUT_PG_USER: ${SPROUT_PG_USER:-sprout_preview}
+      SPROUT_PG_PASSWORD: ${SPROUT_PG_PASSWORD:?set SPROUT_PG_PASSWORD in compose.env}
     volumes:
       - ./deploy/postgres/ensure-preview-role.sh:/ensure-preview-role.sh:ro
     entrypoint: ["/bin/bash", "/ensure-preview-role.sh"]
@@ -92,7 +90,7 @@ services:
       - postgres
     ports:
       # Host port overridable for e2e (see e2e/compose.e2e.env).
-      - "${PB_GATEWAY_HOST_PORT:-7331}:7331"
+      - "${SPROUT_GATEWAY_HOST_PORT:-7331}:7331"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - gateway-data:/data
@@ -102,22 +100,22 @@ services:
       ensure-preview-role:
         condition: service_completed_successfully
     environment:
-      PB_PREVIEW_POSTGRES_URL: ${PB_PREVIEW_POSTGRES_URL:?set PB_PREVIEW_POSTGRES_URL in compose.env}
-      PB_PG_HOST: ${PB_PG_HOST:-postgres}
-      PB_PG_PORT: ${PB_PG_PORT:-5432}
-      PB_PG_USER: ${PB_PG_USER:-pb_preview}
-      PB_PG_PASSWORD: ${PB_PG_PASSWORD:?set PB_PG_PASSWORD in compose.env}
-      PB_TRAEFIK_NETWORK: ${PB_TRAEFIK_NETWORK:-preview-buddy-traefik}
-      PB_POSTGRES_NETWORK: ${PB_POSTGRES_NETWORK:-preview-buddy-postgres}
-      PB_REGISTRY_URL: ${PB_REGISTRY_URL:?set PB_REGISTRY_URL in compose.env}
-      PB_REGISTRY_USER: ${PB_REGISTRY_USER:-}
-      PB_REGISTRY_PASSWORD: ${PB_REGISTRY_PASSWORD:-}
-      PB_FORGE: ${PB_FORGE:-github}
-      PB_FORGE_TOKEN: ${PB_FORGE_TOKEN:-}
+      SPROUT_PREVIEW_POSTGRES_URL: ${SPROUT_PREVIEW_POSTGRES_URL:?set SPROUT_PREVIEW_POSTGRES_URL in compose.env}
+      SPROUT_PG_HOST: ${SPROUT_PG_HOST:-postgres}
+      SPROUT_PG_PORT: ${SPROUT_PG_PORT:-5432}
+      SPROUT_PG_USER: ${SPROUT_PG_USER:-sprout_preview}
+      SPROUT_PG_PASSWORD: ${SPROUT_PG_PASSWORD:?set SPROUT_PG_PASSWORD in compose.env}
+      SPROUT_TRAEFIK_NETWORK: ${SPROUT_TRAEFIK_NETWORK:-sprout-traefik}
+      SPROUT_POSTGRES_NETWORK: ${SPROUT_POSTGRES_NETWORK:-sprout-postgres}
+      SPROUT_REGISTRY_URL: ${SPROUT_REGISTRY_URL:?set SPROUT_REGISTRY_URL in compose.env}
+      SPROUT_REGISTRY_USER: ${SPROUT_REGISTRY_USER:-}
+      SPROUT_REGISTRY_PASSWORD: ${SPROUT_REGISTRY_PASSWORD:-}
+      SPROUT_FORGE: ${SPROUT_FORGE:-github}
+      SPROUT_FORGE_TOKEN: ${SPROUT_FORGE_TOKEN:-}
       # Blank/unset → loadConfig treats as undefined → auto-generate
-      PB_ADMIN_TOKEN: ${PB_ADMIN_TOKEN:-}
-      PB_STATE_DB_PATH: ${PB_STATE_DB_PATH:-/data/preview-buddy.db}
-      PB_PORT: "7331"
+      SPROUT_ADMIN_TOKEN: ${SPROUT_ADMIN_TOKEN:-}
+      SPROUT_STATE_DB_PATH: ${SPROUT_STATE_DB_PATH:-/data/sprout.db}
+      SPROUT_PORT: "7331"
     healthcheck:
       test:
         [

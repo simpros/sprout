@@ -18,11 +18,11 @@ export const COMPOSE_E2E_ENV_PATH = join(repoRoot, "e2e/compose.e2e.env");
 export const e2eConfig = {
   /** Injected by run.ts; empty when unmanaged (nothing runs). */
   get gatewayUrl() {
-    return process.env.PB_E2E_GATEWAY_URL?.trim() || "";
+    return process.env.SPROUT_E2E_GATEWAY_URL?.trim() || "";
   },
   /** Injected by run.ts; empty when unmanaged (nothing runs). */
   get adminToken() {
-    return process.env.PB_E2E_ADMIN_TOKEN?.trim() || "";
+    return process.env.SPROUT_E2E_ADMIN_TOKEN?.trim() || "";
   },
   slug: "demoapp",
   canonicalRepoId: "https://github.com/sprout/e2e-demo",

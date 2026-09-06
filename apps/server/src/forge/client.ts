@@ -20,7 +20,7 @@ export function createForgeClient(
     return {
       async listOpenPrIds() {
         throw forgeApiError(
-          "Missing PB_FORGE_TOKEN: required for forge API calls",
+          "Missing SPROUT_FORGE_TOKEN: required for forge API calls",
           401,
         );
       },

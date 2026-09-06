@@ -37,12 +37,12 @@ const defaultReplaceDeps: Omit<ReplacePreviewAppDeps, "docker"> = {
   pg: {
     host: "postgres",
     port: 5432,
-    user: "pb_preview",
+    user: "sprout_preview",
     password: "preview-secret",
   },
   networks: {
-    traefik: "preview-buddy-traefik",
-    postgres: "preview-buddy-postgres",
+    traefik: "sprout-traefik",
+    postgres: "sprout-postgres",
   },
   previewPortDefault: 8080,
 };
@@ -60,7 +60,7 @@ export function bindTestPreviewApp(
 }
 
 export async function createTestDb(): Promise<TestDb> {
-  const dir = mkdtempSync(join(tmpdir(), "pb-auth-"));
+  const dir = mkdtempSync(join(tmpdir(), "sprout-auth-"));
   const { sql, db } = connectState(join(dir, "state.db"));
   await runMigrations(sql);
   return {

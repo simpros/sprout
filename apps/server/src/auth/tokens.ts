@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 export type TokenScope = "admin" | "deploy";
 
 export function generateToken(): string {
-  return `pb_${randomBytes(32).toString("base64url")}`;
+  return `sprout_${randomBytes(32).toString("base64url")}`;
 }
 
 export function hashToken(token: string): string {

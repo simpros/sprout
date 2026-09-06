@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 function sqlitePath(): string {
-  tmpDir = mkdtempSync(join(tmpdir(), "pb-db-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "sprout-db-"));
   return join(tmpDir, "state.db");
 }
 

@@ -60,7 +60,7 @@ Your app image must:
 1. Wait until Postgres accepts connections.
 2. Run migrations against `PGDATABASE`.
 3. Start the web server (expose a port — first `EXPOSE` wins, else gateway uses
-   `PB_PREVIEW_PORT_DEFAULT`).
+   `SPROUT_PREVIEW_PORT_DEFAULT`).
 
 There is **no mandatory wrapper image** from sprout. Copy an entrypoint
 that fits your stack.

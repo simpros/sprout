@@ -1,15 +1,10 @@
 #!/usr/bin/env bun
 import { createApiClient } from "@sprout/api-client";
 
-/** Adopter-facing URL; falls back to pre-rename `PB_GATEWAY_URL` for one release. */
 export function resolveGatewayUrl(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return (
-    env.SPROUT_URL?.trim() ||
-    env.PB_GATEWAY_URL?.trim() ||
-    "http://127.0.0.1:7331"
-  );
+  return env.SPROUT_URL?.trim() || "http://127.0.0.1:7331";
 }
 
 if (import.meta.main) {

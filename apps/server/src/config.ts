@@ -1,23 +1,23 @@
 import { FORGE_KINDS, type ForgeKind } from "./forge/client.ts";
 
 export const REQUIRED_ENV = [
-  "PB_PREVIEW_POSTGRES_URL",
-  "PB_PG_HOST",
-  "PB_PG_USER",
-  "PB_PG_PASSWORD",
-  "PB_TRAEFIK_NETWORK",
-  "PB_POSTGRES_NETWORK",
-  "PB_REGISTRY_URL",
-  "PB_FORGE",
+  "SPROUT_PREVIEW_POSTGRES_URL",
+  "SPROUT_PG_HOST",
+  "SPROUT_PG_USER",
+  "SPROUT_PG_PASSWORD",
+  "SPROUT_TRAEFIK_NETWORK",
+  "SPROUT_POSTGRES_NETWORK",
+  "SPROUT_REGISTRY_URL",
+  "SPROUT_FORGE",
 ] as const;
 
 export const OPTIONAL_ENV_DEFAULTS = {
-  PB_PG_PORT: 5432,
-  PB_TTL_HOURS: 72,
-  PB_SWEEP_MINUTES: 30,
-  PB_PREVIEW_PORT_DEFAULT: 8080,
-  PB_SEED_TIMEOUT: 180,
-  PB_PORT: 7331,
+  SPROUT_PG_PORT: 5432,
+  SPROUT_TTL_HOURS: 72,
+  SPROUT_SWEEP_MINUTES: 30,
+  SPROUT_PREVIEW_PORT_DEFAULT: 8080,
+  SPROUT_SEED_TIMEOUT: 180,
+  SPROUT_PORT: 7331,
 } as const;
 
 export type Config = {
@@ -83,56 +83,56 @@ export function loadConfig(): Config {
     );
   }
 
-  const adminTokenRaw = process.env.PB_ADMIN_TOKEN?.trim();
-  const forgeRaw = requiredEnv("PB_FORGE").toLowerCase();
+  const adminTokenRaw = process.env.SPROUT_ADMIN_TOKEN?.trim();
+  const forgeRaw = requiredEnv("SPROUT_FORGE").toLowerCase();
   if (!FORGE_KINDS.includes(forgeRaw as ForgeKind)) {
     throw new Error(
-      `Invalid PB_FORGE: must be one of ${FORGE_KINDS.join(", ")}`,
+      `Invalid SPROUT_FORGE: must be one of ${FORGE_KINDS.join(", ")}`,
     );
   }
 
   return {
-    previewPostgresUrl: requiredEnv("PB_PREVIEW_POSTGRES_URL"),
-    previewPgHost: requiredEnv("PB_PG_HOST"),
+    previewPostgresUrl: requiredEnv("SPROUT_PREVIEW_POSTGRES_URL"),
+    previewPgHost: requiredEnv("SPROUT_PG_HOST"),
     previewPgPort: parsePositiveInt(
-      "PB_PG_PORT",
-      process.env.PB_PG_PORT,
-      OPTIONAL_ENV_DEFAULTS.PB_PG_PORT,
+      "SPROUT_PG_PORT",
+      process.env.SPROUT_PG_PORT,
+      OPTIONAL_ENV_DEFAULTS.SPROUT_PG_PORT,
     ),
-    previewPgUser: requiredEnv("PB_PG_USER"),
-    previewPgPassword: requiredEnv("PB_PG_PASSWORD"),
-    traefikNetwork: requiredEnv("PB_TRAEFIK_NETWORK"),
-    postgresNetwork: requiredEnv("PB_POSTGRES_NETWORK"),
-    registryUrl: requiredEnv("PB_REGISTRY_URL"),
-    registryUser: optionalEnv("PB_REGISTRY_USER"),
-    registryPassword: optionalEnv("PB_REGISTRY_PASSWORD"),
+    previewPgUser: requiredEnv("SPROUT_PG_USER"),
+    previewPgPassword: requiredEnv("SPROUT_PG_PASSWORD"),
+    traefikNetwork: requiredEnv("SPROUT_TRAEFIK_NETWORK"),
+    postgresNetwork: requiredEnv("SPROUT_POSTGRES_NETWORK"),
+    registryUrl: requiredEnv("SPROUT_REGISTRY_URL"),
+    registryUser: optionalEnv("SPROUT_REGISTRY_USER"),
+    registryPassword: optionalEnv("SPROUT_REGISTRY_PASSWORD"),
     forge: forgeRaw as ForgeKind,
-    forgeToken: optionalEnv("PB_FORGE_TOKEN"),
+    forgeToken: optionalEnv("SPROUT_FORGE_TOKEN"),
     adminToken: adminTokenRaw === "" ? undefined : adminTokenRaw,
     ttlHours: parsePositiveInt(
-      "PB_TTL_HOURS",
-      process.env.PB_TTL_HOURS,
-      OPTIONAL_ENV_DEFAULTS.PB_TTL_HOURS,
+      "SPROUT_TTL_HOURS",
+      process.env.SPROUT_TTL_HOURS,
+      OPTIONAL_ENV_DEFAULTS.SPROUT_TTL_HOURS,
     ),
     sweepMinutes: parsePositiveInt(
-      "PB_SWEEP_MINUTES",
-      process.env.PB_SWEEP_MINUTES,
-      OPTIONAL_ENV_DEFAULTS.PB_SWEEP_MINUTES,
+      "SPROUT_SWEEP_MINUTES",
+      process.env.SPROUT_SWEEP_MINUTES,
+      OPTIONAL_ENV_DEFAULTS.SPROUT_SWEEP_MINUTES,
     ),
     previewPortDefault: parsePositiveInt(
-      "PB_PREVIEW_PORT_DEFAULT",
-      process.env.PB_PREVIEW_PORT_DEFAULT,
-      OPTIONAL_ENV_DEFAULTS.PB_PREVIEW_PORT_DEFAULT,
+      "SPROUT_PREVIEW_PORT_DEFAULT",
+      process.env.SPROUT_PREVIEW_PORT_DEFAULT,
+      OPTIONAL_ENV_DEFAULTS.SPROUT_PREVIEW_PORT_DEFAULT,
     ),
     seedTimeout: parsePositiveInt(
-      "PB_SEED_TIMEOUT",
-      process.env.PB_SEED_TIMEOUT,
-      OPTIONAL_ENV_DEFAULTS.PB_SEED_TIMEOUT,
+      "SPROUT_SEED_TIMEOUT",
+      process.env.SPROUT_SEED_TIMEOUT,
+      OPTIONAL_ENV_DEFAULTS.SPROUT_SEED_TIMEOUT,
     ),
     port: parsePositiveInt(
-      "PB_PORT",
-      process.env.PB_PORT,
-      OPTIONAL_ENV_DEFAULTS.PB_PORT,
+      "SPROUT_PORT",
+      process.env.SPROUT_PORT,
+      OPTIONAL_ENV_DEFAULTS.SPROUT_PORT,
     ),
   };
 }

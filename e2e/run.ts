@@ -48,12 +48,12 @@ function requireComposeEnv(
 
 async function main() {
   const composeEnv = parseEnvFile(COMPOSE_E2E_ENV_PATH);
-  const gatewayHostPort = requireComposeEnv(composeEnv, "PB_GATEWAY_HOST_PORT");
-  const adminToken = requireComposeEnv(composeEnv, "PB_ADMIN_TOKEN");
+  const gatewayHostPort = requireComposeEnv(composeEnv, "SPROUT_GATEWAY_HOST_PORT");
+  const adminToken = requireComposeEnv(composeEnv, "SPROUT_ADMIN_TOKEN");
   const gatewayUrl = `http://127.0.0.1:${gatewayHostPort}`;
 
-  process.env.PB_E2E_GATEWAY_URL = gatewayUrl;
-  process.env.PB_E2E_ADMIN_TOKEN = adminToken;
+  process.env.SPROUT_E2E_GATEWAY_URL = gatewayUrl;
+  process.env.SPROUT_E2E_ADMIN_TOKEN = adminToken;
 
   console.log("e2e: composing stack down (clean slate)…");
   await composeDown();
@@ -74,9 +74,9 @@ async function main() {
       stderr: "inherit",
       env: {
         ...process.env,
-        PB_E2E_MANAGED: "1",
-        PB_E2E_GATEWAY_URL: gatewayUrl,
-        PB_E2E_ADMIN_TOKEN: adminToken,
+        SPROUT_E2E_MANAGED: "1",
+        SPROUT_E2E_GATEWAY_URL: gatewayUrl,
+        SPROUT_E2E_ADMIN_TOKEN: adminToken,
       },
     });
     code = await proc.exited;

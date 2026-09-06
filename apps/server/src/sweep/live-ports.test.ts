@@ -75,7 +75,7 @@ describe("createLiveSweepPorts", () => {
     const result = await runSweepPass(ports);
     expect(result.forgeRepoFailures).toEqual([]);
     expect(droppedDbs).toEqual(["prev_widgets_pr10"]);
-    expect(docker.removed).toEqual(["pb-widgets-pr-10"]);
+    expect(docker.removed).toEqual(["sprout-widgets-pr-10"]);
 
     const rows = await testDb.db.select().from(previews);
     expect(rows).toHaveLength(1);

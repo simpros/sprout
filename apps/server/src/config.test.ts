@@ -7,32 +7,32 @@ import {
 } from "./config.ts";
 
 const TEST_REQUIRED_VALUES: Record<(typeof REQUIRED_ENV)[number], string> = {
-  PB_PREVIEW_POSTGRES_URL: "postgres://admin:sekrit@localhost:5432/postgres",
-  PB_PG_HOST: "postgres",
-  PB_PG_USER: "pb_preview",
-  PB_PG_PASSWORD: "preview-secret",
-  PB_TRAEFIK_NETWORK: "traefik",
-  PB_POSTGRES_NETWORK: "postgres",
-  PB_REGISTRY_URL: "registry.example.com",
-  PB_FORGE: "github",
+  SPROUT_PREVIEW_POSTGRES_URL: "postgres://admin:sekrit@localhost:5432/postgres",
+  SPROUT_PG_HOST: "postgres",
+  SPROUT_PG_USER: "sprout_preview",
+  SPROUT_PG_PASSWORD: "preview-secret",
+  SPROUT_TRAEFIK_NETWORK: "traefik",
+  SPROUT_POSTGRES_NETWORK: "postgres",
+  SPROUT_REGISTRY_URL: "registry.example.com",
+  SPROUT_FORGE: "github",
 };
 
 function setRequiredEnv(): void {
   for (const key of REQUIRED_ENV) {
     process.env[key] = TEST_REQUIRED_VALUES[key];
   }
-  process.env.PB_FORGE_TOKEN = "forge-token";
-  process.env.PB_REGISTRY_USER = "puller";
-  process.env.PB_REGISTRY_PASSWORD = "registry-secret";
+  process.env.SPROUT_FORGE_TOKEN = "forge-token";
+  process.env.SPROUT_REGISTRY_USER = "puller";
+  process.env.SPROUT_REGISTRY_PASSWORD = "registry-secret";
 }
 
 function clearGatewayEnv(): void {
   for (const key of REQUIRED_ENV) {
     delete process.env[key];
   }
-  delete process.env.PB_FORGE_TOKEN;
-  delete process.env.PB_REGISTRY_USER;
-  delete process.env.PB_REGISTRY_PASSWORD;
+  delete process.env.SPROUT_FORGE_TOKEN;
+  delete process.env.SPROUT_REGISTRY_USER;
+  delete process.env.SPROUT_REGISTRY_PASSWORD;
   for (const key of Object.keys(OPTIONAL_ENV_DEFAULTS)) {
     delete process.env[key];
   }
@@ -57,52 +57,52 @@ describe("loadConfig", () => {
     expect(config.forgeToken).toBe("forge-token");
     expect(config.previewPgHost).toBe("postgres");
     expect(config.previewPgPassword).toBe("preview-secret");
-    expect(config.previewPgPort).toBe(OPTIONAL_ENV_DEFAULTS.PB_PG_PORT);
-    expect(config.ttlHours).toBe(OPTIONAL_ENV_DEFAULTS.PB_TTL_HOURS);
-    expect(config.sweepMinutes).toBe(OPTIONAL_ENV_DEFAULTS.PB_SWEEP_MINUTES);
+    expect(config.previewPgPort).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_PG_PORT);
+    expect(config.ttlHours).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_TTL_HOURS);
+    expect(config.sweepMinutes).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_SWEEP_MINUTES);
     expect(config.previewPortDefault).toBe(
-      OPTIONAL_ENV_DEFAULTS.PB_PREVIEW_PORT_DEFAULT,
+      OPTIONAL_ENV_DEFAULTS.SPROUT_PREVIEW_PORT_DEFAULT,
     );
-    expect(config.seedTimeout).toBe(OPTIONAL_ENV_DEFAULTS.PB_SEED_TIMEOUT);
-    expect(config.port).toBe(OPTIONAL_ENV_DEFAULTS.PB_PORT);
+    expect(config.seedTimeout).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_SEED_TIMEOUT);
+    expect(config.port).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_PORT);
   });
 
-  test("rejects invalid PB_FORGE", () => {
+  test("rejects invalid SPROUT_FORGE", () => {
     setRequiredEnv();
-    process.env.PB_FORGE = "bitbucket";
+    process.env.SPROUT_FORGE = "bitbucket";
     expect(() => loadConfig()).toThrow(
-      "Invalid PB_FORGE: must be one of github, gitlab",
+      "Invalid SPROUT_FORGE: must be one of github, gitlab",
     );
   });
 
   test("rejects non-numeric optional env vars", () => {
     setRequiredEnv();
-    process.env.PB_PORT = "7331x";
+    process.env.SPROUT_PORT = "7331x";
     expect(() => loadConfig()).toThrow(
-      "Invalid PB_PORT: must be a positive integer",
+      "Invalid SPROUT_PORT: must be a positive integer",
     );
   });
 
   test("rejects whitespace-only required env vars", () => {
     setRequiredEnv();
-    process.env.PB_PREVIEW_POSTGRES_URL = "   ";
+    process.env.SPROUT_PREVIEW_POSTGRES_URL = "   ";
     expect(() => loadConfig()).toThrow(
-      "Missing required environment variables: PB_PREVIEW_POSTGRES_URL",
+      "Missing required environment variables: SPROUT_PREVIEW_POSTGRES_URL",
     );
   });
 
   test("allows empty registry user/password for anonymous pulls", () => {
     setRequiredEnv();
-    delete process.env.PB_REGISTRY_USER;
-    delete process.env.PB_REGISTRY_PASSWORD;
+    delete process.env.SPROUT_REGISTRY_USER;
+    delete process.env.SPROUT_REGISTRY_PASSWORD;
     const config = loadConfig();
     expect(config.registryUser).toBe("");
     expect(config.registryPassword).toBe("");
   });
 
-  test("allows empty PB_FORGE_TOKEN at boot (required only for forge API calls)", () => {
+  test("allows empty SPROUT_FORGE_TOKEN at boot (required only for forge API calls)", () => {
     setRequiredEnv();
-    delete process.env.PB_FORGE_TOKEN;
+    delete process.env.SPROUT_FORGE_TOKEN;
     const config = loadConfig();
     expect(config.forgeToken).toBe("");
   });
@@ -112,7 +112,7 @@ describe("loadConfig", () => {
       previewPostgresUrl: "postgres://admin@localhost:5432/postgres",
       previewPgHost: "postgres",
       previewPgPort: 5432,
-      previewPgUser: "pb_preview",
+      previewPgUser: "sprout_preview",
       previewPgPassword: "x",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
@@ -135,7 +135,7 @@ describe("loadConfig", () => {
       previewPostgresUrl: "postgres://admin:sekrit@localhost:5432/postgres",
       previewPgHost: "postgres",
       previewPgPort: 5432,
-      previewPgUser: "pb_preview",
+      previewPgUser: "sprout_preview",
       previewPgPassword: "preview-secret",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
@@ -164,7 +164,7 @@ describe("loadConfig", () => {
       previewPostgresUrl: "postgres://admin@localhost:5432/postgres",
       previewPgHost: "postgres",
       previewPgPort: 5432,
-      previewPgUser: "pb_preview",
+      previewPgUser: "sprout_preview",
       previewPgPassword: "x",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",

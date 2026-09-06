@@ -295,7 +295,7 @@ describe("ensureAdminToken", () => {
     testDb = await createTestDb();
     const generated = await ensureAdminToken(testDb.db);
     expect(generated).toBeString();
-    expect(generated!.startsWith("pb_")).toBe(true);
+    expect(generated!.startsWith("sprout_")).toBe(true);
 
     const again = await ensureAdminToken(testDb.db);
     expect(again).toBeNull();

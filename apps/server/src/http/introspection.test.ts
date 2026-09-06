@@ -27,7 +27,7 @@ function fakeDocker(): FakeDockerClient {
   return testApp!.docker as FakeDockerClient;
 }
 
-/** Seed a catalog pb-* container without going through deploy. */
+/** Seed a catalog sprout-* container without going through deploy. */
 function seedOrphanContainer(slug: string, prId: number, id = "orphan") {
   const name = previewContainerName(slug, prId);
   fakeDocker().running.set(name, {
@@ -238,7 +238,7 @@ describe("POST /v1/drop", () => {
     });
     expect(fakePreviewDb!.dropped).toEqual([]);
     expect(fakeDocker().removed.length).toBe(removedBefore);
-    expect(fakeDocker().running.has("pb-myapp-pr-42")).toBe(true);
+    expect(fakeDocker().running.has("sprout-myapp-pr-42")).toBe(true);
   });
 
   test("with yes removes database, container, and sqlite row", async () => {
@@ -259,7 +259,7 @@ describe("POST /v1/drop", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, status: "removed" });
     expect(fakePreviewDb!.dropped).toEqual(["prev_myapp_pr42"]);
-    expect(fakeDocker().removed).toContain("pb-myapp-pr-42");
+    expect(fakeDocker().removed).toContain("sprout-myapp-pr-42");
     expect(await fakeDocker().listPreviewContainers()).toEqual([]);
 
     const list = await testApp!.app.handle(

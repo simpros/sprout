@@ -9,6 +9,6 @@ RUN bun install --frozen-lockfile
 COPY apps/server apps/server
 
 WORKDIR /app/apps/server
-ENV PB_STATE_DB_PATH=/data/preview-buddy.db
+ENV SPROUT_STATE_DB_PATH=/data/sprout.db
 EXPOSE 7331
 CMD ["bun", "run", "start"]

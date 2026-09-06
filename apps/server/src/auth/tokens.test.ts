@@ -4,7 +4,7 @@ import { generateToken, hashToken, parseBearer } from "./tokens.ts";
 
 describe("tokens", () => {
   test("hashToken matches SHA-256 hex", () => {
-    const token = "pb_test";
+    const token = "sprout_test";
     expect(hashToken(token)).toBe(
       createHash("sha256").update(token).digest("hex"),
     );
@@ -17,7 +17,7 @@ describe("tokens", () => {
     expect(parseBearer("Basic abc")).toBeNull();
   });
 
-  test("generateToken returns pb_ prefix", () => {
-    expect(generateToken().startsWith("pb_")).toBe(true);
+  test("generateToken returns sprout_ prefix", () => {
+    expect(generateToken().startsWith("sprout_")).toBe(true);
   });
 });

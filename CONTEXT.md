@@ -73,7 +73,7 @@ _Avoid_: Client repo, tenant repo
 **.sprout.yaml**:
 The config-as-code file in an adopting repo: slug, preview hostname template,
 and optional health-check settings.
-_Avoid_: .preview-buddy.yaml, previewdb.yml, pb config
+_Avoid_: previewdb.yml, pb config
 
 **Seed image**:
 A one-shot container image built by the adopting repo's CI, run by the
@@ -84,7 +84,7 @@ _Avoid_: Seeder image, seed container (use "seed image")
 
 **sprout**:
 The CLI that talks to the gateway API (`deploy`, `teardown`, `list`, etc.).
-_Avoid_: preview-buddy CLI, pbuddy (use `sprout`)
+_Avoid_: preview-buddy CLI, pbuddy
 
 **Deploy token**:
 A bearer credential scoped to one canonical repo id; used from adopting-repo

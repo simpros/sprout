@@ -18,7 +18,7 @@ export type ContainerCreateSpec = {
 
 /**
  * Preview-scoped Docker seam for app-deployment and sweep.
- * Includes catalog listing filtered to `pb-*` preview names.
+ * Includes catalog listing filtered to `sprout-*` preview names.
  * Tests use a fake; production uses the unix-socket engine client.
  */
 export type PreviewDocker = {
@@ -30,7 +30,7 @@ export type PreviewDocker = {
   createAndStart(spec: ContainerCreateSpec): Promise<{ id: string }>;
   /**
    * IPv4 address of the container on a named Docker network, or null if not
-   * attached / not yet assigned. Used for health polls on PB_POSTGRES_NETWORK.
+   * attached / not yet assigned. Used for health polls on SPROUT_POSTGRES_NETWORK.
    */
   containerIpOnNetwork(
     containerId: string,

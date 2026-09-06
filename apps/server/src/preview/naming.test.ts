@@ -20,16 +20,16 @@ describe("parsePreviewDatabaseName (re-export)", () => {
 });
 
 describe("parsePreviewContainerName", () => {
-  test("parses pb-<slug>-pr-<id>", () => {
-    expect(parsePreviewContainerName("pb-widgets-pr-7")).toEqual({
+  test("parses sprout-<slug>-pr-<id>", () => {
+    expect(parsePreviewContainerName("sprout-widgets-pr-7")).toEqual({
       slug: "widgets",
       prId: 7,
     });
   });
 
   test("rejects non-preview names", () => {
-    expect(parsePreviewContainerName("pb-widgets")).toBeNull();
+    expect(parsePreviewContainerName("sprout-widgets")).toBeNull();
     expect(parsePreviewContainerName("widgets-pr-7")).toBeNull();
-    expect(parsePreviewContainerName("pb-widgets-pr-")).toBeNull();
+    expect(parsePreviewContainerName("sprout-widgets-pr-")).toBeNull();
   });
 });
