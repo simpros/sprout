@@ -1,4 +1,4 @@
-import { createApiClient } from "@preview-buddy/api-client";
+import { createApiClient } from "@sprout/api-client";
 import { describe, expect, test } from "bun:test";
 import { e2eConfig } from "./harness/config.ts";
 

@@ -65,4 +65,4 @@ export function createRoutes(deps: RouteDeps) {
     );
 }
 
-export type PreviewBuddyApi = ReturnType<typeof createRoutes>;
+export type SproutApi = ReturnType<typeof createRoutes>;

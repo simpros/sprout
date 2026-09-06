@@ -1,4 +1,4 @@
-import { createApiClient } from "@preview-buddy/api-client";
+import { createApiClient } from "@sprout/api-client";
 import { join } from "node:path";
 import {
   COMPOSE_E2E_ENV_PATH,

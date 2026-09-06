@@ -1,9 +1,9 @@
 import { treaty } from "@elysia/eden";
-import type { PreviewBuddyApi } from "@preview-buddy/server/api-type";
+import type { SproutApi } from "@sprout/server/api-type";
 
-export type { PreviewBuddyApi } from "@preview-buddy/server/api-type";
+export type { SproutApi } from "@sprout/server/api-type";
 
-export type ApiClient = ReturnType<typeof treaty<PreviewBuddyApi>>;
+export type ApiClient = ReturnType<typeof treaty<SproutApi>>;
 
 export type ApiClientOptions = {
   headers?: HeadersInit;
@@ -13,6 +13,6 @@ export const createApiClient = (
   baseUrl: string,
   options: ApiClientOptions = {},
 ) =>
-  treaty<PreviewBuddyApi>(baseUrl, {
+  treaty<SproutApi>(baseUrl, {
     headers: options.headers,
   });

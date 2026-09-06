@@ -3,19 +3,19 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "preview-buddy",
+      "name": "sprout",
       "devDependencies": {
         "turbo": "^2.5.4",
         "typescript": "^5.9.3",
       },
     },
     "apps/cli": {
-      "name": "@preview-buddy/cli",
+      "name": "@sprout/cli",
       "bin": {
-        "pbuddy": "./src/index.ts",
+        "sprout": "./src/index.ts",
       },
       "dependencies": {
-        "@preview-buddy/api-client": "workspace:*",
+        "@sprout/api-client": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "1.4.0",
@@ -23,7 +23,7 @@
       },
     },
     "apps/server": {
-      "name": "@preview-buddy/server",
+      "name": "@sprout/server",
       "dependencies": {
         "drizzle-orm": "1.0.0-rc.5-ab785fc",
         "elysia": "1.4.30",
@@ -35,10 +35,10 @@
       },
     },
     "packages/api-client": {
-      "name": "@preview-buddy/api-client",
+      "name": "@sprout/api-client",
       "dependencies": {
         "@elysia/eden": "1.4.10",
-        "@preview-buddy/server": "workspace:*",
+        "@sprout/server": "workspace:*",
         "elysia": "1.4.30",
       },
       "devDependencies": {
@@ -108,11 +108,11 @@
 
     "@js-temporal/polyfill": ["@js-temporal/polyfill@0.5.1", "", { "dependencies": { "jsbi": "^4.3.0" } }, "sha512-hloP58zRVCRSpgDxmqCWJNlizAlUgJFqG2ypq79DCvyv9tHjRYMDOcPFjzfl/A1/YxDvRCZz8wvZvmapQnKwFQ=="],
 
-    "@preview-buddy/api-client": ["@preview-buddy/api-client@workspace:packages/api-client"],
+    "@sprout/api-client": ["@sprout/api-client@workspace:packages/api-client"],
 
-    "@preview-buddy/cli": ["@preview-buddy/cli@workspace:apps/cli"],
+    "@sprout/cli": ["@sprout/cli@workspace:apps/cli"],
 
-    "@preview-buddy/server": ["@preview-buddy/server@workspace:apps/server"],
+    "@sprout/server": ["@sprout/server@workspace:apps/server"],
 
     "@sinclair/typebox": ["@sinclair/typebox@0.34.52", "", {}, "sha512-XiMQh7qqVlxZzcVD+kkGMNGMzcTrDMLWI7S4x7z1MkCkbDPrekpZXEUK0eZqZFMuHQg2a2DZOcDIh9o5v3Gonw=="],
 

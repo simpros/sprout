@@ -2,7 +2,7 @@ import { SQL } from "bun";
 import { drizzle } from "drizzle-orm/bun-sql";
 import { relations } from "./relations.ts";
 
-const DEFAULT_SQLITE_PATH = "preview-buddy.db";
+const DEFAULT_SQLITE_PATH = "sprout.db";
 
 export function resolveStateDbPath(): string {
   return process.env.PB_STATE_DB_PATH?.trim() || DEFAULT_SQLITE_PATH;

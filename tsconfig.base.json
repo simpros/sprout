@@ -14,9 +14,9 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "paths": {
-      "@preview-buddy/api-client": ["./packages/api-client/src/index.ts"],
-      "@preview-buddy/cli": ["./apps/cli/src/index.ts"],
-      "@preview-buddy/server": ["./apps/server/src/index.ts"]
+      "@sprout/api-client": ["./packages/api-client/src/index.ts"],
+      "@sprout/cli": ["./apps/cli/src/index.ts"],
+      "@sprout/server": ["./apps/server/src/index.ts"]
     },
     "types": []
   }

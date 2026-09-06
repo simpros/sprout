@@ -6,8 +6,8 @@
 - **Monorepo:** Turborepo workspaces (`apps/*`, `packages/*`)
 - **Language:** TypeScript (strict, ESM)
 - **HTTP:** Elysia (`apps/server`)
-- **CLI:** `pbuddy` (`apps/cli`)
-- **API client:** `@preview-buddy/api-client` (Elysia Eden)
+- **CLI:** `sprout` (`apps/cli`)
+- **API client:** `@sprout/api-client` (Elysia Eden)
 - **Control-plane DB:** SQLite via Drizzle ORM (`drizzle-orm` RC) + `drizzle-kit` migrations
 - **Preview Postgres:** `Bun.sql` admin connection for CREATE/DROP DATABASE
 - **Tests:** `bun test`
@@ -27,8 +27,8 @@ bun run db:migrate   # runtime migrator (apps/server; same as boot)
 ## Layout
 
 - `apps/server` — gateway process, Drizzle schema/migrations, Elysia HTTP app
-- `apps/cli` — `pbuddy` CLI (uses api-client)
-- `packages/api-client` — typed Eden client against `@preview-buddy/server/api-type`
+- `apps/cli` — `sprout` CLI (uses api-client)
+- `packages/api-client` — typed Eden client against `@sprout/server/api-type`
 
 ## Style
 
@@ -41,7 +41,7 @@ bun run db:migrate   # runtime migrator (apps/server; same as boot)
 
 ### Issue tracker
 
-Issues are tracked as GitHub issues on `simpros/preview-buddy`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues are tracked as GitHub issues on `simpros/sprout`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

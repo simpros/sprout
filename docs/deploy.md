@@ -1,7 +1,7 @@
 # Operator deployment
 
-Deploy **Postgres**, the **preview-buddy gateway**, and **Traefik** once per
-environment. Adopting repos then call `pbuddy deploy` / `pbuddy teardown` from
+Deploy **Postgres**, the **sprout gateway**, and **Traefik** once per
+environment. Adopting repos then call `sprout deploy` / `sprout teardown` from
 CI — no per-repo server setup.
 
 ## Quick start (local smoke)
@@ -35,7 +35,7 @@ The stack in `docker-compose.yml` is the reference **operator compose stack**
 for local development and CI smoke. The **E2E acceptance harness** (`e2e/`)
 runs the same file with `--env-file e2e/compose.e2e.env` — see
 [`e2e/README.md`](../e2e/README.md) or `bun run test:e2e`. Default network
-names (`preview-buddy-traefik`, `preview-buddy-postgres`) are project-local so
+names (`sprout-traefik`, `sprout-postgres`) are project-local so
 a smoke `up` does not collide with an existing Coolify Traefik network named
 `traefik`. Host ports are `PB_GATEWAY_HOST_PORT` (default 7331) and
 `TRAEFIK_HTTP_PORT` (default 8880); the harness ports come from
@@ -51,7 +51,7 @@ a smoke `up` does not collide with an existing Coolify Traefik network named
                            │ preview app containers
                     ┌──────▼──────┐
                     │   gateway   │  networks: traefik + postgres
-                    │  (pbuddy)   │  + Docker socket
+                    │  (sprout)   │  + Docker socket
                     └──────┬──────┘
                            │ CREATE/DROP DATABASE (admin)
                     ┌──────▼──────┐
@@ -83,9 +83,9 @@ project-local):
 ```yaml
 networks:
   traefik:
-    name: ${PB_TRAEFIK_NETWORK:-preview-buddy-traefik}
+    name: ${PB_TRAEFIK_NETWORK:-sprout-traefik}
   postgres:
-    name: ${PB_POSTGRES_NETWORK:-preview-buddy-postgres}
+    name: ${PB_POSTGRES_NETWORK:-sprout-postgres}
 ```
 
 When the gateway creates a preview app container it attaches **both** networks.
@@ -93,7 +93,7 @@ Seed containers get **Postgres only** — they never need Traefik reachability.
 
 ## Traefik coexistence (Coolify and other operators)
 
-preview-buddy does **not** manage Traefik or call the Coolify API. It registers
+sprout does **not** manage Traefik or call the Coolify API. It registers
 routes by setting standard [Traefik Docker labels](https://doc.traefik.io/traefik/providers/docker/)
 on preview app containers.
 
@@ -146,7 +146,7 @@ Label conventions the gateway applies (v0.1):
 - `traefik.http.routers.<name>.rule=Host(\`<hostname>\`)`
 - `traefik.http.services.<name>.loadbalancer.server.port=<port>`
 
-Coolify-managed Traefik already watches the Docker socket; preview-buddy
+Coolify-managed Traefik already watches the Docker socket; sprout
 preview containers appear alongside Coolify apps as long as they share the
 Traefik network.
 
@@ -222,12 +222,12 @@ docker compose --env-file compose.env logs gateway | grep -i admin
 Create a **deploy token** for each adopting repo:
 
 ```bash
-export PBUDDY_URL=http://127.0.0.1:7331
-export PBUDDY_TOKEN=<admin-token>
-pbuddy admin token create --scope deploy --repo https://github.com/org/repo
+export SPROUT_URL=http://127.0.0.1:7331
+export SPROUT_TOKEN=<admin-token>
+sprout admin token create --scope deploy --repo https://github.com/org/repo
 ```
 
-Store the deploy token in the adopting repo's CI secrets as `PBUDDY_TOKEN`.
+Store the deploy token in the adopting repo's CI secrets as `SPROUT_TOKEN`.
 
 ## Smoke checklist
 
@@ -242,12 +242,12 @@ below.
 | Preview role synced | `docker compose --env-file compose.env ps -a ensure-preview-role` (exited 0) |
 | Gateway healthy | `curl -sf http://127.0.0.1:7331/healthz` |
 | Admin password not drifted | `psql` login with `POSTGRES_*` succeeds **and** gateway startup log `configSummary` redacted `previewPostgresUrl` shows the same user/host/db as `PB_PREVIEW_POSTGRES_URL` (password masked as `***`). If only one of `POSTGRES_PASSWORD` / DSN password was changed, admin SQL fails while the other still works. |
-| Networks exist | `docker network inspect preview-buddy-traefik preview-buddy-postgres` |
+| Networks exist | `docker network inspect sprout-traefik sprout-postgres` |
 | Traefik sees Docker | `docker compose --env-file compose.env logs traefik \| tail` |
 | No Postgres secrets in gateway | `docker compose --env-file compose.env exec gateway printenv POSTGRES_PASSWORD` — empty / unset |
 
 ## See also
 
-- [Adoption guide](adoption.md) — `.preview-buddy.yaml`, CI workflows, app entrypoint
+- [Adoption guide](adoption.md) — `.sprout.yaml`, CI workflows, app entrypoint
 - `examples/adopting-repo/` — copy-paste adopting-repo files
 - `CONTEXT.md` — domain vocabulary

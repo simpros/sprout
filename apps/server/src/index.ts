@@ -9,7 +9,7 @@ import { runMigrations } from "./scripts/migrate.ts";
 import { startGatewaySweep } from "./sweep/start.ts";
 
 const config = loadConfig();
-console.log("preview-buddy starting", configSummary(config));
+console.log("sprout starting", configSummary(config));
 
 const { sql, db } = connectState();
 await runMigrations(sql);

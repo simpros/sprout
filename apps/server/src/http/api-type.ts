@@ -1,1 +1,1 @@
-export type { PreviewBuddyApi } from "./routes.ts";
+export type { SproutApi } from "./routes.ts";

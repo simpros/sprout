@@ -1,7 +1,7 @@
 # Adopting repo guide
 
-Wire your repository to a running preview-buddy gateway. CI builds and pushes
-container images; `pbuddy` calls the gateway API. CI never touches Postgres
+Wire your repository to a running sprout gateway. CI builds and pushes
+container images; `sprout` calls the gateway API. CI never touches Postgres
 admin credentials or the Docker socket.
 
 Copy-paste files live in [`examples/adopting-repo/`](../examples/adopting-repo/).
@@ -11,10 +11,10 @@ Copy-paste files live in [`examples/adopting-repo/`](../examples/adopting-repo/)
 - Operator has deployed the [operator compose stack](deploy.md).
 - A **deploy token** scoped to your repo's canonical id
   (`https://github.com/<org>/<repo>`).
-- CI secrets: `PBUDDY_URL`, `PBUDDY_TOKEN`.
+- CI secrets: `SPROUT_URL`, `SPROUT_TOKEN`.
 - Container registry your gateway can pull from (configured once on the gateway).
 
-## `.preview-buddy.yaml`
+## `.sprout.yaml`
 
 Add at the repo root. The CLI reads this file locally and sends parsed values
 to the gateway. Unknown keys are rejected.
@@ -62,7 +62,7 @@ Your app image must:
 3. Start the web server (expose a port — first `EXPOSE` wins, else gateway uses
    `PB_PREVIEW_PORT_DEFAULT`).
 
-There is **no mandatory wrapper image** from preview-buddy. Copy an entrypoint
+There is **no mandatory wrapper image** from sprout. Copy an entrypoint
 that fits your stack.
 
 ### Shell entrypoint (any runtime)
@@ -104,7 +104,7 @@ shows a minimal pattern: install deps, copy seed script, entrypoint runs
 Pass runtime inputs without storing secrets in yaml:
 
 ```bash
-pbuddy deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" \
+sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" \
   --seed-env FIXTURE_SET=demo \
   --seed-arg --reset
 ```
@@ -115,27 +115,27 @@ Symmetric triggers — no forge webhooks on the gateway:
 
 | Event | Action |
 |---|---|
-| `pull_request` opened | `pbuddy deploy` |
-| `pull_request` synchronize | `pbuddy deploy` (replaces container, keeps DB) |
-| `pull_request` closed | `pbuddy teardown` |
+| `pull_request` opened | `sprout deploy` |
+| `pull_request` synchronize | `sprout deploy` (replaces container, keeps DB) |
+| `pull_request` closed | `sprout teardown` |
 
 The **canonical** workflow is
-[`examples/adopting-repo/.github/workflows/preview-buddy.yml`](../examples/adopting-repo/.github/workflows/preview-buddy.yml)
+[`examples/adopting-repo/.github/workflows/sprout.yml`](../examples/adopting-repo/.github/workflows/sprout.yml)
 — copy it rather than pasting fragments from this guide. It covers:
 
-1. Install `pbuddy` from a workspace clone (keeps `@preview-buddy/api-client`
+1. Install `sprout` from a workspace clone (keeps `@sprout/api-client`
    resolution; pin a tag/SHA when releases exist).
 2. Build and push app + seed images tagged with `${{ github.sha }}`.
-3. `pbuddy deploy -i … -s …`, capture `preview_url=` from `deploy.log`, comment
+3. `sprout deploy -i … -s …`, capture `preview_url=` from `deploy.log`, comment
    on the PR.
-4. On close, `pbuddy teardown` (idempotent — exit 0 if already gone).
+4. On close, `sprout teardown` (idempotent — exit 0 if already gone).
 
 CLI environment in CI:
 
 ```yaml
 env:
-  PBUDDY_URL: ${{ secrets.PBUDDY_URL }}
-  PBUDDY_TOKEN: ${{ secrets.PBUDDY_TOKEN }}
+  SPROUT_URL: ${{ secrets.SPROUT_URL }}
+  SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
 ```
 
 Canonical repo id is derived from `GITHUB_REPOSITORY` automatically.
@@ -147,14 +147,14 @@ Use `-i` only (no `-s`) when you do not need a seed image.
 One-time per adopting repo (operator or lead dev with admin token):
 
 ```bash
-export PBUDDY_URL=https://preview-buddy.example.com
-export PBUDDY_TOKEN=<admin-token>
-pbuddy admin token create \
+export SPROUT_URL=https://sprout.example.com
+export SPROUT_TOKEN=<admin-token>
+sprout admin token create \
   --scope deploy \
   --repo "https://github.com/${GITHUB_REPOSITORY}"
 ```
 
-Add the returned token to the repo's `PBUDDY_TOKEN` secret.
+Add the returned token to the repo's `SPROUT_TOKEN` secret.
 
 Reviewers may see brief 502 responses while the app migrates and starts —
 Traefik routes exist before the app is healthy.

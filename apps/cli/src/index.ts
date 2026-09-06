@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { createApiClient } from "@preview-buddy/api-client";
+import { createApiClient } from "@sprout/api-client";
 
 const baseUrl = process.env.PB_GATEWAY_URL?.trim() || "http://127.0.0.1:7331";
 const [command = "health"] = process.argv.slice(2);
