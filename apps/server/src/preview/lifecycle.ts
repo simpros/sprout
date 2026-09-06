@@ -1,14 +1,23 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { HealthSpec } from "../app-deployment/health.ts";
-import type { PreviewAppOps } from "../app-deployment/replace.ts";
+import type { PreviewAppOps } from "../app-deployment/ops.ts";
+import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import { previewDbName } from "../preview-db/names.ts";
 import type { PreviewDb } from "../preview-db/port.ts";
+import {
+  updatePreviewRow,
+  utcIsoNow,
+  type PreviewRow,
+} from "./row.ts";
+import {
+  canResumeSeed,
+  promoteAfterHealthy,
+  resumeIncompleteSeed,
+} from "./seed-phase.ts";
 
-function utcIsoNow(): string {
-  return new Date().toISOString();
-}
+export type { PreviewRow };
 
 /**
  * Internal SQLite phases (spec): provisioning → starting → seeding → running / failed.
@@ -61,6 +70,8 @@ export type ProvisionInput = {
   appImage: string;
   /** Resolved at the HTTP/CLI boundary — never defaulted here. */
   health: HealthSpec;
+  /** Present when deploy requested a seed image; env/args not persisted. */
+  seed?: SeedImageSpec;
 };
 
 export type TeardownInput = {
@@ -100,8 +111,6 @@ export type TeardownSnapshot = {
 type Result<T> =
   | { ok: true; value: T }
   | { ok: false; status: number; error: string };
-
-export type PreviewRow = typeof previews.$inferSelect;
 
 /**
  * Serialize control-plane mutations per (repo, prId).
@@ -180,25 +189,7 @@ async function getPreviewRow(
   return existing ?? null;
 }
 
-function toSnapshot(
-  row: PreviewRow,
-  status: PreviewStatus,
-): PreviewSnapshot {
-  const snap: PreviewSnapshot = {
-    ok: true,
-    canonical_repo_id: row.canonicalRepoId,
-    pr_id: row.prId,
-    slug: row.slug,
-    db_name: row.dbName,
-    hostname: row.hostname,
-    status,
-  };
-  if (status === "running") {
-    snap.preview_url = `https://${row.hostname}`;
-  }
-  return snap;
-}
-
+/** Replace/health failure: clear containerId so Traefik orphans are not claimed. */
 async function markPreviewFailed(
   db: StateDb,
   repo: string,
@@ -218,9 +209,10 @@ async function writeProvisioningIntent(
   dbName: string,
 ): Promise<PreviewRow> {
   const now = utcIsoNow();
-  const [updated] = await deps.db
-    .update(previews)
-    .set({
+  return updatePreviewRow(
+    deps.db,
+    { canonicalRepoId: input.repo, prId: input.prId },
+    {
       slug: input.slug,
       dbName,
       hostname: input.hostname,
@@ -231,18 +223,9 @@ async function writeProvisioningIntent(
       // New generation: TTL means age of this intent, not birth of the row key.
       createdAt: now,
       updatedAt: now,
-    })
-    .where(
-      and(
-        eq(previews.canonicalRepoId, input.repo),
-        eq(previews.prId, input.prId),
-      ),
-    )
-    .returning();
-  if (!updated) {
-    throw new Error("preview_row_missing_on_intent_write");
-  }
-  return updated;
+    },
+    "preview_row_missing_on_intent_write",
+  );
 }
 
 /** CREATE under dbName lock only. Callers decide failed vs leave-provisioning. */
@@ -266,12 +249,16 @@ type AttachInput = {
   health: HealthSpec;
 };
 
+/**
+ * Replace + health only. Ends at healthy `starting` — seed/promote is a
+ * separate phase owned by attachThenPromote / promoteAfterHealthy.
+ */
 async function attachAppContainer(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: AttachInput,
   refreshGeneration: boolean,
-): Promise<Result<PreviewSnapshot>> {
+): Promise<Result<PreviewRow>> {
   let containerId: string;
   let port: number;
   try {
@@ -288,26 +275,19 @@ async function attachAppContainer(
   }
 
   const now = utcIsoNow();
-  const [starting] = await deps.db
-    .update(previews)
-    .set({
+  const starting = await updatePreviewRow(
+    deps.db,
+    row,
+    {
       hostname: input.hostname,
       appImage: input.appImage,
       containerId,
       status: "starting",
       ...(refreshGeneration ? { createdAt: now } : {}),
       updatedAt: now,
-    })
-    .where(
-      and(
-        eq(previews.canonicalRepoId, row.canonicalRepoId),
-        eq(previews.prId, row.prId),
-      ),
-    )
-    .returning();
-  if (!starting) {
-    throw new Error("preview_row_missing_on_app_attach");
-  }
+    },
+    "preview_row_missing_on_app_attach",
+  );
 
   const outcome = await deps.app.waitHealthy(
     containerId,
@@ -329,27 +309,33 @@ async function attachAppContainer(
     return { ok: false, status: 500, error: "health_timeout" };
   }
 
-  const [updated] = await deps.db
-    .update(previews)
-    .set({ status: "running", updatedAt: utcIsoNow() })
-    .where(
-      and(
-        eq(previews.canonicalRepoId, row.canonicalRepoId),
-        eq(previews.prId, row.prId),
-      ),
-    )
-    .returning();
-  if (!updated) {
-    throw new Error("preview_row_missing_on_running");
-  }
-  return { ok: true, value: toSnapshot(updated, "running") };
+  return { ok: true, value: starting };
 }
 
-/** Fresh / recovered identity: CREATE failure → failed; else attach. */
+/** Attach (replace+health) then promote (running or seed phase). */
+async function attachThenPromote(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+  attachInput: AttachInput,
+  seed: SeedImageSpec | undefined,
+  refreshGeneration: boolean,
+): Promise<Result<PreviewSnapshot>> {
+  const attached = await attachAppContainer(
+    deps,
+    row,
+    attachInput,
+    refreshGeneration,
+  );
+  if (!attached.ok) return attached;
+  return promoteAfterHealthy(deps, attached.value, seed);
+}
+
+/** Fresh / recovered identity: CREATE failure → failed; else attach+promote. */
 async function bringUpNew(
   deps: LifecycleDeps,
   row: PreviewRow,
   attachInput: AttachInput,
+  seed: SeedImageSpec | undefined,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
@@ -357,19 +343,20 @@ async function bringUpNew(
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return ensured;
   }
-  return attachAppContainer(deps, row, attachInput, refreshGeneration);
+  return attachThenPromote(deps, row, attachInput, seed, refreshGeneration);
 }
 
-/** Stuck-create resume: leave provisioning on CREATE failure; else attach. */
+/** Stuck-create resume: leave provisioning on CREATE failure; else attach+promote. */
 async function resumeProvisioning(
   deps: LifecycleDeps,
   row: PreviewRow,
   attachInput: AttachInput,
+  seed: SeedImageSpec | undefined,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
   if (!ensured.ok) return ensured;
   // Mint generation when stuck-create finally becomes live.
-  return attachAppContainer(deps, row, attachInput, true);
+  return attachThenPromote(deps, row, attachInput, seed, true);
 }
 
 /** slug + dbName ownership; hostname is routing and may change on replace. */
@@ -396,6 +383,22 @@ function requireDbIdentity(
   return { ok: true, value: true };
 }
 
+/**
+ * Live app, seed not done: resume seed only when image/hostname match;
+ * otherwise replace is earned via attachThenPromote.
+ */
+async function resumeSeedIncomplete(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+  attachInput: AttachInput,
+  seed: SeedImageSpec | undefined,
+): Promise<Result<PreviewSnapshot>> {
+  if (canResumeSeed(row, attachInput)) {
+    return resumeIncompleteSeed(deps, row, seed);
+  }
+  return attachThenPromote(deps, row, attachInput, seed, false);
+}
+
 async function provisionUnlocked(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -406,6 +409,7 @@ async function provisionUnlocked(
     appImage: input.appImage,
     health: input.health,
   };
+  const seed = input.seed;
   let row = await getPreviewRow(deps.db, input.repo, input.prId);
 
   if (!row) {
@@ -424,7 +428,7 @@ async function provisionUnlocked(
       return { ok: false, status: 500, error: "preview_row_missing" };
     }
     // First live: mint generation at attach (DB+app ready).
-    return bringUpNew(deps, inserted, attachInput, true);
+    return bringUpNew(deps, inserted, attachInput, seed, true);
   }
 
   const status = parsePreviewStatus(row.status);
@@ -438,27 +442,29 @@ async function provisionUnlocked(
         requestedDbName,
       );
       // Intent write already minted createdAt — do not remint on attach.
-      return bringUpNew(deps, intent, attachInput, false);
+      return bringUpNew(deps, intent, attachInput, seed, false);
     }
     case "failed": {
-      // Same slug/dbName: resume without burning TTL generation.
       if (dbIdentityMatches(row, input, requestedDbName)) {
-        return bringUpNew(deps, row, attachInput, false);
+        // Seed-failed keep-container: same resume as crash-mid-seed.
+        if (canResumeSeed(row, attachInput)) {
+          return resumeIncompleteSeed(deps, row, seed);
+        }
+        return bringUpNew(deps, row, attachInput, seed, false);
       }
       const intent = await writeProvisioningIntent(
         deps,
         input,
         requestedDbName,
       );
-      return bringUpNew(deps, intent, attachInput, false);
+      return bringUpNew(deps, intent, attachInput, seed, false);
     }
-    case "seeding":
-      // Seed slice owns this phase — do not force-replace the app.
-      return {
-        ok: false,
-        status: 409,
-        error: "preview_seeding_in_progress",
-      };
+    case "seeding": {
+      // Crash/restart mid-seed: lock already serializes in-flight seed.
+      const identity = requireDbIdentity(row, input, requestedDbName);
+      if (!identity.ok) return identity;
+      return resumeSeedIncomplete(deps, row, attachInput, seed);
+    }
     case "running":
     case "starting": {
       // Live / mid-health claim: refuse slug/dbName rewrite.
@@ -466,13 +472,13 @@ async function provisionUnlocked(
       // DB already ensured; re-attach + health without reminting TTL.
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return attachAppContainer(deps, row, attachInput, false);
+      return attachThenPromote(deps, row, attachInput, seed, false);
     }
     case "provisioning": {
       // Stuck create: refuse slug/dbName rewrite; ensure DB then attach (mints generation).
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return resumeProvisioning(deps, row, attachInput);
+      return resumeProvisioning(deps, row, attachInput, seed);
     }
     case "removing":
       return {
@@ -575,31 +581,59 @@ async function teardownUnlocked(
   return destroyPreviewRow(deps, existing, "tombstone");
 }
 
+async function pullImageOrFail(
+  app: PreviewAppOps,
+  image: string,
+  error: string,
+): Promise<Result<true>> {
+  try {
+    await app.pullImage(image);
+    return { ok: true, value: true };
+  } catch {
+    return { ok: false, status: 500, error };
+  }
+}
+
 /**
  * Ensure a preview DB + healthy app container exist for (repo, prId).
  * - removed: rewrite identity, CREATE, start/replace app, health → running
- * - failed + same slug/dbName: ensure DB + attach without burning generation
+ * - failed + same slug/dbName + live app (seed-incomplete): resume seed only
+ * - failed + same slug/dbName + no live app: ensure DB + attach without burning generation
  * - failed + new slug/dbName: rewrite intent, then bring-up
  * - starting|running + same slug/dbName: re-attach + health (no CREATE retry, no TTL remint)
  * - provisioning + same slug/dbName: ensure DB then attach (mints generation)
- * - seeding: 409 preview_seeding_in_progress (seed slice owns transitions)
+ * - seeding + same slug/dbName + same image/hostname: resume seed only (crash recovery)
+ * - seeding + image/hostname change: attachThenPromote (replace earned)
+ * - seed-incomplete resume without seed_image: 422 seed_image_required_to_resume_seeding
+ * - after health: optional seed when seed image present and seeded_at unset
  * - live + slug/dbName mismatch: 409 preview_identity_conflict
  * - removing: 409
  *
- * Registry pull runs outside the preview lock so a hung pull cannot stall
- * teardown for the same (repo, prId). Port inspect stays inside replace.
- * Health poll holds the preview lock (same-PR teardown queues behind).
+ * Registry pull (app + optional seed) runs outside the preview lock so a hung
+ * pull cannot stall teardown for the same (repo, prId). When seed is named,
+ * both images pull in parallel — whether seed *runs* is gated under the lock
+ * by seeded_at (clients that can omit seed_image on sync avoid unused pulls).
+ * Port inspect stays inside replace. Health poll and seed wait hold the
+ * preview lock (same-PR teardown queues behind).
  */
 export async function provisionPreview(
   deps: LifecycleDeps,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
-  try {
-    await deps.app.pullImage(input.appImage);
-  } catch {
-    // Preflight only — do not poison a live running/provisioning row.
-    // Attach under the lock marks failed when replace actually fails.
-    return { ok: false, status: 500, error: "preview_app_deploy_failed" };
+  if (input.seed) {
+    const [appPull, seedPull] = await Promise.all([
+      pullImageOrFail(deps.app, input.appImage, "preview_app_deploy_failed"),
+      pullImageOrFail(deps.app, input.seed.image, "preview_seed_pull_failed"),
+    ]);
+    if (!appPull.ok) return appPull;
+    if (!seedPull.ok) return seedPull;
+  } else {
+    const appPull = await pullImageOrFail(
+      deps.app,
+      input.appImage,
+      "preview_app_deploy_failed",
+    );
+    if (!appPull.ok) return appPull;
   }
 
   return withPreviewLock(input.repo, input.prId, () =>

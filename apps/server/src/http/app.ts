@@ -1,4 +1,4 @@
-import type { PreviewAppOps } from "../app-deployment/replace.ts";
+import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { Config } from "../config.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import type { PreviewDb } from "../preview-db/port.ts";

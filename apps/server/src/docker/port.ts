@@ -14,7 +14,16 @@ export type ContainerCreateSpec = {
   labels: Record<string, string>;
   /** All networks attached via create-time EndpointsConfig. */
   networkNames: string[];
+  /**
+   * Optional Docker Cmd (replaces image CMD, not ENTRYPOINT).
+   * Omit entirely to keep the image default CMD; never set Entrypoint here.
+   */
+  cmd?: string[];
 };
+
+export type ContainerWaitResult =
+  | { timedOut: false; exitCode: number }
+  | { timedOut: true };
 
 /**
  * Preview-scoped Docker seam for app-deployment and sweep.
@@ -28,6 +37,14 @@ export type PreviewDocker = {
   /** Force-remove by container name; 404 is success. */
   removeByName(name: string): Promise<void>;
   createAndStart(spec: ContainerCreateSpec): Promise<{ id: string }>;
+  /**
+   * Block until the container exits or `timeoutMs` elapses.
+   * Used for one-shot seed image runs.
+   */
+  waitForExit(
+    containerId: string,
+    timeoutMs: number,
+  ): Promise<ContainerWaitResult>;
   /**
    * IPv4 address of the container on a named Docker network, or null if not
    * attached / not yet assigned. Used for health polls on SPROUT_POSTGRES_NETWORK.

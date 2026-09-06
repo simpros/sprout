@@ -1,36 +1,21 @@
 import { traefikLabels } from "./labels.ts";
-import {
-  defaultHealthProbe,
-  healthUrl,
-  pollHealth,
-  type HealthClock,
-  type HealthProbe,
-  type HealthSpec,
-} from "./health.ts";
-import type { CatalogContainer, PreviewDocker } from "../docker/port.ts";
+import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
+import type { PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
 
-export type AppDeployPg = {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-};
+export type { AppDeployPg };
 
 export type AppDeployNetworks = {
   traefik: string;
   postgres: string;
 };
 
+/** Replace/health deps only — seed timeout binds at composition (ops.ts). */
 export type ReplacePreviewAppDeps = {
   docker: PreviewDocker;
   pg: AppDeployPg;
   networks: AppDeployNetworks;
   previewPortDefault: number;
-  /** Test seam — defaults to fetch-based probe. */
-  healthProbe?: HealthProbe;
-  /** Test seam — defaults to Date.now / setTimeout. */
-  healthClock?: HealthClock;
 };
 
 export type ReplacePreviewAppInput = {
@@ -40,35 +25,6 @@ export type ReplacePreviewAppInput = {
   image: string;
   dbName: string;
 };
-
-/** Bound deploy ops for lifecycle/sweep — no PGHOST / network config at callers. */
-export type PreviewAppOps = {
-  pullImage: (image: string) => Promise<void>;
-  replace: (
-    input: ReplacePreviewAppInput,
-  ) => Promise<{ containerId: string; port: number }>;
-  /** Poll postgres-network IP until HealthSpec expects success or timeout. */
-  waitHealthy: (
-    containerId: string,
-    port: number,
-    health: HealthSpec,
-  ) => Promise<"ok" | "timeout">;
-  remove: (slug: string, prId: number) => Promise<void>;
-  /** Catalog of running pb-* containers (orphan sweep). */
-  list: () => Promise<CatalogContainer[]>;
-};
-
-export function bindPreviewApp(deps: ReplacePreviewAppDeps): PreviewAppOps {
-  const probe = deps.healthProbe ?? defaultHealthProbe();
-  return {
-    pullImage: (image) => deps.docker.pullImage(image),
-    replace: (input) => replacePreviewApp(deps, input),
-    waitHealthy: (containerId, port, health) =>
-      waitPreviewAppHealthy(deps, probe, containerId, port, health),
-    remove: (slug, prId) => removePreviewApp(deps.docker, slug, prId),
-    list: () => deps.docker.listPreviewContainers(),
-  };
-}
 
 /** Force-remove the preview app container for one PR (idempotent via Engine). */
 export async function removePreviewApp(
@@ -97,13 +53,7 @@ export async function replacePreviewApp(
   const { id } = await deps.docker.createAndStart({
     name,
     image: input.image,
-    env: [
-      `PGHOST=${deps.pg.host}`,
-      `PGPORT=${String(deps.pg.port)}`,
-      `PGUSER=${deps.pg.user}`,
-      `PGPASSWORD=${deps.pg.password}`,
-      `PGDATABASE=${input.dbName}`,
-    ],
+    env: pgConnectionEnv(deps.pg, input.dbName),
     labels: traefikLabels({
       routerName: name,
       hostname: input.hostname,
@@ -112,26 +62,4 @@ export async function replacePreviewApp(
     networkNames: [deps.networks.traefik, deps.networks.postgres],
   });
   return { containerId: id, port };
-}
-
-async function waitPreviewAppHealthy(
-  deps: ReplacePreviewAppDeps,
-  probe: HealthProbe,
-  containerId: string,
-  port: number,
-  health: HealthSpec,
-): Promise<"ok" | "timeout"> {
-  // Total: never throws — inspect/resolve blips retry until HealthSpec timeout.
-  return pollHealth(
-    probe,
-    async () => {
-      const ip = await deps.docker.containerIpOnNetwork(
-        containerId,
-        deps.networks.postgres,
-      );
-      return ip ? healthUrl(ip, port, health.path) : null;
-    },
-    health,
-    deps.healthClock,
-  );
 }

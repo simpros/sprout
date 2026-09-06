@@ -175,6 +175,7 @@ export function createDockerEngineClient(
             Image: spec.image,
             Env: spec.env,
             Labels: spec.labels,
+            ...(spec.cmd !== undefined ? { Cmd: spec.cmd } : {}),
             NetworkingConfig: {
               EndpointsConfig: endpoints,
             },
@@ -209,6 +210,37 @@ export function createDockerEngineClient(
           // ignore — surface the original start failure
         }
         throw err;
+      }
+    },
+
+    async waitForExit(containerId, timeoutMs) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await engine(
+          `/containers/${encodeURIComponent(containerId)}/wait`,
+          { method: "POST", signal: controller.signal },
+        );
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(
+            `Docker wait ${containerId} failed: ${res.status} ${body}`,
+          );
+        }
+        const payload = (await res.json()) as { StatusCode?: number };
+        if (typeof payload.StatusCode !== "number") {
+          throw new Error(
+            `Docker wait ${containerId} returned no StatusCode`,
+          );
+        }
+        return { timedOut: false, exitCode: payload.StatusCode };
+      } catch (err) {
+        if (controller.signal.aborted) {
+          return { timedOut: true };
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
       }
     },
 

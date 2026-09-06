@@ -107,6 +107,85 @@ describe("createDockerEngineClient", () => {
     expect(createBody.Env).toEqual(["PGHOST=postgres"]);
   });
 
+  test("createAndStart includes Cmd when provided and omits Entrypoint", async () => {
+    const calls: { body?: string }[] = [];
+    const docker = createDockerEngineClient({
+      fetch: async (input, init) => {
+        const url = String(input);
+        const body =
+          typeof init?.body === "string" ? init.body : undefined;
+        if (url.includes("/containers/create")) {
+          calls.push({ body });
+          return new Response(JSON.stringify({ Id: "cid-seed" }), {
+            status: 201,
+          });
+        }
+        if (url.includes("/start")) {
+          return new Response(null, { status: 204 });
+        }
+        return new Response("unexpected", { status: 500 });
+      },
+    });
+
+    await docker.createAndStart({
+      name: "pb-myapp-pr-1-seed",
+      image: "seed:1",
+      env: ["PGHOST=postgres"],
+      labels: {},
+      networkNames: ["postgres"],
+      cmd: ["--reset"],
+    });
+    const createBody = JSON.parse(calls[0]!.body!);
+    expect(createBody.Cmd).toEqual(["--reset"]);
+    expect(createBody.Entrypoint).toBeUndefined();
+  });
+
+  test("waitForExit returns StatusCode from Docker wait", async () => {
+    const docker = createDockerEngineClient({
+      fetch: async (input, init) => {
+        expect(String(input)).toBe("http://localhost/containers/cid-w/wait");
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ StatusCode: 3 }), { status: 200 });
+      },
+    });
+    expect(await docker.waitForExit("cid-w", 5_000)).toEqual({
+      timedOut: false,
+      exitCode: 3,
+    });
+  });
+
+  test("waitForExit throws when StatusCode is missing", async () => {
+    const docker = createDockerEngineClient({
+      fetch: async () => new Response(JSON.stringify({}), { status: 200 }),
+    });
+    await expect(docker.waitForExit("cid-empty", 5_000)).rejects.toThrow(
+      /no StatusCode/,
+    );
+  });
+
+  test("waitForExit returns timedOut when aborted", async () => {
+    const docker = createDockerEngineClient({
+      fetch: async (_input, init) => {
+        const signal = init?.signal;
+        await new Promise<void>((resolve, reject) => {
+          if (!signal) {
+            reject(new Error("missing signal"));
+            return;
+          }
+          if (signal.aborted) {
+            reject(new DOMException("aborted", "AbortError"));
+            return;
+          }
+          signal.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        });
+        return new Response("{}", { status: 200 });
+      },
+    });
+    expect(await docker.waitForExit("cid-hang", 20)).toEqual({ timedOut: true });
+  });
+
   test("createAndStart removes half-built container when start fails", async () => {
     const calls: string[] = [];
     const docker = createDockerEngineClient({

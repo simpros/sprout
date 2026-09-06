@@ -4,6 +4,7 @@ import {
   resolveHealthSpec,
   type HealthRequest,
 } from "../app-deployment/health.ts";
+import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
   provisionPreview,
   teardownPreview,
@@ -20,6 +21,9 @@ export const healthBody = t.Object({
   expect: t.Number(),
 });
 
+export const MAX_SEED_ENV = 16;
+export const MAX_SEED_ARG = 16;
+
 export const deployBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   pr_id: t.Number(),
@@ -27,6 +31,9 @@ export const deployBody = t.Object({
   hostname: t.String({ minLength: 1 }),
   app_image: t.String({ minLength: 1 }),
   health: t.Optional(healthBody),
+  seed_image: t.Optional(t.String({ minLength: 1 })),
+  seed_env: t.Optional(t.Array(t.String())),
+  seed_arg: t.Optional(t.Array(t.String())),
 });
 
 /** Identity is (canonical_repo_id, pr_id); slug is not part of teardown. */
@@ -42,7 +49,47 @@ export type DeployBody = {
   hostname: string;
   app_image: string;
   health?: HealthRequest;
+  seed_image?: string;
+  seed_env?: string[];
+  seed_arg?: string[];
 };
+
+/** Validate optional seed fields; health is required when seed_image is set. */
+export function resolveSeedRequest(
+  body: Pick<DeployBody, "seed_image" | "seed_env" | "seed_arg" | "health">,
+):
+  | { ok: true; value: SeedImageSpec | undefined }
+  | { ok: false; error: string } {
+  const seedImage = body.seed_image?.trim();
+  const seedEnv = body.seed_env ?? [];
+  const seedArg = body.seed_arg ?? [];
+
+  if (!seedImage) {
+    if (seedEnv.length > 0 || seedArg.length > 0) {
+      return { ok: false, error: "seed_image_required_for_seed_options" };
+    }
+    return { ok: true, value: undefined };
+  }
+  if (!body.health) {
+    return { ok: false, error: "health_required_for_seed" };
+  }
+  if (seedEnv.length > MAX_SEED_ENV) {
+    return { ok: false, error: "too_many_seed_env" };
+  }
+  if (seedArg.length > MAX_SEED_ARG) {
+    return { ok: false, error: "too_many_seed_arg" };
+  }
+  for (const entry of seedEnv) {
+    const eq = entry.indexOf("=");
+    if (eq <= 0) {
+      return { ok: false, error: "invalid_seed_env" };
+    }
+  }
+  return {
+    ok: true,
+    value: { image: seedImage, env: seedEnv, args: seedArg },
+  };
+}
 
 export type TeardownBody = {
   canonical_repo_id: string;
@@ -100,6 +147,11 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: prErr };
     }
+    const seed = resolveSeedRequest(body);
+    if (!seed.ok) {
+      set.status = 422;
+      return { error: seed.error };
+    }
     const health = resolveHealthSpec(body.health);
     if (!health.ok) {
       set.status = 422;
@@ -114,6 +166,7 @@ export function deploy(deps: LifecycleDeps) {
         hostname: body.hostname,
         appImage: body.app_image,
         health: health.value,
+        seed: seed.value,
       }),
       set,
     );
