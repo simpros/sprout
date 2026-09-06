@@ -16,6 +16,5 @@ export function startServer(deps: ServerDeps) {
     db: deps.db,
     previewDb: deps.previewDb,
     app: deps.app,
-    postgresNetwork: deps.config.postgresNetwork,
   }).listen(deps.config.port);
 }
