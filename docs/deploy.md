@@ -41,6 +41,35 @@ a smoke `up` does not collide with an existing Coolify Traefik network named
 `TRAEFIK_HTTP_PORT` (default 8880); the harness ports come from
 `e2e/compose.e2e.env`.
 
+## Upgrading from preview-buddy
+
+Default on-disk paths and Docker network names changed with the project
+rename. Existing installs that relied on compose defaults must migrate (or
+pin the old names) before recreating the stack — otherwise the gateway opens
+an empty SQLite file and joins new empty networks.
+
+| What | Old default | New default |
+|---|---|---|
+| Control-plane SQLite | `/data/preview-buddy.db` (compose) / `preview-buddy.db` (host) | `/data/sprout.db` / `sprout.db` |
+| Traefik network | `preview-buddy-traefik` | `sprout-traefik` |
+| Postgres network | `preview-buddy-postgres` | `sprout-postgres` |
+
+One-release options:
+
+```bash
+# Keep state on the existing gateway-data volume (compose):
+docker compose --env-file compose.env exec gateway \
+  sh -c 'test -f /data/preview-buddy.db && mv /data/preview-buddy.db /data/sprout.db'
+
+# Or pin the old path / network names in compose.env instead of renaming:
+# PB_STATE_DB_PATH=/data/preview-buddy.db
+# PB_TRAEFIK_NETWORK=preview-buddy-traefik
+# PB_POSTGRES_NETWORK=preview-buddy-postgres
+```
+
+Host `bun run dev` installs: `mv preview-buddy.db sprout.db` (and any
+`preview-buddy.db-*` WAL/SHM sidecars), or set `PB_STATE_DB_PATH`.
+
 ## Architecture
 
 ```text

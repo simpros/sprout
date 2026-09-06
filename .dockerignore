@@ -9,5 +9,7 @@ build
 .turbo
 preview-buddy.db
 preview-buddy.db-*
+sprout.db
+sprout.db-*
 coverage
 .agents
