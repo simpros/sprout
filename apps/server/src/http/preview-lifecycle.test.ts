@@ -172,7 +172,7 @@ describe("POST /v1/deploy", () => {
         "PGPASSWORD=preview-secret",
         "PGDATABASE=prev_myapp_pr42",
       ],
-      networkNames: ["sprout-traefik", "sprout-postgres"],
+      networkNames: ["preview-buddy-traefik", "preview-buddy-postgres"],
     });
     expect(fakeDocker!.creates[0]!.labels).toEqual({
       "traefik.enable": "true",
