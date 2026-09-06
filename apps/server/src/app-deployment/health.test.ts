@@ -58,11 +58,36 @@ describe("pollHealth", () => {
           return 200;
         },
       },
-      healthUrl("10.0.0.5", 8080, "/health"),
+      async () => healthUrl("10.0.0.5", 8080, "/health"),
       DEFAULT_HEALTH,
     );
     expect(outcome).toBe("ok");
     expect(urls).toEqual(["http://10.0.0.5:8080/health"]);
+  });
+
+  test("retries when resolveUrl returns null until status matches", async () => {
+    let attempts = 0;
+    let now = 0;
+    const outcome = await pollHealth(
+      {
+        async getStatus() {
+          return 200;
+        },
+      },
+      async () => {
+        attempts += 1;
+        return attempts >= 2 ? "http://10.0.0.5:8080/health" : null;
+      },
+      { path: "/health", intervalMs: 1000, timeoutMs: 5000, expectStatus: 200 },
+      {
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      },
+    );
+    expect(outcome).toBe("ok");
+    expect(attempts).toBe(2);
   });
 
   test("times out when status never matches", async () => {
@@ -73,7 +98,7 @@ describe("pollHealth", () => {
           return 503;
         },
       },
-      "http://10.0.0.5:8080/health",
+      async () => "http://10.0.0.5:8080/health",
       { path: "/health", intervalMs: 1000, timeoutMs: 2500, expectStatus: 200 },
       {
         now: () => now,
