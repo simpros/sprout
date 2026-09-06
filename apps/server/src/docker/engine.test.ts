@@ -244,4 +244,26 @@ describe("createDockerEngineClient", () => {
       `http://localhost/containers/${previewContainerName("widgets", 7)}?force=true`,
     ]);
   });
+
+  test("containerIpOnNetwork reads NetworkSettings for the named network", async () => {
+    const docker = createDockerEngineClient({
+      fetch: async (input) => {
+        expect(String(input)).toBe("http://localhost/containers/cid-9/json");
+        return new Response(
+          JSON.stringify({
+            NetworkSettings: {
+              Networks: {
+                "preview-buddy-postgres": { IPAddress: "172.20.0.4" },
+                "preview-buddy-traefik": { IPAddress: "172.18.0.9" },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      },
+    });
+    expect(
+      await docker.containerIpOnNetwork("cid-9", "preview-buddy-postgres"),
+    ).toBe("172.20.0.4");
+  });
 });

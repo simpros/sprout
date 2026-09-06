@@ -92,7 +92,7 @@ describe("GET /v1/previews", () => {
         slug: "myapp",
         db_name: "prev_myapp_pr42",
         hostname: "pr-42.myapp.preview.example.com",
-        status: "ready",
+        status: "running",
         created_at: expect.any(String),
       },
     ]);
@@ -233,7 +233,7 @@ describe("POST /v1/drop", () => {
         slug: "myapp",
         db_name: "prev_myapp_pr42",
         hostname: "pr-42.myapp.preview.example.com",
-        status: "ready",
+        status: "running",
       },
     });
     expect(fakePreviewDb!.dropped).toEqual([]);

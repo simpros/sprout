@@ -5,8 +5,8 @@ import { previews } from "../infrastructure/db/schema.ts";
 import {
   parsePreviewStatus,
   purgePreview,
+  toDisplayStatus,
   type LifecycleDeps,
-  type PreviewStatus,
 } from "../preview/lifecycle.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import { planOrphans } from "../sweep/reconcile.ts";
@@ -17,7 +17,8 @@ export type ListedPreview = {
   slug: string;
   db_name: string;
   hostname: string;
-  status: PreviewStatus;
+  /** Coarse display status (starting/seeding → provisioning). */
+  status: ReturnType<typeof toDisplayStatus>;
   created_at: string;
 };
 
@@ -68,7 +69,7 @@ export function listPreviews(db: StateDb) {
         slug: row.slug,
         db_name: row.dbName,
         hostname: row.hostname,
-        status: status.value,
+        status: toDisplayStatus(status.value),
         created_at: row.createdAt,
       });
     }

@@ -304,6 +304,7 @@ describe("ensureAdminToken", () => {
       db: testDb.db,
       previewDb: createFakePreviewDb(),
       app: bindTestPreviewApp(createFakeDockerClient()),
+      postgresNetwork: "preview-buddy-postgres",
     });
     const res = await app.handle(
       new Request("http://localhost/v1/admin/tokens", {

@@ -1,5 +1,14 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { PreviewAppOps } from "../app-deployment/replace.ts";
+import {
+  defaultHealthProbe,
+  healthUrl,
+  pollHealth,
+  type HealthClock,
+  type HealthProbe,
+  type HealthSpec,
+  DEFAULT_HEALTH,
+} from "../app-deployment/health.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import { previewDbName } from "../preview-db/names.ts";
@@ -10,16 +19,35 @@ function utcIsoNow(): string {
 }
 
 /**
- * Preview lifecycle statuses known to this slice.
- * `ready` = DB exists and app container started (health → running is a later slice).
- * Keep `error` (not `failed`).
+ * Internal SQLite phases (spec): provisioning → starting → seeding → running / failed.
+ * Display maps starting/seeding → provisioning for list views.
  */
 export type PreviewStatus =
   | "provisioning"
-  | "ready"
+  | "starting"
+  | "seeding"
+  | "running"
+  | "failed"
   | "removing"
-  | "removed"
-  | "error";
+  | "removed";
+
+/** Coarse status for list/doctor display (starting/seeding → provisioning). */
+export type DisplayPreviewStatus =
+  | "provisioning"
+  | "running"
+  | "failed"
+  | "removing"
+  | "removed";
+
+export function toDisplayStatus(status: PreviewStatus): DisplayPreviewStatus {
+  switch (status) {
+    case "starting":
+    case "seeding":
+      return "provisioning";
+    default:
+      return status;
+  }
+}
 
 export type TeardownDeps = {
   db: StateDb;
@@ -31,6 +59,11 @@ export type LifecycleDeps = {
   db: StateDb;
   previewDb: PreviewDb;
   app: PreviewAppOps;
+  /** Docker network name used for health polls (PB_POSTGRES_NETWORK). */
+  postgresNetwork: string;
+  healthProbe?: HealthProbe;
+  healthClock?: HealthClock;
+  log?: (message: string) => void;
 };
 
 export type ProvisionInput = {
@@ -39,6 +72,7 @@ export type ProvisionInput = {
   slug: string;
   hostname: string;
   appImage: string;
+  health?: HealthSpec;
 };
 
 export type TeardownInput = {
@@ -67,6 +101,7 @@ export type PreviewSnapshot = {
   db_name: string;
   hostname: string;
   status: PreviewStatus;
+  preview_url?: string;
 };
 
 export type TeardownSnapshot = {
@@ -130,10 +165,12 @@ function withDbNameLock<T>(
 export function parsePreviewStatus(status: string): Result<PreviewStatus> {
   switch (status) {
     case "provisioning":
-    case "ready":
+    case "starting":
+    case "seeding":
+    case "running":
+    case "failed":
     case "removing":
     case "removed":
-    case "error":
       return { ok: true, value: status };
     default:
       return { ok: false, status: 500, error: "unknown_preview_status" };
@@ -159,7 +196,7 @@ function toSnapshot(
   row: PreviewRow,
   status: PreviewStatus,
 ): PreviewSnapshot {
-  return {
+  const snap: PreviewSnapshot = {
     ok: true,
     canonical_repo_id: row.canonicalRepoId,
     pr_id: row.prId,
@@ -168,16 +205,20 @@ function toSnapshot(
     hostname: row.hostname,
     status,
   };
+  if (status === "running") {
+    snap.preview_url = `https://${row.hostname}`;
+  }
+  return snap;
 }
 
-async function markPreviewError(
+async function markPreviewFailed(
   db: StateDb,
   repo: string,
   prId: number,
 ): Promise<void> {
   await db
     .update(previews)
-    .set({ status: "error", updatedAt: utcIsoNow() })
+    .set({ status: "failed", updatedAt: utcIsoNow() })
     .where(
       and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
     );
@@ -216,7 +257,7 @@ async function writeProvisioningIntent(
   return updated;
 }
 
-/** CREATE under dbName lock only. Callers decide error vs leave-provisioning. */
+/** CREATE under dbName lock only. Callers decide failed vs leave-provisioning. */
 async function ensureDatabase(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -234,6 +275,7 @@ async function ensureDatabase(
 type AttachInput = {
   hostname: string;
   appImage: string;
+  health: HealthSpec;
 };
 
 async function attachAppContainer(
@@ -242,43 +284,83 @@ async function attachAppContainer(
   input: AttachInput,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewSnapshot>> {
+  let containerId: string;
+  let port: number;
   try {
-    const { containerId } = await deps.app.replace({
+    ({ containerId, port } = await deps.app.replace({
       slug: row.slug,
       prId: row.prId,
       hostname: input.hostname,
       image: input.appImage,
       dbName: row.dbName,
-    });
-    const now = utcIsoNow();
-    const [updated] = await deps.db
-      .update(previews)
-      .set({
-        hostname: input.hostname,
-        appImage: input.appImage,
-        containerId,
-        status: "ready",
-        ...(refreshGeneration ? { createdAt: now } : {}),
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(previews.canonicalRepoId, row.canonicalRepoId),
-          eq(previews.prId, row.prId),
-        ),
-      )
-      .returning();
-    if (!updated) {
-      throw new Error("preview_row_missing_on_app_attach");
-    }
-    return { ok: true, value: toSnapshot(updated, "ready") };
+    }));
   } catch {
-    await markPreviewError(deps.db, row.canonicalRepoId, row.prId);
+    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return { ok: false, status: 500, error: "preview_app_deploy_failed" };
   }
+
+  const now = utcIsoNow();
+  const [starting] = await deps.db
+    .update(previews)
+    .set({
+      hostname: input.hostname,
+      appImage: input.appImage,
+      containerId,
+      status: "starting",
+      ...(refreshGeneration ? { createdAt: now } : {}),
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(previews.canonicalRepoId, row.canonicalRepoId),
+        eq(previews.prId, row.prId),
+      ),
+    )
+    .returning();
+  if (!starting) {
+    throw new Error("preview_row_missing_on_app_attach");
+  }
+
+  const ip = await deps.app.containerIpOnNetwork(
+    containerId,
+    deps.postgresNetwork,
+  );
+  if (!ip) {
+    deps.log?.("health:timeout (no container IP on postgres network)");
+    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
+    return { ok: false, status: 500, error: "health_timeout" };
+  }
+
+  const probe = deps.healthProbe ?? defaultHealthProbe();
+  const outcome = await pollHealth(
+    probe,
+    healthUrl(ip, port, input.health.path),
+    input.health,
+    deps.healthClock,
+  );
+  if (outcome === "timeout") {
+    deps.log?.(`health:timeout ${healthUrl(ip, port, input.health.path)}`);
+    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
+    return { ok: false, status: 500, error: "health_timeout" };
+  }
+
+  const [updated] = await deps.db
+    .update(previews)
+    .set({ status: "running", updatedAt: utcIsoNow() })
+    .where(
+      and(
+        eq(previews.canonicalRepoId, row.canonicalRepoId),
+        eq(previews.prId, row.prId),
+      ),
+    )
+    .returning();
+  if (!updated) {
+    throw new Error("preview_row_missing_on_running");
+  }
+  return { ok: true, value: toSnapshot(updated, "running") };
 }
 
-/** Fresh / recovered identity: CREATE failure → error; else attach. */
+/** Fresh / recovered identity: CREATE failure → failed; else attach. */
 async function bringUpNew(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -287,7 +369,7 @@ async function bringUpNew(
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
   if (!ensured.ok) {
-    await markPreviewError(deps.db, row.canonicalRepoId, row.prId);
+    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return ensured;
   }
   return attachAppContainer(deps, row, attachInput, refreshGeneration);
@@ -322,6 +404,7 @@ async function provisionUnlocked(
   const attachInput: AttachInput = {
     hostname: input.hostname,
     appImage: input.appImage,
+    health: input.health ?? DEFAULT_HEALTH,
   };
   let row = await getPreviewRow(deps.db, input.repo, input.prId);
 
@@ -357,7 +440,7 @@ async function provisionUnlocked(
       // Intent write already minted createdAt — do not remint on attach.
       return bringUpNew(deps, intent, attachInput, false);
     }
-    case "error": {
+    case "failed": {
       // Same slug/dbName: resume without burning TTL generation.
       if (dbIdentityMatches(row, input, requestedDbName)) {
         return bringUpNew(deps, row, attachInput, false);
@@ -370,7 +453,9 @@ async function provisionUnlocked(
       return bringUpNew(deps, intent, attachInput, false);
     }
     case "provisioning":
-    case "ready": {
+    case "starting":
+    case "seeding":
+    case "running": {
       // Live claim: refuse slug/dbName rewrite mid-flight / on replace.
       // Hostname/image may still change when identity matches.
       if (!dbIdentityMatches(row, input, requestedDbName)) {
@@ -380,9 +465,10 @@ async function provisionUnlocked(
           error: "preview_identity_conflict",
         };
       }
-      if (status.value === "ready") {
+      if (status.value === "running") {
         return attachAppContainer(deps, row, attachInput, false);
       }
+      // provisioning / starting / seeding: ensure DB then attach + health.
       return resumeProvisioning(deps, row, attachInput);
     }
     case "removing":
@@ -431,7 +517,7 @@ async function destroyPreviewRow(
     try {
       await deps.previewDb.dropDatabase(existing.dbName);
     } catch {
-      await markPreviewError(deps.db, repo, prId);
+      await markPreviewFailed(deps.db, repo, prId);
       return { ok: false, status: 500, error: "preview_db_drop_failed" };
     }
 
@@ -475,8 +561,10 @@ async function teardownUnlocked(
     case "removed":
       return { ok: true, value: { ok: true, status: "removed" } };
     case "provisioning":
-    case "ready":
-    case "error":
+    case "starting":
+    case "seeding":
+    case "running":
+    case "failed":
     case "removing":
       break;
   }
@@ -485,17 +573,18 @@ async function teardownUnlocked(
 }
 
 /**
- * Ensure a preview DB + app container exist for (repo, prId).
- * - removed: rewrite identity, CREATE, start/replace app, advance to ready
- * - error + same slug/dbName: ensure DB + attach without burning generation
- * - error + new slug/dbName: rewrite intent, then bring-up
- * - provisioning + same slug/dbName: retry CREATE, then start app → ready
- * - ready + same slug/dbName: replace app (hostname/image may change)
- * - provisioning|ready + slug/dbName mismatch: 409 preview_identity_conflict
+ * Ensure a preview DB + healthy app container exist for (repo, prId).
+ * - removed: rewrite identity, CREATE, start/replace app, health → running
+ * - failed + same slug/dbName: ensure DB + attach without burning generation
+ * - failed + new slug/dbName: rewrite intent, then bring-up
+ * - provisioning|starting|seeding + same slug/dbName: retry CREATE, then health
+ * - running + same slug/dbName: replace app (hostname/image may change) + health
+ * - live + slug/dbName mismatch: 409 preview_identity_conflict
  * - removing: 409
  *
  * Registry pull runs outside the preview lock so a hung pull cannot stall
  * teardown for the same (repo, prId). Port inspect stays inside replace.
+ * Health poll holds the preview lock (same-PR teardown queues behind).
  */
 export async function provisionPreview(
   deps: LifecycleDeps,
@@ -504,8 +593,8 @@ export async function provisionPreview(
   try {
     await deps.app.pullImage(input.appImage);
   } catch {
-    // Preflight only — do not poison a live ready/provisioning row.
-    // Attach under the lock marks error when replace actually fails.
+    // Preflight only — do not poison a live running/provisioning row.
+    // Attach under the lock marks failed when replace actually fails.
     return { ok: false, status: 500, error: "preview_app_deploy_failed" };
   }
 

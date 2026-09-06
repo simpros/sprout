@@ -34,8 +34,13 @@ export type PreviewAppOps = {
   pullImage: (image: string) => Promise<void>;
   replace: (
     input: ReplacePreviewAppInput,
-  ) => Promise<{ containerId: string }>;
+  ) => Promise<{ containerId: string; port: number }>;
   remove: (slug: string, prId: number) => Promise<void>;
+  /** IPv4 on a Docker network (health poll target), or null if unset. */
+  containerIpOnNetwork: (
+    containerId: string,
+    networkName: string,
+  ) => Promise<string | null>;
   /** Catalog of running pb-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
 };
@@ -43,11 +48,10 @@ export type PreviewAppOps = {
 export function bindPreviewApp(deps: ReplacePreviewAppDeps): PreviewAppOps {
   return {
     pullImage: (image) => deps.docker.pullImage(image),
-    replace: async (input) => {
-      const { containerId } = await replacePreviewApp(deps, input);
-      return { containerId };
-    },
+    replace: (input) => replacePreviewApp(deps, input),
     remove: (slug, prId) => removePreviewApp(deps.docker, slug, prId),
+    containerIpOnNetwork: (containerId, networkName) =>
+      deps.docker.containerIpOnNetwork(containerId, networkName),
     list: () => deps.docker.listPreviewContainers(),
   };
 }
@@ -71,7 +75,7 @@ export async function removePreviewApp(
 export async function replacePreviewApp(
   deps: ReplacePreviewAppDeps,
   input: ReplacePreviewAppInput,
-): Promise<{ containerId: string }> {
+): Promise<{ containerId: string; port: number }> {
   const exposed = await deps.docker.firstExposedPort(input.image);
   const port = exposed ?? deps.previewPortDefault;
   const name = previewContainerName(input.slug, input.prId);
@@ -93,5 +97,5 @@ export async function replacePreviewApp(
     }),
     networkNames: [deps.networks.traefik, deps.networks.postgres],
   });
-  return { containerId: id };
+  return { containerId: id, port };
 }

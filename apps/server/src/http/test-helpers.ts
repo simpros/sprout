@@ -7,6 +7,7 @@ import {
   type PreviewAppOps,
   type ReplacePreviewAppDeps,
 } from "../app-deployment/replace.ts";
+import type { HealthClock, HealthProbe } from "../app-deployment/health.ts";
 import {
   createFakeDockerClient,
   type FakeDockerClient,
@@ -71,6 +72,12 @@ export async function createTestDb(): Promise<TestDb> {
   };
 }
 
+const defaultHealthProbe: HealthProbe = {
+  async getStatus() {
+    return 200;
+  },
+};
+
 export async function createTestApp(
   options:
     | {
@@ -78,6 +85,10 @@ export async function createTestApp(
         previewDb?: PreviewDb;
         docker?: PreviewDocker;
         replaceDeps?: Partial<Omit<ReplacePreviewAppDeps, "docker">>;
+        postgresNetwork?: string;
+        healthProbe?: HealthProbe;
+        healthClock?: HealthClock;
+        log?: (message: string) => void;
       }
     | string = {},
 ): Promise<TestApp> {
@@ -85,12 +96,24 @@ export async function createTestApp(
     typeof options === "string" ? { adminToken: options } : options;
   const adminToken = opts.adminToken ?? "test-admin-token";
   const previewDb = opts.previewDb ?? createFakePreviewDb();
-  const docker = opts.docker ?? createFakeDockerClient();
+  const docker = opts.docker ?? createFakeDockerClient({
+    postgresNetwork:
+      opts.postgresNetwork ?? defaultReplaceDeps.networks.postgres,
+  });
   const appOps = bindTestPreviewApp(docker, opts.replaceDeps);
   const { db, cleanup } = await createTestDb();
   await ensureAdminToken(db, adminToken);
   return {
-    app: createRoutes({ db, previewDb, app: appOps }),
+    app: createRoutes({
+      db,
+      previewDb,
+      app: appOps,
+      postgresNetwork:
+        opts.postgresNetwork ?? defaultReplaceDeps.networks.postgres,
+      healthProbe: opts.healthProbe ?? defaultHealthProbe,
+      healthClock: opts.healthClock,
+      log: opts.log,
+    }),
     db,
     adminToken,
     previewDb,
