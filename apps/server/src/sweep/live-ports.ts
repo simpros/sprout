@@ -1,4 +1,4 @@
-import type { PreviewAppOps } from "../app-deployment/replace.ts";
+import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { ForgeClient } from "../forge/client.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { parseUnambiguousUtcMs } from "../infrastructure/db/instant.ts";

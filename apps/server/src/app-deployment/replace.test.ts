@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createFakeDockerClient } from "../docker/fake.ts";
-import { bindPreviewApp, removePreviewApp, replacePreviewApp } from "./replace.ts";
+import { bindPreviewOps } from "./ops.ts";
+import { removePreviewApp, replacePreviewApp } from "./replace.ts";
 
 const baseDeps = {
   pg: {
@@ -14,6 +15,10 @@ const baseDeps = {
     postgres: "preview-buddy-postgres",
   },
   previewPortDefault: 8080,
+};
+
+const bindDeps = {
+  ...baseDeps,
   seedTimeoutMs: 180_000,
 };
 
@@ -112,12 +117,12 @@ describe("replacePreviewApp", () => {
   });
 });
 
-describe("bindPreviewApp", () => {
+describe("bindPreviewOps", () => {
   test("pulls via docker and replaces without exposing config to caller", async () => {
     const docker = createFakeDockerClient({
       exposedPorts: { "img:1": 3000 },
     });
-    const app = bindPreviewApp({ docker, ...baseDeps });
+    const app = bindPreviewOps({ docker, ...bindDeps });
     await app.pullImage("img:1");
     const { containerId } = await app.replace({
       slug: "myapp",
@@ -138,9 +143,9 @@ describe("bindPreviewApp", () => {
       exposedPorts: { "img:1": 3000 },
     });
     const hits: string[] = [];
-    const app = bindPreviewApp({
+    const app = bindPreviewOps({
       docker,
-      ...baseDeps,
+      ...bindDeps,
       healthProbe: {
         async getStatus(url) {
           hits.push(url);

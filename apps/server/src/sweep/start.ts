@@ -1,4 +1,4 @@
-import type { PreviewAppOps } from "../app-deployment/replace.ts";
+import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import { createForgeClient } from "../forge/client.ts";
 import type { Config } from "../config.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";

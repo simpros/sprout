@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureAdminToken } from "../auth/store.ts";
 import {
-  bindPreviewApp,
+  bindPreviewOps,
+  type BindPreviewOpsDeps,
   type PreviewAppOps,
-  type ReplacePreviewAppDeps,
-} from "../app-deployment/replace.ts";
+} from "../app-deployment/ops.ts";
 import type { HealthClock, HealthProbe } from "../app-deployment/health.ts";
 import {
   createFakeDockerClient,
@@ -33,7 +33,7 @@ export type TestApp = {
   cleanup: () => Promise<void>;
 };
 
-const defaultReplaceDeps: Omit<ReplacePreviewAppDeps, "docker"> = {
+const defaultOpsDeps: Omit<BindPreviewOpsDeps, "docker"> = {
   pg: {
     host: "postgres",
     port: 5432,
@@ -51,12 +51,12 @@ const defaultReplaceDeps: Omit<ReplacePreviewAppDeps, "docker"> = {
 /** Shared bind for HTTP/sweep tests — same PG/network/port bag as createTestApp. */
 export function bindTestPreviewApp(
   docker: PreviewDocker,
-  replaceDeps?: Partial<Omit<ReplacePreviewAppDeps, "docker">>,
+  opsDeps?: Partial<Omit<BindPreviewOpsDeps, "docker">>,
 ): PreviewAppOps {
-  return bindPreviewApp({
+  return bindPreviewOps({
     docker,
-    ...defaultReplaceDeps,
-    ...replaceDeps,
+    ...defaultOpsDeps,
+    ...opsDeps,
   });
 }
 
@@ -85,7 +85,7 @@ export async function createTestApp(
         adminToken?: string;
         previewDb?: PreviewDb;
         docker?: PreviewDocker;
-        replaceDeps?: Partial<Omit<ReplacePreviewAppDeps, "docker">>;
+        replaceDeps?: Partial<Omit<BindPreviewOpsDeps, "docker">>;
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
       }

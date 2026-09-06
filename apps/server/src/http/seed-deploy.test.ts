@@ -356,4 +356,46 @@ describe("POST /v1/deploy seed image", () => {
       .limit(1);
     expect(row?.seededAt).toMatch(/Z$/);
   });
+
+  test("resumes promote/seed when row is stuck in seeding", async () => {
+    const { deployToken } = await setup();
+    // Simulate crash after seeding write: healthy app row left mid-seed.
+    await testApp!.db.insert(previews).values({
+      canonicalRepoId: REPO,
+      prId: 42,
+      slug: "myapp",
+      dbName: "prev_myapp_pr42",
+      hostname: "pr-42.myapp.preview.example.com",
+      status: "seeding",
+      appImage: APP_IMAGE,
+      containerId: "fake-stuck",
+      seededAt: null,
+    });
+
+    const createsBefore = fakeDocker!.creates.length;
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("running");
+    // Resume must not replace the app — only run the seed container.
+    expect(
+      fakeDocker!.creates.slice(createsBefore).map((c) => c.name),
+    ).toEqual(["pb-myapp-pr-42-seed"]);
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row?.status).toBe("running");
+    expect(row?.seededAt).toMatch(/Z$/);
+    expect(row?.containerId).toBe("fake-stuck");
+  });
 });

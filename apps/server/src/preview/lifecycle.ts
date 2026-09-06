@@ -1,6 +1,6 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { HealthSpec } from "../app-deployment/health.ts";
-import type { PreviewAppOps } from "../app-deployment/replace.ts";
+import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { SeedImageResult, SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
@@ -301,7 +301,7 @@ type AttachInput = {
 
 /**
  * Seed phase ownership: enter seeding → run → running+seededAt | failed(keep container).
- * runSeed absorbs Docker ops errors into SeedImageResult (never throws mid-phase).
+ * Any post-enter throw still markSeedFailed so the row cannot tombstone as seeding.
  */
 async function runSeedPhase(
   deps: LifecycleDeps,
@@ -315,33 +315,39 @@ async function runSeedPhase(
     "preview_row_missing_on_seeding",
   );
 
-  const seedResult: SeedImageResult = await deps.app.runSeed({
-    slug: row.slug,
-    prId: row.prId,
-    image: seed.image,
-    dbName: row.dbName,
-    env: seed.env,
-    args: seed.args,
-  });
+  try {
+    const seedResult: SeedImageResult = await deps.app.runSeed({
+      slug: row.slug,
+      prId: row.prId,
+      image: seed.image,
+      dbName: row.dbName,
+      env: seed.env,
+      args: seed.args,
+    });
 
-  if (!seedResult.ok) {
-    if (seedResult.timedOut) {
-      console.warn("seed:failed", "timeout");
-    } else {
-      console.warn("seed:failed", seedResult.exitCode);
+    if (!seedResult.ok) {
+      if (seedResult.timedOut) {
+        console.warn("seed:failed", "timeout");
+      } else {
+        console.warn("seed:failed", seedResult.exitCode);
+      }
+      await markSeedFailed(deps.db, row.canonicalRepoId, row.prId);
+      return { ok: false, status: 500, error: "seed_failed" };
     }
+
+    const seededAt = utcIsoNow();
+    const updated = await updatePreviewRow(
+      deps.db,
+      row,
+      { status: "running", seededAt, updatedAt: seededAt },
+      "preview_row_missing_on_seeded_running",
+    );
+    return { ok: true, value: toSnapshot(updated, "running") };
+  } catch (err) {
+    console.warn("seed:failed", err);
     await markSeedFailed(deps.db, row.canonicalRepoId, row.prId);
     return { ok: false, status: 500, error: "seed_failed" };
   }
-
-  const seededAt = utcIsoNow();
-  const updated = await updatePreviewRow(
-    deps.db,
-    row,
-    { status: "running", seededAt, updatedAt: seededAt },
-    "preview_row_missing_on_seeded_running",
-  );
-  return { ok: true, value: toSnapshot(updated, "running") };
 }
 
 /** Post-health closer: no seed → running; else seed phase. */
@@ -558,13 +564,13 @@ async function provisionUnlocked(
       );
       return bringUpNew(deps, intent, attachInput, seed, false);
     }
-    case "seeding":
-      // Seed slice owns this phase — do not force-replace the app.
-      return {
-        ok: false,
-        status: 409,
-        error: "preview_seeding_in_progress",
-      };
+    case "seeding": {
+      // Crash/restart mid-seed leaves status=seeding; lock already serializes
+      // in-flight seed. App was healthy when seeding began — retry promote only.
+      const identity = requireDbIdentity(row, input, requestedDbName);
+      if (!identity.ok) return identity;
+      return promoteAfterHealthy(deps, row, seed);
+    }
     case "running":
     case "starting": {
       // Live / mid-health claim: refuse slug/dbName rewrite.
@@ -701,7 +707,7 @@ async function pullImageOrFail(
  * - failed + new slug/dbName: rewrite intent, then bring-up
  * - starting|running + same slug/dbName: re-attach + health (no CREATE retry, no TTL remint)
  * - provisioning + same slug/dbName: ensure DB then attach (mints generation)
- * - seeding: 409 preview_seeding_in_progress (concurrent seed owns the lock)
+ * - seeding + same slug/dbName: resume promote/seed only (no app replace; crash recovery)
  * - after health: optional seed when seed image present and seeded_at unset
  * - live + slug/dbName mismatch: 409 preview_identity_conflict
  * - removing: 409

@@ -1,4 +1,4 @@
-import { bindPreviewApp } from "./app-deployment/replace.ts";
+import { bindPreviewOps } from "./app-deployment/ops.ts";
 import { ensureAdminToken } from "./auth/store.ts";
 import { configSummary, loadConfig } from "./config.ts";
 import { createDockerEngineClient } from "./docker/engine.ts";
@@ -37,7 +37,7 @@ const docker = createDockerEngineClient({
         },
 });
 
-const app = bindPreviewApp({
+const app = bindPreviewOps({
   docker,
   pg: {
     host: config.previewPgHost,
