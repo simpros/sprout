@@ -8,12 +8,12 @@ import {
   type HealthSpec,
 } from "./health.ts";
 import {
+  pgConnectionEnv,
   runSeedImage,
   type SeedImageInput,
   type SeedImageResult,
 } from "./seed.ts";
 import type { CatalogContainer, PreviewDocker } from "../docker/port.ts";
-import { OPTIONAL_ENV_DEFAULTS } from "../config.ts";
 import { previewContainerName } from "../preview/naming.ts";
 
 export type AppDeployPg = {
@@ -34,7 +34,7 @@ export type ReplacePreviewAppDeps = {
   networks: AppDeployNetworks;
   previewPortDefault: number;
   /** Wall-clock bound for one-shot seed image runs (PB_SEED_TIMEOUT). */
-  seedTimeoutMs?: number;
+  seedTimeoutMs: number;
   /** Test seam — defaults to fetch-based probe. */
   healthProbe?: HealthProbe;
   /** Test seam — defaults to Date.now / setTimeout. */
@@ -70,8 +70,6 @@ export type PreviewAppOps = {
 
 export function bindPreviewApp(deps: ReplacePreviewAppDeps): PreviewAppOps {
   const probe = deps.healthProbe ?? defaultHealthProbe();
-  const seedTimeoutMs =
-    deps.seedTimeoutMs ?? OPTIONAL_ENV_DEFAULTS.PB_SEED_TIMEOUT * 1000;
   return {
     pullImage: (image) => deps.docker.pullImage(image),
     replace: (input) => replacePreviewApp(deps, input),
@@ -83,7 +81,7 @@ export function bindPreviewApp(deps: ReplacePreviewAppDeps): PreviewAppOps {
           docker: deps.docker,
           pg: deps.pg,
           networks: deps.networks,
-          seedTimeoutMs,
+          seedTimeoutMs: deps.seedTimeoutMs,
         },
         input,
       ),
@@ -119,13 +117,7 @@ export async function replacePreviewApp(
   const { id } = await deps.docker.createAndStart({
     name,
     image: input.image,
-    env: [
-      `PGHOST=${deps.pg.host}`,
-      `PGPORT=${String(deps.pg.port)}`,
-      `PGUSER=${deps.pg.user}`,
-      `PGPASSWORD=${deps.pg.password}`,
-      `PGDATABASE=${input.dbName}`,
-    ],
+    env: pgConnectionEnv(deps.pg, input.dbName),
     labels: traefikLabels({
       routerName: name,
       hostname: input.hostname,

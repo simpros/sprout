@@ -167,6 +167,7 @@ describe("POST /v1/deploy seed image", () => {
     );
     expect(first.status).toBe(200);
     const createsAfterFirst = fakeDocker!.creates.length;
+    const pullsAfterFirst = fakeDocker!.pulls.length;
 
     const second = await postDeploy(
       deployToken,
@@ -183,6 +184,41 @@ describe("POST /v1/deploy seed image", () => {
     expect(
       fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
     ).toHaveLength(1);
+    // Already-seeded sync must not re-pull the unused seed image.
+    expect(fakeDocker!.pulls.slice(pullsAfterFirst)).toEqual([APP_IMAGE]);
+  });
+
+  test("seed Docker ops failure marks failed and keeps app container", async () => {
+    const { deployToken } = await setup();
+    const original = fakeDocker!.createAndStart.bind(fakeDocker);
+    fakeDocker!.createAndStart = async (spec) => {
+      if (spec.name.endsWith("-seed")) {
+        throw new Error("docker create boom");
+      }
+      return original(spec);
+    };
+
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "seed_failed" });
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row?.status).toBe("failed");
+    expect(row?.seededAt).toBeNull();
+    expect(row?.containerId).toBe("fake-1");
+    expect(fakeDocker!.running.has("pb-myapp-pr-42")).toBe(true);
   });
 
   test("enforces max 16 seed_env and seed_arg", async () => {

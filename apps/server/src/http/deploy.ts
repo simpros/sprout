@@ -4,6 +4,7 @@ import {
   resolveHealthSpec,
   type HealthRequest,
 } from "../app-deployment/health.ts";
+import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
   provisionPreview,
   teardownPreview,
@@ -53,11 +54,8 @@ export type DeployBody = {
   seed_arg?: string[];
 };
 
-export type SeedRequest = {
-  image: string;
-  env: string[];
-  args: string[];
-};
+/** HTTP-facing alias for the shared seed request shape. */
+export type SeedRequest = SeedImageSpec;
 
 /** Validate optional seed fields; health is required when seed_image is set. */
 export function resolveSeedRequest(

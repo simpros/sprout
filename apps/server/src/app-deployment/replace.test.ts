@@ -14,6 +14,7 @@ const baseDeps = {
     postgres: "preview-buddy-postgres",
   },
   previewPortDefault: 8080,
+  seedTimeoutMs: 180_000,
 };
 
 describe("removePreviewApp", () => {

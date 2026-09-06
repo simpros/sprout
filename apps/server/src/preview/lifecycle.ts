@@ -1,6 +1,7 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { HealthSpec } from "../app-deployment/health.ts";
 import type { PreviewAppOps } from "../app-deployment/replace.ts";
+import type { SeedImageResult, SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import { previewDbName } from "../preview-db/names.ts";
@@ -62,11 +63,7 @@ export type ProvisionInput = {
   /** Resolved at the HTTP/CLI boundary — never defaulted here. */
   health: HealthSpec;
   /** Present when deploy requested a seed image; env/args not persisted. */
-  seed?: {
-    image: string;
-    env: string[];
-    args: string[];
-  };
+  seed?: SeedImageSpec;
 };
 
 export type TeardownInput = {
@@ -205,17 +202,50 @@ function toSnapshot(
   return snap;
 }
 
+type MarkFailedOptions = {
+  /** Seed failure keeps the healthy app routable; health/replace clear it. */
+  keepContainer?: boolean;
+};
+
 async function markPreviewFailed(
   db: StateDb,
   repo: string,
   prId: number,
+  options?: MarkFailedOptions,
 ): Promise<void> {
   await db
     .update(previews)
-    .set({ status: "failed", containerId: null, updatedAt: utcIsoNow() })
+    .set({
+      status: "failed",
+      ...(options?.keepContainer ? {} : { containerId: null }),
+      updatedAt: utcIsoNow(),
+    })
     .where(
       and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
     );
+}
+
+/** Update by (repo, prId) + returning; throw if the row vanished mid-phase. */
+async function updatePreviewRow(
+  db: StateDb,
+  row: Pick<PreviewRow, "canonicalRepoId" | "prId">,
+  values: Partial<typeof previews.$inferInsert>,
+  missingError: string,
+): Promise<PreviewRow> {
+  const [updated] = await db
+    .update(previews)
+    .set(values)
+    .where(
+      and(
+        eq(previews.canonicalRepoId, row.canonicalRepoId),
+        eq(previews.prId, row.prId),
+      ),
+    )
+    .returning();
+  if (!updated) {
+    throw new Error(missingError);
+  }
+  return updated;
 }
 
 async function writeProvisioningIntent(
@@ -224,9 +254,10 @@ async function writeProvisioningIntent(
   dbName: string,
 ): Promise<PreviewRow> {
   const now = utcIsoNow();
-  const [updated] = await deps.db
-    .update(previews)
-    .set({
+  return updatePreviewRow(
+    deps.db,
+    { canonicalRepoId: input.repo, prId: input.prId },
+    {
       slug: input.slug,
       dbName,
       hostname: input.hostname,
@@ -237,18 +268,9 @@ async function writeProvisioningIntent(
       // New generation: TTL means age of this intent, not birth of the row key.
       createdAt: now,
       updatedAt: now,
-    })
-    .where(
-      and(
-        eq(previews.canonicalRepoId, input.repo),
-        eq(previews.prId, input.prId),
-      ),
-    )
-    .returning();
-  if (!updated) {
-    throw new Error("preview_row_missing_on_intent_write");
-  }
-  return updated;
+    },
+    "preview_row_missing_on_intent_write",
+  );
 }
 
 /** CREATE under dbName lock only. Callers decide failed vs leave-provisioning. */
@@ -270,8 +292,83 @@ type AttachInput = {
   hostname: string;
   appImage: string;
   health: HealthSpec;
-  seed?: ProvisionInput["seed"];
+  seed?: SeedImageSpec;
 };
+
+/**
+ * Seed phase ownership: enter seeding → run → running+seededAt | failed(keep container).
+ * Absorbs unexpected throws so the row cannot stick in seeding.
+ */
+async function runSeedPhase(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+  seed: SeedImageSpec,
+): Promise<Result<PreviewSnapshot>> {
+  await updatePreviewRow(
+    deps.db,
+    row,
+    { status: "seeding", updatedAt: utcIsoNow() },
+    "preview_row_missing_on_seeding",
+  );
+
+  let seedResult: SeedImageResult;
+  try {
+    seedResult = await deps.app.runSeed({
+      slug: row.slug,
+      prId: row.prId,
+      image: seed.image,
+      dbName: row.dbName,
+      env: seed.env,
+      args: seed.args,
+    });
+  } catch {
+    seedResult = { ok: false, timedOut: false, exitCode: null };
+  }
+
+  if (!seedResult.ok) {
+    if (seedResult.timedOut) {
+      console.warn("seed:failed", "timeout");
+    } else {
+      console.warn("seed:failed", seedResult.exitCode);
+    }
+    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
+      keepContainer: true,
+    });
+    return { ok: false, status: 500, error: "seed_failed" };
+  }
+
+  const seededAt = utcIsoNow();
+  const updated = await updatePreviewRow(
+    deps.db,
+    row,
+    { status: "running", seededAt, updatedAt: seededAt },
+    "preview_row_missing_on_seeded_running",
+  );
+  return { ok: true, value: toSnapshot(updated, "running") };
+}
+
+/** Post-health closer: no seed → running; else seed phase. */
+async function promoteAfterHealthy(
+  deps: LifecycleDeps,
+  starting: PreviewRow,
+  seed?: SeedImageSpec,
+): Promise<Result<PreviewSnapshot>> {
+  const shouldSeed =
+    seed !== undefined &&
+    (starting.seededAt === null || starting.seededAt === undefined);
+
+  if (shouldSeed && seed) {
+    return runSeedPhase(deps, starting, seed);
+  }
+
+  const updated = await updatePreviewRow(
+    deps.db,
+    starting,
+    { status: "running", updatedAt: utcIsoNow() },
+    "preview_row_missing_on_running",
+  );
+  return { ok: true, value: toSnapshot(updated, "running") };
+}
 
 async function attachAppContainer(
   deps: LifecycleDeps,
@@ -295,26 +392,19 @@ async function attachAppContainer(
   }
 
   const now = utcIsoNow();
-  const [starting] = await deps.db
-    .update(previews)
-    .set({
+  const starting = await updatePreviewRow(
+    deps.db,
+    row,
+    {
       hostname: input.hostname,
       appImage: input.appImage,
       containerId,
       status: "starting",
       ...(refreshGeneration ? { createdAt: now } : {}),
       updatedAt: now,
-    })
-    .where(
-      and(
-        eq(previews.canonicalRepoId, row.canonicalRepoId),
-        eq(previews.prId, row.prId),
-      ),
-    )
-    .returning();
-  if (!starting) {
-    throw new Error("preview_row_missing_on_app_attach");
-  }
+    },
+    "preview_row_missing_on_app_attach",
+  );
 
   const outcome = await deps.app.waitHealthy(
     containerId,
@@ -336,84 +426,7 @@ async function attachAppContainer(
     return { ok: false, status: 500, error: "health_timeout" };
   }
 
-  const shouldSeed =
-    input.seed !== undefined &&
-    (starting.seededAt === null || starting.seededAt === undefined);
-
-  if (shouldSeed && input.seed) {
-    const seedingAt = utcIsoNow();
-    const [seeding] = await deps.db
-      .update(previews)
-      .set({ status: "seeding", updatedAt: seedingAt })
-      .where(
-        and(
-          eq(previews.canonicalRepoId, row.canonicalRepoId),
-          eq(previews.prId, row.prId),
-        ),
-      )
-      .returning();
-    if (!seeding) {
-      throw new Error("preview_row_missing_on_seeding");
-    }
-
-    const seedResult = await deps.app.runSeed({
-      slug: row.slug,
-      prId: row.prId,
-      image: input.seed.image,
-      dbName: row.dbName,
-      env: input.seed.env,
-      args: input.seed.args,
-    });
-    if (!seedResult.ok) {
-      if (seedResult.timedOut) {
-        console.warn("seed:failed", "timeout");
-      } else {
-        console.warn("seed:failed", seedResult.exitCode);
-      }
-      // Keep app container + containerId — seed failure is not a Traefik orphan.
-      await deps.db
-        .update(previews)
-        .set({ status: "failed", updatedAt: utcIsoNow() })
-        .where(
-          and(
-            eq(previews.canonicalRepoId, row.canonicalRepoId),
-            eq(previews.prId, row.prId),
-          ),
-        );
-      return { ok: false, status: 500, error: "seed_failed" };
-    }
-
-    const seededAt = utcIsoNow();
-    const [updated] = await deps.db
-      .update(previews)
-      .set({ status: "running", seededAt, updatedAt: seededAt })
-      .where(
-        and(
-          eq(previews.canonicalRepoId, row.canonicalRepoId),
-          eq(previews.prId, row.prId),
-        ),
-      )
-      .returning();
-    if (!updated) {
-      throw new Error("preview_row_missing_on_seeded_running");
-    }
-    return { ok: true, value: toSnapshot(updated, "running") };
-  }
-
-  const [updated] = await deps.db
-    .update(previews)
-    .set({ status: "running", updatedAt: utcIsoNow() })
-    .where(
-      and(
-        eq(previews.canonicalRepoId, row.canonicalRepoId),
-        eq(previews.prId, row.prId),
-      ),
-    )
-    .returning();
-  if (!updated) {
-    throw new Error("preview_row_missing_on_running");
-  }
-  return { ok: true, value: toSnapshot(updated, "running") };
+  return promoteAfterHealthy(deps, starting, input.seed);
 }
 
 /** Fresh / recovered identity: CREATE failure → failed; else attach. */
@@ -647,6 +660,19 @@ async function teardownUnlocked(
   return destroyPreviewRow(deps, existing, "tombstone");
 }
 
+async function pullImageOrFail(
+  app: PreviewAppOps,
+  image: string,
+  error: string,
+): Promise<Result<true>> {
+  try {
+    await app.pullImage(image);
+    return { ok: true, value: true };
+  } catch {
+    return { ok: false, status: 500, error };
+  }
+}
+
 /**
  * Ensure a preview DB + healthy app container exist for (repo, prId).
  * - removed: rewrite identity, CREATE, start/replace app, health → running
@@ -668,20 +694,34 @@ export async function provisionPreview(
   deps: LifecycleDeps,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
-  try {
-    await deps.app.pullImage(input.appImage);
-  } catch {
-    // Preflight only — do not poison a live running/provisioning row.
-    // Attach under the lock marks failed when replace actually fails.
-    return { ok: false, status: 500, error: "preview_app_deploy_failed" };
+  const requestedDbName = previewDbName(input.slug, input.prId);
+
+  // Preflight: skip seed pull when already seeded with matching identity.
+  // Re-check under the lock remains the source of truth for whether seed runs.
+  let pullSeed = false;
+  if (input.seed) {
+    const existing = await getPreviewRow(deps.db, input.repo, input.prId);
+    pullSeed = !(
+      existing != null &&
+      existing.seededAt != null &&
+      dbIdentityMatches(existing, input, requestedDbName)
+    );
   }
 
-  if (input.seed) {
-    try {
-      await deps.app.pullImage(input.seed.image);
-    } catch {
-      return { ok: false, status: 500, error: "preview_seed_pull_failed" };
-    }
+  if (pullSeed && input.seed) {
+    const [appPull, seedPull] = await Promise.all([
+      pullImageOrFail(deps.app, input.appImage, "preview_app_deploy_failed"),
+      pullImageOrFail(deps.app, input.seed.image, "preview_seed_pull_failed"),
+    ]);
+    if (!appPull.ok) return appPull;
+    if (!seedPull.ok) return seedPull;
+  } else {
+    const appPull = await pullImageOrFail(
+      deps.app,
+      input.appImage,
+      "preview_app_deploy_failed",
+    );
+    if (!appPull.ok) return appPull;
   }
 
   return withPreviewLock(input.repo, input.prId, () =>

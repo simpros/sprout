@@ -154,6 +154,15 @@ describe("createDockerEngineClient", () => {
     });
   });
 
+  test("waitForExit throws when StatusCode is missing", async () => {
+    const docker = createDockerEngineClient({
+      fetch: async () => new Response(JSON.stringify({}), { status: 200 }),
+    });
+    await expect(docker.waitForExit("cid-empty", 5_000)).rejects.toThrow(
+      /no StatusCode/,
+    );
+  });
+
   test("waitForExit returns timedOut when aborted", async () => {
     const docker = createDockerEngineClient({
       fetch: async (_input, init) => {

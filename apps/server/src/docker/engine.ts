@@ -228,9 +228,12 @@ export function createDockerEngineClient(
           );
         }
         const payload = (await res.json()) as { StatusCode?: number };
-        const exitCode =
-          typeof payload.StatusCode === "number" ? payload.StatusCode : 0;
-        return { timedOut: false, exitCode };
+        if (typeof payload.StatusCode !== "number") {
+          throw new Error(
+            `Docker wait ${containerId} returned no StatusCode`,
+          );
+        }
+        return { timedOut: false, exitCode: payload.StatusCode };
       } catch (err) {
         if (controller.signal.aborted) {
           return { timedOut: true };

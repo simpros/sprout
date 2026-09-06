@@ -45,6 +45,7 @@ const defaultReplaceDeps: Omit<ReplacePreviewAppDeps, "docker"> = {
     postgres: "preview-buddy-postgres",
   },
   previewPortDefault: 8080,
+  seedTimeoutMs: 180_000,
 };
 
 /** Shared bind for HTTP/sweep tests — same PG/network/port bag as createTestApp. */
