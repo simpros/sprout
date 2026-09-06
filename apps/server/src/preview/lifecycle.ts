@@ -321,25 +321,21 @@ async function attachAppContainer(
     throw new Error("preview_row_missing_on_app_attach");
   }
 
-  const ip = await deps.app.containerIpOnNetwork(
-    containerId,
-    deps.postgresNetwork,
-  );
-  if (!ip) {
-    deps.log?.("health:timeout (no container IP on postgres network)");
-    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
-    return { ok: false, status: 500, error: "health_timeout" };
-  }
-
   const probe = deps.healthProbe ?? defaultHealthProbe();
   const outcome = await pollHealth(
     probe,
-    healthUrl(ip, port, input.health.path),
+    async () => {
+      const ip = await deps.app.containerIpOnNetwork(
+        containerId,
+        deps.postgresNetwork,
+      );
+      return ip ? healthUrl(ip, port, input.health.path) : null;
+    },
     input.health,
     deps.healthClock,
   );
   if (outcome === "timeout") {
-    deps.log?.(`health:timeout ${healthUrl(ip, port, input.health.path)}`);
+    deps.log?.("health:timeout");
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return { ok: false, status: 500, error: "health_timeout" };
   }

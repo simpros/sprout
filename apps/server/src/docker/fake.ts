@@ -63,14 +63,6 @@ export function createFakeDockerClient(
         if (postgresNetwork && network !== postgresNetwork) continue;
         netIps.set(network, `10.99.0.${nextIp++}`);
       }
-      // If no postgresNetwork hint, assign on every attached network.
-      if (!postgresNetwork) {
-        for (const network of spec.networkNames) {
-          if (!netIps.has(network)) {
-            netIps.set(network, `10.99.0.${nextIp++}`);
-          }
-        }
-      }
       ips.set(id, netIps);
       return { id };
     },

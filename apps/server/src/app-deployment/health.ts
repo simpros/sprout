@@ -79,23 +79,27 @@ export function healthUrl(ip: string, port: number, path: string): string {
 }
 
 /**
- * Poll until expectStatus or timeout. Network / non-matching status → retry.
- * Uses container-IP URL only (caller builds it); never Traefik hostname.
+ * Poll until expectStatus or timeout.
+ * `resolveUrl` may return null while the container has no IP yet — that counts
+ * as not-ready and retries until the health timeout (same as a bad status).
  */
 export async function pollHealth(
   probe: HealthProbe,
-  url: string,
+  resolveUrl: () => Promise<string | null>,
   spec: HealthSpec,
   clock: HealthClock = defaultClock,
 ): Promise<"ok" | "timeout"> {
   const deadline = clock.now() + spec.timeoutMs;
 
   for (;;) {
-    try {
-      const status = await probe.getStatus(url);
-      if (status === spec.expectStatus) return "ok";
-    } catch {
-      // Container not listening yet — keep polling.
+    const url = await resolveUrl();
+    if (url) {
+      try {
+        const status = await probe.getStatus(url);
+        if (status === spec.expectStatus) return "ok";
+      } catch {
+        // Container not listening yet — keep polling.
+      }
     }
     if (clock.now() >= deadline) return "timeout";
     await clock.sleep(spec.intervalMs);
