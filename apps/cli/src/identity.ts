@@ -1,10 +1,4 @@
-export type IdentityResult =
-  | { ok: true; value: string }
-  | { ok: false; error: string };
-
-export type PrIdResult =
-  | { ok: true; value: number }
-  | { ok: false; error: string };
+import type { Result } from "./result.ts";
 
 export function normalizeGitRemoteUrl(remote: string): string | null {
   const trimmed = remote.trim();
@@ -34,7 +28,7 @@ export function normalizeGitRemoteUrl(remote: string): string | null {
 export function resolveCanonicalRepoId(input: {
   env: NodeJS.ProcessEnv;
   gitRemoteUrl?: string | null;
-}): IdentityResult {
+}): Result<string> {
   const github = input.env.GITHUB_REPOSITORY?.trim();
   if (github) {
     return { ok: true, value: `https://github.com/${github}` };
@@ -71,7 +65,7 @@ function positiveInt(raw: unknown): number | null {
 export function resolvePrId(input: {
   env: NodeJS.ProcessEnv;
   eventPayload?: unknown;
-}): PrIdResult {
+}): Result<number> {
   const payload = input.eventPayload;
   if (payload && typeof payload === "object") {
     const record = payload as Record<string, unknown>;

@@ -1,3 +1,5 @@
+import type { Result } from "./result.ts";
+
 export type SproutHealth = {
   path: string;
   interval: string;
@@ -11,10 +13,6 @@ export type SproutYaml = {
   health?: SproutHealth;
 };
 
-export type ParseResult =
-  | { ok: true; value: SproutYaml }
-  | { ok: false; error: string };
-
 const TOP_KEYS = new Set(["slug", "preview", "health"]);
 const PREVIEW_KEYS = new Set(["hostname"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
@@ -23,21 +21,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function unknownKey(path: string): ParseResult {
+function unknownKey(path: string): Result<SproutYaml> {
   return { ok: false, error: `unknown key: ${path}` };
 }
 
 function requireString(
   value: unknown,
   label: string,
-): { ok: true; value: string } | { ok: false; error: string } {
+): Result<string> {
   if (typeof value !== "string" || value.trim() === "") {
     return { ok: false, error: `${label} is required` };
   }
   return { ok: true, value: value.trim() };
 }
 
-export function parseSproutYaml(raw: string): ParseResult {
+export function parseSproutYaml(raw: string): Result<SproutYaml> {
   let parsed: unknown;
   try {
     parsed = Bun.YAML.parse(raw);

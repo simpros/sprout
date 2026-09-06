@@ -365,4 +365,89 @@ describe("sprout CLI command surface", () => {
       slug: "myapp",
     });
   });
+
+  test("unknown command fails before requiring SPROUT_TOKEN", async () => {
+    const code = await runCli(
+      ["totally-bogus"],
+      deps({ env: {} }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe("unknown command: totally-bogus");
+  });
+
+  test("admin token create requires explicit --repo even when CI derives one", async () => {
+    const code = await runCli(
+      ["admin", "token", "create", "--scope", "deploy"],
+      deps({
+        env: {
+          SPROUT_TOKEN: "admin",
+          GITHUB_REPOSITORY: "org/repo",
+        },
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe("--repo is required");
+  });
+
+  test("admin token create normalizes ssh --repo", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json(
+        {
+          id: "hash",
+          scope: "deploy",
+          canonical_repo_id: "https://github.com/org/repo",
+          created_at: "2026-01-01T00:00:00.000Z",
+          revoked_at: null,
+          token: "raw-token",
+        },
+        { status: 201 },
+      );
+    });
+
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      [
+        "admin",
+        "token",
+        "create",
+        "--repo",
+        "git@github.com:org/repo.git",
+      ],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "admin" },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toEqual({
+      canonical_repo_id: "https://github.com/org/repo",
+      slug: "myapp",
+    });
+  });
+
+  test("broken GITHUB_EVENT_PATH is a hard error", async () => {
+    const baseUrl = startGateway(async () => Response.json({ ok: true }));
+    const code = await runCli(
+      ["teardown"],
+      deps({
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_EVENT_PATH: "/tmp/sprout-missing-event.json",
+          GITHUB_REF: "refs/pull/99/merge",
+        },
+        readTextFile: async () => null,
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toContain("GITHUB_EVENT_PATH not readable");
+  });
 });
