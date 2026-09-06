@@ -43,32 +43,48 @@ a smoke `up` does not collide with an existing Coolify Traefik network named
 
 ## Upgrading from preview-buddy
 
-Default on-disk paths and Docker network names changed with the project
-rename. Existing installs that relied on compose defaults must migrate (or
-pin the old names) before recreating the stack — otherwise the gateway opens
-an empty SQLite file and joins new empty networks.
+Compose **project name** stays `preview-buddy` so Docker volume identity
+(`preview-buddy_gateway-data`, `preview-buddy_postgres-data`) is unchanged
+after pull. Preferred SQLite filename and default **network** names changed:
 
 | What | Old default | New default |
 |---|---|---|
+| Compose project / volumes | `preview-buddy` / `preview-buddy_*` | unchanged (stable) |
 | Control-plane SQLite | `/data/preview-buddy.db` (compose) / `preview-buddy.db` (host) | `/data/sprout.db` / `sprout.db` |
 | Traefik network | `preview-buddy-traefik` | `sprout-traefik` |
 | Postgres network | `preview-buddy-postgres` | `sprout-postgres` |
 
-One-release options:
+SQLite resolution (host and compose): explicit `PB_STATE_DB_PATH` when it is
+not the new default → existing `sprout.db` → existing `preview-buddy.db`
+(one-release legacy) → create `sprout.db`. Compose passes
+`PB_STATE_DB_PATH=${PB_STATE_DB_PATH:-/data/sprout.db}` into the gateway, so
+pinning the old path in `compose.env` works.
+
+Networks still need a pin if Traefik/Postgres attachments used the old
+default names:
 
 ```bash
-# Keep state on the existing gateway-data volume (compose):
-docker compose --env-file compose.env exec gateway \
-  sh -c 'test -f /data/preview-buddy.db && mv /data/preview-buddy.db /data/sprout.db'
+# In compose.env — keep old Docker network names:
+PB_TRAEFIK_NETWORK=preview-buddy-traefik
+PB_POSTGRES_NETWORK=preview-buddy-postgres
 
-# Or pin the old path / network names in compose.env instead of renaming:
+# Optional: pin old SQLite path instead of relying on legacy fallback
 # PB_STATE_DB_PATH=/data/preview-buddy.db
-# PB_TRAEFIK_NETWORK=preview-buddy-traefik
-# PB_POSTGRES_NETWORK=preview-buddy-postgres
 ```
 
-Host `bun run dev` installs: `mv preview-buddy.db sprout.db` (and any
-`preview-buddy.db-*` WAL/SHM sidecars), or set `PB_STATE_DB_PATH`.
+Optional one-time rename — **stop** the gateway first (do not `mv` an open
+SQLite file):
+
+```bash
+docker compose --env-file compose.env stop gateway
+docker compose --env-file compose.env run --rm --no-deps --entrypoint sh gateway \
+  -c 'test -f /data/preview-buddy.db && mv /data/preview-buddy.db /data/sprout.db'
+docker compose --env-file compose.env up -d gateway
+```
+
+Host `bun run dev`: legacy `preview-buddy.db` is opened automatically when
+`sprout.db` is missing; or `mv preview-buddy.db sprout.db` (plus any
+`preview-buddy.db-*` WAL/SHM sidecars).
 
 ## Architecture
 
