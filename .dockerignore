@@ -7,7 +7,7 @@ build
 !.env.example
 *.log
 .turbo
-sprout.db
-sprout.db-*
+preview-buddy.db
+preview-buddy.db-*
 coverage
 .agents

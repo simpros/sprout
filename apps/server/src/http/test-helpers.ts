@@ -37,12 +37,12 @@ const defaultReplaceDeps: Omit<ReplacePreviewAppDeps, "docker"> = {
   pg: {
     host: "postgres",
     port: 5432,
-    user: "sprout_preview",
+    user: "pb_preview",
     password: "preview-secret",
   },
   networks: {
-    traefik: "sprout-traefik",
-    postgres: "sprout-postgres",
+    traefik: "preview-buddy-traefik",
+    postgres: "preview-buddy-postgres",
   },
   previewPortDefault: 8080,
 };
