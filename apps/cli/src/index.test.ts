@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveGatewayUrl } from "./index";
+import { resolveGatewayUrl } from "./index.ts";
 
 describe("resolveGatewayUrl", () => {
   test("reads SPROUT_URL", () => {
