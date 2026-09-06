@@ -184,8 +184,11 @@ describe("POST /v1/deploy seed image", () => {
     expect(
       fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
     ).toHaveLength(1);
-    // Already-seeded sync must not re-pull the unused seed image.
-    expect(fakeDocker!.pulls.slice(pullsAfterFirst)).toEqual([APP_IMAGE]);
+    // Named seed_image always pulls (client should omit it on sync to skip).
+    expect(fakeDocker!.pulls.slice(pullsAfterFirst)).toEqual([
+      APP_IMAGE,
+      SEED_IMAGE,
+    ]);
   });
 
   test("seed Docker ops failure marks failed and keeps app container", async () => {

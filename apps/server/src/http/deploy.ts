@@ -54,14 +54,11 @@ export type DeployBody = {
   seed_arg?: string[];
 };
 
-/** HTTP-facing alias for the shared seed request shape. */
-export type SeedRequest = SeedImageSpec;
-
 /** Validate optional seed fields; health is required when seed_image is set. */
 export function resolveSeedRequest(
   body: Pick<DeployBody, "seed_image" | "seed_env" | "seed_arg" | "health">,
 ):
-  | { ok: true; value: SeedRequest | undefined }
+  | { ok: true; value: SeedImageSpec | undefined }
   | { ok: false; error: string } {
   const seedImage = body.seed_image?.trim();
   const seedEnv = body.seed_env ?? [];

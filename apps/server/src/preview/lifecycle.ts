@@ -202,24 +202,29 @@ function toSnapshot(
   return snap;
 }
 
-type MarkFailedOptions = {
-  /** Seed failure keeps the healthy app routable; health/replace clear it. */
-  keepContainer?: boolean;
-};
-
+/** Replace/health failure: clear containerId so Traefik orphans are not claimed. */
 async function markPreviewFailed(
   db: StateDb,
   repo: string,
   prId: number,
-  options?: MarkFailedOptions,
 ): Promise<void> {
   await db
     .update(previews)
-    .set({
-      status: "failed",
-      ...(options?.keepContainer ? {} : { containerId: null }),
-      updatedAt: utcIsoNow(),
-    })
+    .set({ status: "failed", containerId: null, updatedAt: utcIsoNow() })
+    .where(
+      and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+    );
+}
+
+/** Seed failure: keep containerId so the healthy app stays routable for operators. */
+async function markSeedFailed(
+  db: StateDb,
+  repo: string,
+  prId: number,
+): Promise<void> {
+  await db
+    .update(previews)
+    .set({ status: "failed", updatedAt: utcIsoNow() })
     .where(
       and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
     );
@@ -292,12 +297,11 @@ type AttachInput = {
   hostname: string;
   appImage: string;
   health: HealthSpec;
-  seed?: SeedImageSpec;
 };
 
 /**
  * Seed phase ownership: enter seeding → run → running+seededAt | failed(keep container).
- * Absorbs unexpected throws so the row cannot stick in seeding.
+ * runSeed absorbs Docker ops errors into SeedImageResult (never throws mid-phase).
  */
 async function runSeedPhase(
   deps: LifecycleDeps,
@@ -311,19 +315,14 @@ async function runSeedPhase(
     "preview_row_missing_on_seeding",
   );
 
-  let seedResult: SeedImageResult;
-  try {
-    seedResult = await deps.app.runSeed({
-      slug: row.slug,
-      prId: row.prId,
-      image: seed.image,
-      dbName: row.dbName,
-      env: seed.env,
-      args: seed.args,
-    });
-  } catch {
-    seedResult = { ok: false, timedOut: false, exitCode: null };
-  }
+  const seedResult: SeedImageResult = await deps.app.runSeed({
+    slug: row.slug,
+    prId: row.prId,
+    image: seed.image,
+    dbName: row.dbName,
+    env: seed.env,
+    args: seed.args,
+  });
 
   if (!seedResult.ok) {
     if (seedResult.timedOut) {
@@ -331,9 +330,7 @@ async function runSeedPhase(
     } else {
       console.warn("seed:failed", seedResult.exitCode);
     }
-    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
-      keepContainer: true,
-    });
+    await markSeedFailed(deps.db, row.canonicalRepoId, row.prId);
     return { ok: false, status: 500, error: "seed_failed" };
   }
 
@@ -370,12 +367,16 @@ async function promoteAfterHealthy(
   return { ok: true, value: toSnapshot(updated, "running") };
 }
 
+/**
+ * Replace + health only. Ends at healthy `starting` — seed/promote is a
+ * separate phase owned by attachThenPromote / promoteAfterHealthy.
+ */
 async function attachAppContainer(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: AttachInput,
   refreshGeneration: boolean,
-): Promise<Result<PreviewSnapshot>> {
+): Promise<Result<PreviewRow>> {
   let containerId: string;
   let port: number;
   try {
@@ -426,14 +427,33 @@ async function attachAppContainer(
     return { ok: false, status: 500, error: "health_timeout" };
   }
 
-  return promoteAfterHealthy(deps, starting, input.seed);
+  return { ok: true, value: starting };
 }
 
-/** Fresh / recovered identity: CREATE failure → failed; else attach. */
+/** Attach (replace+health) then promote (running or seed phase). */
+async function attachThenPromote(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+  attachInput: AttachInput,
+  seed: SeedImageSpec | undefined,
+  refreshGeneration: boolean,
+): Promise<Result<PreviewSnapshot>> {
+  const attached = await attachAppContainer(
+    deps,
+    row,
+    attachInput,
+    refreshGeneration,
+  );
+  if (!attached.ok) return attached;
+  return promoteAfterHealthy(deps, attached.value, seed);
+}
+
+/** Fresh / recovered identity: CREATE failure → failed; else attach+promote. */
 async function bringUpNew(
   deps: LifecycleDeps,
   row: PreviewRow,
   attachInput: AttachInput,
+  seed: SeedImageSpec | undefined,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
@@ -441,19 +461,20 @@ async function bringUpNew(
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return ensured;
   }
-  return attachAppContainer(deps, row, attachInput, refreshGeneration);
+  return attachThenPromote(deps, row, attachInput, seed, refreshGeneration);
 }
 
-/** Stuck-create resume: leave provisioning on CREATE failure; else attach. */
+/** Stuck-create resume: leave provisioning on CREATE failure; else attach+promote. */
 async function resumeProvisioning(
   deps: LifecycleDeps,
   row: PreviewRow,
   attachInput: AttachInput,
+  seed: SeedImageSpec | undefined,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
   if (!ensured.ok) return ensured;
   // Mint generation when stuck-create finally becomes live.
-  return attachAppContainer(deps, row, attachInput, true);
+  return attachThenPromote(deps, row, attachInput, seed, true);
 }
 
 /** slug + dbName ownership; hostname is routing and may change on replace. */
@@ -489,8 +510,8 @@ async function provisionUnlocked(
     hostname: input.hostname,
     appImage: input.appImage,
     health: input.health,
-    seed: input.seed,
   };
+  const seed = input.seed;
   let row = await getPreviewRow(deps.db, input.repo, input.prId);
 
   if (!row) {
@@ -509,7 +530,7 @@ async function provisionUnlocked(
       return { ok: false, status: 500, error: "preview_row_missing" };
     }
     // First live: mint generation at attach (DB+app ready).
-    return bringUpNew(deps, inserted, attachInput, true);
+    return bringUpNew(deps, inserted, attachInput, seed, true);
   }
 
   const status = parsePreviewStatus(row.status);
@@ -523,19 +544,19 @@ async function provisionUnlocked(
         requestedDbName,
       );
       // Intent write already minted createdAt — do not remint on attach.
-      return bringUpNew(deps, intent, attachInput, false);
+      return bringUpNew(deps, intent, attachInput, seed, false);
     }
     case "failed": {
       // Same slug/dbName: resume without burning TTL generation.
       if (dbIdentityMatches(row, input, requestedDbName)) {
-        return bringUpNew(deps, row, attachInput, false);
+        return bringUpNew(deps, row, attachInput, seed, false);
       }
       const intent = await writeProvisioningIntent(
         deps,
         input,
         requestedDbName,
       );
-      return bringUpNew(deps, intent, attachInput, false);
+      return bringUpNew(deps, intent, attachInput, seed, false);
     }
     case "seeding":
       // Seed slice owns this phase — do not force-replace the app.
@@ -551,13 +572,13 @@ async function provisionUnlocked(
       // DB already ensured; re-attach + health without reminting TTL.
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return attachAppContainer(deps, row, attachInput, false);
+      return attachThenPromote(deps, row, attachInput, seed, false);
     }
     case "provisioning": {
       // Stuck create: refuse slug/dbName rewrite; ensure DB then attach (mints generation).
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return resumeProvisioning(deps, row, attachInput);
+      return resumeProvisioning(deps, row, attachInput, seed);
     }
     case "removing":
       return {
@@ -686,29 +707,17 @@ async function pullImageOrFail(
  * - removing: 409
  *
  * Registry pull (app + optional seed) runs outside the preview lock so a hung
- * pull cannot stall teardown for the same (repo, prId). Port inspect stays
- * inside replace. Health poll and seed wait hold the preview lock
- * (same-PR teardown queues behind).
+ * pull cannot stall teardown for the same (repo, prId). When seed is named,
+ * both images pull in parallel — whether seed *runs* is gated under the lock
+ * by seeded_at (clients that can omit seed_image on sync avoid unused pulls).
+ * Port inspect stays inside replace. Health poll and seed wait hold the
+ * preview lock (same-PR teardown queues behind).
  */
 export async function provisionPreview(
   deps: LifecycleDeps,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
-  const requestedDbName = previewDbName(input.slug, input.prId);
-
-  // Preflight: skip seed pull when already seeded with matching identity.
-  // Re-check under the lock remains the source of truth for whether seed runs.
-  let pullSeed = false;
   if (input.seed) {
-    const existing = await getPreviewRow(deps.db, input.repo, input.prId);
-    pullSeed = !(
-      existing != null &&
-      existing.seededAt != null &&
-      dbIdentityMatches(existing, input, requestedDbName)
-    );
-  }
-
-  if (pullSeed && input.seed) {
     const [appPull, seedPull] = await Promise.all([
       pullImageOrFail(deps.app, input.appImage, "preview_app_deploy_failed"),
       pullImageOrFail(deps.app, input.seed.image, "preview_seed_pull_failed"),

@@ -62,16 +62,16 @@ export async function runSeedImage(
     // Spec: log key count only — never values (may contain secrets).
     console.log("seed:env", input.env.length);
 
-    const { id } = await deps.docker.createAndStart({
-      name,
-      image: input.image,
-      env: [...input.env, ...pgConnectionEnv(deps.pg, input.dbName)],
-      labels: {},
-      networkNames: [deps.networks.postgres],
-      ...(input.args.length > 0 ? { cmd: input.args } : {}),
-    });
-
     try {
+      const { id } = await deps.docker.createAndStart({
+        name,
+        image: input.image,
+        env: [...input.env, ...pgConnectionEnv(deps.pg, input.dbName)],
+        labels: {},
+        networkNames: [deps.networks.postgres],
+        ...(input.args.length > 0 ? { cmd: input.args } : {}),
+      });
+
       const wait = await deps.docker.waitForExit(id, deps.seedTimeoutMs);
       if (wait.timedOut) {
         return { ok: false, timedOut: true };
@@ -88,11 +88,6 @@ export async function runSeedImage(
       }
     }
   } catch {
-    try {
-      await deps.docker.removeByName(name);
-    } catch {
-      console.warn(`seed image remove failed for ${name}`);
-    }
     return { ok: false, timedOut: false, exitCode: null };
   }
 }
