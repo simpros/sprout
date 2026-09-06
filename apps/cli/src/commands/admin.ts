@@ -75,7 +75,13 @@ async function createToken(
   if (!slug) {
     const yaml = await loadYaml(ctx.deps);
     if (!yaml.ok) {
-      return fail(ctx.deps.io, "--slug is required (or provide .sprout.yaml)");
+      if (yaml.error.startsWith("missing ")) {
+        return fail(
+          ctx.deps.io,
+          "--slug is required (or provide .sprout.yaml)",
+        );
+      }
+      return fail(ctx.deps.io, yaml.error);
     }
     slug = yaml.value.slug;
   }

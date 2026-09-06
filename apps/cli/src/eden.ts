@@ -22,11 +22,13 @@ function errorMessage(body: unknown): string {
   return "request failed";
 }
 
-/** Unwrap one Eden/treaty response at the CLI boundary. */
-export function readEden<T>(response: EdenLike): EdenResult<T> {
+/** Unwrap one Eden/treaty response at the CLI boundary. Non-2xx is always failure. */
+export function readEden<T = unknown>(response: EdenLike): EdenResult<T> {
   const status = response.status ?? (response.error ? 500 : 200);
-  if (response.error) {
-    const body = errorBody(response.error);
+  if (response.error || status >= 400) {
+    const body = response.error
+      ? errorBody(response.error)
+      : response.data;
     return {
       ok: false,
       status,
@@ -34,5 +36,9 @@ export function readEden<T>(response: EdenLike): EdenResult<T> {
       message: errorMessage(body),
     };
   }
-  return { ok: true, data: response.data as T, status };
+  return {
+    ok: true,
+    data: response.data as T,
+    status,
+  };
 }

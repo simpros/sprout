@@ -1,15 +1,5 @@
 import type { Result } from "./result.ts";
 
-export type FlagName =
-  | "-i"
-  | "-s"
-  | "--seed-env"
-  | "--seed-arg"
-  | "--yes"
-  | "--repo"
-  | "--slug"
-  | "--scope";
-
 export type FlagBag = {
   image?: string;
   seedImage?: string;
@@ -22,22 +12,7 @@ export type FlagBag = {
   rest: string[];
 };
 
-type FlagDef =
-  | {
-      flag: FlagName;
-      field: "image" | "seedImage" | "repo" | "slug" | "scope";
-      kind: "string";
-      allowDash?: boolean;
-    }
-  | {
-      flag: FlagName;
-      field: "seedEnv" | "seedArg";
-      kind: "repeat";
-      allowDash?: boolean;
-    }
-  | { flag: FlagName; field: "yes"; kind: "boolean" };
-
-const FLAG_DEFS: readonly FlagDef[] = [
+const FLAG_DEFS = [
   { flag: "-i", field: "image", kind: "string" },
   { flag: "-s", field: "seedImage", kind: "string" },
   { flag: "--seed-env", field: "seedEnv", kind: "repeat", allowDash: true },
@@ -46,9 +21,13 @@ const FLAG_DEFS: readonly FlagDef[] = [
   { flag: "--repo", field: "repo", kind: "string" },
   { flag: "--slug", field: "slug", kind: "string" },
   { flag: "--scope", field: "scope", kind: "string" },
-];
+] as const;
 
-const FLAG_BY_NAME = new Map(FLAG_DEFS.map((d) => [d.flag, d]));
+export type FlagName = (typeof FLAG_DEFS)[number]["flag"];
+
+const FLAG_BY_NAME = new Map(
+  FLAG_DEFS.map((d) => [d.flag, d] as const),
+);
 
 /** Parse argv tokens, accepting only the listed flags. */
 export function parseFlags(
@@ -76,12 +55,13 @@ export function parseFlags(
     }
 
     if (def.kind === "boolean") {
-      out.yes = true;
+      out[def.field] = true;
       continue;
     }
 
     const value = tokens[++i];
-    if (value === undefined || (!def.allowDash && value.startsWith("-"))) {
+    const allowDash = "allowDash" in def && def.allowDash;
+    if (value === undefined || (!allowDash && value.startsWith("-"))) {
       return { ok: false, error: `missing value for ${def.flag}` };
     }
 

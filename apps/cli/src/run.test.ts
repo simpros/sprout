@@ -478,6 +478,27 @@ describe("sprout CLI command surface", () => {
     });
   });
 
+  test("admin token create forwards invalid .sprout.yaml errors", async () => {
+    const cwd = await withWorkspace("slug: [broken");
+    const code = await runCli(
+      [
+        "admin",
+        "token",
+        "create",
+        "--repo",
+        "https://github.com/org/repo",
+      ],
+      deps({
+        cwd,
+        env: { SPROUT_TOKEN: "admin" },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).not.toContain("--slug is required");
+    expect(stderr[0]?.length).toBeGreaterThan(0);
+  });
+
   test("broken GITHUB_EVENT_PATH is a hard error", async () => {
     const baseUrl = startGateway(async () => Response.json({ ok: true }));
     const code = await runCli(

@@ -1,3 +1,4 @@
+import type { PreviewSnapshot } from "@sprout/api-client";
 import type { CliContext } from "../context.ts";
 import {
   fail,
@@ -8,25 +9,6 @@ import {
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
 import type { SproutYaml } from "../yaml.ts";
-
-/** Mirrors gateway `PreviewSnapshot` (apps/server preview/lifecycle). */
-type DeploySnapshot = {
-  ok: true;
-  canonical_repo_id: string;
-  pr_id: number;
-  slug: string;
-  db_name: string;
-  hostname: string;
-  status:
-    | "provisioning"
-    | "starting"
-    | "seeding"
-    | "running"
-    | "failed"
-    | "removing"
-    | "removed";
-  preview_url?: string;
-};
 
 export async function runDeploy(
   tokens: string[],
@@ -91,7 +73,7 @@ export async function runDeploy(
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
 
   const response = await ctx.client.v1.deploy.post(body);
-  const result = readEden<DeploySnapshot>(response);
+  const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return fail(ctx.deps.io, result.message);
 
   const data = result.data;
