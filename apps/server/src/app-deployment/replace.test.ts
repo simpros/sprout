@@ -131,4 +131,38 @@ describe("bindPreviewApp", () => {
     expect(docker.removed).toContain("pb-myapp-pr-1");
     expect(await app.list()).toEqual([]);
   });
+
+  test("waitHealthy polls postgres-network IP via injected probe", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "img:1": 3000 },
+    });
+    const hits: string[] = [];
+    const app = bindPreviewApp({
+      docker,
+      ...baseDeps,
+      healthProbe: {
+        async getStatus(url) {
+          hits.push(url);
+          return 200;
+        },
+      },
+    });
+    const { containerId, port } = await app.replace({
+      slug: "myapp",
+      prId: 1,
+      hostname: "pr-1.example.com",
+      image: "img:1",
+      dbName: "prev_myapp_pr1",
+    });
+    expect(
+      await app.waitHealthy(containerId, port, {
+        path: "/health",
+        intervalMs: 1,
+        timeoutMs: 5_000,
+        expectStatus: 200,
+      }),
+    ).toBe("ok");
+    // networkNames = [traefik, postgres] → postgres gets 10.99.0.2
+    expect(hits).toEqual(["http://10.99.0.2:3000/health"]);
+  });
 });

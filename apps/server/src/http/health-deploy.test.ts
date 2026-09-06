@@ -19,7 +19,8 @@ import {
 
 const REPO = "https://github.com/org/repo";
 const APP_IMAGE = "ghcr.io/org/myapp:sha-abc";
-const POSTGRES_NETWORK = "preview-buddy-postgres";
+/** Second network on create — fake assigns sequential IPs per attached network. */
+const POSTGRES_IP = "10.99.0.2";
 
 let testApp: TestApp | undefined;
 let fakePreviewDb: FakePreviewDb | undefined;
@@ -45,7 +46,6 @@ async function setup(options?: {
   fakePreviewDb = createFakePreviewDb();
   fakeDocker = createFakeDockerClient({
     exposedPorts: { [APP_IMAGE]: 3000 },
-    postgresNetwork: POSTGRES_NETWORK,
   });
   const healthProbe: HealthProbe = options?.healthProbe ?? {
     async getStatus(url) {
@@ -56,7 +56,6 @@ async function setup(options?: {
   testApp = await createTestApp({
     previewDb: fakePreviewDb,
     docker: fakeDocker,
-    postgresNetwork: POSTGRES_NETWORK,
     healthProbe,
     healthClock: options?.healthClock,
     log: (message) => {
@@ -119,7 +118,7 @@ describe("POST /v1/deploy health polling", () => {
       )
       .limit(1);
     expect(row?.status).toBe("running");
-    expect(healthHits[0]).toBe("http://10.99.0.1:3000/health");
+    expect(healthHits[0]).toBe(`http://${POSTGRES_IP}:3000/health`);
   });
 
   test("polls container IP on postgres network, not Traefik hostname", async () => {
@@ -127,8 +126,9 @@ describe("POST /v1/deploy health polling", () => {
     await postDeploy(deployToken, deployBody());
     expect(healthHits.length).toBeGreaterThan(0);
     for (const url of healthHits) {
-      expect(url.startsWith("http://10.99.0.")).toBe(true);
+      expect(url.startsWith(`http://${POSTGRES_IP}:`)).toBe(true);
       expect(url.includes("pr-42.myapp.preview.example.com")).toBe(false);
+      expect(url.startsWith("http://10.99.0.1:")).toBe(false); // traefik IP
     }
   });
 
@@ -153,7 +153,7 @@ describe("POST /v1/deploy health polling", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(healthHits[0]).toBe("http://10.99.0.1:3000/readyz");
+    expect(healthHits[0]).toBe(`http://${POSTGRES_IP}:3000/readyz`);
   });
 
   test("health timeout marks failed and logs health:timeout", async () => {

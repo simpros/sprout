@@ -85,7 +85,6 @@ export async function createTestApp(
         previewDb?: PreviewDb;
         docker?: PreviewDocker;
         replaceDeps?: Partial<Omit<ReplacePreviewAppDeps, "docker">>;
-        postgresNetwork?: string;
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
         log?: (message: string) => void;
@@ -96,11 +95,13 @@ export async function createTestApp(
     typeof options === "string" ? { adminToken: options } : options;
   const adminToken = opts.adminToken ?? "test-admin-token";
   const previewDb = opts.previewDb ?? createFakePreviewDb();
-  const docker = opts.docker ?? createFakeDockerClient({
-    postgresNetwork:
-      opts.postgresNetwork ?? defaultReplaceDeps.networks.postgres,
+  const docker = opts.docker ?? createFakeDockerClient();
+  const appOps = bindTestPreviewApp(docker, {
+    ...opts.replaceDeps,
+    healthProbe: opts.healthProbe ?? defaultHealthProbe,
+    healthClock: opts.healthClock,
+    log: opts.log,
   });
-  const appOps = bindTestPreviewApp(docker, opts.replaceDeps);
   const { db, cleanup } = await createTestDb();
   await ensureAdminToken(db, adminToken);
   return {
@@ -108,11 +109,6 @@ export async function createTestApp(
       db,
       previewDb,
       app: appOps,
-      postgresNetwork:
-        opts.postgresNetwork ?? defaultReplaceDeps.networks.postgres,
-      healthProbe: opts.healthProbe ?? defaultHealthProbe,
-      healthClock: opts.healthClock,
-      log: opts.log,
     }),
     db,
     adminToken,

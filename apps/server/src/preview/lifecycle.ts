@@ -1,14 +1,6 @@
 import { and, eq, ne } from "drizzle-orm";
+import type { HealthSpec } from "../app-deployment/health.ts";
 import type { PreviewAppOps } from "../app-deployment/replace.ts";
-import {
-  defaultHealthProbe,
-  healthUrl,
-  pollHealth,
-  type HealthClock,
-  type HealthProbe,
-  type HealthSpec,
-  DEFAULT_HEALTH,
-} from "../app-deployment/health.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import { previewDbName } from "../preview-db/names.ts";
@@ -59,11 +51,6 @@ export type LifecycleDeps = {
   db: StateDb;
   previewDb: PreviewDb;
   app: PreviewAppOps;
-  /** Docker network name used for health polls (PB_POSTGRES_NETWORK). */
-  postgresNetwork: string;
-  healthProbe?: HealthProbe;
-  healthClock?: HealthClock;
-  log?: (message: string) => void;
 };
 
 export type ProvisionInput = {
@@ -72,7 +59,8 @@ export type ProvisionInput = {
   slug: string;
   hostname: string;
   appImage: string;
-  health?: HealthSpec;
+  /** Resolved at the HTTP/CLI boundary — never defaulted here. */
+  health: HealthSpec;
 };
 
 export type TeardownInput = {
@@ -321,21 +309,12 @@ async function attachAppContainer(
     throw new Error("preview_row_missing_on_app_attach");
   }
 
-  const probe = deps.healthProbe ?? defaultHealthProbe();
-  const outcome = await pollHealth(
-    probe,
-    async () => {
-      const ip = await deps.app.containerIpOnNetwork(
-        containerId,
-        deps.postgresNetwork,
-      );
-      return ip ? healthUrl(ip, port, input.health.path) : null;
-    },
+  const outcome = await deps.app.waitHealthy(
+    containerId,
+    port,
     input.health,
-    deps.healthClock,
   );
   if (outcome === "timeout") {
-    deps.log?.("health:timeout");
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return { ok: false, status: 500, error: "health_timeout" };
   }
@@ -400,7 +379,7 @@ async function provisionUnlocked(
   const attachInput: AttachInput = {
     hostname: input.hostname,
     appImage: input.appImage,
-    health: input.health ?? DEFAULT_HEALTH,
+    health: input.health,
   };
   let row = await getPreviewRow(deps.db, input.repo, input.prId);
 
@@ -448,9 +427,15 @@ async function provisionUnlocked(
       );
       return bringUpNew(deps, intent, attachInput, false);
     }
+    case "seeding":
+      // Seed slice owns this phase — do not force-replace the app.
+      return {
+        ok: false,
+        status: 409,
+        error: "preview_seeding_in_progress",
+      };
     case "provisioning":
     case "starting":
-    case "seeding":
     case "running": {
       // Live claim: refuse slug/dbName rewrite mid-flight / on replace.
       // Hostname/image may still change when identity matches.
@@ -464,7 +449,7 @@ async function provisionUnlocked(
       if (status.value === "running") {
         return attachAppContainer(deps, row, attachInput, false);
       }
-      // provisioning / starting / seeding: ensure DB then attach + health.
+      // provisioning / starting: ensure DB then attach + health.
       return resumeProvisioning(deps, row, attachInput);
     }
     case "removing":
@@ -573,8 +558,9 @@ async function teardownUnlocked(
  * - removed: rewrite identity, CREATE, start/replace app, health → running
  * - failed + same slug/dbName: ensure DB + attach without burning generation
  * - failed + new slug/dbName: rewrite intent, then bring-up
- * - provisioning|starting|seeding + same slug/dbName: retry CREATE, then health
+ * - provisioning|starting + same slug/dbName: retry CREATE, then health
  * - running + same slug/dbName: replace app (hostname/image may change) + health
+ * - seeding: 409 preview_seeding_in_progress (seed slice owns transitions)
  * - live + slug/dbName mismatch: 409 preview_identity_conflict
  * - removing: 409
  *

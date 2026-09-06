@@ -1,4 +1,12 @@
 import { traefikLabels } from "./labels.ts";
+import {
+  defaultHealthProbe,
+  healthUrl,
+  pollHealth,
+  type HealthClock,
+  type HealthProbe,
+  type HealthSpec,
+} from "./health.ts";
 import type { CatalogContainer, PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
 
@@ -19,6 +27,11 @@ export type ReplacePreviewAppDeps = {
   pg: AppDeployPg;
   networks: AppDeployNetworks;
   previewPortDefault: number;
+  /** Test seam — defaults to fetch-based probe. */
+  healthProbe?: HealthProbe;
+  /** Test seam — defaults to Date.now / setTimeout. */
+  healthClock?: HealthClock;
+  log?: (message: string) => void;
 };
 
 export type ReplacePreviewAppInput = {
@@ -35,23 +48,25 @@ export type PreviewAppOps = {
   replace: (
     input: ReplacePreviewAppInput,
   ) => Promise<{ containerId: string; port: number }>;
-  remove: (slug: string, prId: number) => Promise<void>;
-  /** IPv4 on a Docker network (health poll target), or null if unset. */
-  containerIpOnNetwork: (
+  /** Poll postgres-network IP until HealthSpec expects success or timeout. */
+  waitHealthy: (
     containerId: string,
-    networkName: string,
-  ) => Promise<string | null>;
+    port: number,
+    health: HealthSpec,
+  ) => Promise<"ok" | "timeout">;
+  remove: (slug: string, prId: number) => Promise<void>;
   /** Catalog of running pb-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
 };
 
 export function bindPreviewApp(deps: ReplacePreviewAppDeps): PreviewAppOps {
+  const probe = deps.healthProbe ?? defaultHealthProbe();
   return {
     pullImage: (image) => deps.docker.pullImage(image),
     replace: (input) => replacePreviewApp(deps, input),
+    waitHealthy: (containerId, port, health) =>
+      waitPreviewAppHealthy(deps, probe, containerId, port, health),
     remove: (slug, prId) => removePreviewApp(deps.docker, slug, prId),
-    containerIpOnNetwork: (containerId, networkName) =>
-      deps.docker.containerIpOnNetwork(containerId, networkName),
     list: () => deps.docker.listPreviewContainers(),
   };
 }
@@ -98,4 +113,29 @@ export async function replacePreviewApp(
     networkNames: [deps.networks.traefik, deps.networks.postgres],
   });
   return { containerId: id, port };
+}
+
+async function waitPreviewAppHealthy(
+  deps: ReplacePreviewAppDeps,
+  probe: HealthProbe,
+  containerId: string,
+  port: number,
+  health: HealthSpec,
+): Promise<"ok" | "timeout"> {
+  const outcome = await pollHealth(
+    probe,
+    async () => {
+      const ip = await deps.docker.containerIpOnNetwork(
+        containerId,
+        deps.networks.postgres,
+      );
+      return ip ? healthUrl(ip, port, health.path) : null;
+    },
+    health,
+    deps.healthClock,
+  );
+  if (outcome === "timeout") {
+    deps.log?.("health:timeout");
+  }
+  return outcome;
 }

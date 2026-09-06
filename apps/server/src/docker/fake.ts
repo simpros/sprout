@@ -19,8 +19,6 @@ export type FakeDockerClient = PreviewDocker & {
 export function createFakeDockerClient(
   options: {
     exposedPorts?: Record<string, number | null>;
-    /** Network that receives sequential fake IPs (default: first network on create). */
-    postgresNetwork?: string;
   } = {},
 ): FakeDockerClient {
   const pulls: string[] = [];
@@ -33,7 +31,6 @@ export function createFakeDockerClient(
   const ips = new Map<string, Map<string, string>>();
   let nextId = 1;
   let nextIp = 1;
-  const postgresNetwork = options.postgresNetwork;
 
   return {
     pulls,
@@ -60,7 +57,6 @@ export function createFakeDockerClient(
       running.set(spec.name, { id, spec });
       const netIps = new Map<string, string>();
       for (const network of spec.networkNames) {
-        if (postgresNetwork && network !== postgresNetwork) continue;
         netIps.set(network, `10.99.0.${nextIp++}`);
       }
       ips.set(id, netIps);
