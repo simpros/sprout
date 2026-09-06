@@ -1,0 +1,368 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createApiClient } from "@sprout/api-client";
+import { runCli, type CliDeps } from "./run.ts";
+
+type Captured = {
+  method: string;
+  path: string;
+  body: unknown;
+  authorization: string | null;
+};
+
+let server: ReturnType<typeof Bun.serve> | undefined;
+let captured: Captured[] = [];
+let stdout: string[] = [];
+let stderr: string[] = [];
+
+afterEach(() => {
+  server?.stop(true);
+  server = undefined;
+  captured = [];
+  stdout = [];
+  stderr = [];
+});
+
+function startGateway(handler: (req: Request, url: URL) => Response | Promise<Response>) {
+  server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const url = new URL(req.url);
+      return handler(req, url);
+    },
+  });
+  return `http://127.0.0.1:${server.port}`;
+}
+
+async function withWorkspace(yaml: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "sprout-cli-"));
+  await writeFile(join(dir, ".sprout.yaml"), yaml);
+  return dir;
+}
+
+function deps(overrides: Partial<CliDeps> & { env: NodeJS.ProcessEnv }): CliDeps {
+  return {
+    cwd: overrides.cwd ?? process.cwd(),
+    readTextFile: overrides.readTextFile ?? (async () => null),
+    getGitRemoteUrl: overrides.getGitRemoteUrl ?? (() => null),
+    createClient:
+      overrides.createClient ??
+      ((baseUrl, token) =>
+        createApiClient(baseUrl, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        })),
+    io: {
+      stdout: (line) => stdout.push(line),
+      stderr: (line) => stderr.push(line),
+    },
+    ...overrides,
+  };
+}
+
+const MINIMAL_YAML = `
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+`;
+
+const HEALTH_YAML = `
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+`;
+
+describe("sprout CLI command surface", () => {
+  test("deploy shapes request from yaml and prints preview_url", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      const body = await req.json();
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body,
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-42.myapp.preview.example.com",
+        canonical_repo_id: "https://github.com/org/repo",
+        pr_id: 42,
+        slug: "myapp",
+        db_name: "prev_myapp_pr42",
+        hostname: "pr-42.myapp.preview.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["deploy", "-i", "ghcr.io/org/app:sha"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "deploy-token",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/42/merge",
+        },
+        readTextFile: async (path) =>
+          path.endsWith(".sprout.yaml")
+            ? await Bun.file(path).text()
+            : null,
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toEqual([
+      "preview_url=https://pr-42.myapp.preview.example.com",
+    ]);
+    expect(captured).toEqual([
+      {
+        method: "POST",
+        path: "/v1/deploy",
+        authorization: "Bearer deploy-token",
+        body: {
+          canonical_repo_id: "https://github.com/org/repo",
+          pr_id: 42,
+          slug: "myapp",
+          hostname: "pr-42.myapp.preview.example.com",
+          app_image: "ghcr.io/org/app:sha",
+        },
+      },
+    ]);
+  });
+
+  test("deploy forwards -s, --seed-env, --seed-arg and requires health", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-7.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const missingHealth = await runCli(
+      ["deploy", "-i", "app:1", "-s", "seed:1"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/7/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(missingHealth).toBe(1);
+    expect(stderr[0]).toContain("health block required");
+    expect(captured).toEqual([]);
+
+    const cwdHealth = await withWorkspace(HEALTH_YAML);
+    const code = await runCli(
+      [
+        "deploy",
+        "-i",
+        "app:1",
+        "-s",
+        "seed:1",
+        "--seed-env",
+        "FIXTURE=demo",
+        "--seed-arg",
+        "--reset",
+      ],
+      deps({
+        cwd: cwdHealth,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/7/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      seed_image: "seed:1",
+      seed_env: ["FIXTURE=demo"],
+      seed_arg: ["--reset"],
+      health: {
+        path: "/health",
+        interval: "2s",
+        timeout: "120s",
+        expect: 200,
+      },
+    });
+  });
+
+  test("teardown is idempotent exit 0 when preview absent", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({ ok: true, status: "removed" });
+    });
+
+    const code = await runCli(
+      ["teardown"],
+      deps({
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          CI_MERGE_REQUEST_IID: "3",
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]).toMatchObject({
+      path: "/v1/teardown",
+      body: {
+        canonical_repo_id: "https://github.com/org/repo",
+        pr_id: 3,
+      },
+    });
+  });
+
+  test("drop without --yes exits 2 and prints plan", async () => {
+    const baseUrl = startGateway(async () => {
+      return new Response(
+        JSON.stringify({
+          error: "confirmation_required",
+          plan: {
+            canonical_repo_id: "https://github.com/org/repo",
+            pr_id: 9,
+            slug: "myapp",
+            db_name: "prev_myapp_pr9",
+            hostname: "pr-9.example.com",
+            status: "running",
+          },
+        }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const code = await runCli(
+      ["drop", "9"],
+      deps({
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "admin",
+          GITHUB_REPOSITORY: "org/repo",
+        },
+      }),
+    );
+    expect(code).toBe(2);
+    expect(stdout.join("\n")).toContain("confirmation_required");
+    expect(stderr[0]).toContain("--yes");
+  });
+
+  test("list, doctor, and admin token commands send admin bearer token", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: req.method === "GET" ? null : await req.json().catch(() => null),
+        authorization: req.headers.get("authorization"),
+      });
+      if (url.pathname === "/v1/previews") {
+        return Response.json({ previews: [] });
+      }
+      if (url.pathname === "/v1/doctor") {
+        return Response.json({ ok: true, postgres: "ok", docker: "ok", orphans: [] });
+      }
+      if (url.pathname === "/v1/drop" && req.method === "POST") {
+        return Response.json({ ok: true, status: "removed" });
+      }
+      if (url.pathname === "/v1/admin/tokens" && req.method === "GET") {
+        return Response.json({ tokens: [] });
+      }
+      if (url.pathname === "/v1/admin/tokens" && req.method === "POST") {
+        return Response.json(
+          {
+            id: "hash",
+            scope: "deploy",
+            canonical_repo_id: "https://github.com/org/repo",
+            created_at: "2026-01-01T00:00:00.000Z",
+            revoked_at: null,
+            token: "raw-token",
+          },
+          { status: 201 },
+        );
+      }
+      if (url.pathname.startsWith("/v1/admin/tokens/") && req.method === "DELETE") {
+        return Response.json({ ok: true });
+      }
+      return new Response("no", { status: 404 });
+    });
+
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const common = {
+      cwd,
+      env: {
+        SPROUT_URL: baseUrl,
+        SPROUT_TOKEN: "admin-token",
+      },
+      readTextFile: async (path: string) => Bun.file(path).text(),
+    };
+
+    expect(await runCli(["list"], deps(common))).toBe(0);
+    expect(await runCli(["doctor"], deps(common))).toBe(0);
+    expect(
+      await runCli(["drop", "9", "--yes", "--repo", "https://github.com/org/repo"], deps(common)),
+    ).toBe(0);
+    expect(
+      await runCli(
+        [
+          "admin",
+          "token",
+          "create",
+          "--scope",
+          "deploy",
+          "--repo",
+          "https://github.com/org/repo",
+        ],
+        deps(common),
+      ),
+    ).toBe(0);
+    expect(
+      await runCli(["admin", "token", "list"], deps(common)),
+    ).toBe(0);
+    expect(
+      await runCli(["admin", "token", "revoke", "hash"], deps(common)),
+    ).toBe(0);
+
+    expect(captured.every((c) => c.authorization === "Bearer admin-token")).toBe(
+      true,
+    );
+    expect(captured.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "GET /v1/previews",
+      "GET /v1/doctor",
+      "POST /v1/drop",
+      "POST /v1/admin/tokens",
+      "GET /v1/admin/tokens",
+      "DELETE /v1/admin/tokens/hash",
+    ]);
+    expect(captured[3]?.body).toEqual({
+      canonical_repo_id: "https://github.com/org/repo",
+      slug: "myapp",
+    });
+  });
+});

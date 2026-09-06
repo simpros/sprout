@@ -1,28 +1,25 @@
 #!/usr/bin/env bun
-import { createApiClient } from "@sprout/api-client";
+import {
+  createDefaultClient,
+  readGitRemoteUrl,
+  readTextFile,
+  resolveGatewayUrl,
+  runCli,
+} from "./run.ts";
 
-export function resolveGatewayUrl(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  return env.SPROUT_URL?.trim() || "http://127.0.0.1:7331";
-}
+export { resolveGatewayUrl };
 
 if (import.meta.main) {
-  const baseUrl = resolveGatewayUrl();
-  const [command = "health"] = process.argv.slice(2);
-
-  const client = createApiClient(baseUrl);
-
-  if (command === "health") {
-    const response = await client.healthz.get();
-    if (response.error) {
-      console.error(response.error);
-      process.exit(1);
-    }
-    console.log(JSON.stringify(response.data));
-    process.exit(0);
-  }
-
-  console.error(`unknown command: ${command}`);
-  process.exit(1);
+  const code = await runCli(process.argv.slice(2), {
+    env: process.env,
+    cwd: process.cwd(),
+    readTextFile,
+    getGitRemoteUrl: readGitRemoteUrl,
+    createClient: createDefaultClient,
+    io: {
+      stdout: (line) => console.log(line),
+      stderr: (line) => console.error(line),
+    },
+  });
+  process.exit(code);
 }
