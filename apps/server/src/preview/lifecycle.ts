@@ -435,11 +435,11 @@ async function provisionUnlocked(
         status: 409,
         error: "preview_seeding_in_progress",
       };
-    case "provisioning":
-    case "starting":
-    case "running": {
-      // Live claim: refuse slug/dbName rewrite mid-flight / on replace.
+    case "running":
+    case "starting": {
+      // Live / mid-health claim: refuse slug/dbName rewrite.
       // Hostname/image may still change when identity matches.
+      // DB already ensured; re-attach + health without reminting TTL.
       if (!dbIdentityMatches(row, input, requestedDbName)) {
         return {
           ok: false,
@@ -447,11 +447,17 @@ async function provisionUnlocked(
           error: "preview_identity_conflict",
         };
       }
-      if (status.value === "running" || status.value === "starting") {
-        // DB already ensured; re-attach + health without reminting TTL.
-        return attachAppContainer(deps, row, attachInput, false);
+      return attachAppContainer(deps, row, attachInput, false);
+    }
+    case "provisioning": {
+      // Stuck create: refuse slug/dbName rewrite; ensure DB then attach (mints generation).
+      if (!dbIdentityMatches(row, input, requestedDbName)) {
+        return {
+          ok: false,
+          status: 409,
+          error: "preview_identity_conflict",
+        };
       }
-      // Stuck provisioning: ensure DB then attach (mints generation).
       return resumeProvisioning(deps, row, attachInput);
     }
     case "removing":
@@ -560,8 +566,8 @@ async function teardownUnlocked(
  * - removed: rewrite identity, CREATE, start/replace app, health → running
  * - failed + same slug/dbName: ensure DB + attach without burning generation
  * - failed + new slug/dbName: rewrite intent, then bring-up
- * - provisioning|starting + same slug/dbName: retry CREATE, then health
- * - running + same slug/dbName: replace app (hostname/image may change) + health
+ * - starting|running + same slug/dbName: re-attach + health (no CREATE retry, no TTL remint)
+ * - provisioning + same slug/dbName: ensure DB then attach (mints generation)
  * - seeding: 409 preview_seeding_in_progress (seed slice owns transitions)
  * - live + slug/dbName mismatch: 409 preview_identity_conflict
  * - removing: 409
