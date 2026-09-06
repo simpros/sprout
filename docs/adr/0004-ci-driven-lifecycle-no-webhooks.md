@@ -1,7 +1,7 @@
 # Symmetric CI drives lifecycle; no forge webhooks in v0.1
 
-Adopting repos run `pbuddy deploy` on PR `opened` and `synchronize`, and
-`pbuddy teardown` on `closed`. The gateway does not expose forge webhook
+Adopting repos run `sprout deploy` on PR `opened` and `synchronize`, and
+`sprout teardown` on `closed`. The gateway does not expose forge webhook
 endpoints in v0.1.
 
 Webhook-primary design was rejected for adoption: operators already run CI on

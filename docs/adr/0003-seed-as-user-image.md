@@ -8,8 +8,8 @@ seed logic.
 Gateway-side repo cloning with forge tokens was rejected: auth complexity,
 slow cold paths, and coupling to forge APIs for something adopters already
 solve in CI. `docker exec` into the running app container was rejected: seed
-assets are not in the app image. A shared `preview-buddy-seeder` image was
+assets are not in the app image. A shared `sprout-seeder` image was
 rejected for the same reason — adopters own their stack and seed scripts.
 
 The gateway never overrides the seed image entrypoint. `--seed-env` and
-`--seed-arg` on `pbuddy deploy` pass optional runtime inputs only.
+`--seed-arg` on `sprout deploy` pass optional runtime inputs only.

@@ -1,7 +1,7 @@
 # Shared instance with logical per-PR databases
 
 Each preview gets its own **logical database** (`prev_<slug>_pr<id>`) on one
-shared Postgres instance. preview-buddy does not spawn Postgres containers per
+shared Postgres instance. sprout does not spawn Postgres containers per
 PR in v0.1.
 
 Per-PR Postgres containers were rejected for v0.1: correct isolation but

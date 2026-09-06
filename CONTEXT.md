@@ -1,6 +1,6 @@
-# preview-buddy
+# sprout
 
-preview-buddy gives every pull request of an **adopting repo** its own
+sprout gives every pull request of an **adopting repo** its own
 **preview database** on a **shared instance**, plus optional preview **app
 containers**, orchestrated by a **gateway** the operator deploys once.
 
@@ -9,7 +9,7 @@ containers**, orchestrated by a **gateway** the operator deploys once.
 ### Gateway & modules
 
 **Gateway**:
-The long-running preview-buddy server: provisions preview databases, deploys
+The long-running sprout server: provisions preview databases, deploys
 preview app containers, runs optional seed jobs, and reconciles drift.
 _Avoid_: Sidecar, controller, daemon
 
@@ -59,21 +59,21 @@ The full URL-style forge identity for a repository, e.g.
 _Avoid_: org/repo (ambiguous across forges)
 
 **slug**:
-A short adopting-repo alias from `.preview-buddy.yaml` used in hostnames and
+A short adopting-repo alias from `.sprout.yaml` used in hostnames and
 database names.
 _Avoid_: App name, project key
 
 ### Adoption
 
 **Adopting repo**:
-A repository that uses preview-buddy for its previews via CI and
-`.preview-buddy.yaml`.
+A repository that uses sprout for its previews via CI and
+`.sprout.yaml`.
 _Avoid_: Client repo, tenant repo
 
-**.preview-buddy.yaml**:
+**.sprout.yaml**:
 The config-as-code file in an adopting repo: slug, preview hostname template,
 and optional health-check settings.
-_Avoid_: previewdb.yml, pb config
+_Avoid_: .preview-buddy.yaml, previewdb.yml, pb config
 
 **Seed image**:
 A one-shot container image built by the adopting repo's CI, run by the
@@ -82,9 +82,9 @@ _Avoid_: Seeder image, seed container (use "seed image")
 
 ### Clients & access
 
-**pbuddy**:
+**sprout**:
 The CLI that talks to the gateway API (`deploy`, `teardown`, `list`, etc.).
-_Avoid_: preview-buddy CLI (use `pbuddy`)
+_Avoid_: preview-buddy CLI, pbuddy (use `sprout`)
 
 **Deploy token**:
 A bearer credential scoped to one canonical repo id; used from adopting-repo

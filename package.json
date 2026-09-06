@@ -1,12 +1,12 @@
 {
-  "name": "preview-buddy",
+  "name": "sprout",
   "private": true,
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo dev --filter=@preview-buddy/server",
+    "dev": "turbo dev --filter=@sprout/server",
     "build": "turbo build",
     "test": "turbo test",
     "typecheck": "turbo build",

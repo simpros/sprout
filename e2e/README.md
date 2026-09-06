@@ -9,12 +9,12 @@ Compose smoke against the **operator stack** (`docker-compose.yml` +
 bun run test:e2e
 ```
 
-Requires Docker. Project name `preview-buddy-e2e`. `run.ts` reads
+Requires Docker. Project name `sprout-e2e`. `run.ts` reads
 `PB_GATEWAY_HOST_PORT` and `PB_ADMIN_TOKEN` from `compose.e2e.env` (fails if
 missing), brings compose up, waits for `/healthz`, then runs tests with
 `PB_E2E_MANAGED=1` plus injected `PB_E2E_GATEWAY_URL` / `PB_E2E_ADMIN_TOKEN`.
 
-Smoke assertion: admin can mint a deploy token via `@preview-buddy/api-client`.
+Smoke assertion: admin can mint a deploy token via `@sprout/api-client`.
 
 ## Suites
 

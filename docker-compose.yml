@@ -10,13 +10,13 @@
 #   docker compose -f docker-compose.yml -f docker-compose.external.yml \
 #     --env-file compose.env up -d --build gateway
 
-name: preview-buddy
+name: sprout
 
 networks:
   traefik:
-    name: ${PB_TRAEFIK_NETWORK:-preview-buddy-traefik}
+    name: ${PB_TRAEFIK_NETWORK:-sprout-traefik}
   postgres:
-    name: ${PB_POSTGRES_NETWORK:-preview-buddy-postgres}
+    name: ${PB_POSTGRES_NETWORK:-sprout-postgres}
 
 volumes:
   gateway-data:
@@ -105,8 +105,8 @@ services:
       PB_PG_PORT: ${PB_PG_PORT:-5432}
       PB_PG_USER: ${PB_PG_USER:-pb_preview}
       PB_PG_PASSWORD: ${PB_PG_PASSWORD:?set PB_PG_PASSWORD in compose.env}
-      PB_TRAEFIK_NETWORK: ${PB_TRAEFIK_NETWORK:-preview-buddy-traefik}
-      PB_POSTGRES_NETWORK: ${PB_POSTGRES_NETWORK:-preview-buddy-postgres}
+      PB_TRAEFIK_NETWORK: ${PB_TRAEFIK_NETWORK:-sprout-traefik}
+      PB_POSTGRES_NETWORK: ${PB_POSTGRES_NETWORK:-sprout-postgres}
       PB_REGISTRY_URL: ${PB_REGISTRY_URL:?set PB_REGISTRY_URL in compose.env}
       PB_REGISTRY_USER: ${PB_REGISTRY_USER:-}
       PB_REGISTRY_PASSWORD: ${PB_REGISTRY_PASSWORD:-}
@@ -114,7 +114,7 @@ services:
       PB_FORGE_TOKEN: ${PB_FORGE_TOKEN:-}
       # Blank/unset → loadConfig treats as undefined → auto-generate
       PB_ADMIN_TOKEN: ${PB_ADMIN_TOKEN:-}
-      PB_STATE_DB_PATH: /data/preview-buddy.db
+      PB_STATE_DB_PATH: /data/sprout.db
       PB_PORT: "7331"
     healthcheck:
       test:

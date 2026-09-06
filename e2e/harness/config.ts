@@ -7,7 +7,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const E2E_COMPOSE_PROJECT = "preview-buddy-e2e";
+export const E2E_COMPOSE_PROJECT = "sprout-e2e";
 
 export const repoRoot = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -25,5 +25,5 @@ export const e2eConfig = {
     return process.env.PB_E2E_ADMIN_TOKEN?.trim() || "";
   },
   slug: "demoapp",
-  canonicalRepoId: "https://github.com/preview-buddy/e2e-demo",
+  canonicalRepoId: "https://github.com/sprout/e2e-demo",
 };

@@ -1,12 +1,12 @@
-name: preview-buddy
+name: sprout
 
 on:
   pull_request:
     types: [opened, synchronize, closed]
 
 env:
-  PBUDDY_URL: ${{ secrets.PBUDDY_URL }}
-  PBUDDY_TOKEN: ${{ secrets.PBUDDY_TOKEN }}
+  SPROUT_URL: ${{ secrets.SPROUT_URL }}
+  SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
 
 jobs:
   preview:
@@ -19,17 +19,17 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - name: Install pbuddy
+      - name: Install sprout
         run: |
           # Pin to a tag/SHA when releases exist; unpinned HEAD is a temporary seam.
-          git clone --depth 1 https://github.com/simpros/preview-buddy.git "$RUNNER_TEMP/preview-buddy"
-          cd "$RUNNER_TEMP/preview-buddy" && bun install
-          # Run the CLI from the workspace so @preview-buddy/api-client resolves.
+          git clone --depth 1 https://github.com/simpros/sprout.git "$RUNNER_TEMP/sprout"
+          cd "$RUNNER_TEMP/sprout" && bun install
+          # Run the CLI from the workspace so @sprout/api-client resolves.
           mkdir -p "$RUNNER_TEMP/bin"
           printf '%s\n' '#!/usr/bin/env bash' \
-            "exec bun \"$RUNNER_TEMP/preview-buddy/apps/cli/src/index.ts\" \"\$@\"" \
-            > "$RUNNER_TEMP/bin/pbuddy"
-          chmod +x "$RUNNER_TEMP/bin/pbuddy"
+            "exec bun \"$RUNNER_TEMP/sprout/apps/cli/src/index.ts\" \"\$@\"" \
+            > "$RUNNER_TEMP/bin/sprout"
+          chmod +x "$RUNNER_TEMP/bin/sprout"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Log in to container registry
@@ -56,7 +56,7 @@ jobs:
         if: github.event.action != 'closed'
         id: deploy
         run: |
-          pbuddy deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" | tee deploy.log
+          sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" | tee deploy.log
           line=$(grep '^preview_url=' deploy.log || true)
           if [ -n "$line" ]; then
             echo "preview_url=${line#preview_url=}" >> "$GITHUB_OUTPUT"
@@ -81,4 +81,4 @@ jobs:
 
       - name: Teardown preview
         if: github.event.action == 'closed'
-        run: pbuddy teardown
+        run: sprout teardown

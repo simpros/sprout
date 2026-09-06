@@ -1,5 +1,5 @@
 {
-  "name": "@preview-buddy/api-client",
+  "name": "@sprout/api-client",
   "private": true,
   "type": "module",
   "exports": {
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@elysia/eden": "1.4.10",
-    "@preview-buddy/server": "workspace:*",
+    "@sprout/server": "workspace:*",
     "elysia": "1.4.30"
   },
   "devDependencies": {

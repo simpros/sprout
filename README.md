@@ -1,9 +1,9 @@
-# preview-buddy
+# sprout
 
 Per-PR **preview databases** (and optional preview app containers) for
 self-hosted deployments.
 
-When a pull request opens, CI calls the preview-buddy **gateway**, which
+When a pull request opens, CI calls the sprout **gateway**, which
 provisions an isolated **logical database** on a shared Postgres instance,
 starts a preview app container, optionally runs a seed image, and tears
 everything down when the PR closes.
@@ -15,7 +15,7 @@ create → migrate (app) → seed (optional) → hand over → drop
 ## Why
 
 Preview deployments often share one database with production or with each
-other. Migrations in previews then mutate shared state. preview-buddy gives
+other. Migrations in previews then mutate shared state. sprout gives
 every PR its own database on a single shared Postgres — low overhead, full
 data isolation per PR.
 
@@ -23,7 +23,7 @@ data isolation per PR.
 
 1. Operator deploys **Postgres** + the **gateway** + **Traefik** via
    [Docker Compose](docs/deploy.md) once.
-2. Adopting repo adds `.preview-buddy.yaml` and a CI workflow — see the
+2. Adopting repo adds `.sprout.yaml` and a CI workflow — see the
    [adoption guide](docs/adoption.md) and
    [`examples/adopting-repo/`](examples/adopting-repo/).
 3. Gateway **preview-db module** creates `prev_<slug>_pr<id>` on the shared

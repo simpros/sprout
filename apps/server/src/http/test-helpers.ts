@@ -41,8 +41,8 @@ const defaultReplaceDeps: Omit<ReplacePreviewAppDeps, "docker"> = {
     password: "preview-secret",
   },
   networks: {
-    traefik: "preview-buddy-traefik",
-    postgres: "preview-buddy-postgres",
+    traefik: "sprout-traefik",
+    postgres: "sprout-postgres",
   },
   previewPortDefault: 8080,
 };
