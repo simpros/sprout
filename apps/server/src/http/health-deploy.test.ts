@@ -150,7 +150,7 @@ describe("POST /v1/deploy health polling", () => {
     expect(healthHits[0]).toBe(`http://${POSTGRES_IP}:3000/readyz`);
   });
 
-  test("health timeout marks failed and logs health:timeout", async () => {
+  test("health timeout removes container, marks failed, logs health:timeout", async () => {
     let now = 0;
     const warns: unknown[][] = [];
     const warnSpy = spyOn(console, "warn").mockImplementation((...args) => {
@@ -183,6 +183,8 @@ describe("POST /v1/deploy health polling", () => {
         )
         .limit(1);
       expect(row?.status).toBe("failed");
+      expect(row?.containerId).toBeNull();
+      expect(fakeDocker!.removed).toContain("pb-myapp-pr-42");
       expect(warns.some((args) => args.includes("health:timeout"))).toBe(true);
       expect(healthHits.length).toBeGreaterThan(1);
     } finally {

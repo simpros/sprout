@@ -206,7 +206,7 @@ async function markPreviewFailed(
 ): Promise<void> {
   await db
     .update(previews)
-    .set({ status: "failed", updatedAt: utcIsoNow() })
+    .set({ status: "failed", containerId: null, updatedAt: utcIsoNow() })
     .where(
       and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
     );
@@ -316,6 +316,15 @@ async function attachAppContainer(
   );
   if (outcome === "timeout") {
     console.warn("health:timeout");
+    // Best-effort remove: failed must not leave a Traefik-routed container
+    // claimed by the row (orphan sweep skips keys still in previews).
+    try {
+      await deps.app.remove(row.slug, row.prId);
+    } catch {
+      console.warn(
+        `preview container remove failed for ${row.slug} pr=${row.prId} after health timeout`,
+      );
+    }
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return { ok: false, status: 500, error: "health_timeout" };
   }
@@ -370,6 +379,21 @@ function dbIdentityMatches(
   requestedDbName: string,
 ): boolean {
   return row.slug === input.slug && row.dbName === requestedDbName;
+}
+
+function requireDbIdentity(
+  row: PreviewRow,
+  input: ProvisionInput,
+  requestedDbName: string,
+): Result<true> {
+  if (!dbIdentityMatches(row, input, requestedDbName)) {
+    return {
+      ok: false,
+      status: 409,
+      error: "preview_identity_conflict",
+    };
+  }
+  return { ok: true, value: true };
 }
 
 async function provisionUnlocked(
@@ -440,24 +464,14 @@ async function provisionUnlocked(
       // Live / mid-health claim: refuse slug/dbName rewrite.
       // Hostname/image may still change when identity matches.
       // DB already ensured; re-attach + health without reminting TTL.
-      if (!dbIdentityMatches(row, input, requestedDbName)) {
-        return {
-          ok: false,
-          status: 409,
-          error: "preview_identity_conflict",
-        };
-      }
+      const identity = requireDbIdentity(row, input, requestedDbName);
+      if (!identity.ok) return identity;
       return attachAppContainer(deps, row, attachInput, false);
     }
     case "provisioning": {
       // Stuck create: refuse slug/dbName rewrite; ensure DB then attach (mints generation).
-      if (!dbIdentityMatches(row, input, requestedDbName)) {
-        return {
-          ok: false,
-          status: 409,
-          error: "preview_identity_conflict",
-        };
-      }
+      const identity = requireDbIdentity(row, input, requestedDbName);
+      if (!identity.ok) return identity;
       return resumeProvisioning(deps, row, attachInput);
     }
     case "removing":
