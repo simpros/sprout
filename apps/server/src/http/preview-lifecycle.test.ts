@@ -163,22 +163,22 @@ describe("POST /v1/deploy", () => {
     expect(parseUnambiguousUtcMs(row!.updatedAt)).not.toBeNull();
     expect(fakeDocker!.creates).toHaveLength(1);
     expect(fakeDocker!.creates[0]).toMatchObject({
-      name: "pb-myapp-pr-42",
+      name: "sprout-myapp-pr-42",
       image: APP_IMAGE,
       env: [
         "PGHOST=postgres",
         "PGPORT=5432",
-        "PGUSER=pb_preview",
+        "PGUSER=sprout_preview",
         "PGPASSWORD=preview-secret",
         "PGDATABASE=prev_myapp_pr42",
       ],
-      networkNames: ["preview-buddy-traefik", "preview-buddy-postgres"],
+      networkNames: ["sprout-traefik", "sprout-postgres"],
     });
     expect(fakeDocker!.creates[0]!.labels).toEqual({
       "traefik.enable": "true",
-      "traefik.http.routers.pb-myapp-pr-42.rule":
+      "traefik.http.routers.sprout-myapp-pr-42.rule":
         "Host(`pr-42.myapp.preview.example.com`)",
-      "traefik.http.services.pb-myapp-pr-42.loadbalancer.server.port": "3000",
+      "traefik.http.services.sprout-myapp-pr-42.loadbalancer.server.port": "3000",
     });
   });
 
@@ -219,9 +219,9 @@ describe("POST /v1/deploy", () => {
       APP_IMAGE,
       "ghcr.io/org/myapp:sha-def",
     ]);
-    expect(fakeDocker!.removed.filter((n) => n === "pb-myapp-pr-42")).toEqual([
-      "pb-myapp-pr-42",
-      "pb-myapp-pr-42",
+    expect(fakeDocker!.removed.filter((n) => n === "sprout-myapp-pr-42")).toEqual([
+      "sprout-myapp-pr-42",
+      "sprout-myapp-pr-42",
     ]);
     const [row] = await testApp!.db
       .select()

@@ -54,7 +54,7 @@ export type PreviewAppOps = {
     health: HealthSpec,
   ) => Promise<"ok" | "timeout">;
   remove: (slug: string, prId: number) => Promise<void>;
-  /** Catalog of running pb-* containers (orphan sweep). */
+  /** Catalog of running sprout-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
 };
 

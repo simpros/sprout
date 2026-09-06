@@ -17,7 +17,7 @@ await runMigrations(sql);
 const generatedAdminToken = await ensureAdminToken(db, config.adminToken);
 if (generatedAdminToken) {
   console.warn(
-    "PB_ADMIN_TOKEN not set; generated bootstrap admin token (store securely):",
+    "SPROUT_ADMIN_TOKEN not set; generated bootstrap admin token (store securely):",
     generatedAdminToken,
   );
 }

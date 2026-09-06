@@ -2,7 +2,7 @@ import { createApiClient } from "@sprout/api-client";
 import { describe, expect, test } from "bun:test";
 import { e2eConfig } from "./harness/config.ts";
 
-const enabled = process.env.PB_E2E_MANAGED === "1";
+const enabled = process.env.SPROUT_E2E_MANAGED === "1";
 
 describe.skipIf(!enabled)("compose stack", () => {
   test("admin token can create a deploy token", async () => {

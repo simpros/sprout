@@ -10,7 +10,5 @@ compose.env
 .bun-cache/
 coverage/
 .turbo/
-preview-buddy.db
-preview-buddy.db-*
 sprout.db
 sprout.db-*
