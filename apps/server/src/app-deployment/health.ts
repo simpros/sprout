@@ -79,9 +79,9 @@ export function healthUrl(ip: string, port: number, path: string): string {
 }
 
 /**
- * Poll until expectStatus or timeout.
- * `resolveUrl` may return null while the container has no IP yet — that counts
- * as not-ready and retries until the health timeout (same as a bad status).
+ * Poll until expectStatus or timeout. Total: never throws.
+ * `resolveUrl` may return null (no IP yet) or throw (transient inspect blip) —
+ * both count as not-ready and retry until the health timeout (same as a bad status).
  */
 export async function pollHealth(
   probe: HealthProbe,
@@ -92,7 +92,12 @@ export async function pollHealth(
   const deadline = clock.now() + spec.timeoutMs;
 
   for (;;) {
-    const url = await resolveUrl();
+    let url: string | null = null;
+    try {
+      url = await resolveUrl();
+    } catch {
+      // Docker inspect blip / network race — keep polling.
+    }
     if (url) {
       try {
         const status = await probe.getStatus(url);

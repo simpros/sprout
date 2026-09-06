@@ -87,7 +87,6 @@ export async function createTestApp(
         replaceDeps?: Partial<Omit<ReplacePreviewAppDeps, "docker">>;
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
-        log?: (message: string) => void;
       }
     | string = {},
 ): Promise<TestApp> {
@@ -100,7 +99,6 @@ export async function createTestApp(
     ...opts.replaceDeps,
     healthProbe: opts.healthProbe ?? defaultHealthProbe,
     healthClock: opts.healthClock,
-    log: opts.log,
   });
   const { db, cleanup } = await createTestDb();
   await ensureAdminToken(db, adminToken);

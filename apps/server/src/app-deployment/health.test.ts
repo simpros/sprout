@@ -109,4 +109,30 @@ describe("pollHealth", () => {
     );
     expect(outcome).toBe("timeout");
   });
+
+  test("retries when resolveUrl throws until status matches", async () => {
+    let attempts = 0;
+    let now = 0;
+    const outcome = await pollHealth(
+      {
+        async getStatus() {
+          return 200;
+        },
+      },
+      async () => {
+        attempts += 1;
+        if (attempts < 2) throw new Error("Docker inspect failed");
+        return "http://10.0.0.5:8080/health";
+      },
+      { path: "/health", intervalMs: 1000, timeoutMs: 5000, expectStatus: 200 },
+      {
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      },
+    );
+    expect(outcome).toBe("ok");
+    expect(attempts).toBe(2);
+  });
 });
