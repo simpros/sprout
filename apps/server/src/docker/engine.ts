@@ -212,6 +212,28 @@ export function createDockerEngineClient(
       }
     },
 
+    async containerIpOnNetwork(containerId, networkName) {
+      const res = await engine(
+        `/containers/${encodeURIComponent(containerId)}/json`,
+        { method: "GET" },
+      );
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(
+          `Docker inspect ${containerId} failed: ${res.status} ${body}`,
+        );
+      }
+      const inspect = (await res.json()) as {
+        NetworkSettings?: {
+          Networks?: Record<string, { IPAddress?: string }>;
+        };
+      };
+      const ip =
+        inspect.NetworkSettings?.Networks?.[networkName]?.IPAddress?.trim() ??
+        "";
+      return ip === "" ? null : ip;
+    },
+
     async listPreviewContainers() {
       const filters = encodeURIComponent(JSON.stringify({ name: ["pb-"] }));
       const res = await engine(`/containers/json?all=true&filters=${filters}`, {

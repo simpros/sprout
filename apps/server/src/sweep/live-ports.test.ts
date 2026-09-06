@@ -45,7 +45,7 @@ describe("createLiveSweepPorts", () => {
       dbName: "prev_widgets_pr10",
       hostname: "pr-10.example.com",
       containerId: "ctr-10",
-      status: "ready",
+      status: "running",
       createdAt: "2026-09-02T12:00:00.000Z",
       updatedAt: "2026-09-02T12:00:00.000Z",
     });
@@ -98,7 +98,7 @@ describe("createLiveSweepPorts", () => {
       dbName: "prev_widgets_pr1",
       hostname: "pr-1.example.com",
       containerId: null,
-      status: "ready",
+      status: "running",
       createdAt: "2026-09-02T12:00:00.000Z",
       updatedAt: "2026-09-02T12:00:00.000Z",
     });
@@ -137,7 +137,7 @@ describe("createLiveSweepPorts", () => {
       dbName: "prev_widgets_pr1",
       hostname: "pr-1.example.com",
       containerId: null,
-      status: "ready",
+      status: "running",
       createdAt: "not-a-timestamp",
       updatedAt: "2026-09-02T12:00:00.000Z",
     });
@@ -173,7 +173,7 @@ describe("createLiveSweepPorts", () => {
     expect(droppedDbs).toEqual([]);
 
     const rows = await testDb.db.select().from(previews);
-    expect(rows[0]?.status).toBe("ready");
+    expect(rows[0]?.status).toBe("running");
   });
 
   test("space-separated legacy createdAt is null; skips TTL; protects orphans", async () => {
@@ -192,7 +192,7 @@ describe("createLiveSweepPorts", () => {
       dbName: "prev_widgets_pr1",
       hostname: "pr-1.example.com",
       containerId: null,
-      status: "ready",
+      status: "running",
       createdAt: "2026-09-02 12:00:00",
       updatedAt: "2026-09-02 12:00:00",
     });
@@ -228,7 +228,7 @@ describe("createLiveSweepPorts", () => {
     expect(droppedDbs).toEqual([]);
 
     const rows = await testDb.db.select().from(previews);
-    expect(rows[0]?.status).toBe("ready");
+    expect(rows[0]?.status).toBe("running");
   });
 
   test("marks error when DB drop fails (retryable)", async () => {
@@ -247,7 +247,7 @@ describe("createLiveSweepPorts", () => {
       dbName: "prev_widgets_pr10",
       hostname: "pr-10.example.com",
       containerId: "ctr-10",
-      status: "ready",
+      status: "running",
       createdAt: "2026-09-02T12:00:00.000Z",
       updatedAt: "2026-09-02T12:00:00.000Z",
     });
@@ -276,7 +276,7 @@ describe("createLiveSweepPorts", () => {
     expect(logs.some((m) => m.includes("sweep drop failed"))).toBe(true);
 
     const rows = await testDb.db.select().from(previews);
-    expect(rows[0]?.status).toBe("error");
+    expect(rows[0]?.status).toBe("failed");
     expect(rows[0]?.containerId).toBe("ctr-10");
   });
 
@@ -296,7 +296,7 @@ describe("createLiveSweepPorts", () => {
       dbName: "prev_widgets_pr10",
       hostname: "pr-10.example.com",
       containerId: "ctr-10",
-      status: "ready",
+      status: "running",
       createdAt: "2026-09-02T12:00:00.000Z",
       updatedAt: "2026-09-02T12:00:00.000Z",
     });
@@ -359,7 +359,7 @@ describe("createLiveSweepPorts", () => {
       dbName: "prev_widgets_pr42",
       hostname: "pr-42.example.com",
       containerId: null,
-      status: "ready",
+      status: "running",
       createdAt: "2026-09-03T11:00:00.000Z",
       updatedAt: "2026-09-03T11:00:00.000Z",
     });
@@ -390,7 +390,7 @@ describe("createLiveSweepPorts", () => {
     expect(removed).toBe(false);
     expect(droppedDbs).toEqual([]);
     const rows = await testDb.db.select().from(previews);
-    expect(rows[0]?.status).toBe("ready");
+    expect(rows[0]?.status).toBe("running");
     expect(rows[0]?.dbName).toBe("prev_widgets_pr42");
   });
 
@@ -411,7 +411,7 @@ describe("createLiveSweepPorts", () => {
       dbName: "prev_widgets_pr42",
       hostname: "pr-42.example.com",
       containerId: null,
-      status: "ready",
+      status: "running",
       createdAt: "2026-09-03T11:55:00.000Z",
       updatedAt: "2026-09-03T11:55:00.000Z",
     });
@@ -442,7 +442,7 @@ describe("createLiveSweepPorts", () => {
     expect(removed).toBe(false);
     expect(droppedDbs).toEqual([]);
     const rows = await testDb.db.select().from(previews);
-    expect(rows[0]?.status).toBe("ready");
+    expect(rows[0]?.status).toBe("running");
     expect(rows[0]?.createdAt).toBe("2026-09-03T11:55:00.000Z");
   });
 
@@ -461,7 +461,7 @@ describe("createLiveSweepPorts", () => {
       dbName: "prev_widgets_pr42",
       hostname: "pr-42.example.com",
       containerId: null,
-      status: "ready",
+      status: "running",
       createdAt: "2026-09-02T12:00:00.000Z",
       updatedAt: "2026-09-02T12:00:00.000Z",
     });

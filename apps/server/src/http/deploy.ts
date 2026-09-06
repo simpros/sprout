@@ -1,6 +1,10 @@
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
 import {
+  resolveHealthSpec,
+  type HealthRequest,
+} from "../app-deployment/health.ts";
+import {
   provisionPreview,
   teardownPreview,
   type LifecycleDeps,
@@ -9,12 +13,20 @@ import { validatePrId, validateSlug } from "../preview-db/names.ts";
 
 export type { LifecycleDeps };
 
+export const healthBody = t.Object({
+  path: t.String({ minLength: 1 }),
+  interval: t.String({ minLength: 1 }),
+  timeout: t.String({ minLength: 1 }),
+  expect: t.Number(),
+});
+
 export const deployBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   pr_id: t.Number(),
   slug: t.String({ minLength: 1 }),
   hostname: t.String({ minLength: 1 }),
   app_image: t.String({ minLength: 1 }),
+  health: t.Optional(healthBody),
 });
 
 /** Identity is (canonical_repo_id, pr_id); slug is not part of teardown. */
@@ -29,6 +41,7 @@ export type DeployBody = {
   slug: string;
   hostname: string;
   app_image: string;
+  health?: HealthRequest;
 };
 
 export type TeardownBody = {
@@ -87,6 +100,11 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: prErr };
     }
+    const health = resolveHealthSpec(body.health);
+    if (!health.ok) {
+      set.status = 422;
+      return { error: health.error };
+    }
 
     return mapResult(
       await provisionPreview(deps, {
@@ -95,6 +113,7 @@ export function deploy(deps: LifecycleDeps) {
         slug: body.slug,
         hostname: body.hostname,
         appImage: body.app_image,
+        health: health.value,
       }),
       set,
     );

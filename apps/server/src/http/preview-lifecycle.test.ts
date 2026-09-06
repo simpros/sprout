@@ -137,7 +137,8 @@ describe("POST /v1/deploy", () => {
       slug: "myapp",
       db_name: "prev_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
-      status: "ready",
+      status: "running",
+      preview_url: "https://pr-42.myapp.preview.example.com",
     });
     expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
 
@@ -154,7 +155,7 @@ describe("POST /v1/deploy", () => {
       slug: "myapp",
       dbName: "prev_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
-      status: "ready",
+      status: "running",
       appImage: APP_IMAGE,
       containerId: "fake-1",
     });
@@ -211,7 +212,7 @@ describe("POST /v1/deploy", () => {
     expect(res.body).toMatchObject({
       slug: "myapp",
       db_name: "prev_myapp_pr42",
-      status: "ready",
+      status: "running",
     });
     expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
     expect(fakeDocker!.creates.map((c) => c.image)).toEqual([
@@ -258,7 +259,7 @@ describe("POST /v1/deploy", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       )
       .limit(1);
-    expect(row?.status).toBe("ready");
+    expect(row?.status).toBe("running");
     expect(row?.appImage).toBe(APP_IMAGE);
     expect(row?.containerId).toBe("fake-1");
   });
@@ -279,7 +280,7 @@ describe("POST /v1/deploy", () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       db_name: "prev_myapp_pr42",
-      status: "ready",
+      status: "running",
     });
     expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
   });
@@ -300,7 +301,7 @@ describe("POST /v1/deploy", () => {
 
     const res = await postDeploy(deployToken, deployBody());
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ status: "ready" });
+    expect(res.body).toMatchObject({ status: "running" });
 
     const [row] = await testApp!.db
       .select()
@@ -334,7 +335,7 @@ describe("POST /v1/deploy", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       )
       .limit(1);
-    expect(row?.status).toBe("ready");
+    expect(row?.status).toBe("running");
   });
 
   test("marks error when createDatabase fails after SQLite write", async () => {
@@ -354,7 +355,7 @@ describe("POST /v1/deploy", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       )
       .limit(1);
-    expect(row?.status).toBe("error");
+    expect(row?.status).toBe("failed");
   });
 
   test("retries provision after previous create failure", async () => {
@@ -371,7 +372,7 @@ describe("POST /v1/deploy", () => {
     expect((await postDeploy(deployToken, deployBody())).status).toBe(500);
     const res = await postDeploy(deployToken, deployBody());
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ status: "ready" });
+    expect(res.body).toMatchObject({ status: "running" });
     expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
   });
 
@@ -414,7 +415,7 @@ describe("POST /v1/deploy", () => {
       slug: "old",
       dbName: "prev_old_pr42",
       hostname: "old.example.com",
-      status: "error",
+      status: "failed",
     });
     const [a, b] = await Promise.all([
       postDeploy(deployToken, deployBody({ slug: "alpha" })),
@@ -425,7 +426,7 @@ describe("POST /v1/deploy", () => {
     const winner = a.status === 200 ? a : b;
     const loser = a.status === 409 ? a : b;
     expect(loser.body).toEqual({ error: "preview_identity_conflict" });
-    expect(winner.body).toMatchObject({ status: "ready" });
+    expect(winner.body).toMatchObject({ status: "running" });
     const names = new Set(fakePreviewDb!.created);
     expect(names.size).toBe(1);
     const [row] = await testApp!.db
@@ -448,14 +449,14 @@ describe("POST /v1/deploy", () => {
       slug: "myapp",
       dbName: "prev_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
-      status: "error",
+      status: "failed",
       createdAt: "2026-08-01T12:00:00.000Z",
       updatedAt: "2026-08-01T12:00:00.000Z",
     });
 
     const res = await postDeploy(deployToken, deployBody());
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ status: "ready" });
+    expect(res.body).toMatchObject({ status: "running" });
 
     const [row] = await testApp!.db
       .select()
@@ -476,7 +477,7 @@ describe("POST /v1/deploy", () => {
       slug: "old",
       dbName: "prev_old_pr42",
       hostname: "old.example.com",
-      status: "error",
+      status: "failed",
       createdAt: "2026-08-01T12:00:00.000Z",
       updatedAt: "2026-08-01T12:00:00.000Z",
     });
@@ -484,7 +485,7 @@ describe("POST /v1/deploy", () => {
     const res = await postDeploy(deployToken, deployBody());
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      status: "ready",
+      status: "running",
       slug: "myapp",
       db_name: "prev_myapp_pr42",
     });
@@ -540,7 +541,7 @@ describe("POST /v1/deploy", () => {
       deployBody({ app_image: "ghcr.io/org/myapp:next" }),
     );
     expect(ok.status).toBe(200);
-    expect(ok.body).toMatchObject({ status: "ready" });
+    expect(ok.body).toMatchObject({ status: "running" });
 
     const [row] = await testApp!.db
       .select()
@@ -550,7 +551,7 @@ describe("POST /v1/deploy", () => {
       )
       .limit(1);
     expect(row!.createdAt).toBe(createdAtAfterReady);
-    expect(row!.status).toBe("ready");
+    expect(row!.status).toBe("running");
     expect(row!.appImage).toBe("ghcr.io/org/myapp:next");
   });
 
@@ -576,7 +577,7 @@ describe("POST /v1/deploy", () => {
       .limit(1);
     expect(row?.slug).toBe("myapp");
     expect(row?.dbName).toBe("prev_myapp_pr42");
-    expect(row?.status).toBe("ready");
+    expect(row?.status).toBe("running");
     expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
   });
 
@@ -634,7 +635,7 @@ describe("POST /v1/deploy", () => {
     );
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      status: "ready",
+      status: "running",
       slug: "myapp",
       db_name: "prev_myapp_pr42",
       hostname: "pr-42.alt.preview.example.com",
@@ -691,7 +692,7 @@ describe("POST /v1/deploy", () => {
     expect(b.body).toMatchObject({
       slug: "beta",
       db_name: "prev_beta_pr42",
-      status: "ready",
+      status: "running",
     });
 
     const [row] = await testApp!.db
@@ -702,7 +703,7 @@ describe("POST /v1/deploy", () => {
       )
       .limit(1);
     expect(row?.dbName).toBe("prev_beta_pr42");
-    expect(row?.status).toBe("ready");
+    expect(row?.status).toBe("running");
 
     // Winner's name must be present; alpha must have been dropped.
     expect(fakePreviewDb!.created).toContain("prev_beta_pr42");
@@ -716,7 +717,7 @@ describe("POST /v1/deploy", () => {
     const { deployToken } = await setup();
     const first = await postDeploy(deployToken, deployBody());
     expect(first.status).toBe(200);
-    expect(first.body).toMatchObject({ status: "ready" });
+    expect(first.body).toMatchObject({ status: "running" });
 
     const [a, b] = await Promise.all([
       postDeploy(deployToken, deployBody()),
@@ -733,7 +734,7 @@ describe("POST /v1/deploy", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       )
       .limit(1);
-    expect(row?.status).toBe("ready");
+    expect(row?.status).toBe("running");
     expect(row?.dbName).toBe("prev_myapp_pr42");
   });
 
@@ -843,7 +844,7 @@ describe("POST /v1/teardown", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       )
       .limit(1);
-    expect(row?.status).toBe("error");
+    expect(row?.status).toBe("failed");
   });
 
   test("unknown status does not silently report removed", async () => {
@@ -854,7 +855,7 @@ describe("POST /v1/teardown", () => {
       slug: "myapp",
       dbName: "prev_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
-      status: "running",
+      status: "bogus",
     });
     const res = await postTeardown(deployToken, teardownBody());
     expect(res.status).toBe(500);

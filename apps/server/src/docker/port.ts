@@ -28,5 +28,13 @@ export type PreviewDocker = {
   /** Force-remove by container name; 404 is success. */
   removeByName(name: string): Promise<void>;
   createAndStart(spec: ContainerCreateSpec): Promise<{ id: string }>;
+  /**
+   * IPv4 address of the container on a named Docker network, or null if not
+   * attached / not yet assigned. Used for health polls on PB_POSTGRES_NETWORK.
+   */
+  containerIpOnNetwork(
+    containerId: string,
+    networkName: string,
+  ): Promise<string | null>;
   listPreviewContainers(): Promise<CatalogContainer[]>;
 };

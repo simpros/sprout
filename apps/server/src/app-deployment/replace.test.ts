@@ -41,7 +41,7 @@ describe("replacePreviewApp", () => {
       },
     );
 
-    expect(result).toEqual({ containerId: "fake-1" });
+    expect(result).toEqual({ containerId: "fake-1", port: 3000 });
     expect(docker.pulls).toEqual([]);
     expect(docker.removed).toEqual(["pb-myapp-pr-42"]);
     expect(docker.creates).toHaveLength(1);

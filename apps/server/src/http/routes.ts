@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { authPlugin, requireAdmin, requireAuth } from "../auth/middleware.ts";
 import type { PreviewAppOps } from "../app-deployment/replace.ts";
+import type { HealthClock, HealthProbe } from "../app-deployment/health.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import type { PreviewDb } from "../preview-db/port.ts";
 import type { LifecycleDeps } from "../preview/lifecycle.ts";
@@ -17,6 +18,10 @@ export type RouteDeps = {
   db: StateDb;
   previewDb: PreviewDb;
   app: PreviewAppOps;
+  postgresNetwork: string;
+  healthProbe?: HealthProbe;
+  healthClock?: HealthClock;
+  log?: (message: string) => void;
 };
 
 function stubNotImplemented({
@@ -33,6 +38,10 @@ export function createRoutes(deps: RouteDeps) {
     db: deps.db,
     previewDb: deps.previewDb,
     app: deps.app,
+    postgresNetwork: deps.postgresNetwork,
+    healthProbe: deps.healthProbe,
+    healthClock: deps.healthClock,
+    log: deps.log,
   };
   return new Elysia()
     .get("/healthz", () => ({ ok: true }))
