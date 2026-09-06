@@ -7,8 +7,8 @@ export function previewContainerName(slug: string, prId: number): string {
   return `pb-${slug}-pr-${prId}`;
 }
 
-/** One-shot seed container; suffix keeps it out of preview-name catalog regex. */
-export function seedContainerName(slug: string, prId: number): string {
+/** Deterministic name for the one-shot seed-image run (suffix avoids catalog regex). */
+export function seedImageRunName(slug: string, prId: number): string {
   return `pb-${slug}-pr-${prId}-seed`;
 }
 

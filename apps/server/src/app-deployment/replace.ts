@@ -33,7 +33,7 @@ export type ReplacePreviewAppDeps = {
   pg: AppDeployPg;
   networks: AppDeployNetworks;
   previewPortDefault: number;
-  /** Wall-clock bound for one-shot seed containers (PB_SEED_TIMEOUT). */
+  /** Wall-clock bound for one-shot seed image runs (PB_SEED_TIMEOUT). */
   seedTimeoutMs?: number;
   /** Test seam — defaults to fetch-based probe. */
   healthProbe?: HealthProbe;
@@ -61,7 +61,7 @@ export type PreviewAppOps = {
     port: number,
     health: HealthSpec,
   ) => Promise<"ok" | "timeout">;
-  /** One-shot seed on Postgres network; caller already pulled the image. */
+  /** One-shot seed image on Postgres network; caller already pulled the image. */
   runSeed: (input: SeedImageInput) => Promise<SeedImageResult>;
   remove: (slug: string, prId: number) => Promise<void>;
   /** Catalog of running pb-* containers (orphan sweep). */

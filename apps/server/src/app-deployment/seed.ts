@@ -1,5 +1,5 @@
 import type { PreviewDocker } from "../docker/port.ts";
-import { seedContainerName } from "../preview/naming.ts";
+import { seedImageRunName } from "../preview/naming.ts";
 
 export type SeedImageInput = {
   slug: string;
@@ -29,7 +29,7 @@ export type RunSeedImageDeps = {
 };
 
 /**
- * One-shot seed container on the Postgres network only.
+ * Run the adopter seed image once on the Postgres network only.
  * Gateway sets PG* after user env so adopters cannot retarget the DB.
  * Never sets Entrypoint — image default entrypoint owns seed logic.
  */
@@ -37,8 +37,11 @@ export async function runSeedImage(
   deps: RunSeedImageDeps,
   input: SeedImageInput,
 ): Promise<SeedImageResult> {
-  const name = seedContainerName(input.slug, input.prId);
+  const name = seedImageRunName(input.slug, input.prId);
   await deps.docker.removeByName(name);
+
+  // Spec: log key count only — never values (may contain secrets).
+  console.log("seed:env", input.env.length);
 
   const { id } = await deps.docker.createAndStart({
     name,
@@ -69,7 +72,7 @@ export async function runSeedImage(
     try {
       await deps.docker.removeByName(name);
     } catch {
-      console.warn(`seed container remove failed for ${name}`);
+      console.warn(`seed image remove failed for ${name}`);
     }
   }
 }

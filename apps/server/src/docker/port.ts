@@ -39,7 +39,7 @@ export type PreviewDocker = {
   createAndStart(spec: ContainerCreateSpec): Promise<{ id: string }>;
   /**
    * Block until the container exits or `timeoutMs` elapses.
-   * Used for one-shot seed containers.
+   * Used for one-shot seed image runs.
    */
   waitForExit(
     containerId: string,
