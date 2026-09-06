@@ -7,7 +7,13 @@ import {
   type HealthProbe,
   type HealthSpec,
 } from "./health.ts";
+import {
+  runSeedImage,
+  type SeedImageInput,
+  type SeedImageResult,
+} from "./seed.ts";
 import type { CatalogContainer, PreviewDocker } from "../docker/port.ts";
+import { OPTIONAL_ENV_DEFAULTS } from "../config.ts";
 import { previewContainerName } from "../preview/naming.ts";
 
 export type AppDeployPg = {
@@ -27,6 +33,8 @@ export type ReplacePreviewAppDeps = {
   pg: AppDeployPg;
   networks: AppDeployNetworks;
   previewPortDefault: number;
+  /** Wall-clock bound for one-shot seed containers (PB_SEED_TIMEOUT). */
+  seedTimeoutMs?: number;
   /** Test seam — defaults to fetch-based probe. */
   healthProbe?: HealthProbe;
   /** Test seam — defaults to Date.now / setTimeout. */
@@ -53,6 +61,8 @@ export type PreviewAppOps = {
     port: number,
     health: HealthSpec,
   ) => Promise<"ok" | "timeout">;
+  /** One-shot seed on Postgres network; caller already pulled the image. */
+  runSeed: (input: SeedImageInput) => Promise<SeedImageResult>;
   remove: (slug: string, prId: number) => Promise<void>;
   /** Catalog of running pb-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
@@ -60,11 +70,23 @@ export type PreviewAppOps = {
 
 export function bindPreviewApp(deps: ReplacePreviewAppDeps): PreviewAppOps {
   const probe = deps.healthProbe ?? defaultHealthProbe();
+  const seedTimeoutMs =
+    deps.seedTimeoutMs ?? OPTIONAL_ENV_DEFAULTS.PB_SEED_TIMEOUT * 1000;
   return {
     pullImage: (image) => deps.docker.pullImage(image),
     replace: (input) => replacePreviewApp(deps, input),
     waitHealthy: (containerId, port, health) =>
       waitPreviewAppHealthy(deps, probe, containerId, port, health),
+    runSeed: (input) =>
+      runSeedImage(
+        {
+          docker: deps.docker,
+          pg: deps.pg,
+          networks: deps.networks,
+          seedTimeoutMs,
+        },
+        input,
+      ),
     remove: (slug, prId) => removePreviewApp(deps.docker, slug, prId),
     list: () => deps.docker.listPreviewContainers(),
   };

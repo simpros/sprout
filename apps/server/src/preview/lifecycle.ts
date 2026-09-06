@@ -61,6 +61,12 @@ export type ProvisionInput = {
   appImage: string;
   /** Resolved at the HTTP/CLI boundary — never defaulted here. */
   health: HealthSpec;
+  /** Present when deploy requested a seed image; env/args not persisted. */
+  seed?: {
+    image: string;
+    env: string[];
+    args: string[];
+  };
 };
 
 export type TeardownInput = {
@@ -264,6 +270,7 @@ type AttachInput = {
   hostname: string;
   appImage: string;
   health: HealthSpec;
+  seed?: ProvisionInput["seed"];
 };
 
 async function attachAppContainer(
@@ -327,6 +334,70 @@ async function attachAppContainer(
     }
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return { ok: false, status: 500, error: "health_timeout" };
+  }
+
+  const shouldSeed =
+    input.seed !== undefined &&
+    (starting.seededAt === null || starting.seededAt === undefined);
+
+  if (shouldSeed && input.seed) {
+    const seedingAt = utcIsoNow();
+    const [seeding] = await deps.db
+      .update(previews)
+      .set({ status: "seeding", updatedAt: seedingAt })
+      .where(
+        and(
+          eq(previews.canonicalRepoId, row.canonicalRepoId),
+          eq(previews.prId, row.prId),
+        ),
+      )
+      .returning();
+    if (!seeding) {
+      throw new Error("preview_row_missing_on_seeding");
+    }
+
+    const seedResult = await deps.app.runSeed({
+      slug: row.slug,
+      prId: row.prId,
+      image: input.seed.image,
+      dbName: row.dbName,
+      env: input.seed.env,
+      args: input.seed.args,
+    });
+    if (!seedResult.ok) {
+      if (seedResult.timedOut) {
+        console.warn("seed:failed", "timeout");
+      } else {
+        console.warn("seed:failed", seedResult.exitCode);
+      }
+      // Keep app container + containerId — seed failure is not a Traefik orphan.
+      await deps.db
+        .update(previews)
+        .set({ status: "failed", updatedAt: utcIsoNow() })
+        .where(
+          and(
+            eq(previews.canonicalRepoId, row.canonicalRepoId),
+            eq(previews.prId, row.prId),
+          ),
+        );
+      return { ok: false, status: 500, error: "seed_failed" };
+    }
+
+    const seededAt = utcIsoNow();
+    const [updated] = await deps.db
+      .update(previews)
+      .set({ status: "running", seededAt, updatedAt: seededAt })
+      .where(
+        and(
+          eq(previews.canonicalRepoId, row.canonicalRepoId),
+          eq(previews.prId, row.prId),
+        ),
+      )
+      .returning();
+    if (!updated) {
+      throw new Error("preview_row_missing_on_seeded_running");
+    }
+    return { ok: true, value: toSnapshot(updated, "running") };
   }
 
   const [updated] = await deps.db
@@ -405,6 +476,7 @@ async function provisionUnlocked(
     hostname: input.hostname,
     appImage: input.appImage,
     health: input.health,
+    seed: input.seed,
   };
   let row = await getPreviewRow(deps.db, input.repo, input.prId);
 
@@ -582,13 +654,15 @@ async function teardownUnlocked(
  * - failed + new slug/dbName: rewrite intent, then bring-up
  * - starting|running + same slug/dbName: re-attach + health (no CREATE retry, no TTL remint)
  * - provisioning + same slug/dbName: ensure DB then attach (mints generation)
- * - seeding: 409 preview_seeding_in_progress (seed slice owns transitions)
+ * - seeding: 409 preview_seeding_in_progress (concurrent seed owns the lock)
+ * - after health: optional seed when seed image present and seeded_at unset
  * - live + slug/dbName mismatch: 409 preview_identity_conflict
  * - removing: 409
  *
- * Registry pull runs outside the preview lock so a hung pull cannot stall
- * teardown for the same (repo, prId). Port inspect stays inside replace.
- * Health poll holds the preview lock (same-PR teardown queues behind).
+ * Registry pull (app + optional seed) runs outside the preview lock so a hung
+ * pull cannot stall teardown for the same (repo, prId). Port inspect stays
+ * inside replace. Health poll and seed wait hold the preview lock
+ * (same-PR teardown queues behind).
  */
 export async function provisionPreview(
   deps: LifecycleDeps,
@@ -600,6 +674,14 @@ export async function provisionPreview(
     // Preflight only — do not poison a live running/provisioning row.
     // Attach under the lock marks failed when replace actually fails.
     return { ok: false, status: 500, error: "preview_app_deploy_failed" };
+  }
+
+  if (input.seed) {
+    try {
+      await deps.app.pullImage(input.seed.image);
+    } catch {
+      return { ok: false, status: 500, error: "preview_seed_pull_failed" };
+    }
   }
 
   return withPreviewLock(input.repo, input.prId, () =>

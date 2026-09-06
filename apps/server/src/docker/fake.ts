@@ -2,6 +2,7 @@ import { parsePreviewContainerName } from "../preview/naming.ts";
 import type {
   CatalogContainer,
   ContainerCreateSpec,
+  ContainerWaitResult,
   PreviewDocker,
 } from "./port.ts";
 
@@ -14,11 +15,14 @@ export type FakeDockerClient = PreviewDocker & {
   running: Map<string, { id: string; spec: ContainerCreateSpec }>;
   /** containerId → networkName → IP */
   ips: Map<string, Map<string, string>>;
+  /** container name → wait outcome (default exit 0). */
+  waitResults: Map<string, { exitCode: number } | "timeout">;
 };
 
 export function createFakeDockerClient(
   options: {
     exposedPorts?: Record<string, number | null>;
+    waitResults?: Record<string, { exitCode: number } | "timeout">;
   } = {},
 ): FakeDockerClient {
   const pulls: string[] = [];
@@ -29,6 +33,9 @@ export function createFakeDockerClient(
   );
   const running = new Map<string, { id: string; spec: ContainerCreateSpec }>();
   const ips = new Map<string, Map<string, string>>();
+  const waitResults = new Map<string, { exitCode: number } | "timeout">(
+    Object.entries(options.waitResults ?? {}),
+  );
   let nextId = 1;
   let nextIp = 1;
 
@@ -39,6 +46,7 @@ export function createFakeDockerClient(
     exposedPorts,
     running,
     ips,
+    waitResults,
     async pullImage(image) {
       pulls.push(image);
     },
@@ -61,6 +69,15 @@ export function createFakeDockerClient(
       }
       ips.set(id, netIps);
       return { id };
+    },
+    async waitForExit(containerId, _timeoutMs): Promise<ContainerWaitResult> {
+      for (const [name, { id }] of running) {
+        if (id !== containerId) continue;
+        const result = waitResults.get(name);
+        if (result === "timeout") return { timedOut: true };
+        return { timedOut: false, exitCode: result?.exitCode ?? 0 };
+      }
+      return { timedOut: false, exitCode: 0 };
     },
     async containerIpOnNetwork(containerId, networkName) {
       return ips.get(containerId)?.get(networkName) ?? null;

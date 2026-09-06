@@ -50,6 +50,7 @@ const app = bindPreviewApp({
     postgres: config.postgresNetwork,
   },
   previewPortDefault: config.previewPortDefault,
+  seedTimeoutMs: config.seedTimeout * 1000,
 });
 
 startServer({ config, db, previewDb, app });
