@@ -28,16 +28,14 @@ export async function runDrop(
     yes: flags.value.yes || undefined,
   });
 
-  if (response.status === 409) {
-    const result = readEden<unknown>(response);
-    const body = result.ok ? result.data : result.body;
-    ctx.deps.io.stdout(
-      JSON.stringify(body ?? { error: "confirmation_required" }, null, 2),
-    );
+  const result = readEden<unknown>(response);
+  if (result.status === 409) {
+    const body = result.ok
+      ? result.data
+      : (result.body ?? { error: "confirmation_required" });
+    ctx.deps.io.stdout(JSON.stringify(body, null, 2));
     return fail(ctx.deps.io, "confirmation required; re-run with --yes", 2);
   }
-
-  const result = readEden<unknown>(response);
   if (!result.ok) return fail(ctx.deps.io, result.message);
   ctx.deps.io.stdout(JSON.stringify(result.data, null, 2));
   return 0;

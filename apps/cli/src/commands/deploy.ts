@@ -9,10 +9,23 @@ import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
 import type { SproutYaml } from "../yaml.ts";
 
-/** Subset of gateway deploy success used by the CLI. */
+/** Mirrors gateway `PreviewSnapshot` (apps/server preview/lifecycle). */
 type DeploySnapshot = {
+  ok: true;
+  canonical_repo_id: string;
+  pr_id: number;
+  slug: string;
+  db_name: string;
+  hostname: string;
+  status:
+    | "provisioning"
+    | "starting"
+    | "seeding"
+    | "running"
+    | "failed"
+    | "removing"
+    | "removed";
   preview_url?: string;
-  status?: string;
 };
 
 export async function runDeploy(
@@ -82,10 +95,10 @@ export async function runDeploy(
   if (!result.ok) return fail(ctx.deps.io, result.message);
 
   const data = result.data;
-  if (data?.status && data.status !== "running") {
+  if (data.status !== "running") {
     return fail(ctx.deps.io, `deploy ended with status: ${data.status}`);
   }
-  if (!data?.preview_url) {
+  if (!data.preview_url) {
     return fail(ctx.deps.io, "deploy succeeded without preview_url");
   }
   ctx.deps.io.stdout(`preview_url=${data.preview_url}`);

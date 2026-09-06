@@ -1,5 +1,6 @@
 import type { ApiClient } from "@sprout/api-client";
 import {
+  normalizeGitRemoteUrl,
   resolveCanonicalRepoId,
   resolvePrId,
 } from "./identity.ts";
@@ -79,7 +80,11 @@ export function resolveRepo(
   override?: string,
 ): Result<string> {
   if (override?.trim()) {
-    return { ok: true, value: override.trim() };
+    const normalized = normalizeGitRemoteUrl(override);
+    if (!normalized) {
+      return { ok: false, error: "invalid --repo URL" };
+    }
+    return { ok: true, value: normalized };
   }
   return resolveCanonicalRepoId({
     env: deps.env,

@@ -432,6 +432,52 @@ describe("sprout CLI command surface", () => {
     });
   });
 
+  test("deploy normalizes ssh --repo override", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-5.example.com",
+        canonical_repo_id: "https://github.com/org/repo",
+        pr_id: 5,
+        slug: "myapp",
+        db_name: "prev_myapp_pr5",
+        hostname: "pr-5.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      [
+        "deploy",
+        "-i",
+        "app:1",
+        "--repo",
+        "git@github.com:org/repo.git",
+      ],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REF: "refs/pull/5/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      canonical_repo_id: "https://github.com/org/repo",
+      pr_id: 5,
+    });
+  });
+
   test("broken GITHUB_EVENT_PATH is a hard error", async () => {
     const baseUrl = startGateway(async () => Response.json({ ok: true }));
     const code = await runCli(

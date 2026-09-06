@@ -1,8 +1,8 @@
 import type { CliContext } from "../context.ts";
-import { fail, loadYaml } from "../context.ts";
+import { fail, loadYaml, resolveRepo } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
-import { normalizeGitRemoteUrl } from "../identity.ts";
+import { runJsonGet } from "../json-get.ts";
 
 export async function runAdmin(
   tokens: string[],
@@ -18,7 +18,7 @@ export async function runAdmin(
 
   switch (action) {
     case "list":
-      return listTokens(rest, ctx);
+      return runJsonGet(ctx, rest, () => ctx.client.v1.admin.tokens.get());
     case "revoke":
       return revokeToken(rest, ctx);
     case "create":
@@ -29,23 +29,6 @@ export async function runAdmin(
         "usage: sprout admin token <create|revoke|list> …",
       );
   }
-}
-
-async function listTokens(
-  tokens: string[],
-  ctx: CliContext,
-): Promise<number> {
-  const flags = parseFlags(tokens, []);
-  if (!flags.ok) return fail(ctx.deps.io, flags.error);
-  if (flags.value.rest.length > 0) {
-    return fail(ctx.deps.io, "usage: sprout admin token list");
-  }
-
-  const response = await ctx.client.v1.admin.tokens.get();
-  const result = readEden<unknown>(response);
-  if (!result.ok) return fail(ctx.deps.io, result.message);
-  ctx.deps.io.stdout(JSON.stringify(result.data, null, 2));
-  return 0;
 }
 
 async function revokeToken(
@@ -82,14 +65,11 @@ async function createToken(
     return fail(ctx.deps.io, "only --scope deploy is supported");
   }
 
-  const rawRepo = flags.value.repo?.trim();
-  if (!rawRepo) {
+  if (!flags.value.repo?.trim()) {
     return fail(ctx.deps.io, "--repo is required");
   }
-  const repo = normalizeGitRemoteUrl(rawRepo);
-  if (!repo) {
-    return fail(ctx.deps.io, "invalid --repo URL");
-  }
+  const repo = resolveRepo(ctx.deps, flags.value.repo);
+  if (!repo.ok) return fail(ctx.deps.io, repo.error);
 
   let slug = flags.value.slug?.trim();
   if (!slug) {
@@ -101,7 +81,7 @@ async function createToken(
   }
 
   const response = await ctx.client.v1.admin.tokens.post({
-    canonical_repo_id: repo,
+    canonical_repo_id: repo.value,
     slug,
   });
   const result = readEden<unknown>(response);

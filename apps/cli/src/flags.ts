@@ -22,6 +22,34 @@ export type FlagBag = {
   rest: string[];
 };
 
+type FlagDef =
+  | {
+      flag: FlagName;
+      field: "image" | "seedImage" | "repo" | "slug" | "scope";
+      kind: "string";
+      allowDash?: boolean;
+    }
+  | {
+      flag: FlagName;
+      field: "seedEnv" | "seedArg";
+      kind: "repeat";
+      allowDash?: boolean;
+    }
+  | { flag: FlagName; field: "yes"; kind: "boolean" };
+
+const FLAG_DEFS: readonly FlagDef[] = [
+  { flag: "-i", field: "image", kind: "string" },
+  { flag: "-s", field: "seedImage", kind: "string" },
+  { flag: "--seed-env", field: "seedEnv", kind: "repeat", allowDash: true },
+  { flag: "--seed-arg", field: "seedArg", kind: "repeat", allowDash: true },
+  { flag: "--yes", field: "yes", kind: "boolean" },
+  { flag: "--repo", field: "repo", kind: "string" },
+  { flag: "--slug", field: "slug", kind: "string" },
+  { flag: "--scope", field: "scope", kind: "string" },
+];
+
+const FLAG_BY_NAME = new Map(FLAG_DEFS.map((d) => [d.flag, d]));
+
 /** Parse argv tokens, accepting only the listed flags. */
 export function parseFlags(
   tokens: string[],
@@ -37,87 +65,30 @@ export function parseFlags(
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
-    const next = (opts?: { allowDash?: boolean }) => {
-      const value = tokens[++i];
-      if (value === undefined) return null;
-      if (!opts?.allowDash && value.startsWith("-")) return null;
-      return value;
-    };
+    if (!token.startsWith("-")) {
+      out.rest.push(token);
+      continue;
+    }
 
-    const requireAllowed = (flag: FlagName): string | null => {
-      if (!allow.has(flag)) return `unknown flag: ${flag}`;
-      return null;
-    };
+    const def = FLAG_BY_NAME.get(token as FlagName);
+    if (!def || !allow.has(def.flag)) {
+      return { ok: false, error: `unknown flag: ${token}` };
+    }
 
-    switch (token) {
-      case "-i": {
-        const denied = requireAllowed("-i");
-        if (denied) return { ok: false, error: denied };
-        const value = next();
-        if (!value) return { ok: false, error: "missing value for -i" };
-        out.image = value;
-        break;
-      }
-      case "-s": {
-        const denied = requireAllowed("-s");
-        if (denied) return { ok: false, error: denied };
-        const value = next();
-        if (!value) return { ok: false, error: "missing value for -s" };
-        out.seedImage = value;
-        break;
-      }
-      case "--seed-env": {
-        const denied = requireAllowed("--seed-env");
-        if (denied) return { ok: false, error: denied };
-        const value = next({ allowDash: true });
-        if (!value) return { ok: false, error: "missing value for --seed-env" };
-        out.seedEnv.push(value);
-        break;
-      }
-      case "--seed-arg": {
-        const denied = requireAllowed("--seed-arg");
-        if (denied) return { ok: false, error: denied };
-        // Seed args are often flags themselves (e.g. `--reset`).
-        const value = next({ allowDash: true });
-        if (!value) return { ok: false, error: "missing value for --seed-arg" };
-        out.seedArg.push(value);
-        break;
-      }
-      case "--yes": {
-        const denied = requireAllowed("--yes");
-        if (denied) return { ok: false, error: denied };
-        out.yes = true;
-        break;
-      }
-      case "--repo": {
-        const denied = requireAllowed("--repo");
-        if (denied) return { ok: false, error: denied };
-        const value = next();
-        if (!value) return { ok: false, error: "missing value for --repo" };
-        out.repo = value;
-        break;
-      }
-      case "--slug": {
-        const denied = requireAllowed("--slug");
-        if (denied) return { ok: false, error: denied };
-        const value = next();
-        if (!value) return { ok: false, error: "missing value for --slug" };
-        out.slug = value;
-        break;
-      }
-      case "--scope": {
-        const denied = requireAllowed("--scope");
-        if (denied) return { ok: false, error: denied };
-        const value = next();
-        if (!value) return { ok: false, error: "missing value for --scope" };
-        out.scope = value;
-        break;
-      }
-      default:
-        if (token.startsWith("-")) {
-          return { ok: false, error: `unknown flag: ${token}` };
-        }
-        out.rest.push(token);
+    if (def.kind === "boolean") {
+      out.yes = true;
+      continue;
+    }
+
+    const value = tokens[++i];
+    if (value === undefined || (!def.allowDash && value.startsWith("-"))) {
+      return { ok: false, error: `missing value for ${def.flag}` };
+    }
+
+    if (def.kind === "repeat") {
+      out[def.field].push(value);
+    } else {
+      out[def.field] = value;
     }
   }
 
