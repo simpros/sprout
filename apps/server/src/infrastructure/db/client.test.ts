@@ -2,7 +2,14 @@ import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { connectState } from "./client.ts";
+import {
+  COMPOSE_DEFAULT_SQLITE_PATH,
+  COMPOSE_LEGACY_SQLITE_PATH,
+  connectState,
+  DEFAULT_SQLITE_PATH,
+  LEGACY_SQLITE_PATH,
+  resolveStateDbPath,
+} from "./client.ts";
 import { parseUnambiguousUtcMs } from "./instant.ts";
 import { apiTokens, previews, repos } from "./schema.ts";
 import { runMigrations } from "../../scripts/migrate.ts";
@@ -30,6 +37,45 @@ async function tableNames(sql: ReturnType<typeof connectState>["sql"]) {
   `;
   return rows.map((row) => row.name);
 }
+
+describe("resolveStateDbPath", () => {
+  test("honors an explicit non-default pin", () => {
+    expect(resolveStateDbPath("/data/preview-buddy.db", () => false)).toBe(
+      "/data/preview-buddy.db",
+    );
+    expect(resolveStateDbPath("/custom/state.db", () => false)).toBe(
+      "/custom/state.db",
+    );
+  });
+
+  test("prefers existing sprout.db over legacy", () => {
+    const exists = (path: string) =>
+      path === DEFAULT_SQLITE_PATH || path === LEGACY_SQLITE_PATH;
+    expect(resolveStateDbPath(undefined, exists)).toBe(DEFAULT_SQLITE_PATH);
+  });
+
+  test("falls back to host legacy when sprout.db is missing", () => {
+    expect(
+      resolveStateDbPath(undefined, (path) => path === LEGACY_SQLITE_PATH),
+    ).toBe(LEGACY_SQLITE_PATH);
+  });
+
+  test("falls back to compose legacy when default path is missing", () => {
+    expect(
+      resolveStateDbPath(
+        COMPOSE_DEFAULT_SQLITE_PATH,
+        (path) => path === COMPOSE_LEGACY_SQLITE_PATH,
+      ),
+    ).toBe(COMPOSE_LEGACY_SQLITE_PATH);
+  });
+
+  test("creates sprout.db when neither file exists", () => {
+    expect(resolveStateDbPath(undefined, () => false)).toBe(DEFAULT_SQLITE_PATH);
+    expect(resolveStateDbPath(COMPOSE_DEFAULT_SQLITE_PATH, () => false)).toBe(
+      COMPOSE_DEFAULT_SQLITE_PATH,
+    );
+  });
+});
 
 describe("connectState", () => {
   test("db handle is schema-aware", async () => {

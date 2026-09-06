@@ -10,7 +10,9 @@
 #   docker compose -f docker-compose.yml -f docker-compose.external.yml \
 #     --env-file compose.env up -d --build gateway
 
-name: sprout
+# Stable project name keeps Docker volume identity (`preview-buddy_*`) across
+# the package/brand rename so upgrades do not mount a new empty gateway-data.
+name: preview-buddy
 
 networks:
   traefik:
@@ -114,7 +116,7 @@ services:
       PB_FORGE_TOKEN: ${PB_FORGE_TOKEN:-}
       # Blank/unset → loadConfig treats as undefined → auto-generate
       PB_ADMIN_TOKEN: ${PB_ADMIN_TOKEN:-}
-      PB_STATE_DB_PATH: /data/sprout.db
+      PB_STATE_DB_PATH: ${PB_STATE_DB_PATH:-/data/sprout.db}
       PB_PORT: "7331"
     healthcheck:
       test:
