@@ -253,8 +253,8 @@ describe("createDockerEngineClient", () => {
           JSON.stringify({
             NetworkSettings: {
               Networks: {
-                "sprout-postgres": { IPAddress: "172.20.0.4" },
-                "sprout-traefik": { IPAddress: "172.18.0.9" },
+                "preview-buddy-postgres": { IPAddress: "172.20.0.4" },
+                "preview-buddy-traefik": { IPAddress: "172.18.0.9" },
               },
             },
           }),
@@ -263,7 +263,7 @@ describe("createDockerEngineClient", () => {
       },
     });
     expect(
-      await docker.containerIpOnNetwork("cid-9", "sprout-postgres"),
+      await docker.containerIpOnNetwork("cid-9", "preview-buddy-postgres"),
     ).toBe("172.20.0.4");
   });
 });

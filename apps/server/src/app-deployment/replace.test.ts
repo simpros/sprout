@@ -10,8 +10,8 @@ const baseDeps = {
     password: "sekrit",
   },
   networks: {
-    traefik: "sprout-traefik",
-    postgres: "sprout-postgres",
+    traefik: "preview-buddy-traefik",
+    postgres: "preview-buddy-postgres",
   },
   previewPortDefault: 8080,
 };
@@ -56,8 +56,8 @@ describe("replacePreviewApp", () => {
       "PGDATABASE=prev_myapp_pr42",
     ]);
     expect(created.networkNames).toEqual([
-      "sprout-traefik",
-      "sprout-postgres",
+      "preview-buddy-traefik",
+      "preview-buddy-postgres",
     ]);
     expect(created.labels).toEqual({
       "traefik.enable": "true",
