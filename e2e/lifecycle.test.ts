@@ -63,8 +63,7 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
     expect(deployed.data?.status).toBe("running");
 
     try {
-      // pin to production grammar (previewContainerName); flip to sprout- when #51 lands
-      const name = `pb-${e2eConfig.slug}-pr-${prId}`;
+      const name = `sprout-${e2eConfig.slug}-pr-${prId}`;
       const env = envMap(await containerEnv(name));
 
       expect(env.get("DATABASE_HOST")).toBe(expectedHost);
