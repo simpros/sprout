@@ -53,7 +53,6 @@ export async function runDeploy(
     hostname: string;
     app_image: string;
     health?: SproutYaml["health"];
-    env?: NonNullable<SproutYaml["preview"]["env"]>;
     seed_image?: string;
     seed_env?: string[];
     seed_arg?: string[];
@@ -69,12 +68,15 @@ export async function runDeploy(
   };
 
   if (yaml.value.health) body.health = yaml.value.health;
-  if (yaml.value.preview.env) body.env = yaml.value.preview.env;
   if (flags.value.seedImage) body.seed_image = flags.value.seedImage;
   if (flags.value.seedEnv.length > 0) body.seed_env = flags.value.seedEnv;
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
 
-  const response = await ctx.client.v1.deploy.post(body);
+  // #53 opens `env` on the deploy schema; cast until then (do not widen Elysia early).
+  const response = await ctx.client.v1.deploy.post({
+    ...body,
+    ...(yaml.value.preview.env ? { env: yaml.value.preview.env } : {}),
+  } as typeof body);
   const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return fail(ctx.deps.io, result.message);
 
