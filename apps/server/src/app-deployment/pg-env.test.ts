@@ -97,7 +97,7 @@ describe("withGatewayConnectionEnv", () => {
     ).toEqual(["FIXTURE_SET=demo", ...remapped]);
   });
 
-  test("partial remap strips remapped target and unmapped PG*", () => {
+  test("partial remap strips remapped target and remapped-away PG*", () => {
     const partial = pgConnectionEnv(pg, "prev_myapp_pr42", {
       PGHOST: "DATABASE_HOST",
     });
@@ -111,6 +111,6 @@ describe("withGatewayConnectionEnv", () => {
         ],
         partial,
       ),
-    ).toEqual(["FIXTURE_SET=demo", "PGHOST=leftover", ...partial]);
+    ).toEqual(["FIXTURE_SET=demo", ...partial]);
   });
 });
