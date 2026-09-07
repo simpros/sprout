@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
+import type { PreviewEnvMap } from "../app-deployment/pg-env.ts";
 import type { SeedImageResult, SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
@@ -60,11 +61,13 @@ async function markSeedFailed(
 /**
  * Seed phase ownership: enter seeding → run → running+seededAt | failed(keep container).
  * Any post-enter throw still markSeedFailed so the row cannot tombstone as seeding.
+ * connectionEnv is deploy-scoped (sibling to seed), not part of SeedImageSpec.
  */
 export async function runSeedPhase(
   deps: SeedPhaseDeps,
   row: PreviewRow,
   seed: SeedImageSpec,
+  connectionEnv?: PreviewEnvMap,
 ): Promise<Result<SeedPhaseSnapshot>> {
   await updatePreviewRow(
     deps.db,
@@ -81,7 +84,7 @@ export async function runSeedPhase(
       dbName: row.dbName,
       env: seed.env,
       args: seed.args,
-      connectionEnv: seed.connectionEnv,
+      connectionEnv,
     });
 
     if (!seedResult.ok) {
@@ -114,13 +117,14 @@ export async function promoteAfterHealthy(
   deps: SeedPhaseDeps,
   starting: PreviewRow,
   seed?: SeedImageSpec,
+  connectionEnv?: PreviewEnvMap,
 ): Promise<Result<SeedPhaseSnapshot>> {
   const shouldSeed =
     seed !== undefined &&
     (starting.seededAt === null || starting.seededAt === undefined);
 
   if (shouldSeed && seed) {
-    return runSeedPhase(deps, starting, seed);
+    return runSeedPhase(deps, starting, seed, connectionEnv);
   }
 
   const updated = await updatePreviewRow(
@@ -155,6 +159,7 @@ export async function resumeIncompleteSeed(
   deps: SeedPhaseDeps,
   row: PreviewRow,
   seed: SeedImageSpec | undefined,
+  connectionEnv?: PreviewEnvMap,
 ): Promise<Result<SeedPhaseSnapshot>> {
   if (!seed) {
     return {
@@ -163,5 +168,5 @@ export async function resumeIncompleteSeed(
       error: "seed_image_required_to_resume_seeding",
     };
   }
-  return runSeedPhase(deps, row, seed);
+  return runSeedPhase(deps, row, seed, connectionEnv);
 }

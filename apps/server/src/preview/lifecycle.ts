@@ -74,7 +74,7 @@ export type ProvisionInput = {
   /** Present when deploy requested a seed image; env/args not persisted. */
   seed?: SeedImageSpec;
   /** Connection env name remap; request-scoped, not persisted. */
-  env?: PreviewEnvMap;
+  connectionEnv?: PreviewEnvMap;
 };
 
 export type TeardownInput = {
@@ -250,7 +250,7 @@ type AttachInput = {
   hostname: string;
   appImage: string;
   health: HealthSpec;
-  env?: PreviewEnvMap;
+  connectionEnv?: PreviewEnvMap;
 };
 
 /**
@@ -272,7 +272,7 @@ async function attachAppContainer(
       hostname: input.hostname,
       image: input.appImage,
       dbName: row.dbName,
-      env: input.env,
+      connectionEnv: input.connectionEnv,
     }));
   } catch {
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
@@ -332,7 +332,12 @@ async function attachThenPromote(
     refreshGeneration,
   );
   if (!attached.ok) return attached;
-  return promoteAfterHealthy(deps, attached.value, seed);
+  return promoteAfterHealthy(
+    deps,
+    attached.value,
+    seed,
+    attachInput.connectionEnv,
+  );
 }
 
 /** Fresh / recovered identity: CREATE failure → failed; else attach+promote. */
@@ -399,7 +404,7 @@ async function resumeSeedIncomplete(
   seed: SeedImageSpec | undefined,
 ): Promise<Result<PreviewSnapshot>> {
   if (canResumeSeed(row, attachInput)) {
-    return resumeIncompleteSeed(deps, row, seed);
+    return resumeIncompleteSeed(deps, row, seed, attachInput.connectionEnv);
   }
   return attachThenPromote(deps, row, attachInput, seed, false);
 }
@@ -413,7 +418,7 @@ async function provisionUnlocked(
     hostname: input.hostname,
     appImage: input.appImage,
     health: input.health,
-    env: input.env,
+    connectionEnv: input.connectionEnv,
   };
   const seed = input.seed;
   let row = await getPreviewRow(deps.db, input.repo, input.prId);
@@ -454,7 +459,12 @@ async function provisionUnlocked(
       if (dbIdentityMatches(row, input, requestedDbName)) {
         // Seed-failed keep-container: same resume as crash-mid-seed.
         if (canResumeSeed(row, attachInput)) {
-          return resumeIncompleteSeed(deps, row, seed);
+          return resumeIncompleteSeed(
+            deps,
+            row,
+            seed,
+            attachInput.connectionEnv,
+          );
         }
         return bringUpNew(deps, row, attachInput, seed, false);
       }
