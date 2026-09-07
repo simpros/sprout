@@ -138,6 +138,90 @@ describe("sprout CLI command surface", () => {
     ]);
   });
 
+  test("deploy includes preview.env remap on the request body", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-42.myapp.preview.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  env:
+    PGHOST: DATABASE_HOST
+    PGUSER: DATABASE_USER
+`);
+    const code = await runCli(
+      ["deploy", "-i", "ghcr.io/org/app:sha"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "deploy-token",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/42/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      env: {
+        PGHOST: "DATABASE_HOST",
+        PGUSER: "DATABASE_USER",
+      },
+    });
+  });
+
+  test("deploy rejects invalid preview.env before calling the gateway", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({ ok: true, status: "running", preview_url: "x" });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGHOST: DATABASE_HOST
+    PGPORT: DATABASE_HOST
+`);
+    const code = await runCli(
+      ["deploy", "-i", "app:1"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/1/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(stderr[0]).toContain("target collision");
+    expect(captured).toEqual([]);
+  });
+
   test("deploy forwards -s, --seed-env, --seed-arg and requires health", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({

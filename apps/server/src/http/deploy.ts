@@ -31,6 +31,7 @@ export const deployBody = t.Object({
   hostname: t.String({ minLength: 1 }),
   app_image: t.String({ minLength: 1 }),
   health: t.Optional(healthBody),
+  env: t.Optional(t.Record(t.String(), t.String())),
   seed_image: t.Optional(t.String({ minLength: 1 })),
   seed_env: t.Optional(t.Array(t.String())),
   seed_arg: t.Optional(t.Array(t.String())),
@@ -49,6 +50,7 @@ export type DeployBody = {
   hostname: string;
   app_image: string;
   health?: HealthRequest;
+  env?: Record<string, string>;
   seed_image?: string;
   seed_env?: string[];
   seed_arg?: string[];

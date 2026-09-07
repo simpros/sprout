@@ -43,6 +43,136 @@ health:
     });
   });
 
+  test("parses preview.env remap", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGHOST: DATABASE_HOST
+    PGPORT: DATABASE_PORT
+    PGUSER: DATABASE_USER
+    PGPASSWORD: DATABASE_PASSWORD
+    PGDATABASE: DATABASE_NAME
+`);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          env: {
+            PGHOST: "DATABASE_HOST",
+            PGPORT: "DATABASE_PORT",
+            PGUSER: "DATABASE_USER",
+            PGPASSWORD: "DATABASE_PASSWORD",
+            PGDATABASE: "DATABASE_NAME",
+          },
+        },
+      },
+    });
+  });
+
+  test("accepts identity and partial preview.env maps", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGHOST: PGHOST
+    PGUSER: DATABASE_USER
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          env: {
+            PGHOST: "PGHOST",
+            PGUSER: "DATABASE_USER",
+          },
+        },
+      },
+    });
+  });
+
+  test("treats empty preview.env as absent", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env: {}
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+      },
+    });
+  });
+
+  test("rejects unknown preview.env keys", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    DATABASE_URL: DATABASE_URL
+`),
+    ).toEqual({
+      ok: false,
+      error: "unknown key: preview.env.DATABASE_URL",
+    });
+  });
+
+  test("rejects empty or invalid preview.env targets", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGHOST: ""
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.env.PGHOST is required",
+    });
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGHOST: "bad-name"
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.env.PGHOST is invalid",
+    });
+  });
+
+  test("rejects preview.env target collisions", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGHOST: DATABASE_HOST
+    PGPORT: DATABASE_HOST
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.env: target collision: DATABASE_HOST",
+    });
+  });
+
   test("rejects unknown top-level keys", () => {
     const result = parseSproutYaml(`
 slug: myapp
