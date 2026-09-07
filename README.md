@@ -26,7 +26,7 @@ data isolation per PR.
 2. Adopting repo adds `.sprout.yaml` and a CI workflow — see the
    [adoption guide](docs/adoption.md) and
    [`examples/adopting-repo/`](examples/adopting-repo/).
-3. Gateway **preview-db module** creates `sprout_<slug>_pr<id>` on the shared
+3. Gateway **preview-db module** creates `prev_<slug>_pr<id>` on the shared
    instance.
 4. Gateway **app-deployment module** runs the app container with Traefik
    labels on a shared reverse-proxy network (works alongside Traefik managed
