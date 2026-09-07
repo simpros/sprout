@@ -33,7 +33,8 @@ export type RunSeedImageDeps = {
 
 /**
  * Run the adopter seed image once on the Postgres network only.
- * Gateway sets connection vars after user env so adopters cannot retarget the DB.
+ * Gateway appends connection env (PG* or remapped names) after user
+ * `--seed-env` so adopters cannot retarget the DB on colliding names.
  * Never sets Entrypoint — image default entrypoint owns seed logic.
  * Docker ops errors are absorbed into SeedImageResult (never throw mid-phase).
  */

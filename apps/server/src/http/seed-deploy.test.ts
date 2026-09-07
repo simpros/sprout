@@ -191,6 +191,36 @@ describe("POST /v1/deploy seed image", () => {
     ]);
   });
 
+  // Mirrors PG* last-wins above: remapping must not weaken credential override.
+  test("with remapped names, gateway connection env wins over colliding seed_env", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        env: { PGHOST: "DATABASE_HOST" },
+        seed_image: SEED_IMAGE,
+        seed_env: [
+          "FIXTURE_SET=demo",
+          "DATABASE_HOST=attacker",
+          "PGUSER=evil",
+        ],
+        health: healthBlock(),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(fakeDocker!.creates).toHaveLength(2);
+    expect(fakeDocker!.creates[1]!.env).toEqual([
+      "FIXTURE_SET=demo",
+      "DATABASE_HOST=attacker",
+      "PGUSER=evil",
+      "DATABASE_HOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=sprout_preview",
+      "PGPASSWORD=preview-secret",
+      "PGDATABASE=sprout_myapp_pr42",
+    ]);
+  });
+
   test("skips seed on synchronize when seeded_at already set", async () => {
     const { deployToken } = await setup();
     const first = await postDeploy(
