@@ -35,31 +35,36 @@ The stack in `docker-compose.yml` is the reference **operator compose stack**
 for local development and CI smoke. The **E2E acceptance harness** (`e2e/`)
 runs the same file with `--env-file e2e/compose.e2e.env` — see
 [`e2e/README.md`](../e2e/README.md) or `bun run test:e2e`. Default network
-names (`preview-buddy-traefik`, `preview-buddy-postgres`) are project-local so
-a smoke `up` does not collide with an existing Coolify Traefik network named
-`traefik`. Host ports are `SPROUT_GATEWAY_HOST_PORT` (default 7331) and
+names (`sprout-traefik`, `sprout-postgres`) are project-local so a smoke `up`
+does not collide with an existing Coolify Traefik network named `traefik`.
+Host ports are `SPROUT_GATEWAY_HOST_PORT` (default 7331) and
 `TRAEFIK_HTTP_PORT` (default 8880); the harness ports come from
 `e2e/compose.e2e.env`.
 
 ## Defaults
 
-Compose **project name**, Docker **volumes**, default **networks**, and the
-control-plane **SQLite path** stay on the opaque `preview-buddy*` identity so
-a pull + recreate does not orphan state. Package/CLI/docs branding is `sprout`;
-durable plumbing is unchanged:
+Compose **project name**, Docker **volumes**, default **networks**, control-plane
+**SQLite path**, preview **roles**, and preview **resource name grammars** use
+the product `sprout*` identity (see
+[`docs/adr/0006-sprout-identity-and-preview-env.md`](adr/0006-sprout-identity-and-preview-env.md)):
 
 | What | Default |
 |---|---|
-| Compose project / volumes | `preview-buddy` / `preview-buddy_*` |
-| Control-plane SQLite | `/data/preview-buddy.db` (compose) / `preview-buddy.db` (host) |
-| Traefik network | `preview-buddy-traefik` |
-| Postgres network | `preview-buddy-postgres` |
-| Preview Postgres roles | `pb_admin` / `pb_preview` |
-| Preview container names | `pb-<slug>-pr-<id>` |
+| Compose project / volumes | `sprout` / `sprout_*` |
+| Control-plane SQLite | `/data/sprout.db` (compose) / `sprout.db` (host) |
+| Traefik network | `sprout-traefik` |
+| Postgres network | `sprout-postgres` |
+| Preview Postgres roles | `sprout_admin` / `sprout_preview` |
+| Preview container names | `sprout-<slug>-pr-<id>` |
+| Preview database names | `sprout_<slug>_pr<id>` |
 
-No SQLite rename or network pin is required for the package rename. Pin
-`SPROUT_TRAEFIK_NETWORK` / `SPROUT_POSTGRES_NETWORK` / `SPROUT_STATE_DB_PATH`
-only when you intentionally use non-default names (external Traefik, Coolify, etc.).
+**Upgrade from legacy `preview-buddy*` / `pb*` / `prev_*` defaults:** this is a
+clean break. Tear down previews, remove old compose volumes/networks, delete
+the old SQLite file, and bring the stack up fresh. There is no in-place
+migrator (v0.1 pre-release).
+
+Pin `SPROUT_TRAEFIK_NETWORK` / `SPROUT_POSTGRES_NETWORK` / `SPROUT_STATE_DB_PATH`
+when you intentionally use non-default names (external Traefik, Coolify, etc.).
 
 ## Architecture
 
@@ -80,7 +85,7 @@ only when you intentionally use non-default names (external Traefik, Coolify, et
                     └─────────────┘
 ```
 
-- **Postgres** hosts all preview logical databases (`prev_<slug>_pr<id>`).
+- **Postgres** hosts all preview logical databases (`sprout_<slug>_pr<id>`).
 - **Gateway** administers databases, starts preview containers, and sets
   Traefik routing labels. It mounts the Docker socket and joins both networks.
 - **Traefik** terminates HTTP for preview hostnames. Preview app containers
@@ -103,9 +108,9 @@ project-local):
 ```yaml
 networks:
   traefik:
-    name: ${SPROUT_TRAEFIK_NETWORK:-preview-buddy-traefik}
+    name: ${SPROUT_TRAEFIK_NETWORK:-sprout-traefik}
   postgres:
-    name: ${SPROUT_POSTGRES_NETWORK:-preview-buddy-postgres}
+    name: ${SPROUT_POSTGRES_NETWORK:-sprout-postgres}
 ```
 
 When the gateway creates a preview app container it attaches **both** networks.
@@ -150,10 +155,10 @@ export PGPORT=5432
 export POSTGRES_USER=<admin-user>
 export POSTGRES_DB=postgres
 export PGPASSWORD=<admin-password>
-export SPROUT_PG_USER=pb_preview
+export SPROUT_PG_USER=sprout_preview
 export SPROUT_PG_PASSWORD=<preview-password>
 bash deploy/postgres/ensure-preview-role.sh
-# Or equivalent: CREATE ROLE pb_preview LOGIN PASSWORD '…';
+# Or equivalent: CREATE ROLE sprout_preview LOGIN PASSWORD '…';
 ```
 
 Also ensure the external Traefik has `--providers.docker=true` and
@@ -177,9 +182,9 @@ Required today (gateway fails fast if missing):
 | Variable | Description |
 |---|---|
 | `SPROUT_PREVIEW_POSTGRES_URL` | Admin DSN for `CREATE DATABASE` / `DROP DATABASE` |
-| `SPROUT_PG_HOST` | Hostname preview containers use for `PGHOST` |
-| `SPROUT_PG_USER` | Static preview login; granted ownership of each `prev_*` database |
-| `SPROUT_PG_PASSWORD` | Password preview containers use for `PGPASSWORD` |
+| `SPROUT_PG_HOST` | Hostname preview containers use for the injected host field (`PGHOST` by default) |
+| `SPROUT_PG_USER` | Static preview login; granted ownership of each `sprout_*` database |
+| `SPROUT_PG_PASSWORD` | Password preview containers use for the injected password field |
 | `SPROUT_TRAEFIK_NETWORK` | Docker network name for Traefik-facing containers |
 | `SPROUT_POSTGRES_NETWORK` | Docker network name for database reachability |
 | `SPROUT_REGISTRY_URL` | Registry host for pulling preview images |
@@ -197,7 +202,7 @@ Additional v0.1 variables:
 
 | Variable | Description |
 |---|---|
-| `SPROUT_PG_PORT` | Port preview containers use for `PGPORT` (default `5432`) |
+| `SPROUT_PG_PORT` | Port preview containers use for the injected port field (default `5432`) |
 | `SPROUT_ADMIN_TOKEN` | Bootstrap admin bearer token; auto-generated if omitted or blank — only a non-empty value pins the token |
 | `SPROUT_FORGE_TOKEN` | PAT for sweep open-PR listing (optional at boot; required when sweep calls the forge) |
 | `SPROUT_STATE_DB_PATH` | SQLite path (use a volume mount in production) |
@@ -216,6 +221,10 @@ See `.env.example` (host gateway / `bun run dev`) and `compose.env.example`
 (compose stack). Keep `POSTGRES_*` and `SPROUT_PREVIEW_POSTGRES_URL` in sync in
 `compose.env`; do not synthesize the DSN from the raw password in YAML.
 
+**Non-goal / follow-up:** the gateway injects one preview login into app and
+seed containers. Provisioning a second restricted role (dual-role / RLS
+`app_user`) is out of scope for v0.1 — see the adoption guide.
+
 ## Postgres preview role
 
 The compose stack runs a one-shot `ensure-preview-role` service after Postgres
@@ -228,7 +237,7 @@ password are safe. Changing `SPROUT_PG_PASSWORD` and re-running the one-shot
 the role password without recreating the data volume.
 
 The gateway preview-db module grants that role access when it creates each
-`prev_<slug>_pr<id>` database.
+`sprout_<slug>_pr<id>` database.
 
 ## Bootstrap admin token
 
@@ -262,7 +271,7 @@ below.
 | Preview role synced | `docker compose --env-file compose.env ps -a ensure-preview-role` (exited 0) |
 | Gateway healthy | `curl -sf http://127.0.0.1:7331/healthz` |
 | Admin password not drifted | `psql` login with `POSTGRES_*` succeeds **and** gateway startup log `configSummary` redacted `previewPostgresUrl` shows the same user/host/db as `SPROUT_PREVIEW_POSTGRES_URL` (password masked as `***`). If only one of `POSTGRES_PASSWORD` / DSN password was changed, admin SQL fails while the other still works. |
-| Networks exist | `docker network inspect preview-buddy-traefik preview-buddy-postgres` |
+| Networks exist | `docker network inspect sprout-traefik sprout-postgres` |
 | Traefik sees Docker | `docker compose --env-file compose.env logs traefik \| tail` |
 | No Postgres secrets in gateway | `docker compose --env-file compose.env exec gateway printenv POSTGRES_PASSWORD` — empty / unset |
 

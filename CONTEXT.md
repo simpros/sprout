@@ -33,7 +33,7 @@ _Avoid_: Review app, staging environment
 
 **Preview database**:
 The logical Postgres database that belongs to exactly one preview, named
-`prev_<slug>_pr<id>`. Created empty; the preview app migrates it at startup.
+`sprout_<slug>_pr<id>`. Created empty; the preview app migrates it at startup.
 _Avoid_: Test database, branch database, ephemeral db
 
 **Shared instance**:
@@ -72,7 +72,8 @@ _Avoid_: Client repo, tenant repo
 
 **.sprout.yaml**:
 The config-as-code file in an adopting repo: slug, preview hostname template,
-and optional health-check settings.
+optional health-check settings, and optional `preview.env` remapping of the
+gateway's injected connection env names.
 _Avoid_: previewdb.yml, pb config
 
 **Seed image**:
