@@ -4,9 +4,8 @@
  *
  *   bun run test:e2e
  *
- * Requires Docker. Asserts compose smoke only (admin mint deploy token).
- * Lifecycle/sweep placeholders: see e2e/lifecycle.test.ts, e2e/sweep.test.ts
- * and tickets #25 / #28 / #30 / #31.
+ * Requires Docker. Asserts compose smoke (admin mint deploy token) and
+ * remapped preview.env injection on a deploy (see lifecycle.test.ts).
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
