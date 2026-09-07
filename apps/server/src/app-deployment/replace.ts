@@ -29,7 +29,7 @@ export type ReplacePreviewAppInput = {
   image: string;
   dbName: string;
   /** Request-scoped connection env name remap; not persisted. */
-  env?: PreviewEnvMap;
+  connectionEnv?: PreviewEnvMap;
 };
 
 /** Force-remove the preview app container for one PR (idempotent via Engine). */
@@ -59,7 +59,7 @@ export async function replacePreviewApp(
   const { id } = await deps.docker.createAndStart({
     name,
     image: input.image,
-    env: pgConnectionEnv(deps.pg, input.dbName, input.env),
+    env: pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
     labels: traefikLabels({
       routerName: name,
       hostname: input.hostname,
