@@ -1,11 +1,12 @@
 import { createApiClient } from "@sprout/api-client";
 import { describe, expect, test } from "bun:test";
-import { e2eConfig } from "./harness/config.ts";
 import {
-  containerEnv,
-  envMap,
-  previewAppContainerName,
-} from "./harness/docker.ts";
+  COMPOSE_E2E_ENV_PATH,
+  e2eConfig,
+  parseEnvFile,
+  requireComposeEnv,
+} from "./harness/config.ts";
+import { containerEnv, envMap } from "./harness/docker.ts";
 
 const enabled = process.env.SPROUT_E2E_MANAGED === "1";
 
@@ -21,6 +22,11 @@ const REMAP = {
 
 describe.skipIf(!enabled)("preview lifecycle", () => {
   test("deploy with preview.env remap exposes adopter names on the app container", async () => {
+    const composeEnv = parseEnvFile(COMPOSE_E2E_ENV_PATH);
+    const expectedHost = requireComposeEnv(composeEnv, "SPROUT_PG_HOST");
+    const expectedUser = requireComposeEnv(composeEnv, "SPROUT_PG_USER");
+    const expectedPort = requireComposeEnv(composeEnv, "SPROUT_PG_PORT");
+
     const admin = createApiClient(e2eConfig.gatewayUrl, {
       headers: { authorization: `Bearer ${e2eConfig.adminToken}` },
     });
@@ -57,16 +63,17 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
     expect(deployed.data?.status).toBe("running");
 
     try {
-      const name = await previewAppContainerName(e2eConfig.slug, prId);
+      // pin to production grammar (previewContainerName); flip to sprout- when #51 lands
+      const name = `pb-${e2eConfig.slug}-pr-${prId}`;
       const env = envMap(await containerEnv(name));
 
-      expect(env.get("DATABASE_HOST")).toBe("postgres");
-      expect(env.get("DATABASE_USER")).toBe("sprout_preview");
+      expect(env.get("DATABASE_HOST")).toBe(expectedHost);
+      expect(env.get("DATABASE_USER")).toBe(expectedUser);
       expect(env.has("DATABASE_PASSWORD")).toBe(true);
       expect(env.get("DATABASE_PASSWORD")).not.toBe("");
 
       // Unmapped canonical keys stay PG*; remapped keys must not dual-alias.
-      expect(env.get("PGPORT")).toBe("5432");
+      expect(env.get("PGPORT")).toBe(expectedPort);
       expect(env.has("PGDATABASE")).toBe(true);
       expect(env.has("PGHOST")).toBe(false);
       expect(env.has("PGUSER")).toBe(false);
