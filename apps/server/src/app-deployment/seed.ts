@@ -1,4 +1,8 @@
-import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
+import {
+  pgConnectionEnv,
+  type AppDeployPg,
+  type PreviewEnvMap,
+} from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { seedImageRunName } from "../preview/naming.ts";
 
@@ -7,6 +11,8 @@ export type SeedImageSpec = {
   image: string;
   env: string[];
   args: string[];
+  /** Same deploy-body connection env remap as the app container. */
+  connectionEnv?: PreviewEnvMap;
 };
 
 export type SeedImageInput = SeedImageSpec & {
@@ -49,7 +55,10 @@ export async function runSeedImage(
       const { id } = await deps.docker.createAndStart({
         name,
         image: input.image,
-        env: [...input.env, ...pgConnectionEnv(deps.pg, input.dbName)],
+        env: [
+          ...input.env,
+          ...pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
+        ],
         labels: {},
         networkNames: [deps.networks.postgres],
         ...(input.args.length > 0 ? { cmd: input.args } : {}),

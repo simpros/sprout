@@ -1,6 +1,7 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { HealthSpec } from "../app-deployment/health.ts";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
+import type { PreviewEnvMap } from "../app-deployment/pg-env.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
@@ -72,6 +73,8 @@ export type ProvisionInput = {
   health: HealthSpec;
   /** Present when deploy requested a seed image; env/args not persisted. */
   seed?: SeedImageSpec;
+  /** Connection env name remap; request-scoped, not persisted. */
+  env?: PreviewEnvMap;
 };
 
 export type TeardownInput = {
@@ -247,6 +250,7 @@ type AttachInput = {
   hostname: string;
   appImage: string;
   health: HealthSpec;
+  env?: PreviewEnvMap;
 };
 
 /**
@@ -268,6 +272,7 @@ async function attachAppContainer(
       hostname: input.hostname,
       image: input.appImage,
       dbName: row.dbName,
+      env: input.env,
     }));
   } catch {
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
@@ -408,6 +413,7 @@ async function provisionUnlocked(
     hostname: input.hostname,
     appImage: input.appImage,
     health: input.health,
+    env: input.env,
   };
   const seed = input.seed;
   let row = await getPreviewRow(deps.db, input.repo, input.prId);

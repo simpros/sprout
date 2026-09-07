@@ -182,6 +182,72 @@ describe("POST /v1/deploy", () => {
     });
   });
 
+  test("remaps connection env names on app container create", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        env: {
+          PGHOST: "DATABASE_HOST",
+          PGPORT: "DATABASE_PORT",
+          PGUSER: "DATABASE_USER",
+          PGPASSWORD: "DATABASE_PASSWORD",
+          PGDATABASE: "DATABASE_NAME",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(fakeDocker!.creates[0]!.env).toEqual([
+      "DATABASE_HOST=postgres",
+      "DATABASE_PORT=5432",
+      "DATABASE_USER=pb_preview",
+      "DATABASE_PASSWORD=preview-secret",
+      "DATABASE_NAME=prev_myapp_pr42",
+    ]);
+    // Remap is request-scoped — not written to SQLite.
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row).toMatchObject({
+      slug: "myapp",
+      dbName: "prev_myapp_pr42",
+      status: "running",
+    });
+  });
+
+  test("rejects invalid env remap on deploy body", async () => {
+    const { deployToken } = await setup();
+    const unknown = await postDeploy(
+      deployToken,
+      deployBody({ env: { DATABASE_URL: "DATABASE_URL" } }),
+    );
+    expect(unknown.status).toBe(422);
+    expect(unknown.body).toEqual({ error: "unknown_env_key" });
+
+    const collision = await postDeploy(
+      deployToken,
+      deployBody({
+        env: { PGHOST: "DATABASE_HOST", PGPORT: "DATABASE_HOST" },
+      }),
+    );
+    expect(collision.status).toBe(422);
+    expect(collision.body).toEqual({ error: "env_target_collision" });
+
+    const invalid = await postDeploy(
+      deployToken,
+      deployBody({ env: { PGHOST: "bad-name" } }),
+    );
+    expect(invalid.status).toBe(422);
+    expect(invalid.body).toEqual({ error: "invalid_env_target" });
+
+    expect(fakePreviewDb!.created).toEqual([]);
+    expect(fakeDocker!.creates).toEqual([]);
+  });
+
   test("deploy token cannot deploy for a different canonical repo", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(

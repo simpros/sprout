@@ -4,6 +4,10 @@ import {
   resolveHealthSpec,
   type HealthRequest,
 } from "../app-deployment/health.ts";
+import {
+  resolvePreviewEnv,
+  type PreviewEnvMap,
+} from "../app-deployment/pg-env.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
   provisionPreview,
@@ -57,6 +61,7 @@ export type DeployBody = {
 /** Validate optional seed fields; health is required when seed_image is set. */
 export function resolveSeedRequest(
   body: Pick<DeployBody, "seed_image" | "seed_env" | "seed_arg" | "health">,
+  connectionEnv?: PreviewEnvMap,
 ):
   | { ok: true; value: SeedImageSpec | undefined }
   | { ok: false; error: string } {
@@ -87,7 +92,12 @@ export function resolveSeedRequest(
   }
   return {
     ok: true,
-    value: { image: seedImage, env: seedEnv, args: seedArg },
+    value: {
+      image: seedImage,
+      env: seedEnv,
+      args: seedArg,
+      ...(connectionEnv ? { connectionEnv } : {}),
+    },
   };
 }
 
@@ -147,7 +157,12 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: prErr };
     }
-    const seed = resolveSeedRequest(body);
+    const env = resolvePreviewEnv(body.env);
+    if (!env.ok) {
+      set.status = 422;
+      return { error: env.error };
+    }
+    const seed = resolveSeedRequest(body, env.value);
     if (!seed.ok) {
       set.status = 422;
       return { error: seed.error };
@@ -167,6 +182,7 @@ export function deploy(deps: LifecycleDeps) {
         appImage: body.app_image,
         health: health.value,
         seed: seed.value,
+        env: env.value,
       }),
       set,
     );

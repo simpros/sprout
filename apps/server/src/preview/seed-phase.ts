@@ -81,6 +81,7 @@ export async function runSeedPhase(
       dbName: row.dbName,
       env: seed.env,
       args: seed.args,
+      connectionEnv: seed.connectionEnv,
     });
 
     if (!seedResult.ok) {

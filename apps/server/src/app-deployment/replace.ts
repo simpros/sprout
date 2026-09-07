@@ -1,5 +1,9 @@
 import { traefikLabels } from "./labels.ts";
-import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
+import {
+  pgConnectionEnv,
+  type AppDeployPg,
+  type PreviewEnvMap,
+} from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
 
@@ -24,6 +28,8 @@ export type ReplacePreviewAppInput = {
   hostname: string;
   image: string;
   dbName: string;
+  /** Request-scoped connection env name remap; not persisted. */
+  env?: PreviewEnvMap;
 };
 
 /** Force-remove the preview app container for one PR (idempotent via Engine). */
@@ -53,7 +59,7 @@ export async function replacePreviewApp(
   const { id } = await deps.docker.createAndStart({
     name,
     image: input.image,
-    env: pgConnectionEnv(deps.pg, input.dbName),
+    env: pgConnectionEnv(deps.pg, input.dbName, input.env),
     labels: traefikLabels({
       routerName: name,
       hostname: input.hostname,
