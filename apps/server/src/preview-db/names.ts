@@ -3,7 +3,7 @@ const SLUG_RE = /^[a-z][a-z0-9]*$/;
  * Single grammar for preview DB names — build, parse, and DDL refuse-guard.
  * Lowercase only; pr id starts at 1 (no pr0).
  */
-const PREVIEW_DB_NAME_RE = /^prev_([a-z][a-z0-9]*)_pr([1-9][0-9]*)$/;
+const PREVIEW_DB_NAME_RE = /^sprout_([a-z][a-z0-9]*)_pr([1-9][0-9]*)$/;
 
 export type IdentifierError = "invalid_slug" | "invalid_pr_id";
 
@@ -17,9 +17,9 @@ export function validatePrId(prId: number): IdentifierError | null {
   return null;
 }
 
-/** Builds `prev_<slug>_pr<id>` after identifiers are validated. */
+/** Builds `sprout_<slug>_pr<id>` after identifiers are validated. */
 export function previewDbName(slug: string, prId: number): string {
-  return `prev_${slug}_pr${prId}`;
+  return `sprout_${slug}_pr${prId}`;
 }
 
 export function isPreviewDbName(dbName: string): boolean {

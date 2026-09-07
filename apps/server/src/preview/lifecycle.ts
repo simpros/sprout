@@ -513,7 +513,7 @@ async function destroyPreviewRow(
     );
 
   // Best-effort container remove outside dbName lock (still under preview lock).
-  // Leftover pb-* containers are reclaimed by orphan-container sweep.
+  // Leftover sprout-* containers are reclaimed by orphan-container sweep.
   try {
     await deps.app.remove(existing.slug, existing.prId);
   } catch {

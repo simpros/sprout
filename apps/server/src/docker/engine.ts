@@ -267,7 +267,7 @@ export function createDockerEngineClient(
     },
 
     async listPreviewContainers() {
-      const filters = encodeURIComponent(JSON.stringify({ name: ["pb-"] }));
+      const filters = encodeURIComponent(JSON.stringify({ name: ["sprout-"] }));
       const res = await engine(`/containers/json?all=true&filters=${filters}`, {
         method: "GET",
       });

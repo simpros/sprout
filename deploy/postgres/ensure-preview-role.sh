@@ -4,7 +4,7 @@
 # or run manually against an external Postgres instance with the same env.
 set -euo pipefail
 
-preview_user="${SPROUT_PG_USER:-pb_preview}"
+preview_user="${SPROUT_PG_USER:-sprout_preview}"
 preview_password="${SPROUT_PG_PASSWORD:?SPROUT_PG_PASSWORD must be set for preview role}"
 
 psql -v ON_ERROR_STOP=1 \

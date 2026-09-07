@@ -40,7 +40,7 @@ health:
   expect: 200
 ```
 
-- `slug` — short name used in database names (`prev_<slug>_pr<id>`) and
+- `slug` — short name used in database names (`sprout_<slug>_pr<id>`) and
   container names. Alphanumeric.
 - `preview.hostname` — per-PR URL host; `{pr_id}` is substituted at deploy time.
 - `health` — HTTP poll the gateway runs against the app container IP on the

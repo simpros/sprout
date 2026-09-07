@@ -95,7 +95,7 @@ describe("sprout CLI command surface", () => {
         canonical_repo_id: "https://github.com/org/repo",
         pr_id: 42,
         slug: "myapp",
-        db_name: "prev_myapp_pr42",
+        db_name: "sprout_myapp_pr42",
         hostname: "pr-42.myapp.preview.example.com",
       });
     });
@@ -250,7 +250,7 @@ describe("sprout CLI command surface", () => {
             canonical_repo_id: "https://github.com/org/repo",
             pr_id: 9,
             slug: "myapp",
-            db_name: "prev_myapp_pr9",
+            db_name: "sprout_myapp_pr9",
             hostname: "pr-9.example.com",
             status: "running",
           },
@@ -447,7 +447,7 @@ describe("sprout CLI command surface", () => {
         canonical_repo_id: "https://github.com/org/repo",
         pr_id: 5,
         slug: "myapp",
-        db_name: "prev_myapp_pr5",
+        db_name: "sprout_myapp_pr5",
         hostname: "pr-5.example.com",
       });
     });

@@ -34,12 +34,12 @@ export type PreviewAppOps = {
   /** One-shot seed image on Postgres network; caller already pulled the image. */
   runSeed: (input: SeedImageInput) => Promise<SeedImageResult>;
   remove: (slug: string, prId: number) => Promise<void>;
-  /** Catalog of running pb-* containers (orphan sweep). */
+  /** Catalog of running sprout-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
 };
 
 export type BindPreviewOpsDeps = ReplacePreviewAppDeps & {
-  /** Wall-clock bound for one-shot seed image runs (PB_SEED_TIMEOUT). */
+  /** Wall-clock bound for one-shot seed image runs (SPROUT_SEED_TIMEOUT). */
   seedTimeoutMs: number;
   /** Test seam — defaults to fetch-based probe. */
   healthProbe?: HealthProbe;

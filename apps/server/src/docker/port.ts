@@ -27,7 +27,7 @@ export type ContainerWaitResult =
 
 /**
  * Preview-scoped Docker seam for app-deployment and sweep.
- * Includes catalog listing filtered to `pb-*` preview names.
+ * Includes catalog listing filtered to `sprout-*` preview names.
  * Tests use a fake; production uses the unix-socket engine client.
  */
 export type PreviewDocker = {

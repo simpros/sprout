@@ -87,7 +87,7 @@ describe("createDockerEngineClient", () => {
     });
 
     const { id } = await docker.createAndStart({
-      name: "pb-myapp-pr-1",
+      name: "sprout-myapp-pr-1",
       image: "img:1",
       env: ["PGHOST=postgres"],
       labels: { "traefik.enable": "true" },
@@ -95,7 +95,7 @@ describe("createDockerEngineClient", () => {
     });
     expect(id).toBe("cid-1");
     expect(calls.map((c) => c.method + " " + c.url)).toEqual([
-      "POST http://localhost/containers/create?name=pb-myapp-pr-1",
+      "POST http://localhost/containers/create?name=sprout-myapp-pr-1",
       "POST http://localhost/containers/cid-1/start",
     ]);
     const createBody = JSON.parse(calls[0]!.body!);
@@ -128,7 +128,7 @@ describe("createDockerEngineClient", () => {
     });
 
     await docker.createAndStart({
-      name: "pb-myapp-pr-1-seed",
+      name: "sprout-myapp-pr-1-seed",
       image: "seed:1",
       env: ["PGHOST=postgres"],
       labels: {},
@@ -209,7 +209,7 @@ describe("createDockerEngineClient", () => {
 
     await expect(
       docker.createAndStart({
-        name: "pb-myapp-pr-9",
+        name: "sprout-myapp-pr-9",
         image: "img:1",
         env: [],
         labels: {},
@@ -217,9 +217,9 @@ describe("createDockerEngineClient", () => {
       }),
     ).rejects.toThrow(/Docker start .* failed: 500/);
     expect(calls).toEqual([
-      "POST http://localhost/containers/create?name=pb-myapp-pr-9",
+      "POST http://localhost/containers/create?name=sprout-myapp-pr-9",
       "POST http://localhost/containers/cid-fail/start",
-      "DELETE http://localhost/containers/pb-myapp-pr-9?force=true",
+      "DELETE http://localhost/containers/sprout-myapp-pr-9?force=true",
     ]);
   });
 
@@ -227,7 +227,7 @@ describe("createDockerEngineClient", () => {
     const docker = createDockerEngineClient({
       fetch: async () => new Response(null, { status: 404 }),
     });
-    await docker.removeByName("pb-gone-pr-1");
+    await docker.removeByName("sprout-gone-pr-1");
   });
 
   test("pullImage sends registry auth when configured", async () => {
@@ -267,9 +267,9 @@ describe("createDockerEngineClient", () => {
         expect(String(input)).toContain("all=true");
         return new Response(
           JSON.stringify([
-            { Id: "id-7", Names: ["/pb-widgets-pr-7"] },
+            { Id: "id-7", Names: ["/sprout-widgets-pr-7"] },
             { Id: "id-other", Names: ["/unrelated"] },
-            { Id: "id-8", Names: ["/pb-widgets-pr-8", "/alias"] },
+            { Id: "id-8", Names: ["/sprout-widgets-pr-8", "/alias"] },
           ]),
           { status: 200 },
         );
@@ -279,13 +279,13 @@ describe("createDockerEngineClient", () => {
     expect(await docker.listPreviewContainers()).toEqual([
       {
         containerId: "id-7",
-        containerName: "pb-widgets-pr-7",
+        containerName: "sprout-widgets-pr-7",
         slug: "widgets",
         prId: 7,
       },
       {
         containerId: "id-8",
-        containerName: "pb-widgets-pr-8",
+        containerName: "sprout-widgets-pr-8",
         slug: "widgets",
         prId: 8,
       },
@@ -332,8 +332,8 @@ describe("createDockerEngineClient", () => {
           JSON.stringify({
             NetworkSettings: {
               Networks: {
-                "preview-buddy-postgres": { IPAddress: "172.20.0.4" },
-                "preview-buddy-traefik": { IPAddress: "172.18.0.9" },
+                "sprout-postgres": { IPAddress: "172.20.0.4" },
+                "sprout-traefik": { IPAddress: "172.18.0.9" },
               },
             },
           }),
@@ -342,7 +342,7 @@ describe("createDockerEngineClient", () => {
       },
     });
     expect(
-      await docker.containerIpOnNetwork("cid-9", "preview-buddy-postgres"),
+      await docker.containerIpOnNetwork("cid-9", "sprout-postgres"),
     ).toBe("172.20.0.4");
   });
 });

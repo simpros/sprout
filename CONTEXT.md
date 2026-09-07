@@ -33,7 +33,7 @@ _Avoid_: Review app, staging environment
 
 **Preview database**:
 The logical Postgres database that belongs to exactly one preview, named
-`prev_<slug>_pr<id>`. Created empty; the preview app migrates it at startup.
+`sprout_<slug>_pr<id>`. Created empty; the preview app migrates it at startup.
 _Avoid_: Test database, branch database, ephemeral db
 
 **Shared instance**:
