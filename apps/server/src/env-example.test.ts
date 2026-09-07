@@ -7,20 +7,15 @@ import {
   REQUIRED_ENV,
 } from "./config.ts";
 
-/** Env used outside `loadConfig` (SQLite path, compose/script injectables). */
-const OUT_OF_BAND_ENV = [
-  "PB_STATE_DB_PATH",
-  "PB_PG_HOST",
-  "PB_PG_PORT",
-  "PB_PG_PASSWORD",
-] as const;
+/** Env used outside `loadConfig` (SQLite path via `resolveStateDbPath`). */
+const OUT_OF_BAND_ENV = ["SPROUT_STATE_DB_PATH"] as const;
 
 /** `.env.example` must document boot config + out-of-band operator names. */
 const ENV_EXAMPLE_CATALOG: readonly string[] = [
   ...REQUIRED_ENV,
   ...Object.keys(OPTIONAL_ENV_DEFAULTS),
   ...OPTIONAL_STRING_ENV,
-  "PB_ADMIN_TOKEN",
+  "SPROUT_ADMIN_TOKEN",
   ...OUT_OF_BAND_ENV,
 ];
 
