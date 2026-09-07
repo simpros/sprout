@@ -1,5 +1,8 @@
-import type { PreviewEnvMap } from "@sprout/preview-env";
-import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
+import {
+  pgConnectionEnv,
+  type AppDeployPg,
+  type PreviewEnvMap,
+} from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { seedImageRunName } from "../preview/naming.ts";
 
@@ -8,14 +11,14 @@ export type SeedImageSpec = {
   image: string;
   env: string[];
   args: string[];
+  /** Same deploy-body connection env remap as the app container. */
+  connectionEnv?: PreviewEnvMap;
 };
 
 export type SeedImageInput = SeedImageSpec & {
   slug: string;
   prId: number;
   dbName: string;
-  /** Same deploy-request connectionEnv remap as the app container. */
-  connectionEnv?: PreviewEnvMap;
 };
 
 /** Mirrors ContainerWaitResult discrimination; exitCode null = Docker ops failure. */
@@ -33,7 +36,7 @@ export type RunSeedImageDeps = {
 
 /**
  * Run the adopter seed image once on the Postgres network only.
- * Gateway sets connection vars after user env so adopters cannot retarget the DB.
+ * Gateway sets PG* after user env so adopters cannot retarget the DB.
  * Never sets Entrypoint — image default entrypoint owns seed logic.
  * Docker ops errors are absorbed into SeedImageResult (never throw mid-phase).
  */

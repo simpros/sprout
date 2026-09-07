@@ -86,7 +86,7 @@ describe("replacePreviewApp", () => {
         hostname: "pr-42.myapp.preview.example.com",
         image: "ghcr.io/org/app:sha",
         dbName: "prev_myapp_pr42",
-        connectionEnv: {
+        env: {
           PGHOST: "DATABASE_HOST",
           PGUSER: "DATABASE_USER",
         },
@@ -96,7 +96,7 @@ describe("replacePreviewApp", () => {
     expect(docker.creates[0]!.env).toEqual([
       "DATABASE_HOST=postgres",
       "PGPORT=5432",
-      "DATABASE_USER=sprout_preview",
+      "DATABASE_USER=pb_preview",
       "PGPASSWORD=sekrit",
       "PGDATABASE=prev_myapp_pr42",
     ]);

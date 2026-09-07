@@ -4,7 +4,10 @@ import {
   resolveHealthSpec,
   type HealthRequest,
 } from "../app-deployment/health.ts";
-import { parsePreviewEnvMap } from "@sprout/preview-env";
+import {
+  resolvePreviewEnv,
+  type PreviewEnvMap,
+} from "../app-deployment/pg-env.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
   provisionPreview,
@@ -31,7 +34,6 @@ export const deployBody = t.Object({
   slug: t.String({ minLength: 1 }),
   hostname: t.String({ minLength: 1 }),
   app_image: t.String({ minLength: 1 }),
-  env: t.Optional(t.Record(t.String(), t.String())),
   health: t.Optional(healthBody),
   seed_image: t.Optional(t.String({ minLength: 1 })),
   seed_env: t.Optional(t.Array(t.String())),
@@ -50,7 +52,6 @@ export type DeployBody = {
   slug: string;
   hostname: string;
   app_image: string;
-  env?: Record<string, string>;
   health?: HealthRequest;
   seed_image?: string;
   seed_env?: string[];
@@ -60,6 +61,7 @@ export type DeployBody = {
 /** Validate optional seed fields; health is required when seed_image is set. */
 export function resolveSeedRequest(
   body: Pick<DeployBody, "seed_image" | "seed_env" | "seed_arg" | "health">,
+  connectionEnv?: PreviewEnvMap,
 ):
   | { ok: true; value: SeedImageSpec | undefined }
   | { ok: false; error: string } {
@@ -94,6 +96,7 @@ export function resolveSeedRequest(
       image: seedImage,
       env: seedEnv,
       args: seedArg,
+      ...(connectionEnv ? { connectionEnv } : {}),
     },
   };
 }
@@ -154,17 +157,12 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: prErr };
     }
-    const connectionEnv = parsePreviewEnvMap(body.env);
-    if (!connectionEnv.ok) {
+    const env = resolvePreviewEnv(body.env);
+    if (!env.ok) {
       set.status = 422;
-      // Collapse empty → invalid at the HTTP edge (stable API codes).
-      const code =
-        connectionEnv.issue.code === "empty_env_target"
-          ? "invalid_env_target"
-          : connectionEnv.issue.code;
-      return { error: code };
+      return { error: env.error };
     }
-    const seed = resolveSeedRequest(body);
+    const seed = resolveSeedRequest(body, env.value);
     if (!seed.ok) {
       set.status = 422;
       return { error: seed.error };
@@ -184,7 +182,7 @@ export function deploy(deps: LifecycleDeps) {
         appImage: body.app_image,
         health: health.value,
         seed: seed.value,
-        connectionEnv: connectionEnv.value,
+        env: env.value,
       }),
       set,
     );
