@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   pgConnectionEnv,
-  withGatewayConnectionEnv,
+  resolvePreviewEnv,
   type AppDeployPg,
 } from "./pg-env.ts";
 
@@ -69,48 +69,48 @@ describe("pgConnectionEnv", () => {
   });
 });
 
-describe("withGatewayConnectionEnv", () => {
-  const gateway = pgConnectionEnv(pg, "prev_myapp_pr42");
-
-  test("strips colliding PG* and keeps non-colliding keys", () => {
-    expect(
-      withGatewayConnectionEnv(
-        ["FIXTURE_SET=demo", "PGHOST=attacker"],
-        gateway,
-      ),
-    ).toEqual(["FIXTURE_SET=demo", ...gateway]);
+describe("resolvePreviewEnv", () => {
+  test("absent or empty map means no remapping", () => {
+    expect(resolvePreviewEnv(undefined)).toEqual({ ok: true, value: undefined });
+    expect(resolvePreviewEnv({})).toEqual({ ok: true, value: undefined });
   });
 
-  test("strips remapped target names under full remap", () => {
-    const remapped = pgConnectionEnv(pg, "prev_myapp_pr42", {
-      PGHOST: "DATABASE_HOST",
-      PGPORT: "DATABASE_PORT",
-      PGUSER: "DATABASE_USER",
-      PGPASSWORD: "DATABASE_PASSWORD",
-      PGDATABASE: "DATABASE_NAME",
-    });
+  test("accepts identity and partial maps", () => {
     expect(
-      withGatewayConnectionEnv(
-        ["FIXTURE_SET=demo", "DATABASE_HOST=attacker"],
-        remapped,
-      ),
-    ).toEqual(["FIXTURE_SET=demo", ...remapped]);
+      resolvePreviewEnv({ PGHOST: "PGHOST", PGUSER: "DATABASE_USER" }),
+    ).toEqual({
+      ok: true,
+      value: { PGHOST: "PGHOST", PGUSER: "DATABASE_USER" },
+    });
   });
 
-  test("partial remap strips remapped target and remapped-away PG*", () => {
-    const partial = pgConnectionEnv(pg, "prev_myapp_pr42", {
-      PGHOST: "DATABASE_HOST",
+  test("rejects unknown keys", () => {
+    expect(resolvePreviewEnv({ DATABASE_URL: "DATABASE_URL" })).toEqual({
+      ok: false,
+      error: "unknown_env_key",
     });
+  });
+
+  test("rejects empty or invalid targets", () => {
+    expect(resolvePreviewEnv({ PGHOST: "" })).toEqual({
+      ok: false,
+      error: "invalid_env_target",
+    });
+    expect(resolvePreviewEnv({ PGHOST: "bad-name" })).toEqual({
+      ok: false,
+      error: "invalid_env_target",
+    });
+  });
+
+  test("rejects target collisions", () => {
     expect(
-      withGatewayConnectionEnv(
-        [
-          "FIXTURE_SET=demo",
-          "DATABASE_HOST=attacker",
-          "PGUSER=evil",
-          "PGHOST=leftover",
-        ],
-        partial,
-      ),
-    ).toEqual(["FIXTURE_SET=demo", ...partial]);
+      resolvePreviewEnv({
+        PGHOST: "DATABASE_HOST",
+        PGPORT: "DATABASE_HOST",
+      }),
+    ).toEqual({
+      ok: false,
+      error: "env_target_collision",
+    });
   });
 });
