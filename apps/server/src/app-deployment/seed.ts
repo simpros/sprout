@@ -1,8 +1,5 @@
-import {
-  pgConnectionEnv,
-  type AppDeployPg,
-  type PreviewEnvMap,
-} from "./pg-env.ts";
+import type { PreviewEnvMap } from "@sprout/preview-env";
+import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { seedImageRunName } from "../preview/naming.ts";
 
