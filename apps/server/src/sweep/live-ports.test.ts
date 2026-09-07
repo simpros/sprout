@@ -42,7 +42,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 10,
       slug: "widgets",
-      dbName: "prev_widgets_pr10",
+      dbName: "sprout_widgets_pr10",
       hostname: "pr-10.example.com",
       containerId: "ctr-10",
       status: "running",
@@ -54,7 +54,7 @@ describe("createLiveSweepPorts", () => {
     const docker = createFakeDockerClient();
     const previewDb = stubPreviewDb({
       listPreviewDatabases: async () => [
-        { dbName: "prev_widgets_pr10", slug: "widgets", prId: 10 },
+        { dbName: "sprout_widgets_pr10", slug: "widgets", prId: 10 },
       ],
       dropDatabase: async (dbName) => {
         droppedDbs.push(dbName);
@@ -74,8 +74,8 @@ describe("createLiveSweepPorts", () => {
 
     const result = await runSweepPass(ports);
     expect(result.forgeRepoFailures).toEqual([]);
-    expect(droppedDbs).toEqual(["prev_widgets_pr10"]);
-    expect(docker.removed).toEqual(["pb-widgets-pr-10"]);
+    expect(droppedDbs).toEqual(["sprout_widgets_pr10"]);
+    expect(docker.removed).toEqual(["sprout-widgets-pr-10"]);
 
     const rows = await testDb.db.select().from(previews);
     expect(rows).toHaveLength(1);
@@ -95,7 +95,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 1,
       slug: "widgets",
-      dbName: "prev_widgets_pr1",
+      dbName: "sprout_widgets_pr1",
       hostname: "pr-1.example.com",
       containerId: null,
       status: "running",
@@ -134,7 +134,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 1,
       slug: "widgets",
-      dbName: "prev_widgets_pr1",
+      dbName: "sprout_widgets_pr1",
       hostname: "pr-1.example.com",
       containerId: null,
       status: "running",
@@ -150,7 +150,7 @@ describe("createLiveSweepPorts", () => {
       app: bindTestPreviewApp(docker),
       previewDb: stubPreviewDb({
         listPreviewDatabases: async () => [
-          { dbName: "prev_widgets_pr1", slug: "widgets", prId: 1 },
+          { dbName: "sprout_widgets_pr1", slug: "widgets", prId: 1 },
         ],
         dropDatabase: async (dbName) => {
           droppedDbs.push(dbName);
@@ -189,7 +189,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 1,
       slug: "widgets",
-      dbName: "prev_widgets_pr1",
+      dbName: "sprout_widgets_pr1",
       hostname: "pr-1.example.com",
       containerId: null,
       status: "running",
@@ -205,7 +205,7 @@ describe("createLiveSweepPorts", () => {
       app: bindTestPreviewApp(docker),
       previewDb: stubPreviewDb({
         listPreviewDatabases: async () => [
-          { dbName: "prev_widgets_pr1", slug: "widgets", prId: 1 },
+          { dbName: "sprout_widgets_pr1", slug: "widgets", prId: 1 },
         ],
         dropDatabase: async (dbName) => {
           droppedDbs.push(dbName);
@@ -244,7 +244,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 10,
       slug: "widgets",
-      dbName: "prev_widgets_pr10",
+      dbName: "sprout_widgets_pr10",
       hostname: "pr-10.example.com",
       containerId: "ctr-10",
       status: "running",
@@ -293,7 +293,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 10,
       slug: "widgets",
-      dbName: "prev_widgets_pr10",
+      dbName: "sprout_widgets_pr10",
       hostname: "pr-10.example.com",
       containerId: "ctr-10",
       status: "running",
@@ -312,7 +312,7 @@ describe("createLiveSweepPorts", () => {
       app: bindTestPreviewApp(docker),
       previewDb: stubPreviewDb({
         listPreviewDatabases: async () => [
-          { dbName: "prev_widgets_pr10", slug: "widgets", prId: 10 },
+          { dbName: "sprout_widgets_pr10", slug: "widgets", prId: 10 },
         ],
         dropDatabase: async (dbName) => {
           droppedDbs.push(dbName);
@@ -331,11 +331,11 @@ describe("createLiveSweepPorts", () => {
         canonicalRepoId: "https://github.com/acme/widgets",
         prId: 10,
         slug: "widgets",
-        dbName: "prev_widgets_pr10",
+        dbName: "sprout_widgets_pr10",
         createdAt: "2026-09-02T12:00:00.000Z",
       },
     ]);
-    expect(droppedDbs).toEqual(["prev_widgets_pr10"]);
+    expect(droppedDbs).toEqual(["sprout_widgets_pr10"]);
 
     const rows = await testDb.db.select().from(previews);
     expect(rows[0]?.status).toBe("removed");
@@ -356,7 +356,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 42,
       slug: "widgets",
-      dbName: "prev_widgets_pr42",
+      dbName: "sprout_widgets_pr42",
       hostname: "pr-42.example.com",
       containerId: null,
       status: "running",
@@ -384,14 +384,14 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 42,
       slug: "old",
-      dbName: "prev_old_pr42",
+      dbName: "sprout_old_pr42",
       createdAt: "2026-08-01T12:00:00.000Z",
     });
     expect(removed).toBe(false);
     expect(droppedDbs).toEqual([]);
     const rows = await testDb.db.select().from(previews);
     expect(rows[0]?.status).toBe("running");
-    expect(rows[0]?.dbName).toBe("prev_widgets_pr42");
+    expect(rows[0]?.dbName).toBe("sprout_widgets_pr42");
   });
 
   test("aborts stale TTL plan after same-slug redeploy refreshed createdAt", async () => {
@@ -408,7 +408,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 42,
       slug: "widgets",
-      dbName: "prev_widgets_pr42",
+      dbName: "sprout_widgets_pr42",
       hostname: "pr-42.example.com",
       containerId: null,
       status: "running",
@@ -436,7 +436,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 42,
       slug: "widgets",
-      dbName: "prev_widgets_pr42",
+      dbName: "sprout_widgets_pr42",
       createdAt: "2026-08-01T12:00:00.000Z",
     });
     expect(removed).toBe(false);
@@ -458,7 +458,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 42,
       slug: "widgets",
-      dbName: "prev_widgets_pr42",
+      dbName: "sprout_widgets_pr42",
       hostname: "pr-42.example.com",
       containerId: null,
       status: "running",
@@ -492,7 +492,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 42,
       slug: "widgets",
-      dbName: "prev_widgets_pr42",
+      dbName: "sprout_widgets_pr42",
       createdAt: "2026-09-02T12:00:00.000Z",
     });
     expect(removed).toBe(false);
@@ -512,7 +512,7 @@ describe("createLiveSweepPorts", () => {
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 42,
       slug: "widgets",
-      dbName: "prev_widgets_pr42",
+      dbName: "sprout_widgets_pr42",
       hostname: "pr-42.example.com",
       containerId: null,
       status: "provisioning",
@@ -539,7 +539,7 @@ describe("createLiveSweepPorts", () => {
       reason: "sweep:orphan-db",
       slug: "widgets",
       prId: 42,
-      dbName: "prev_widgets_pr42",
+      dbName: "sprout_widgets_pr42",
     });
     expect(removed).toBe(false);
     expect(droppedDbs).toEqual([]);
@@ -569,8 +569,8 @@ describe("createLiveSweepPorts", () => {
         reason: "sweep:orphan-db",
         prId: 42,
         slug: "widgets",
-        dbName: "prev_widgets_pr42",
+        dbName: "sprout_widgets_pr42",
       }),
-    ).rejects.toThrow("teardown incomplete: prev_widgets_pr42");
+    ).rejects.toThrow("teardown incomplete: sprout_widgets_pr42");
   });
 });

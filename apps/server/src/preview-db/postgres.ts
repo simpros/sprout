@@ -63,7 +63,7 @@ export function createPostgresPreviewDb(
     async listPreviewDatabases() {
       const rows = await sql<{ datname: string }[]>`
         SELECT datname FROM pg_database
-        WHERE datname LIKE 'prev_%'
+        WHERE datname LIKE 'sprout_%'
       `;
       const out: CatalogDatabase[] = [];
       for (const row of rows) {

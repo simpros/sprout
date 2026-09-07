@@ -7,12 +7,12 @@ const baseDeps = {
   pg: {
     host: "postgres",
     port: 5432,
-    user: "pb_preview",
+    user: "sprout_preview",
     password: "sekrit",
   },
   networks: {
-    traefik: "preview-buddy-traefik",
-    postgres: "preview-buddy-postgres",
+    traefik: "sprout-traefik",
+    postgres: "sprout-postgres",
   },
   previewPortDefault: 8080,
 };
@@ -26,7 +26,7 @@ describe("removePreviewApp", () => {
   test("removes the stable preview container name", async () => {
     const docker = createFakeDockerClient();
     await removePreviewApp(docker, "myapp", 42);
-    expect(docker.removed).toEqual(["pb-myapp-pr-42"]);
+    expect(docker.removed).toEqual(["sprout-myapp-pr-42"]);
   });
 });
 
@@ -43,33 +43,33 @@ describe("replacePreviewApp", () => {
         prId: 42,
         hostname: "pr-42.myapp.preview.example.com",
         image: "ghcr.io/org/app:sha",
-        dbName: "prev_myapp_pr42",
+        dbName: "sprout_myapp_pr42",
       },
     );
 
     expect(result).toEqual({ containerId: "fake-1", port: 3000 });
     expect(docker.pulls).toEqual([]);
-    expect(docker.removed).toEqual(["pb-myapp-pr-42"]);
+    expect(docker.removed).toEqual(["sprout-myapp-pr-42"]);
     expect(docker.creates).toHaveLength(1);
     const created = docker.creates[0]!;
-    expect(created.name).toBe("pb-myapp-pr-42");
+    expect(created.name).toBe("sprout-myapp-pr-42");
     expect(created.image).toBe("ghcr.io/org/app:sha");
     expect(created.env).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
-      "PGUSER=pb_preview",
+      "PGUSER=sprout_preview",
       "PGPASSWORD=sekrit",
-      "PGDATABASE=prev_myapp_pr42",
+      "PGDATABASE=sprout_myapp_pr42",
     ]);
     expect(created.networkNames).toEqual([
-      "preview-buddy-traefik",
-      "preview-buddy-postgres",
+      "sprout-traefik",
+      "sprout-postgres",
     ]);
     expect(created.labels).toEqual({
       "traefik.enable": "true",
-      "traefik.http.routers.pb-myapp-pr-42.rule":
+      "traefik.http.routers.sprout-myapp-pr-42.rule":
         "Host(`pr-42.myapp.preview.example.com`)",
-      "traefik.http.services.pb-myapp-pr-42.loadbalancer.server.port": "3000",
+      "traefik.http.services.sprout-myapp-pr-42.loadbalancer.server.port": "3000",
     });
   });
 
@@ -82,13 +82,13 @@ describe("replacePreviewApp", () => {
         prId: 7,
         hostname: "pr-7.example.com",
         image: "ghcr.io/org/app:noexpose",
-        dbName: "prev_myapp_pr7",
+        dbName: "sprout_myapp_pr7",
       },
     );
     expect(result.containerId).toBe("fake-1");
     expect(
       docker.creates[0]!.labels[
-        "traefik.http.services.pb-myapp-pr-7.loadbalancer.server.port"
+        "traefik.http.services.sprout-myapp-pr-7.loadbalancer.server.port"
       ],
     ).toBe("8080");
   });
@@ -101,7 +101,7 @@ describe("replacePreviewApp", () => {
       slug: "widgets",
       prId: 3,
       hostname: "pr-3.widgets.example.com",
-      dbName: "prev_widgets_pr3",
+      dbName: "sprout_widgets_pr3",
     };
     await replacePreviewApp(
       { docker, ...baseDeps },
@@ -111,9 +111,9 @@ describe("replacePreviewApp", () => {
       { docker, ...baseDeps },
       { ...input, image: "img:v2" },
     );
-    expect(docker.removed).toEqual(["pb-widgets-pr-3", "pb-widgets-pr-3"]);
+    expect(docker.removed).toEqual(["sprout-widgets-pr-3", "sprout-widgets-pr-3"]);
     expect(docker.creates.map((c) => c.image)).toEqual(["img:v1", "img:v2"]);
-    expect(docker.running.get("pb-widgets-pr-3")?.spec.image).toBe("img:v2");
+    expect(docker.running.get("sprout-widgets-pr-3")?.spec.image).toBe("img:v2");
   });
 });
 
@@ -129,12 +129,12 @@ describe("bindPreviewOps", () => {
       prId: 1,
       hostname: "pr-1.example.com",
       image: "img:1",
-      dbName: "prev_myapp_pr1",
+      dbName: "sprout_myapp_pr1",
     });
     expect(containerId).toBe("fake-1");
     expect(docker.pulls).toEqual(["img:1"]);
     await app.remove("myapp", 1);
-    expect(docker.removed).toContain("pb-myapp-pr-1");
+    expect(docker.removed).toContain("sprout-myapp-pr-1");
     expect(await app.list()).toEqual([]);
   });
 
@@ -158,7 +158,7 @@ describe("bindPreviewOps", () => {
       prId: 1,
       hostname: "pr-1.example.com",
       image: "img:1",
-      dbName: "prev_myapp_pr1",
+      dbName: "sprout_myapp_pr1",
     });
     expect(
       await app.waitHealthy(containerId, port, {

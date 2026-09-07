@@ -135,12 +135,12 @@ describe("POST /v1/deploy", () => {
       canonical_repo_id: REPO,
       pr_id: 42,
       slug: "myapp",
-      db_name: "prev_myapp_pr42",
+      db_name: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "running",
       preview_url: "https://pr-42.myapp.preview.example.com",
     });
-    expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
+    expect(fakePreviewDb!.created).toEqual(["sprout_myapp_pr42"]);
 
     const [row] = await testApp!.db
       .select()
@@ -153,7 +153,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "running",
       appImage: APP_IMAGE,
@@ -163,22 +163,22 @@ describe("POST /v1/deploy", () => {
     expect(parseUnambiguousUtcMs(row!.updatedAt)).not.toBeNull();
     expect(fakeDocker!.creates).toHaveLength(1);
     expect(fakeDocker!.creates[0]).toMatchObject({
-      name: "pb-myapp-pr-42",
+      name: "sprout-myapp-pr-42",
       image: APP_IMAGE,
       env: [
         "PGHOST=postgres",
         "PGPORT=5432",
-        "PGUSER=pb_preview",
+        "PGUSER=sprout_preview",
         "PGPASSWORD=preview-secret",
-        "PGDATABASE=prev_myapp_pr42",
+        "PGDATABASE=sprout_myapp_pr42",
       ],
-      networkNames: ["preview-buddy-traefik", "preview-buddy-postgres"],
+      networkNames: ["sprout-traefik", "sprout-postgres"],
     });
     expect(fakeDocker!.creates[0]!.labels).toEqual({
       "traefik.enable": "true",
-      "traefik.http.routers.pb-myapp-pr-42.rule":
+      "traefik.http.routers.sprout-myapp-pr-42.rule":
         "Host(`pr-42.myapp.preview.example.com`)",
-      "traefik.http.services.pb-myapp-pr-42.loadbalancer.server.port": "3000",
+      "traefik.http.services.sprout-myapp-pr-42.loadbalancer.server.port": "3000",
     });
   });
 
@@ -211,17 +211,17 @@ describe("POST /v1/deploy", () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       slug: "myapp",
-      db_name: "prev_myapp_pr42",
+      db_name: "sprout_myapp_pr42",
       status: "running",
     });
-    expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
+    expect(fakePreviewDb!.created).toEqual(["sprout_myapp_pr42"]);
     expect(fakeDocker!.creates.map((c) => c.image)).toEqual([
       APP_IMAGE,
       "ghcr.io/org/myapp:sha-def",
     ]);
-    expect(fakeDocker!.removed.filter((n) => n === "pb-myapp-pr-42")).toEqual([
-      "pb-myapp-pr-42",
-      "pb-myapp-pr-42",
+    expect(fakeDocker!.removed.filter((n) => n === "sprout-myapp-pr-42")).toEqual([
+      "sprout-myapp-pr-42",
+      "sprout-myapp-pr-42",
     ]);
     const [row] = await testApp!.db
       .select()
@@ -270,7 +270,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "provisioning",
     });
@@ -279,10 +279,10 @@ describe("POST /v1/deploy", () => {
     const res = await postDeploy(deployToken, deployBody());
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      db_name: "prev_myapp_pr42",
+      db_name: "sprout_myapp_pr42",
       status: "running",
     });
-    expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
+    expect(fakePreviewDb!.created).toEqual(["sprout_myapp_pr42"]);
   });
 
   test("stuck provisioning → ready refreshes createdAt generation", async () => {
@@ -292,7 +292,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "provisioning",
       createdAt: "2026-08-01T12:00:00.000Z",
@@ -325,7 +325,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "starting",
       createdAt: "2026-08-01T12:00:00.000Z",
@@ -353,8 +353,8 @@ describe("POST /v1/deploy", () => {
     const res = await postDeploy(deployToken, deployBody());
     expect(res.status).toBe(200);
     expect(fakePreviewDb!.created).toEqual([
-      "prev_myapp_pr42",
-      "prev_myapp_pr42",
+      "sprout_myapp_pr42",
+      "sprout_myapp_pr42",
     ]);
     const [row] = await testApp!.db
       .select()
@@ -401,7 +401,7 @@ describe("POST /v1/deploy", () => {
     const res = await postDeploy(deployToken, deployBody());
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ status: "running" });
-    expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
+    expect(fakePreviewDb!.created).toEqual(["sprout_myapp_pr42"]);
   });
 
   test("parallel first deploys do not 500", async () => {
@@ -414,7 +414,7 @@ describe("POST /v1/deploy", () => {
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);
     expect(fakePreviewDb!.created.length).toBeGreaterThanOrEqual(1);
-    expect(fakePreviewDb!.created.every((n) => n === "prev_myapp_pr42")).toBe(
+    expect(fakePreviewDb!.created.every((n) => n === "sprout_myapp_pr42")).toBe(
       true,
     );
   });
@@ -425,7 +425,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "removing",
     });
@@ -441,7 +441,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "old",
-      dbName: "prev_old_pr42",
+      dbName: "sprout_old_pr42",
       hostname: "old.example.com",
       status: "failed",
     });
@@ -475,7 +475,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "failed",
       createdAt: "2026-08-01T12:00:00.000Z",
@@ -503,7 +503,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "old",
-      dbName: "prev_old_pr42",
+      dbName: "sprout_old_pr42",
       hostname: "old.example.com",
       status: "failed",
       createdAt: "2026-08-01T12:00:00.000Z",
@@ -515,7 +515,7 @@ describe("POST /v1/deploy", () => {
     expect(res.body).toMatchObject({
       status: "running",
       slug: "myapp",
-      db_name: "prev_myapp_pr42",
+      db_name: "sprout_myapp_pr42",
     });
 
     const [row] = await testApp!.db
@@ -604,9 +604,9 @@ describe("POST /v1/deploy", () => {
       )
       .limit(1);
     expect(row?.slug).toBe("myapp");
-    expect(row?.dbName).toBe("prev_myapp_pr42");
+    expect(row?.dbName).toBe("sprout_myapp_pr42");
     expect(row?.status).toBe("running");
-    expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
+    expect(fakePreviewDb!.created).toEqual(["sprout_myapp_pr42"]);
   });
 
   test("provisioning resume with slug change returns identity conflict", async () => {
@@ -615,7 +615,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "provisioning",
     });
@@ -637,7 +637,7 @@ describe("POST /v1/deploy", () => {
       )
       .limit(1);
     expect(row?.slug).toBe("myapp");
-    expect(row?.dbName).toBe("prev_myapp_pr42");
+    expect(row?.dbName).toBe("sprout_myapp_pr42");
     expect(row?.status).toBe("provisioning");
     expect(row?.hostname).toBe("pr-42.myapp.preview.example.com");
     expect(fakePreviewDb!.created).toEqual([]);
@@ -665,7 +665,7 @@ describe("POST /v1/deploy", () => {
     expect(res.body).toMatchObject({
       status: "running",
       slug: "myapp",
-      db_name: "prev_myapp_pr42",
+      db_name: "sprout_myapp_pr42",
       hostname: "pr-42.alt.preview.example.com",
     });
 
@@ -719,7 +719,7 @@ describe("POST /v1/deploy", () => {
     expect(b.status).toBe(200);
     expect(b.body).toMatchObject({
       slug: "beta",
-      db_name: "prev_beta_pr42",
+      db_name: "sprout_beta_pr42",
       status: "running",
     });
 
@@ -730,15 +730,15 @@ describe("POST /v1/deploy", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       )
       .limit(1);
-    expect(row?.dbName).toBe("prev_beta_pr42");
+    expect(row?.dbName).toBe("sprout_beta_pr42");
     expect(row?.status).toBe("running");
 
     // Winner's name must be present; alpha must have been dropped.
-    expect(fakePreviewDb!.created).toContain("prev_beta_pr42");
-    expect(fakePreviewDb!.dropped).toContain("prev_alpha_pr42");
+    expect(fakePreviewDb!.created).toContain("sprout_beta_pr42");
+    expect(fakePreviewDb!.dropped).toContain("sprout_alpha_pr42");
     const live = new Set(fakePreviewDb!.created);
     for (const name of fakePreviewDb!.dropped) live.delete(name);
-    expect([...live]).toEqual(["prev_beta_pr42"]);
+    expect([...live]).toEqual(["sprout_beta_pr42"]);
   });
 
   test("parallel deploys after ready do not CREATE again", async () => {
@@ -753,7 +753,7 @@ describe("POST /v1/deploy", () => {
     ]);
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);
-    expect(fakePreviewDb!.created).toEqual(["prev_myapp_pr42"]);
+    expect(fakePreviewDb!.created).toEqual(["sprout_myapp_pr42"]);
     expect(fakePreviewDb!.dropped).toEqual([]);
     const [row] = await testApp!.db
       .select()
@@ -763,7 +763,7 @@ describe("POST /v1/deploy", () => {
       )
       .limit(1);
     expect(row?.status).toBe("running");
-    expect(row?.dbName).toBe("prev_myapp_pr42");
+    expect(row?.dbName).toBe("sprout_myapp_pr42");
   });
 
   test("stuck provisioning ensure failure leaves status provisioning", async () => {
@@ -778,7 +778,7 @@ describe("POST /v1/deploy", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "provisioning",
     });
@@ -803,7 +803,7 @@ describe("POST /v1/teardown", () => {
     const res = await postTeardown(deployToken, teardownBody());
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, status: "removed" });
-    expect(fakePreviewDb!.dropped).toEqual(["prev_myapp_pr42"]);
+    expect(fakePreviewDb!.dropped).toEqual(["sprout_myapp_pr42"]);
 
     const [row] = await testApp!.db
       .select()
@@ -835,7 +835,7 @@ describe("POST /v1/teardown", () => {
     const res = await postTeardown(deployToken, teardownBody());
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, status: "removed" });
-    expect(fakePreviewDb!.dropped).toEqual(["prev_myapp_pr42"]);
+    expect(fakePreviewDb!.dropped).toEqual(["sprout_myapp_pr42"]);
   });
 
   test("is idempotent when preview never existed", async () => {
@@ -881,7 +881,7 @@ describe("POST /v1/teardown", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "bogus",
     });

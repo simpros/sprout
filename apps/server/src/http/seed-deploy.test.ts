@@ -122,9 +122,9 @@ describe("POST /v1/deploy seed image", () => {
     expect(fakeDocker!.creates).toHaveLength(2);
     const seedCreate = fakeDocker!.creates[1]!;
     expect(seedCreate).toMatchObject({
-      name: "pb-myapp-pr-42-seed",
+      name: "sprout-myapp-pr-42-seed",
       image: SEED_IMAGE,
-      networkNames: ["preview-buddy-postgres"],
+      networkNames: ["sprout-postgres"],
       cmd: ["--reset"],
     });
     expect(seedCreate.env).toEqual([
@@ -132,9 +132,9 @@ describe("POST /v1/deploy seed image", () => {
       "PGHOST=attacker",
       "PGHOST=postgres",
       "PGPORT=5432",
-      "PGUSER=pb_preview",
+      "PGUSER=sprout_preview",
       "PGPASSWORD=preview-secret",
-      "PGDATABASE=prev_myapp_pr42",
+      "PGDATABASE=sprout_myapp_pr42",
     ]);
     expect(seedCreate.labels).toEqual({});
     // Entrypoint must remain unset so the image default runs.
@@ -152,8 +152,8 @@ describe("POST /v1/deploy seed image", () => {
     expect(row?.status).toBe("running");
     expect(row?.seededAt).toMatch(/Z$/);
     expect(row?.containerId).toBe("fake-1");
-    expect(fakeDocker!.removed).toContain("pb-myapp-pr-42-seed");
-    expect(fakeDocker!.running.has("pb-myapp-pr-42")).toBe(true);
+    expect(fakeDocker!.removed).toContain("sprout-myapp-pr-42-seed");
+    expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
   });
 
   test("skips seed on synchronize when seeded_at already set", async () => {
@@ -221,7 +221,7 @@ describe("POST /v1/deploy seed image", () => {
     expect(row?.status).toBe("failed");
     expect(row?.seededAt).toBeNull();
     expect(row?.containerId).toBe("fake-1");
-    expect(fakeDocker!.running.has("pb-myapp-pr-42")).toBe(true);
+    expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
   });
 
   test("enforces max 16 seed_env and seed_arg", async () => {
@@ -256,7 +256,7 @@ describe("POST /v1/deploy seed image", () => {
     });
     try {
       const { deployToken } = await setup({
-        waitResults: { "pb-myapp-pr-42-seed": { exitCode: 7 } },
+        waitResults: { "sprout-myapp-pr-42-seed": { exitCode: 7 } },
       });
       const res = await postDeploy(
         deployToken,
@@ -278,7 +278,7 @@ describe("POST /v1/deploy seed image", () => {
       expect(row?.status).toBe("failed");
       expect(row?.seededAt).toBeNull();
       expect(row?.containerId).toBe("fake-1");
-      expect(fakeDocker!.running.has("pb-myapp-pr-42")).toBe(true);
+      expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
       expect(warns.some((args) => args[0] === "seed:failed" && args[1] === 7)).toBe(
         true,
       );
@@ -294,7 +294,7 @@ describe("POST /v1/deploy seed image", () => {
     });
     try {
       const { deployToken } = await setup({
-        waitResults: { "pb-myapp-pr-42-seed": "timeout" },
+        waitResults: { "sprout-myapp-pr-42-seed": "timeout" },
         seedTimeoutMs: 1,
       });
       const res = await postDeploy(
@@ -311,7 +311,7 @@ describe("POST /v1/deploy seed image", () => {
           (args) => args[0] === "seed:failed" && args[1] === "timeout",
         ),
       ).toBe(true);
-      expect(fakeDocker!.running.has("pb-myapp-pr-42")).toBe(true);
+      expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
     } finally {
       warnSpy.mockRestore();
     }
@@ -321,7 +321,7 @@ describe("POST /v1/deploy seed image", () => {
     fakePreviewDb = createFakePreviewDb();
     fakeDocker = createFakeDockerClient({
       exposedPorts: { [APP_IMAGE]: 3000 },
-      waitResults: { "pb-myapp-pr-42-seed": { exitCode: 1 } },
+      waitResults: { "sprout-myapp-pr-42-seed": { exitCode: 1 } },
     });
     testApp = await createTestApp({
       previewDb: fakePreviewDb,
@@ -340,11 +340,11 @@ describe("POST /v1/deploy seed image", () => {
     expect(failed.status).toBe(500);
 
     const appCreatesAfterFail = fakeDocker.creates.filter(
-      (c) => c.name === "pb-myapp-pr-42",
+      (c) => c.name === "sprout-myapp-pr-42",
     ).length;
     expect(appCreatesAfterFail).toBe(1);
 
-    fakeDocker.waitResults.set("pb-myapp-pr-42-seed", { exitCode: 0 });
+    fakeDocker.waitResults.set("sprout-myapp-pr-42-seed", { exitCode: 0 });
     const retry = await postDeploy(
       deployToken,
       deployBody({ seed_image: SEED_IMAGE, health: healthBlock() }),
@@ -353,7 +353,7 @@ describe("POST /v1/deploy seed image", () => {
     expect(retry.body.status).toBe("running");
     // Same image/hostname: seed-only resume — no second app create.
     expect(
-      fakeDocker.creates.filter((c) => c.name === "pb-myapp-pr-42"),
+      fakeDocker.creates.filter((c) => c.name === "sprout-myapp-pr-42"),
     ).toHaveLength(1);
     expect(
       fakeDocker.creates.filter((c) => c.name.endsWith("-seed")),
@@ -377,7 +377,7 @@ describe("POST /v1/deploy seed image", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "seeding",
       appImage: APP_IMAGE,
@@ -398,7 +398,7 @@ describe("POST /v1/deploy seed image", () => {
     // Resume must not replace the app — only run the seed container.
     expect(
       fakeDocker!.creates.slice(createsBefore).map((c) => c.name),
-    ).toEqual(["pb-myapp-pr-42-seed"]);
+    ).toEqual(["sprout-myapp-pr-42-seed"]);
 
     const [row] = await testApp!.db
       .select()
@@ -418,7 +418,7 @@ describe("POST /v1/deploy seed image", () => {
       canonicalRepoId: REPO,
       prId: 42,
       slug: "myapp",
-      dbName: "prev_myapp_pr42",
+      dbName: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "seeding",
       appImage: APP_IMAGE,

@@ -27,7 +27,7 @@ function fakeDocker(): FakeDockerClient {
   return testApp!.docker as FakeDockerClient;
 }
 
-/** Seed a catalog pb-* container without going through deploy. */
+/** Seed a catalog sprout-* container without going through deploy. */
 function seedOrphanContainer(slug: string, prId: number, id = "orphan") {
   const name = previewContainerName(slug, prId);
   fakeDocker().running.set(name, {
@@ -90,7 +90,7 @@ describe("GET /v1/previews", () => {
         canonical_repo_id: REPO,
         pr_id: 42,
         slug: "myapp",
-        db_name: "prev_myapp_pr42",
+        db_name: "sprout_myapp_pr42",
         hostname: "pr-42.myapp.preview.example.com",
         status: "running",
         created_at: expect.any(String),
@@ -119,7 +119,7 @@ describe("GET /v1/doctor", () => {
   test("returns API error shape when orphans exist", async () => {
     await setup();
     // Catalog DB with no SQLite row → orphan-db
-    await fakePreviewDb!.createDatabase("prev_myapp_pr99");
+    await fakePreviewDb!.createDatabase("sprout_myapp_pr99");
     // Container with no SQLite row → orphan-container (same catalog as sweep)
     seedOrphanContainer("myapp", 99, "c-99");
 
@@ -139,7 +139,7 @@ describe("GET /v1/doctor", () => {
           kind: "orphan-db",
           slug: "myapp",
           pr_id: 99,
-          db_name: "prev_myapp_pr99",
+          db_name: "sprout_myapp_pr99",
         },
         {
           kind: "orphan-container",
@@ -231,14 +231,14 @@ describe("POST /v1/drop", () => {
         canonical_repo_id: REPO,
         pr_id: 42,
         slug: "myapp",
-        db_name: "prev_myapp_pr42",
+        db_name: "sprout_myapp_pr42",
         hostname: "pr-42.myapp.preview.example.com",
         status: "running",
       },
     });
     expect(fakePreviewDb!.dropped).toEqual([]);
     expect(fakeDocker().removed.length).toBe(removedBefore);
-    expect(fakeDocker().running.has("pb-myapp-pr-42")).toBe(true);
+    expect(fakeDocker().running.has("sprout-myapp-pr-42")).toBe(true);
   });
 
   test("with yes removes database, container, and sqlite row", async () => {
@@ -258,8 +258,8 @@ describe("POST /v1/drop", () => {
     });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, status: "removed" });
-    expect(fakePreviewDb!.dropped).toEqual(["prev_myapp_pr42"]);
-    expect(fakeDocker().removed).toContain("pb-myapp-pr-42");
+    expect(fakePreviewDb!.dropped).toEqual(["sprout_myapp_pr42"]);
+    expect(fakeDocker().removed).toContain("sprout-myapp-pr-42");
     expect(await fakeDocker().listPreviewContainers()).toEqual([]);
 
     const list = await testApp!.app.handle(
@@ -292,7 +292,7 @@ describe("POST /v1/drop", () => {
     });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, status: "removed" });
-    expect(fakePreviewDb!.dropped).toEqual(["prev_myapp_pr42"]);
+    expect(fakePreviewDb!.dropped).toEqual(["sprout_myapp_pr42"]);
 
     // Restore list path so doctor can see the leftover container.
     docker.removeByName = realRemove;

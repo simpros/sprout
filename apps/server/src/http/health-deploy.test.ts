@@ -98,7 +98,7 @@ describe("POST /v1/deploy health polling", () => {
       canonical_repo_id: REPO,
       pr_id: 42,
       slug: "myapp",
-      db_name: "prev_myapp_pr42",
+      db_name: "sprout_myapp_pr42",
       hostname: "pr-42.myapp.preview.example.com",
       status: "running",
       preview_url: "https://pr-42.myapp.preview.example.com",
@@ -184,7 +184,7 @@ describe("POST /v1/deploy health polling", () => {
         .limit(1);
       expect(row?.status).toBe("failed");
       expect(row?.containerId).toBeNull();
-      expect(fakeDocker!.removed).toContain("pb-myapp-pr-42");
+      expect(fakeDocker!.removed).toContain("sprout-myapp-pr-42");
       expect(warns.some((args) => args.includes("health:timeout"))).toBe(true);
       expect(healthHits.length).toBeGreaterThan(1);
     } finally {
@@ -198,7 +198,7 @@ describe("POST /v1/deploy health polling", () => {
       canonicalRepoId: REPO,
       prId: 7,
       slug: "myapp",
-      dbName: "prev_myapp_pr7",
+      dbName: "sprout_myapp_pr7",
       hostname: "pr-7.myapp.preview.example.com",
       status: "starting",
     });
@@ -214,7 +214,7 @@ describe("POST /v1/deploy health polling", () => {
         canonical_repo_id: REPO,
         pr_id: 7,
         slug: "myapp",
-        db_name: "prev_myapp_pr7",
+        db_name: "sprout_myapp_pr7",
         hostname: "pr-7.myapp.preview.example.com",
         status: "provisioning",
         created_at: expect.any(String),
@@ -228,7 +228,7 @@ describe("POST /v1/deploy health polling", () => {
       canonicalRepoId: REPO,
       prId: 8,
       slug: "myapp",
-      dbName: "prev_myapp_pr8",
+      dbName: "sprout_myapp_pr8",
       hostname: "pr-8.myapp.preview.example.com",
       status: "seeding",
     });

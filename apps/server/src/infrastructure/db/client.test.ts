@@ -93,7 +93,7 @@ describe("runMigrations", () => {
         canonicalRepoId: "https://github.com/acme/widgets",
         prId: 1,
         slug: "widgets",
-        dbName: "prev_widgets_pr1",
+        dbName: "sprout_widgets_pr1",
         hostname: "pr-1.example.com",
         status: "running",
       });

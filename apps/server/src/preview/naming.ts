@@ -1,15 +1,15 @@
-const PREVIEW_CONTAINER_RE = /^pb-([a-zA-Z0-9]+)-pr-(\d+)$/;
+const PREVIEW_CONTAINER_RE = /^sprout-([a-zA-Z0-9]+)-pr-(\d+)$/;
 
 /** Re-export DB parse from the single preview-db grammar. */
 export { parsePreviewDatabaseName } from "../preview-db/names.ts";
 
 export function previewContainerName(slug: string, prId: number): string {
-  return `pb-${slug}-pr-${prId}`;
+  return `sprout-${slug}-pr-${prId}`;
 }
 
 /** Deterministic name for the one-shot seed-image run (suffix avoids catalog regex). */
 export function seedImageRunName(slug: string, prId: number): string {
-  return `pb-${slug}-pr-${prId}-seed`;
+  return `sprout-${slug}-pr-${prId}-seed`;
 }
 
 export function parsePreviewContainerName(
