@@ -56,10 +56,13 @@ function parsePreviewEnv(
     switch (issue.code) {
       case "unknown_env_key":
         return unknownKey(`preview.env.${issue.key}`);
-      case "empty_env_target":
-        return { ok: false, error: `preview.env.${issue.key} is required` };
-      case "invalid_env_target":
+      case "invalid_env_target": {
+        const value = raw[issue.key];
+        if (typeof value !== "string" || value.trim() === "") {
+          return { ok: false, error: `preview.env.${issue.key} is required` };
+        }
         return { ok: false, error: `preview.env.${issue.key} is invalid` };
+      }
       case "env_target_collision":
         return {
           ok: false,

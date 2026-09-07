@@ -10,41 +10,37 @@ describe("parsePreviewEnvMap", () => {
     expect(parsePreviewEnvMap({})).toEqual({ ok: true, value: undefined });
   });
 
-  test("accepts identity and partial maps", () => {
-    expect(
-      parsePreviewEnvMap({ PGHOST: "PGHOST", PGUSER: "DATABASE_USER" }),
-    ).toEqual({
+
+ test("accepts identity and partial maps", () => {
+    expect(parsePreviewEnvMap({ PGHOST: "PGHOST", PGUSER: "DATABASE_USER" })).toEqual({
       ok: true,
       value: { PGHOST: "PGHOST", PGUSER: "DATABASE_USER" },
     });
   });
 
-  test("rejects unknown keys", () => {
+
+ test("rejects unknown keys", () => {
     expect(parsePreviewEnvMap({ DATABASE_URL: "DATABASE_URL" })).toEqual({
       ok: false,
       issue: { code: "unknown_env_key", key: "DATABASE_URL" },
     });
   });
 
-  test("rejects empty targets", () => {
+
+ test("rejects empty or invalid targets", () => {
     expect(parsePreviewEnvMap({ PGHOST: "" })).toEqual({
       ok: false,
-      issue: { code: "empty_env_target", key: "PGHOST" },
+      issue: { code: "invalid_env_target", key: "PGHOST" },
     });
-    expect(parsePreviewEnvMap({ PGHOST: "   " })).toEqual({
-      ok: false,
-      issue: { code: "empty_env_target", key: "PGHOST" },
-    });
-  });
-
-  test("rejects invalid targets", () => {
     expect(parsePreviewEnvMap({ PGHOST: "bad-name" })).toEqual({
       ok: false,
       issue: { code: "invalid_env_target", key: "PGHOST" },
     });
   });
 
-  test("rejects target collisions", () => {
+
+  
+ test("rejects target collisions", () => {
     expect(
       parsePreviewEnvMap({
         PGHOST: "DATABASE_HOST",

@@ -15,43 +15,37 @@ export type PreviewEnvMap = Partial<Record<CanonicalEnvKey, string>>;
 /** Shell-safe env name: letter/underscore start, then alnum/underscore. */
 export const ENV_TARGET_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
-  return (CANONICAL_ENV_KEYS as readonly string[]).includes(key);
-}
+const CANONICAL_ENV_KEY_SET = new Set<string>(CANONICAL_ENV_KEYS);
 
 export type PreviewEnvIssue =
   | { code: "unknown_env_key"; key: string }
-  | { code: "empty_env_target"; key: string }
   | { code: "invalid_env_target"; key: string }
-  | {
-      code: "env_target_collision";
-      key: string;
-      target: string;
-      priorKey: string;
-    };
+  | { code: "env_target_collision"; key: string; target: string; priorKey: string };
 
 /**
  * Validate a connection-env remap map (canonical key → adopter name).
  * Absent or empty → undefined (no remapping). Values must be non-empty strings.
- */
+*/
 export function parsePreviewEnvMap(
   raw: Record<string, unknown> | undefined,
 ):
   | { ok: true; value: PreviewEnvMap | undefined }
-  | { ok: false; issue: PreviewEnvIssue } {
+    | { ok: false; issue: PreviewEnvIssue } {
   if (raw === undefined) return { ok: true, value: undefined };
-  const entries = Object.entries(raw);
-  if (entries.length === 0) return { ok: true, value: undefined };
+    const entries = Object.entries(raw);
+    if (entries.length === 0) return { ok: true, value: undefined };
 
-  const env: PreviewEnvMap = {};
-  const seenTargets = new Map<string, string>();
 
-  for (const [key, value] of entries) {
-    if (!isCanonicalEnvKey(key)) {
+ const env: PreviewEnvMap = {};
+   const seenTargets = new Map<string, string>();
+
+
+ for (const [key, value] of entries) {
+    if (!CANONICAL_ENV_KEY_SET.has(key)) {
       return { ok: false, issue: { code: "unknown_env_key", key } };
     }
     if (typeof value !== "string" || value.trim() === "") {
-      return { ok: false, issue: { code: "empty_env_target", key } };
+      return { ok: false, issue: { code: "invalid_env_target", key } };
     }
     const target = value.trim();
     if (!ENV_TARGET_RE.test(target)) {
@@ -70,7 +64,7 @@ export function parsePreviewEnvMap(
       };
     }
     seenTargets.set(target, key);
-    env[key] = target;
+    env[key as CanonicalEnvKey] = target;
   }
-  return { ok: true, value: env };
+return { ok: true, value: env };
 }
