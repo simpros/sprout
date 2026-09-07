@@ -8,7 +8,7 @@ import {
 } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
-import type { SproutYaml } from "../yaml.ts";
+import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
 
 export async function runDeploy(
   tokens: string[],
@@ -56,6 +56,7 @@ export async function runDeploy(
     seed_image?: string;
     seed_env?: string[];
     seed_arg?: string[];
+    env?: PreviewEnvMap;
   } = {
     canonical_repo_id: identity.value.repo,
     pr_id: identity.value.prId,
@@ -71,12 +72,9 @@ export async function runDeploy(
   if (flags.value.seedImage) body.seed_image = flags.value.seedImage;
   if (flags.value.seedEnv.length > 0) body.seed_env = flags.value.seedEnv;
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
+  if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  // #53 opens `env` on the deploy schema; cast until then (do not widen Elysia early).
-  const response = await ctx.client.v1.deploy.post({
-    ...body,
-    ...(yaml.value.preview.env ? { env: yaml.value.preview.env } : {}),
-  } as typeof body);
+  const response = await ctx.client.v1.deploy.post(body);
   const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return fail(ctx.deps.io, result.message);
 

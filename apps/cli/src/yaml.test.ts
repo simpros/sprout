@@ -149,6 +149,18 @@ slug: myapp
 preview:
   hostname: "pr-{pr_id}.example.com"
   env:
+    PGHOST: "   "
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.env.PGHOST is required",
+    });
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
     PGHOST: "bad-name"
 `),
     ).toEqual({

@@ -4,7 +4,7 @@ import {
   resolveHealthSpec,
   type HealthRequest,
 } from "../app-deployment/health.ts";
-import { resolvePreviewEnv } from "../app-deployment/pg-env.ts";
+import { parsePreviewEnvMap } from "@sprout/preview-env";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
   provisionPreview,
@@ -154,10 +154,15 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: prErr };
     }
-    const connectionEnv = resolvePreviewEnv(body.env);
+    const connectionEnv = parsePreviewEnvMap(body.env);
     if (!connectionEnv.ok) {
       set.status = 422;
-      return { error: connectionEnv.error };
+      // Collapse empty → invalid at the HTTP edge (stable API codes).
+      const code =
+        connectionEnv.issue.code === "empty_env_target"
+          ? "invalid_env_target"
+          : connectionEnv.issue.code;
+      return { error: code };
     }
     const seed = resolveSeedRequest(body);
     if (!seed.ok) {
