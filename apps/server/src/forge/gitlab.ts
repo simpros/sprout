@@ -39,11 +39,6 @@ export function parseGitLabProject(
   return { host: url.hostname, path };
 }
 
-/** @deprecated Prefer parseGitLabProject; kept for callers expecting a path string. */
-export function parseGitLabProjectPath(canonicalRepoId: string): string {
-  return parseGitLabProject(canonicalRepoId).path;
-}
-
 export function createGitLabForge(options: GitLabForgeOptions): ForgeClient {
   const fetchImpl = options.fetch ?? fetch;
 

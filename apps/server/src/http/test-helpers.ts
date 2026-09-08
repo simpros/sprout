@@ -17,6 +17,7 @@ import { connectState, type StateDb } from "../infrastructure/db/client.ts";
 import { createFakePreviewDb } from "../preview-db/fake.ts";
 import type { PreviewDb } from "../preview-db/port.ts";
 import { runMigrations } from "../scripts/migrate.ts";
+import type { ForgeKind } from "../forge/client.ts";
 import { createRoutes } from "./routes.ts";
 
 export type TestDb = {
@@ -126,7 +127,7 @@ export async function postDeployToken(
   body: {
     canonical_repo_id: string;
     slug: string;
-    forge?: "github" | "gitlab";
+    forge?: ForgeKind;
   },
 ) {
   const res = await app.app.handle(

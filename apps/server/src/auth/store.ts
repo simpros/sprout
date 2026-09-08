@@ -1,4 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
+import type { ForgeKind } from "../forge/client.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { apiTokens, repos } from "../infrastructure/db/schema.ts";
 import { generateToken, hashToken } from "./tokens.ts";
@@ -122,7 +123,7 @@ export async function issueDeployToken(
     canonicalRepoId: string;
     slug: string;
     /** Optional explicit forge; null/undefined → infer from canonical URL at sweep. */
-    forge?: "github" | "gitlab" | null;
+    forge?: ForgeKind | null;
   },
 ): Promise<IssueDeployTokenResult> {
   const raw = generateToken();

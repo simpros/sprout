@@ -5,7 +5,7 @@ import {
   revokeToken as revokeTokenRow,
   type TokenRow,
 } from "../auth/store.ts";
-import { FORGE_KINDS, type ForgeKind } from "../forge/client.ts";
+import { type ForgeKind } from "../forge/client.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 
 function tokenResponse(row: TokenRow) {
@@ -43,10 +43,6 @@ export function createDeployToken(db: StateDb) {
     };
     set: { status?: number | string };
   }) => {
-    if (body.forge !== undefined && !FORGE_KINDS.includes(body.forge)) {
-      set.status = 400;
-      return { error: "invalid forge" };
-    }
     const result = await issueDeployToken(db, {
       canonicalRepoId: body.canonical_repo_id,
       slug: body.slug,
