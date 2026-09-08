@@ -69,10 +69,13 @@ preview:
     PGDATABASE: DATABASE_NAME
 ```
 
+If you remap, your entrypoint must read the adopter names; the snippets below
+assume the default `PG*` map.
+
 Your app image must:
 
 1. Wait until Postgres accepts connections.
-2. Run migrations against `PGDATABASE`.
+2. Run migrations against the injected database name (default `PGDATABASE`).
 3. Start the web server (expose a port — first `EXPOSE` wins, else gateway uses
    `SPROUT_PREVIEW_PORT_DEFAULT`).
 
@@ -81,7 +84,8 @@ that fits your stack.
 
 ### Shell entrypoint (any runtime)
 
-See [`examples/adopting-repo/docker-entrypoint.sh`](../examples/adopting-repo/docker-entrypoint.sh):
+See [`examples/adopting-repo/docker-entrypoint.sh`](../examples/adopting-repo/docker-entrypoint.sh)
+(default `PG*` names):
 
 ```bash
 #!/bin/sh
@@ -138,8 +142,9 @@ The **canonical** workflow is
 [`examples/adopting-repo/.github/workflows/sprout.yml`](../examples/adopting-repo/.github/workflows/sprout.yml)
 — copy it rather than pasting fragments from this guide. It covers:
 
-1. Install `sprout` from a workspace clone pinned to tag `v0.1.0` (keeps
-   `@sprout/api-client` resolution; same as the in-repo `sprout` bin).
+1. Install `sprout` from a workspace clone pinned to a SHA/branch of this
+   tree (or retag `v0.1.0` onto the post-rename merge before pinning that tag;
+   keeps `@sprout/api-client` resolution; same as the in-repo `sprout` bin).
 2. Build and push app + seed images tagged with `${{ github.sha }}`.
 3. `sprout deploy -i … -s …`, capture `preview_url=` from `deploy.log`, comment
    on the PR.

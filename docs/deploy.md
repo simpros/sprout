@@ -40,7 +40,9 @@ docker build -t ghcr.io/simpros/sprout:0.1.0 \
 ```
 
 Image label `org.opencontainers.image.version` mirrors `SPROUT_VERSION` (default
-`0.1.0`). Pin operators and CI to that tag (or the matching git tag `v0.1.0`).
+`0.1.0`). Pin operators and CI to an image built from this branch (or the
+post-rename merge SHA). Do not treat today's git tag `v0.1.0` as that
+artifact — it still points at the pre-rename tree until retagged.
 
 Tear down:
 

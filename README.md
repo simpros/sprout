@@ -90,5 +90,8 @@ checklist: [`docs/deploy.md`](docs/deploy.md).
 
 ## Status
 
-**v0.1.0** (git tag `v0.1.0`). Core gateway paths land incrementally; see open
-issues on the tracker for remaining modules.
+**v0.1.0 release candidate** on this branch (package / image version `0.1.0`).
+Do not pin adopters to git tag `v0.1.0` until it is retagged onto the
+post-rename merge commit — that tag tip is still the pre-rename tree. Core
+gateway paths land incrementally; see open issues on the tracker for remaining
+modules.
