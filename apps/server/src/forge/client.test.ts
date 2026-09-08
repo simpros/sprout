@@ -11,17 +11,7 @@ describe("createForgeClient", () => {
       expect(isForgeApiError(error)).toBe(true);
       expect((error as { status: number }).status).toBe(401);
       expect(String(error)).toContain("Missing GitHub forge token");
-    }
-  });
-
-  test("deprecated single-forge empty token still soft-fails 401", async () => {
-    const forge = createForgeClient({ forge: "github", token: "" });
-    try {
-      await forge.listOpenPrIds("https://github.com/acme/widgets");
-      expect.unreachable("expected forge API error");
-    } catch (error) {
-      expect(isForgeApiError(error)).toBe(true);
-      expect((error as { status: number }).status).toBe(401);
+      expect(String(error)).toContain("SPROUT_GITHUB_TOKEN");
     }
   });
 
@@ -52,23 +42,6 @@ describe("createForgeClient", () => {
 
     expect(calls.some((u) => u.includes("api.github.com"))).toBe(true);
     expect(calls.some((u) => u.includes("gitlab.com/api/v4"))).toBe(true);
-  });
-
-  test("uses SPROUT_FORGE_TOKEN fallback when per-forge token is unset", async () => {
-    const forge = createForgeClient({
-      forge: "github",
-      token: "legacy-token",
-      githubToken: "",
-      gitlabToken: "",
-      fetch: async (_input, init) => {
-        const auth = new Headers(init?.headers).get("authorization");
-        expect(auth).toBe("Bearer legacy-token");
-        return new Response(JSON.stringify([{ number: 1 }]), { status: 200 });
-      },
-    });
-    await expect(
-      forge.listOpenPrIds("https://github.com/acme/widgets"),
-    ).resolves.toEqual([1]);
   });
 
   test("host map routes custom GitLab hosts", async () => {

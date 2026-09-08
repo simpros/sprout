@@ -1,4 +1,4 @@
-import { FORGE_KINDS, type ForgeKind } from "./forge/client.ts";
+import type { ForgeKind } from "./forge/client.ts";
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -26,21 +26,17 @@ export const OPTIONAL_STRING_ENV = [
   "SPROUT_GITHUB_TOKEN",
   "SPROUT_GITLAB_TOKEN",
   "SPROUT_FORGE_HOSTS",
-  /** @deprecated Prefer SPROUT_GITHUB_TOKEN / SPROUT_GITLAB_TOKEN. */
-  "SPROUT_FORGE_TOKEN",
 ] as const;
 
 /**
  * Every gateway env name that `.env.example` must document.
  * Includes loadConfig keys plus admin (absent vs blank) and SQLite path
  * (resolved outside loadConfig via `resolveStateDbPath`).
- * Deprecated SPROUT_FORGE remains documented for single-forge operators.
  */
 export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
   ...REQUIRED_ENV,
   ...Object.keys(OPTIONAL_ENV_DEFAULTS),
   ...OPTIONAL_STRING_ENV,
-  "SPROUT_FORGE",
   "SPROUT_ADMIN_TOKEN",
   "SPROUT_STATE_DB_PATH",
 ];
@@ -59,16 +55,6 @@ export type Config = {
   registryUser: string;
   /** Empty string = anonymous registry pull. */
   registryPassword: string;
-  /**
-   * @deprecated Prefer githubToken/gitlabToken. When set, selects which
-   * forgeToken fallback applies.
-   */
-  forge?: ForgeKind;
-  /**
-   * @deprecated Prefer githubToken/gitlabToken. Fallback PAT when the matching
-   * per-forge token is empty.
-   */
-  forgeToken: string;
   /** GitHub PAT for sweep open-PR listing. */
   githubToken: string;
   /** GitLab PAT for sweep open-MR listing. */
@@ -140,18 +126,6 @@ export function parseForgeHostMap(raw: string): Record<string, ForgeKind> {
   return out;
 }
 
-function parseOptionalForge(raw: string | undefined): ForgeKind | undefined {
-  const trimmed = raw?.trim() ?? "";
-  if (trimmed === "") return undefined;
-  const forge = trimmed.toLowerCase();
-  if (!FORGE_KINDS.includes(forge as ForgeKind)) {
-    throw new Error(
-      `Invalid SPROUT_FORGE: must be one of ${FORGE_KINDS.join(", ")}`,
-    );
-  }
-  return forge as ForgeKind;
-}
-
 export function loadConfig(): Config {
   const missing = REQUIRED_ENV.filter((key) => {
     const raw = process.env[key];
@@ -164,7 +138,6 @@ export function loadConfig(): Config {
   }
 
   const adminTokenRaw = process.env.SPROUT_ADMIN_TOKEN?.trim();
-  const forge = parseOptionalForge(process.env.SPROUT_FORGE);
 
   return {
     previewPostgresUrl: requiredEnv("SPROUT_PREVIEW_POSTGRES_URL"),
@@ -181,8 +154,6 @@ export function loadConfig(): Config {
     registryUrl: requiredEnv("SPROUT_REGISTRY_URL"),
     registryUser: optionalStringEnv("SPROUT_REGISTRY_USER"),
     registryPassword: optionalStringEnv("SPROUT_REGISTRY_PASSWORD"),
-    forge,
-    forgeToken: optionalStringEnv("SPROUT_FORGE_TOKEN"),
     githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
     gitlabToken: optionalStringEnv("SPROUT_GITLAB_TOKEN"),
     forgeHostMap: parseForgeHostMap(optionalStringEnv("SPROUT_FORGE_HOSTS")),
@@ -227,8 +198,6 @@ export function configSummary(config: Config): Record<string, string | number> {
     registryUrl: config.registryUrl,
     registryUser: config.registryUser === "" ? "[anonymous]" : config.registryUser,
     registryPassword: config.registryPassword === "" ? "[anonymous]" : "[set]",
-    forge: config.forge ?? "[unset]",
-    forgeToken: config.forgeToken === "" ? "[unset]" : "[set]",
     githubToken: config.githubToken === "" ? "[unset]" : "[set]",
     gitlabToken: config.gitlabToken === "" ? "[unset]" : "[set]",
     forgeHostMap: Object.keys(config.forgeHostMap).length,

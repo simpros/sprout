@@ -14,16 +14,6 @@ export type CreateForgeClientOptions = {
   githubToken?: string;
   /** Per-forge PAT for GitLab API calls. */
   gitlabToken?: string;
-  /**
-   * @deprecated Prefer githubToken/gitlabToken. When set with `token`, used as
-   * fallback for that forge kind only.
-   */
-  forge?: ForgeKind;
-  /**
-   * @deprecated Prefer githubToken/gitlabToken. Fallback token when the
-   * per-forge token for `forge` is empty.
-   */
-  token?: string;
   /** Extra host → kind map (see SPROUT_FORGE_HOSTS). */
   hostMap?: Readonly<Record<string, ForgeKind>>;
   fetch?: FetchLike;
@@ -33,22 +23,18 @@ function tokenForKind(
   kind: ForgeKind,
   options: CreateForgeClientOptions,
 ): string {
-  const perForge =
+  const raw =
     kind === "github"
       ? (options.githubToken ?? "")
       : (options.gitlabToken ?? "");
-  if (perForge.trim() !== "") return perForge.trim();
-  if (options.forge === kind && (options.token ?? "").trim() !== "") {
-    return options.token!.trim();
-  }
-  return "";
+  return raw.trim();
 }
 
 function missingTokenMessage(kind: ForgeKind): string {
   if (kind === "github") {
-    return "Missing GitHub forge token: set SPROUT_GITHUB_TOKEN (or deprecated SPROUT_FORGE=github + SPROUT_FORGE_TOKEN)";
+    return "Missing GitHub forge token: set SPROUT_GITHUB_TOKEN";
   }
-  return "Missing GitLab forge token: set SPROUT_GITLAB_TOKEN (or deprecated SPROUT_FORGE=gitlab + SPROUT_FORGE_TOKEN)";
+  return "Missing GitLab forge token: set SPROUT_GITLAB_TOKEN";
 }
 
 function clientForKind(

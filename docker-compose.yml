@@ -115,9 +115,6 @@ services:
       SPROUT_GITHUB_TOKEN: ${SPROUT_GITHUB_TOKEN:-}
       SPROUT_GITLAB_TOKEN: ${SPROUT_GITLAB_TOKEN:-}
       SPROUT_FORGE_HOSTS: ${SPROUT_FORGE_HOSTS:-}
-      # Deprecated single-forge fallback
-      SPROUT_FORGE: ${SPROUT_FORGE:-}
-      SPROUT_FORGE_TOKEN: ${SPROUT_FORGE_TOKEN:-}
       # Blank/unset → loadConfig treats as undefined → auto-generate
       SPROUT_ADMIN_TOKEN: ${SPROUT_ADMIN_TOKEN:-}
       SPROUT_STATE_DB_PATH: ${SPROUT_STATE_DB_PATH:-/data/sprout.db}

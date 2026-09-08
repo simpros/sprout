@@ -197,7 +197,7 @@ describe("runSweepPass", () => {
 
   test("empty forge token soft-fails into forgeRepoFailures; TTL/orphan still run", async () => {
     setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
-    const forge = createForgeClient({ forge: "github", token: "" });
+    const forge = createForgeClient({ githubToken: "", gitlabToken: "" });
     const { ports, deletions } = memoryPorts({
       previews: [
         {

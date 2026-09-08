@@ -216,8 +216,6 @@ not from a gateway-wide forge switch:
 | `SPROUT_GITHUB_TOKEN` | GitHub PAT for sweep |
 | `SPROUT_GITLAB_TOKEN` | GitLab PAT for sweep |
 | `SPROUT_FORGE_HOSTS` | Optional `host=gitlab` pairs (comma-separated), e.g. `git.example.com=gitlab` |
-| `SPROUT_FORGE` | **Deprecated.** Single-forge fallback selector (`github` or `gitlab`) |
-| `SPROUT_FORGE_TOKEN` | **Deprecated.** Fallback PAT when the matching per-forge token is unset |
 
 Optional registry auth (empty = anonymous pulls — real registry mode, not a
 sentinel string):
