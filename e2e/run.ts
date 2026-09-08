@@ -4,14 +4,16 @@
  *
  *   bun run test:e2e
  *
- * Requires Docker. Asserts compose smoke only (admin mint deploy token).
- * Lifecycle/sweep placeholders: see e2e/lifecycle.test.ts, e2e/sweep.test.ts
- * and tickets #25 / #28 / #30 / #31.
+ * Requires Docker. Asserts compose smoke (admin mint deploy token) and
+ * remapped preview.env injection on a deploy (see lifecycle.test.ts).
  */
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { COMPOSE_E2E_ENV_PATH } from "./harness/config.ts";
+import {
+  COMPOSE_E2E_ENV_PATH,
+  parseEnvFile,
+  requireComposeEnv,
+} from "./harness/config.ts";
 import {
   composeDown,
   composeUp,
@@ -22,29 +24,6 @@ const e2eDir = dirname(fileURLToPath(import.meta.url));
 
 /** Docker-bound tests exceed Bun's 5s default. */
 const E2E_TEST_TIMEOUT_MS = "180000";
-
-function parseEnvFile(path: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const raw of readFileSync(path, "utf8").split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq < 0) continue;
-    out[line.slice(0, eq)] = line.slice(eq + 1);
-  }
-  return out;
-}
-
-function requireComposeEnv(
-  env: Record<string, string>,
-  key: string,
-): string {
-  const value = env[key]?.trim();
-  if (!value) {
-    throw new Error(`e2e/compose.e2e.env missing required key ${key}`);
-  }
-  return value;
-}
 
 async function main() {
   const composeEnv = parseEnvFile(COMPOSE_E2E_ENV_PATH);
