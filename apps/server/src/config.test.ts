@@ -3,7 +3,7 @@ import {
   configSummary,
   loadConfig,
   OPTIONAL_ENV_DEFAULTS,
-  parseForgeHostMap,
+  parseExtraGitlabHosts,
   REQUIRED_ENV,
 } from "./config.ts";
 
@@ -45,23 +45,31 @@ afterEach(() => {
   clearGatewayEnv();
 });
 
-describe("parseForgeHostMap", () => {
-  test("parses host=gitlab pairs", () => {
-    expect(parseForgeHostMap("git.example.com=gitlab,gl.corp=gitlab")).toEqual({
-      "git.example.com": "gitlab",
-      "gl.corp": "gitlab",
-    });
+describe("parseExtraGitlabHosts", () => {
+  test("parses host=gitlab pairs into a set", () => {
+    expect(parseExtraGitlabHosts("git.example.com=gitlab,gl.corp=gitlab")).toEqual(
+      new Set(["git.example.com", "gl.corp"]),
+    );
   });
 
   test("rejects unknown forge kinds", () => {
-    expect(() => parseForgeHostMap("git.example.com=bitbucket")).toThrow(
+    expect(() => parseExtraGitlabHosts("git.example.com=bitbucket")).toThrow(
       "Invalid SPROUT_FORGE_HOSTS",
     );
   });
 
   test("rejects custom host mapped to github", () => {
-    expect(() => parseForgeHostMap("gh.example.com=github")).toThrow(
+    expect(() => parseExtraGitlabHosts("gh.example.com=github")).toThrow(
       "expected host=gitlab",
+    );
+  });
+
+  test("rejects remapping built-in GitHub hosts", () => {
+    expect(() => parseExtraGitlabHosts("github.com=gitlab")).toThrow(
+      "built-in GitHub host",
+    );
+    expect(() => parseExtraGitlabHosts("www.github.com=gitlab")).toThrow(
+      "built-in GitHub host",
     );
   });
 });
@@ -100,7 +108,7 @@ describe("loadConfig", () => {
     setRequiredEnv();
     process.env.SPROUT_FORGE_HOSTS = "git.example.com=gitlab";
     const config = loadConfig();
-    expect(config.forgeHostMap).toEqual({ "git.example.com": "gitlab" });
+    expect(config.extraGitlabHosts).toEqual(new Set(["git.example.com"]));
   });
 
   test("rejects non-numeric optional env vars", () => {
@@ -151,7 +159,7 @@ describe("loadConfig", () => {
       registryPassword: "",
       githubToken: "",
       gitlabToken: "",
-      forgeHostMap: {},
+      extraGitlabHosts: new Set(),
       ttlHours: 72,
       sweepMinutes: 30,
       previewPortDefault: 8080,
@@ -176,7 +184,7 @@ describe("loadConfig", () => {
       registryPassword: "registry-secret",
       githubToken: "gh",
       gitlabToken: "gl",
-      forgeHostMap: { "git.example.com": "gitlab" },
+      extraGitlabHosts: new Set(["git.example.com"]),
       ttlHours: 72,
       sweepMinutes: 30,
       previewPortDefault: 8080,
@@ -190,7 +198,7 @@ describe("loadConfig", () => {
     expect(summary.registryUser).toBe("puller");
     expect(summary.githubToken).toBe("[set]");
     expect(summary.gitlabToken).toBe("[set]");
-    expect(summary.forgeHostMap).toBe(1);
+    expect(summary.extraGitlabHosts).toBe(1);
   });
 
   test("configSummary marks anonymous registry creds", () => {
@@ -207,7 +215,7 @@ describe("loadConfig", () => {
       registryPassword: "",
       githubToken: "",
       gitlabToken: "t",
-      forgeHostMap: {},
+      extraGitlabHosts: new Set(),
       ttlHours: 72,
       sweepMinutes: 30,
       previewPortDefault: 8080,

@@ -118,10 +118,7 @@ export async function ensureAdminToken(
 
 export async function issueDeployToken(
   db: StateDb,
-  input: {
-    canonicalRepoId: string;
-    slug: string;
-  },
+  input: { canonicalRepoId: string; slug: string },
 ): Promise<IssueDeployTokenResult> {
   const raw = generateToken();
   const tokenHash = hashToken(raw);

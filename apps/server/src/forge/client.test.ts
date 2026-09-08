@@ -44,11 +44,11 @@ describe("createForgeClient", () => {
     expect(calls.some((u) => u.includes("gitlab.com/api/v4"))).toBe(true);
   });
 
-  test("host map routes custom GitLab hosts", async () => {
+  test("extra GitLab hosts route custom hosts", async () => {
     const forge = createForgeClient({
       githubToken: "",
       gitlabToken: "gl-token",
-      hostMap: { "git.example.com": "gitlab" },
+      extraGitlabHosts: new Set(["git.example.com"]),
       fetch: async (input) => {
         expect(String(input)).toContain("git.example.com/api/v4");
         return new Response(JSON.stringify([{ iid: 9 }]), { status: 200 });

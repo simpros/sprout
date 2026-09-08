@@ -16,7 +16,7 @@ export function startGatewaySweep(deps: {
   const forge = createForgeClient({
     githubToken: deps.config.githubToken,
     gitlabToken: deps.config.gitlabToken,
-    hostMap: deps.config.forgeHostMap,
+    extraGitlabHosts: deps.config.extraGitlabHosts,
   });
   const ports = createLiveSweepPorts({
     db: deps.db,

@@ -14,8 +14,8 @@ export type CreateForgeClientOptions = {
   githubToken?: string;
   /** Per-forge PAT for GitLab API calls. */
   gitlabToken?: string;
-  /** Extra host → kind map (see SPROUT_FORGE_HOSTS). */
-  hostMap?: Readonly<Record<string, ForgeKind>>;
+  /** Extra self-managed GitLab hosts (see SPROUT_FORGE_HOSTS). */
+  extraGitlabHosts?: ReadonlySet<string>;
   fetch?: FetchLike;
 };
 
@@ -60,7 +60,7 @@ function clientForKind(
 
 /**
  * Forge client that selects GitHub vs GitLab per canonical repo id
- * (URL host inference + optional SPROUT_FORGE_HOSTS map).
+ * (URL host inference + optional SPROUT_FORGE_HOSTS extras).
  */
 export function createForgeClient(
   options: CreateForgeClientOptions,
@@ -79,7 +79,7 @@ export function createForgeClient(
   return {
     async listOpenPrIds(canonicalRepoId: string): Promise<number[]> {
       const kind = resolveForgeKind(canonicalRepoId, {
-        hostMap: options.hostMap,
+        extraGitlabHosts: options.extraGitlabHosts,
       });
       return getClient(kind).listOpenPrIds(canonicalRepoId);
     },

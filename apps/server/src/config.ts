@@ -1,4 +1,4 @@
-import type { ForgeKind } from "./forge/client.ts";
+import { GITHUB_HOSTS } from "./forge/kind.ts";
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -59,8 +59,8 @@ export type Config = {
   githubToken: string;
   /** GitLab PAT for sweep open-MR listing. */
   gitlabToken: string;
-  /** Extra host → forge kind (from SPROUT_FORGE_HOSTS). */
-  forgeHostMap: Record<string, ForgeKind>;
+  /** Extra self-managed GitLab hosts (from SPROUT_FORGE_HOSTS). */
+  extraGitlabHosts: ReadonlySet<string>;
   adminToken?: string;
   ttlHours: number;
   sweepMinutes: number;
@@ -96,14 +96,13 @@ function optionalStringEnv(key: (typeof OPTIONAL_STRING_ENV)[number]): string {
 }
 
 /**
- * Parse `host=gitlab` pairs (also accepts `host:gitlab`).
- * Custom hosts map to GitLab only — GitHub Enterprise is not supported yet.
- * Empty / unset → {}.
+ * Parse `host=gitlab` pairs (also accepts `host:gitlab`) into extra GitLab hosts.
+ * Built-in GitHub hosts cannot be remapped. Empty / unset → empty set.
  */
-export function parseForgeHostMap(raw: string): Record<string, ForgeKind> {
+export function parseExtraGitlabHosts(raw: string): ReadonlySet<string> {
   const trimmed = raw.trim();
-  if (trimmed === "") return {};
-  const out: Record<string, ForgeKind> = {};
+  if (trimmed === "") return new Set();
+  const out = new Set<string>();
   for (const part of trimmed.split(",")) {
     const entry = part.trim();
     if (entry === "") continue;
@@ -121,7 +120,12 @@ export function parseForgeHostMap(raw: string): Record<string, ForgeKind> {
         `Invalid SPROUT_FORGE_HOSTS entry "${entry}": expected host=gitlab (custom hosts → GitLab only; github.com is inferred)`,
       );
     }
-    out[host] = "gitlab";
+    if (GITHUB_HOSTS.has(host)) {
+      throw new Error(
+        `Invalid SPROUT_FORGE_HOSTS entry "${entry}": ${host} is a built-in GitHub host and cannot be remapped`,
+      );
+    }
+    out.add(host);
   }
   return out;
 }
@@ -156,7 +160,9 @@ export function loadConfig(): Config {
     registryPassword: optionalStringEnv("SPROUT_REGISTRY_PASSWORD"),
     githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
     gitlabToken: optionalStringEnv("SPROUT_GITLAB_TOKEN"),
-    forgeHostMap: parseForgeHostMap(optionalStringEnv("SPROUT_FORGE_HOSTS")),
+    extraGitlabHosts: parseExtraGitlabHosts(
+      optionalStringEnv("SPROUT_FORGE_HOSTS"),
+    ),
     adminToken: adminTokenRaw === "" ? undefined : adminTokenRaw,
     ttlHours: parsePositiveInt(
       "SPROUT_TTL_HOURS",
@@ -200,7 +206,7 @@ export function configSummary(config: Config): Record<string, string | number> {
     registryPassword: config.registryPassword === "" ? "[anonymous]" : "[set]",
     githubToken: config.githubToken === "" ? "[unset]" : "[set]",
     gitlabToken: config.gitlabToken === "" ? "[unset]" : "[set]",
-    forgeHostMap: Object.keys(config.forgeHostMap).length,
+    extraGitlabHosts: config.extraGitlabHosts.size,
     ttlHours: config.ttlHours,
     sweepMinutes: config.sweepMinutes,
     previewPortDefault: config.previewPortDefault,

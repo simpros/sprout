@@ -6,19 +6,33 @@ describe("resolveForgeKind", () => {
     expect(resolveForgeKind("https://github.com/acme/widgets")).toBe("github");
   });
 
+  test("infers www.github.com", () => {
+    expect(resolveForgeKind("https://www.github.com/acme/widgets")).toBe(
+      "github",
+    );
+  });
+
   test("infers gitlab.com", () => {
     expect(resolveForgeKind("https://gitlab.com/acme/widgets")).toBe("gitlab");
   });
 
-  test("host map selects forge for custom hosts", () => {
+  test("extra hosts select GitLab for self-managed hosts", () => {
     expect(
       resolveForgeKind("https://git.example.com/acme/widgets", {
-        hostMap: { "git.example.com": "gitlab" },
+        extraGitlabHosts: new Set(["git.example.com"]),
       }),
     ).toBe("gitlab");
   });
 
-  test("unknown host without map fails closed", () => {
+  test("extra hosts cannot remap github.com (github wins)", () => {
+    expect(
+      resolveForgeKind("https://github.com/acme/widgets", {
+        extraGitlabHosts: new Set(["github.com"]),
+      }),
+    ).toBe("github");
+  });
+
+  test("unknown host without extras fails closed", () => {
     try {
       resolveForgeKind("https://git.example.com/acme/widgets");
       expect.unreachable("expected forge API error");

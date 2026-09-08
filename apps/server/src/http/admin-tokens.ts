@@ -34,10 +34,7 @@ export function createDeployToken(db: StateDb) {
     body,
     set,
   }: {
-    body: {
-      canonical_repo_id: string;
-      slug: string;
-    };
+    body: { canonical_repo_id: string; slug: string };
     set: { status?: number | string };
   }) => {
     const result = await issueDeployToken(db, {
