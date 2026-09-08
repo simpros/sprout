@@ -5,7 +5,6 @@ import {
   forgeApiError,
   type FetchLike,
   type ForgeClient,
-  type ListOpenPrIdsOptions,
 } from "./types.ts";
 
 export { FORGE_KINDS, resolveForgeKind, type ForgeKind } from "./kind.ts";
@@ -75,7 +74,7 @@ function clientForKind(
 
 /**
  * Forge client that selects GitHub vs GitLab per canonical repo id
- * (URL host inference, optional explicit forge, optional host map).
+ * (URL host inference + optional SPROUT_FORGE_HOSTS map).
  */
 export function createForgeClient(
   options: CreateForgeClientOptions,
@@ -92,12 +91,8 @@ export function createForgeClient(
   }
 
   return {
-    async listOpenPrIds(
-      canonicalRepoId: string,
-      listOptions?: ListOpenPrIdsOptions,
-    ): Promise<number[]> {
+    async listOpenPrIds(canonicalRepoId: string): Promise<number[]> {
       const kind = resolveForgeKind(canonicalRepoId, {
-        explicit: listOptions?.forge,
         hostMap: options.hostMap,
       });
       return getClient(kind).listOpenPrIds(canonicalRepoId);
@@ -105,5 +100,5 @@ export function createForgeClient(
   };
 }
 
-export type { ForgeClient, ListOpenPrIdsOptions } from "./types.ts";
+export type { ForgeClient } from "./types.ts";
 export { forgeApiError, isForgeApiError } from "./types.ts";

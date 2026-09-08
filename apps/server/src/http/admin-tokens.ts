@@ -5,7 +5,6 @@ import {
   revokeToken as revokeTokenRow,
   type TokenRow,
 } from "../auth/store.ts";
-import { type ForgeKind } from "../forge/client.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 
 function tokenResponse(row: TokenRow) {
@@ -21,7 +20,6 @@ function tokenResponse(row: TokenRow) {
 export const createDeployTokenBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   slug: t.String({ minLength: 1 }),
-  forge: t.Optional(t.Union([t.Literal("github"), t.Literal("gitlab")])),
 });
 
 export function listTokens(db: StateDb) {
@@ -39,14 +37,12 @@ export function createDeployToken(db: StateDb) {
     body: {
       canonical_repo_id: string;
       slug: string;
-      forge?: ForgeKind;
     };
     set: { status?: number | string };
   }) => {
     const result = await issueDeployToken(db, {
       canonicalRepoId: body.canonical_repo_id,
       slug: body.slug,
-      forge: body.forge,
     });
     if (!result.ok) {
       set.status = 409;

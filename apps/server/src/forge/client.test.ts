@@ -71,7 +71,7 @@ describe("createForgeClient", () => {
     ).resolves.toEqual([1]);
   });
 
-  test("explicit forge option overrides host inference", async () => {
+  test("host map routes custom GitLab hosts", async () => {
     const forge = createForgeClient({
       githubToken: "",
       gitlabToken: "gl-token",
@@ -82,9 +82,7 @@ describe("createForgeClient", () => {
       },
     });
     await expect(
-      forge.listOpenPrIds("https://git.example.com/acme/widgets", {
-        forge: "gitlab",
-      }),
+      forge.listOpenPrIds("https://git.example.com/acme/widgets"),
     ).resolves.toEqual([9]);
   });
 });

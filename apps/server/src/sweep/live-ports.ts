@@ -1,10 +1,8 @@
-import { eq } from "drizzle-orm";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
-import type { ForgeClient, ForgeKind } from "../forge/client.ts";
-import { FORGE_KINDS } from "../forge/client.ts";
+import type { ForgeClient } from "../forge/client.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { parseUnambiguousUtcMs } from "../infrastructure/db/instant.ts";
-import { previews, repos } from "../infrastructure/db/schema.ts";
+import { previews } from "../infrastructure/db/schema.ts";
 import {
   dropOrphanDatabase,
   removePreview,
@@ -33,30 +31,6 @@ function teardownDeps(deps: LiveSweepDeps): TeardownDeps {
     previewDb: deps.previewDb,
     app: deps.app,
   };
-}
-
-async function lookupExplicitForge(
-  db: StateDb,
-  canonicalRepoId: string,
-): Promise<ForgeKind | undefined> {
-  const [row] = await db
-    .select({ forge: repos.forge })
-    .from(repos)
-    .where(eq(repos.canonicalId, canonicalRepoId))
-    .limit(1);
-  const raw = row?.forge;
-  if (raw && FORGE_KINDS.includes(raw as ForgeKind)) {
-    return raw as ForgeKind;
-  }
-  return undefined;
-}
-
-async function listOpenPrIdsForRepo(
-  deps: LiveSweepDeps,
-  canonicalRepoId: string,
-): Promise<number[]> {
-  const explicit = await lookupExplicitForge(deps.db, canonicalRepoId);
-  return deps.forge.listOpenPrIds(canonicalRepoId, { forge: explicit });
 }
 
 async function removeControlPlane(
@@ -117,15 +91,14 @@ export function createLiveSweepPorts(deps: LiveSweepDeps): SweepPorts {
         prId,
       })),
     listOpenPrIds: (canonicalRepoId) =>
-      listOpenPrIdsForRepo(deps, canonicalRepoId),
+      deps.forge.listOpenPrIds(canonicalRepoId),
     drop: async (deletion: SweepDeletion) => {
       switch (deletion.reason) {
         case "sweep:ttl-expired":
           return removeControlPlane(deps, deletion);
         case "sweep:pr-not-open": {
           // Forge outside the preview lock — under lock only checks generation.
-          const open = await listOpenPrIdsForRepo(
-            deps,
+          const open = await deps.forge.listOpenPrIds(
             deletion.canonicalRepoId,
           );
           if (open.includes(deletion.prId)) return false;

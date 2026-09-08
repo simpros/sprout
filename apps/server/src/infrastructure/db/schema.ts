@@ -31,8 +31,6 @@ export const previews = sqliteTable(
 export const repos = sqliteTable("repos", {
   canonicalId: text("canonical_id").primaryKey(),
   slug: text("slug").notNull(),
-  /** Optional explicit forge kind; when null, sweep infers from canonical URL. */
-  forge: text("forge"),
   createdAt: text("created_at")
     .notNull()
     .default(utcIsoNow),

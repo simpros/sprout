@@ -107,23 +107,6 @@ describe("bearer auth", () => {
     expect(repo?.slug).toBe("myapp");
   });
 
-  test("stores optional forge on repo at deploy-token mint", async () => {
-    testApp = await createTestApp();
-    const { status } = await postDeployToken(testApp, {
-      canonical_repo_id: "https://git.example.com/acme/widgets",
-      slug: "custom",
-      forge: "gitlab",
-    });
-    expect(status).toBe(201);
-
-    const [repo] = await testApp.db
-      .select()
-      .from(repos)
-      .where(eq(repos.canonicalId, "https://git.example.com/acme/widgets"))
-      .limit(1);
-    expect(repo?.forge).toBe("gitlab");
-  });
-
   test("rejects second deploy token with conflicting slug", async () => {
     testApp = await createTestApp();
     const first = await postDeployToken(testApp, {

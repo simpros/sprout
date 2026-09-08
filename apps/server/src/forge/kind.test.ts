@@ -1,22 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { isForgeApiError } from "./types.ts";
 import { resolveForgeKind } from "./kind.ts";
 
 describe("resolveForgeKind", () => {
-  test("infers github from github.com canonical repo id", () => {
+  test("infers github.com", () => {
     expect(resolveForgeKind("https://github.com/acme/widgets")).toBe("github");
   });
 
-  test("infers gitlab from gitlab.com canonical repo id", () => {
+  test("infers gitlab.com", () => {
     expect(resolveForgeKind("https://gitlab.com/acme/widgets")).toBe("gitlab");
-  });
-
-  test("explicit forge wins over hostname inference", () => {
-    expect(
-      resolveForgeKind("https://git.example.com/acme/widgets", {
-        explicit: "gitlab",
-      }),
-    ).toBe("gitlab");
   });
 
   test("host map selects forge for custom hosts", () => {
@@ -27,14 +18,13 @@ describe("resolveForgeKind", () => {
     ).toBe("gitlab");
   });
 
-  test("unknown host without explicit or map fails closed", () => {
+  test("unknown host without map fails closed", () => {
     try {
       resolveForgeKind("https://git.example.com/acme/widgets");
       expect.unreachable("expected forge API error");
     } catch (error) {
-      expect(isForgeApiError(error)).toBe(true);
-      expect((error as { status: number }).status).toBe(400);
       expect(String(error)).toContain("Cannot infer forge");
+      expect(String(error)).toContain("SPROUT_FORGE_HOSTS");
     }
   });
 
@@ -43,8 +33,7 @@ describe("resolveForgeKind", () => {
       resolveForgeKind("not-a-url");
       expect.unreachable("expected forge API error");
     } catch (error) {
-      expect(isForgeApiError(error)).toBe(true);
-      expect((error as { status: number }).status).toBe(400);
+      expect(String(error)).toContain("Invalid canonical repo id");
     }
   });
 });

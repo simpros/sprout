@@ -3,6 +3,9 @@ import { forgeApiError } from "./types.ts";
 export const FORGE_KINDS = ["github", "gitlab"] as const;
 export type ForgeKind = (typeof FORGE_KINDS)[number];
 
+/** Hosts the GitHub adapter can serve (api.github.com only). */
+export const GITHUB_HOSTS = new Set(["github.com", "www.github.com"]);
+
 export const DEFAULT_FORGE_HOST_MAP: Readonly<Record<string, ForgeKind>> = {
   "github.com": "github",
   "www.github.com": "github",
@@ -11,22 +14,18 @@ export const DEFAULT_FORGE_HOST_MAP: Readonly<Record<string, ForgeKind>> = {
 };
 
 export type ResolveForgeKindOptions = {
-  /** Stored per-repo override (token mint / repo register). Wins over host map. */
-  explicit?: ForgeKind;
   /** Extra or overriding host → kind entries (merged over defaults). */
   hostMap?: Readonly<Record<string, ForgeKind>>;
 };
 
 /**
- * Choose forge kind for a canonical repo id.
- * Explicit field wins; otherwise hostname is looked up in hostMap ∪ defaults.
+ * Choose forge kind for a canonical repo id from hostname
+ * (defaults ∪ optional SPROUT_FORGE_HOSTS map).
  */
 export function resolveForgeKind(
   canonicalRepoId: string,
   options: ResolveForgeKindOptions = {},
 ): ForgeKind {
-  if (options.explicit) return options.explicit;
-
   let url: URL;
   try {
     url = new URL(canonicalRepoId);
@@ -45,7 +44,7 @@ export function resolveForgeKind(
   const kind = merged[host];
   if (!kind) {
     throw forgeApiError(
-      `Cannot infer forge for host ${host}; set repos.forge or SPROUT_FORGE_HOSTS`,
+      `Cannot infer forge for host ${host}; set SPROUT_FORGE_HOSTS (custom hosts → gitlab)`,
       400,
     );
   }

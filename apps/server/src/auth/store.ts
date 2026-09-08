@@ -1,5 +1,4 @@
 import { and, eq, isNull } from "drizzle-orm";
-import type { ForgeKind } from "../forge/client.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { apiTokens, repos } from "../infrastructure/db/schema.ts";
 import { generateToken, hashToken } from "./tokens.ts";
@@ -122,17 +121,14 @@ export async function issueDeployToken(
   input: {
     canonicalRepoId: string;
     slug: string;
-    /** Optional explicit forge; null/undefined → infer from canonical URL at sweep. */
-    forge?: ForgeKind | null;
   },
 ): Promise<IssueDeployTokenResult> {
   const raw = generateToken();
   const tokenHash = hashToken(raw);
-  const forge = input.forge ?? null;
 
   return db.transaction(async (tx) => {
     const [existing] = await tx
-      .select({ slug: repos.slug, forge: repos.forge })
+      .select({ slug: repos.slug })
       .from(repos)
       .where(eq(repos.canonicalId, input.canonicalRepoId))
       .limit(1);
@@ -141,17 +137,10 @@ export async function issueDeployToken(
       if (existing.slug !== input.slug) {
         return { ok: false as const, error: "slug_conflict" as const };
       }
-      if (forge !== null && existing.forge !== forge) {
-        await tx
-          .update(repos)
-          .set({ forge })
-          .where(eq(repos.canonicalId, input.canonicalRepoId));
-      }
     } else {
       await tx.insert(repos).values({
         canonicalId: input.canonicalRepoId,
         slug: input.slug,
-        forge,
       });
     }
 

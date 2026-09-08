@@ -208,14 +208,14 @@ Required today (gateway fails fast if missing):
 Optional forge credentials for sweep open-PR / open-MR listing (empty at boot
 is allowed; required when sweep calls that forge). Forge kind is chosen
 **per repo** from the canonical repo URL (`github.com` → GitHub,
-`gitlab.com` → GitLab), an optional `forge` field at deploy-token mint, or
-`SPROUT_FORGE_HOSTS` for custom hosts — not from a gateway-wide forge switch:
+`gitlab.com` → GitLab) or `SPROUT_FORGE_HOSTS` for self-managed GitLab hosts —
+not from a gateway-wide forge switch:
 
 | Variable | Description |
 |---|---|
 | `SPROUT_GITHUB_TOKEN` | GitHub PAT for sweep |
 | `SPROUT_GITLAB_TOKEN` | GitLab PAT for sweep |
-| `SPROUT_FORGE_HOSTS` | Optional `host=kind` pairs (comma-separated), e.g. `git.example.com=gitlab` |
+| `SPROUT_FORGE_HOSTS` | Optional `host=gitlab` pairs (comma-separated), e.g. `git.example.com=gitlab` |
 | `SPROUT_FORGE` | **Deprecated.** Single-forge fallback selector (`github` or `gitlab`) |
 | `SPROUT_FORGE_TOKEN` | **Deprecated.** Fallback PAT when the matching per-forge token is unset |
 

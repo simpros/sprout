@@ -1,15 +1,5 @@
-import type { ForgeKind } from "./kind.ts";
-
-export type ListOpenPrIdsOptions = {
-  /** Explicit per-repo forge; wins over URL host inference. */
-  forge?: ForgeKind;
-};
-
 export type ForgeClient = {
-  listOpenPrIds(
-    canonicalRepoId: string,
-    options?: ListOpenPrIdsOptions,
-  ): Promise<number[]>;
+  listOpenPrIds(canonicalRepoId: string): Promise<number[]>;
 };
 
 export type FetchLike = (

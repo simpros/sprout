@@ -48,16 +48,22 @@ afterEach(() => {
 });
 
 describe("parseForgeHostMap", () => {
-  test("parses host=kind pairs", () => {
-    expect(parseForgeHostMap("git.example.com=gitlab,gh.example.com=github")).toEqual({
+  test("parses host=gitlab pairs", () => {
+    expect(parseForgeHostMap("git.example.com=gitlab,gl.corp=gitlab")).toEqual({
       "git.example.com": "gitlab",
-      "gh.example.com": "github",
+      "gl.corp": "gitlab",
     });
   });
 
   test("rejects unknown forge kinds", () => {
     expect(() => parseForgeHostMap("git.example.com=bitbucket")).toThrow(
       "Invalid SPROUT_FORGE_HOSTS",
+    );
+  });
+
+  test("rejects custom host mapped to github", () => {
+    expect(() => parseForgeHostMap("gh.example.com=github")).toThrow(
+      "expected host=gitlab",
     );
   });
 });

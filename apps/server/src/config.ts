@@ -110,7 +110,8 @@ function optionalStringEnv(key: (typeof OPTIONAL_STRING_ENV)[number]): string {
 }
 
 /**
- * Parse `host=kind,host=kind` (also accepts `host:kind`).
+ * Parse `host=gitlab` pairs (also accepts `host:gitlab`).
+ * Custom hosts map to GitLab only — GitHub Enterprise is not supported yet.
  * Empty / unset → {}.
  */
 export function parseForgeHostMap(raw: string): Record<string, ForgeKind> {
@@ -123,18 +124,18 @@ export function parseForgeHostMap(raw: string): Record<string, ForgeKind> {
     const sep = entry.includes("=") ? "=" : entry.includes(":") ? ":" : null;
     if (!sep) {
       throw new Error(
-        `Invalid SPROUT_FORGE_HOSTS entry "${entry}": expected host=github|gitlab`,
+        `Invalid SPROUT_FORGE_HOSTS entry "${entry}": expected host=gitlab`,
       );
     }
     const [hostRaw, kindRaw] = entry.split(sep, 2);
     const host = hostRaw?.trim().toLowerCase() ?? "";
     const kind = kindRaw?.trim().toLowerCase() ?? "";
-    if (!host || !FORGE_KINDS.includes(kind as ForgeKind)) {
+    if (!host || kind !== "gitlab") {
       throw new Error(
-        `Invalid SPROUT_FORGE_HOSTS entry "${entry}": expected host=github|gitlab`,
+        `Invalid SPROUT_FORGE_HOSTS entry "${entry}": expected host=gitlab (custom hosts → GitLab only; github.com is inferred)`,
       );
     }
-    out[host] = kind as ForgeKind;
+    out[host] = "gitlab";
   }
   return out;
 }
