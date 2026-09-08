@@ -46,7 +46,8 @@ health:
 - `preview.env` — optional remap of the five connection env **names** the
   gateway injects (see below). Unmapped keys stay `PG*`.
 - `health` — HTTP poll the gateway runs against the app container IP on the
-  Postgres network before starting a seed container.
+  Postgres network. Required when using `-s`; gates the after-healthy seed hook
+  (see below).
 
 ## App image: migrate at startup
 
@@ -108,25 +109,85 @@ exec bun run start
 Migrations must be **idempotent** — synchronize re-deploys keep the same
 database and re-run migrate on every container start.
 
-## Optional seed image
+## After-healthy hook (seed image)
 
-Build a separate one-shot image when seed data is not part of the app image.
-The gateway runs it after the app passes the health check, **once per PR**
-(subsequent synchronize deploys skip seeding when `seeded_at` is set).
+The gateway's only post-startup timing hook is **after-healthy**: once the
+preview app passes `health.expect`, an optional **seed image** runs. That is
+how you sequence "migrate in the app, then seed" with zero API-code changes —
+no `wait-for-postgres` / sleep loops in the seed path to wait for migrations.
 
-[`examples/adopting-repo/Dockerfile.seed`](../examples/adopting-repo/Dockerfile.seed)
-shows a minimal pattern: install deps, copy seed script, entrypoint runs
-`bun run seed` using the same connection env the gateway injects (default
-`PG*`, or remapped names from `preview.env` — see
-`docker-seed-entrypoint.sh`).
+Express it with `.sprout.yaml` health settings plus deploy flags:
 
-Pass runtime inputs without storing secrets in yaml:
+```yaml
+# .sprout.yaml — health block required when using -s
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+```
 
 ```bash
 sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" \
   --seed-env FIXTURE_SET=demo \
   --seed-arg --reset
 ```
+
+[`examples/adopting-repo/Dockerfile.seed`](../examples/adopting-repo/Dockerfile.seed)
+shows a minimal seed image: install deps, copy seed script, entrypoint runs
+`bun run seed` with the same connection env the gateway injects (default
+`PG*`, or remapped names from `preview.env` — see
+`docker-seed-entrypoint.sh`).
+
+### Ordering contract
+
+1. App container starts (entrypoint waits for Postgres, runs migrations, serves).
+2. Gateway polls `health.path` on the Postgres-network container IP until
+   `health.expect` (default 200) or `health.timeout`.
+3. **After healthy:** if `-s` / `seed_image` was provided and this PR has never
+   seeded successfully (`seeded_at` unset), the gateway runs the seed image
+   once with the same connection-env remap as the app, plus `--seed-env` /
+   `--seed-arg`.
+4. Preview status becomes `running` with `seeded_at` set.
+
+On later synchronize deploys, seeding is skipped when `seeded_at` is already
+set (pass `-s` only when you intend to seed or resume). Clients may omit `-s`
+on sync to avoid an unused seed-image pull.
+
+### Timeout
+
+Seed wall-clock bound is the gateway env `SPROUT_SEED_TIMEOUT` (seconds,
+default `180`), applied internally as `seedTimeoutMs` (seconds × 1000). A
+timed-out seed is treated as failure (below). Health timeout is separate
+(`health.timeout` in yaml) and never starts the seed.
+
+### Failure and visibility
+
+| Outcome | Deploy response | Preview row | App container |
+|---|---|---|---|
+| Seed exit non-zero | `500` `{ "error": "seed_failed" }` | `status=failed`, `seeded_at` null | **Stays up** (routable) |
+| Seed timeout | same | same | **Stays up** |
+| Seed Docker/ops error | same | same | **Stays up** |
+| Health timeout | `500` `{ "error": "health_timeout" }` | `status=failed` | Removed; seed never started |
+
+Gateway logs `seed:failed` with the exit code or `"timeout"`. Reviewers may
+still hit the app while the row is `failed` after a seed problem — fix the
+seed image and redeploy.
+
+### Resume
+
+- **Failed or crash-mid-seed** (`status` `failed`/`seeding`, live app, same
+  image + hostname): redeploy with `-s` resumes the seed only (no Traefik
+  replace). Without `seed_image`, resume returns `422`
+  `seed_image_required_to_resume_seeding`.
+- **Image or hostname change:** full attach + health, then after-healthy seed
+  again if `seeded_at` is still unset.
+- **Successful seed:** `seeded_at` set — synchronize does not re-seed. There is
+  no separate "force re-seed" flag in v0.1; tear down the preview (or purge)
+  if you need a fresh seed.
 
 ## CI workflow (GitHub Actions)
 

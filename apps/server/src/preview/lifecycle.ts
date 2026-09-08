@@ -598,7 +598,7 @@ async function pullImageOrFail(
  * - seeding + same slug/dbName + same image/hostname: resume seed only (crash recovery)
  * - seeding + image/hostname change: attachThenPromote (replace earned)
  * - seed-incomplete resume without seed_image: 422 seed_image_required_to_resume_seeding
- * - after health: optional seed when seed image present and seeded_at unset
+ * - after-healthy hook: optional seed when seed image present and seeded_at unset
  * - live + slug/dbName mismatch: 409 preview_identity_conflict
  * - removing: 409
  *
