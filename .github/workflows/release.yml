@@ -1,8 +1,17 @@
 name: release
 
+# release.published alone has produced zero runs (re-publish of an already-
+# published release fires `edited`, not `published`). Tag push covers first-
+# time releases; workflow_dispatch rebuilds an existing tag.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v0.1.0)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,16 +22,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Resolve image version
         id: ver
         env:
-          TAG: ${{ github.event.release.tag_name }}
-          PRERELEASE: ${{ github.event.release.prerelease }}
+          REF_NAME: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
-          version="${TAG#v}"
+          tag="${DISPATCH_TAG:-$REF_NAME}"
+          if [ -z "$tag" ]; then
+            echo "Could not resolve release tag" >&2
+            exit 1
+          fi
+
+          version="${tag#v}"
+          # Semver prerelease / build metadata: do not move :latest
+          prerelease=false
+          [[ "$version" == *-* ]] && prerelease=true
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
           tags="ghcr.io/simpros/sprout:${version}"
-          if [ "$PRERELEASE" != "true" ]; then
+          if [ "$prerelease" != "true" ]; then
             tags="${tags}"$'\n'"ghcr.io/simpros/sprout:latest"
           fi
           {
