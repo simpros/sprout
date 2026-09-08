@@ -1,15 +1,16 @@
 # sprout
 
-Per-PR **preview databases** (and optional preview app containers) for
-self-hosted deployments.
+**v0.1.0** — per-PR **preview databases** (and optional preview app containers)
+for self-hosted deployments.
 
 When a pull request opens, CI calls the sprout **gateway**, which
 provisions an isolated **logical database** on a shared Postgres instance,
 starts a preview app container, optionally runs a seed image, and tears
-everything down when the PR closes.
+everything down when the PR closes. Lifecycle is **CI-driven** (`sprout
+deploy` / `sprout teardown`) — the gateway does not take forge webhooks.
 
 ```
-create → migrate (app) → seed (optional) → hand over → drop
+create DB → start app (migrate) → seed (optional) → running → drop
 ```
 
 ## Why
@@ -19,35 +20,78 @@ other. Migrations in previews then mutate shared state. sprout gives
 every PR its own database on a single shared Postgres — low overhead, full
 data isolation per PR.
 
-## How
+## Two roles
 
-1. Operator deploys **Postgres** + the **gateway** + **Traefik** via
-   [Docker Compose](docs/deploy.md) once.
-2. Adopting repo adds `.sprout.yaml` and a CI workflow — see the
-   [adoption guide](docs/adoption.md) and
-   [`examples/adopting-repo/`](examples/adopting-repo/).
-3. Gateway **preview-db module** creates `sprout_<slug>_pr<id>` on the shared
-   instance.
-4. Gateway **app-deployment module** runs the app container with Traefik
-   labels on a shared reverse-proxy network (works alongside Traefik managed
-   by Coolify or elsewhere — no Coolify API integration).
-5. App image runs migrations at startup; optional **seed image** (built by
-   the same CI job) populates data after the app is healthy.
-6. **Sweep** reconciles drift if CI teardown is missed.
+| Who | Job |
+|---|---|
+| **Operator** | Deploy Postgres + gateway + Traefik once ([compose stack](docs/deploy.md)). Issue deploy tokens. |
+| **Adopting repo** | Add `.sprout.yaml` + CI that builds images and runs `sprout deploy` / `sprout teardown` ([adoption guide](docs/adoption.md)). |
 
-Auth: deploy tokens for CI, admin tokens for operators. Gateway state in
-SQLite. The normative v0.1 specification is tracked in the GitHub issue tracker.
+Each PR gets one logical database (`sprout_<slug>_pr<id>`) on the shared
+Postgres — created on the first deploy attempt for that `(repo, pr)`, kept
+across synchronize re-deploys, and dropped on teardown / operator drop /
+sweep. Details: [adoption guide](docs/adoption.md), [CONTEXT](CONTEXT.md).
+
+## Commands
+
+From a clone (`bun install`), run the CLI via `bun run sprout …` (same entry
+as the published `sprout` binary). Set `SPROUT_URL` (default
+`http://127.0.0.1:7331`).
+
+**Deploy token** (CI / adopting repo):
+
+```bash
+export SPROUT_TOKEN=<deploy-token>
+
+sprout deploy -i ghcr.io/org/app:sha
+sprout deploy -i ghcr.io/org/app:sha -s ghcr.io/org/app-seed:sha \
+  --seed-env FIXTURE_SET=demo
+sprout teardown
+sprout health                        # GET /healthz (no token)
+```
+
+**Admin token** (operator — bootstrap from gateway logs / `SPROUT_ADMIN_TOKEN`;
+see [docs/deploy.md](docs/deploy.md#bootstrap-admin-token)):
+
+```bash
+export SPROUT_TOKEN=<admin-token>
+
+sprout list
+sprout doctor
+sprout drop <pr_id> --yes
+sprout admin token create --scope deploy --repo https://github.com/org/repo
+```
+
+Canonical CI workflow:
+[`examples/adopting-repo/.github/workflows/sprout.yml`](examples/adopting-repo/.github/workflows/sprout.yml).
+
+## Operator quick start
+
+```bash
+cp compose.env.example compose.env
+# Edit POSTGRES_PASSWORD, SPROUT_PREVIEW_POSTGRES_URL (keep in sync), SPROUT_PG_PASSWORD.
+
+docker compose --env-file compose.env up -d --build
+curl -sf http://127.0.0.1:7331/healthz
+```
+
+Full stack, gateway image build, Coolify/external Traefik overlay, and smoke
+checklist: [`docs/deploy.md`](docs/deploy.md).
 
 ## Docs
 
-- `CONTEXT.md` — domain vocabulary
-- [`docs/deploy.md`](docs/deploy.md) — operator compose stack (Postgres + gateway + Traefik)
+- [`CONTEXT.md`](CONTEXT.md) — domain vocabulary
+- [Spec #12](https://github.com/simpros/sprout/issues/12) — normative v0.1 specification
+- [`docs/deploy.md`](docs/deploy.md) — operator compose stack + gateway image build
 - [`docs/adoption.md`](docs/adoption.md) — adopting-repo guide (yaml, CI, entrypoint)
 - [`examples/adopting-repo/`](examples/adopting-repo/) — copy-paste example files
 - [`e2e/`](e2e/) — acceptance harness against compose (`bun run test:e2e`)
-- Spec — normative v0.1 specification (tracked in the GitHub issue tracker)
-- `docs/adr/` — architecture decisions
+- [`docs/adr/`](docs/adr/) — architecture decisions
 
 ## Status
 
-🚧 v0.1 in progress — specification adopted; implementation catching up.
+**v0.1.0 release candidate** on this branch (package / image version `0.1.0`).
+Do not pin adopters to git tag `v0.1.0` until it is retagged onto the
+post-rename merge commit — that tag tip is still the pre-rename tree. Core
+gateway paths land incrementally; see open issues on the tracker for remaining
+modules.

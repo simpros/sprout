@@ -20,6 +20,26 @@ export const OPTIONAL_ENV_DEFAULTS = {
   SPROUT_PORT: 7331,
 } as const;
 
+/** Optional string keys read by `loadConfig` (blank → ""). */
+export const OPTIONAL_STRING_ENV = [
+  "SPROUT_REGISTRY_USER",
+  "SPROUT_REGISTRY_PASSWORD",
+  "SPROUT_FORGE_TOKEN",
+] as const;
+
+/**
+ * Every gateway env name that `.env.example` must document.
+ * Includes loadConfig keys plus admin (absent vs blank) and SQLite path
+ * (resolved outside loadConfig via `resolveStateDbPath`).
+ */
+export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
+  ...REQUIRED_ENV,
+  ...Object.keys(OPTIONAL_ENV_DEFAULTS),
+  ...OPTIONAL_STRING_ENV,
+  "SPROUT_ADMIN_TOKEN",
+  "SPROUT_STATE_DB_PATH",
+];
+
 export type Config = {
   previewPostgresUrl: string;
   /** Hostname preview containers use for PGHOST (often not the admin DSN host). */
@@ -68,7 +88,7 @@ function requiredEnv(key: (typeof REQUIRED_ENV)[number]): string {
 }
 
 /** Trimmed env value; missing or blank → "". */
-function optionalEnv(key: string): string {
+function optionalStringEnv(key: (typeof OPTIONAL_STRING_ENV)[number]): string {
   return process.env[key]?.trim() ?? "";
 }
 
@@ -104,10 +124,10 @@ export function loadConfig(): Config {
     traefikNetwork: requiredEnv("SPROUT_TRAEFIK_NETWORK"),
     postgresNetwork: requiredEnv("SPROUT_POSTGRES_NETWORK"),
     registryUrl: requiredEnv("SPROUT_REGISTRY_URL"),
-    registryUser: optionalEnv("SPROUT_REGISTRY_USER"),
-    registryPassword: optionalEnv("SPROUT_REGISTRY_PASSWORD"),
+    registryUser: optionalStringEnv("SPROUT_REGISTRY_USER"),
+    registryPassword: optionalStringEnv("SPROUT_REGISTRY_PASSWORD"),
     forge: forgeRaw as ForgeKind,
-    forgeToken: optionalEnv("SPROUT_FORGE_TOKEN"),
+    forgeToken: optionalStringEnv("SPROUT_FORGE_TOKEN"),
     adminToken: adminTokenRaw === "" ? undefined : adminTokenRaw,
     ttlHours: parsePositiveInt(
       "SPROUT_TTL_HOURS",

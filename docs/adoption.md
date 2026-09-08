@@ -43,22 +43,39 @@ health:
 - `slug` — short name used in database names (`sprout_<slug>_pr<id>`) and
   container names. Alphanumeric.
 - `preview.hostname` — per-PR URL host; `{pr_id}` is substituted at deploy time.
+- `preview.env` — optional remap of the five connection env **names** the
+  gateway injects (see below). Unmapped keys stay `PG*`.
 - `health` — HTTP poll the gateway runs against the app container IP on the
   Postgres network before starting a seed container.
 
 ## App image: migrate at startup
 
-The gateway injects **only** these environment variables into preview app
-containers:
+By default the gateway injects these connection variables into preview app
+and seed containers:
 
 ```
 PGHOST  PGPORT  PGUSER  PGPASSWORD  PGDATABASE
 ```
 
+Remap the **names** (not values) with optional `preview.env` in `.sprout.yaml`.
+Unmapped keys still inject as `PG*`. Remapping replaces the name (no dual
+alias); values still come from the gateway's single preview login:
+
+```yaml
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  env:
+    PGHOST: DATABASE_HOST
+    PGDATABASE: DATABASE_NAME
+```
+
+If you remap, your entrypoint must read the adopter names; the snippets below
+assume the default `PG*` map.
+
 Your app image must:
 
 1. Wait until Postgres accepts connections.
-2. Run migrations against `PGDATABASE`.
+2. Run migrations against the injected database name (default `PGDATABASE`).
 3. Start the web server (expose a port — first `EXPOSE` wins, else gateway uses
    `SPROUT_PREVIEW_PORT_DEFAULT`).
 
@@ -67,7 +84,8 @@ that fits your stack.
 
 ### Shell entrypoint (any runtime)
 
-See [`examples/adopting-repo/docker-entrypoint.sh`](../examples/adopting-repo/docker-entrypoint.sh):
+See [`examples/adopting-repo/docker-entrypoint.sh`](../examples/adopting-repo/docker-entrypoint.sh)
+(default `PG*` names):
 
 ```bash
 #!/bin/sh
@@ -98,7 +116,8 @@ The gateway runs it after the app passes the health check, **once per PR**
 
 [`examples/adopting-repo/Dockerfile.seed`](../examples/adopting-repo/Dockerfile.seed)
 shows a minimal pattern: install deps, copy seed script, entrypoint runs
-`bun run seed` using the same `PG*` env the gateway injects (see
+`bun run seed` using the same connection env the gateway injects (default
+`PG*`, or remapped names from `preview.env` — see
 `docker-seed-entrypoint.sh`).
 
 Pass runtime inputs without storing secrets in yaml:
@@ -123,8 +142,9 @@ The **canonical** workflow is
 [`examples/adopting-repo/.github/workflows/sprout.yml`](../examples/adopting-repo/.github/workflows/sprout.yml)
 — copy it rather than pasting fragments from this guide. It covers:
 
-1. Install `sprout` from a workspace clone (keeps `@sprout/api-client`
-   resolution; pin a tag/SHA when releases exist).
+1. Install `sprout` from a workspace clone pinned to a SHA/branch of this
+   tree (or retag `v0.1.0` onto the post-rename merge before pinning that tag;
+   keeps `@sprout/api-client` resolution; same as the in-repo `sprout` bin).
 2. Build and push app + seed images tagged with `${{ github.sha }}`.
 3. `sprout deploy -i … -s …`, capture `preview_url=` from `deploy.log`, comment
    on the PR.

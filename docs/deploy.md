@@ -24,6 +24,26 @@ curl -sf http://127.0.0.1:${TRAEFIK_HTTP_PORT:-8880}/ || true
 `.env` / `.env.example` are for the gateway process on the host (`bun run
 dev`).
 
+## Gateway Docker image
+
+The gateway is **one image, one process** (root `Dockerfile`). Compose builds
+it via `build: .`; you can also build and tag it alone for registry push or
+external orchestrators:
+
+```bash
+# From the repo root (reproducible with Bun 1.4.0 base + frozen lockfile)
+docker build -t ghcr.io/simpros/sprout:0.1.0 \
+  --build-arg SPROUT_VERSION=0.1.0 \
+  .
+# Optional: push after docker login to GHCR (or your registry)
+# docker push ghcr.io/simpros/sprout:0.1.0
+```
+
+Image label `org.opencontainers.image.version` mirrors `SPROUT_VERSION` (default
+`0.1.0`). Pin operators and CI to an image built from this branch (or the
+post-rename merge SHA). Do not treat today's git tag `v0.1.0` as that
+artifact — it still points at the pre-rename tree until retagged.
+
 Tear down:
 
 ```bash
@@ -271,4 +291,5 @@ below.
 
 - [Adoption guide](adoption.md) — `.sprout.yaml`, CI workflows, app entrypoint
 - `examples/adopting-repo/` — copy-paste adopting-repo files
-- `CONTEXT.md` — domain vocabulary
+- [`CONTEXT.md`](../CONTEXT.md) — domain vocabulary
+- [Spec #12](https://github.com/simpros/sprout/issues/12) — normative v0.1 specification

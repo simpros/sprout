@@ -1,4 +1,8 @@
 FROM oven/bun:1.4.0
+ARG SPROUT_VERSION=0.1.0
+LABEL org.opencontainers.image.title="sprout"
+LABEL org.opencontainers.image.description="CI-driven preview gateway (preview-db + app-deployment)"
+LABEL org.opencontainers.image.version="${SPROUT_VERSION}"
 WORKDIR /app
 
 COPY package.json bun.lock bunfig.toml turbo.json tsconfig.base.json tsconfig.json ./
