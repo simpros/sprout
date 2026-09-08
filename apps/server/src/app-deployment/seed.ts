@@ -1,5 +1,9 @@
 import type { PreviewEnvMap } from "@sprout/preview-env";
-import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
+import {
+  pgConnectionEnv,
+  withGatewayConnectionEnv,
+  type AppDeployPg,
+} from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { seedImageRunName } from "../preview/naming.ts";
 
@@ -33,7 +37,8 @@ export type RunSeedImageDeps = {
 
 /**
  * Run the adopter seed image once on the Postgres network only.
- * Gateway sets connection vars after user env so adopters cannot retarget the DB.
+ * Gateway connection keys replace colliding user `--seed-env` keys
+ * (PG* or remapped names) so adopters cannot retarget the DB.
  * Never sets Entrypoint — image default entrypoint owns seed logic.
  * Docker ops errors are absorbed into SeedImageResult (never throw mid-phase).
  */
@@ -52,10 +57,10 @@ export async function runSeedImage(
       const { id } = await deps.docker.createAndStart({
         name,
         image: input.image,
-        env: [
-          ...input.env,
-          ...pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
-        ],
+        env: withGatewayConnectionEnv(
+          input.env,
+          pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
+        ),
         labels: {},
         networkNames: [deps.networks.postgres],
         ...(input.args.length > 0 ? { cmd: input.args } : {}),

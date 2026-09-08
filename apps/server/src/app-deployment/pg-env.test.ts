@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
+import {
+  pgConnectionEnv,
+  withGatewayConnectionEnv,
+  type AppDeployPg,
+} from "./pg-env.ts";
 
 const pg: AppDeployPg = {
   host: "postgres",
@@ -62,5 +66,51 @@ describe("pgConnectionEnv", () => {
       "PGPASSWORD=sekrit",
       "PGDATABASE=prev_myapp_pr42",
     ]);
+  });
+});
+
+describe("withGatewayConnectionEnv", () => {
+  const gateway = pgConnectionEnv(pg, "prev_myapp_pr42");
+
+  test("strips colliding PG* and keeps non-colliding keys", () => {
+    expect(
+      withGatewayConnectionEnv(
+        ["FIXTURE_SET=demo", "PGHOST=attacker"],
+        gateway,
+      ),
+    ).toEqual(["FIXTURE_SET=demo", ...gateway]);
+  });
+
+  test("strips remapped target names under full remap", () => {
+    const remapped = pgConnectionEnv(pg, "prev_myapp_pr42", {
+      PGHOST: "DATABASE_HOST",
+      PGPORT: "DATABASE_PORT",
+      PGUSER: "DATABASE_USER",
+      PGPASSWORD: "DATABASE_PASSWORD",
+      PGDATABASE: "DATABASE_NAME",
+    });
+    expect(
+      withGatewayConnectionEnv(
+        ["FIXTURE_SET=demo", "DATABASE_HOST=attacker"],
+        remapped,
+      ),
+    ).toEqual(["FIXTURE_SET=demo", ...remapped]);
+  });
+
+  test("partial remap strips remapped target and remapped-away PG*", () => {
+    const partial = pgConnectionEnv(pg, "prev_myapp_pr42", {
+      PGHOST: "DATABASE_HOST",
+    });
+    expect(
+      withGatewayConnectionEnv(
+        [
+          "FIXTURE_SET=demo",
+          "DATABASE_HOST=attacker",
+          "PGUSER=evil",
+          "PGHOST=leftover",
+        ],
+        partial,
+      ),
+    ).toEqual(["FIXTURE_SET=demo", ...partial]);
   });
 });
