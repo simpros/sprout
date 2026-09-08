@@ -117,7 +117,23 @@ describe("createGitLabForge", () => {
   });
 
 
-  test("rejects non-gitlab.com canonical repo ids without hitting the API", async () => {
+  test("derives API base from self-managed GitLab host", async () => {
+    let calledUrl = "";
+    const forge = createGitLabForge({
+      token: "gl-token",
+      fetch: async (input) => {
+        calledUrl = String(input);
+        return new Response("[]", { status: 200 });
+      },
+    });
+
+    await forge.listOpenPrIds("https://gitlab.example.com/acme/widgets");
+    expect(calledUrl).toBe(
+      "https://gitlab.example.com/api/v4/projects/acme%2Fwidgets/merge_requests?state=opened&per_page=100&page=1",
+    );
+  });
+
+  test("rejects non-http canonical repo ids without hitting the API", async () => {
     let called = false;
     const forge = createGitLabForge({
       token: "gl-token",
@@ -128,12 +144,11 @@ describe("createGitLabForge", () => {
     });
 
     try {
-      await forge.listOpenPrIds("https://gitlab.example.com/acme/widgets");
+      await forge.listOpenPrIds("ftp://gitlab.com/acme/widgets");
       expect.unreachable("expected forge API error");
     } catch (error) {
       expect(isForgeApiError(error)).toBe(true);
       expect((error as { status: number }).status).toBe(400);
-      expect(String(error)).toContain("Not a gitlab.com repo id");
     }
     expect(called).toBe(false);
   });

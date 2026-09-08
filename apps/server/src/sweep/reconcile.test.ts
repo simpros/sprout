@@ -342,6 +342,88 @@ describe("runSweepPass", () => {
     ]);
   });
 
+  test("one pass reconciles a GitHub repo and a GitLab repo via routing forge client", async () => {
+    setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
+    const forge = createForgeClient({
+      githubToken: "gh",
+      gitlabToken: "gl",
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("api.github.com")) {
+          // PR 10 open; 11 closed
+          return new Response(JSON.stringify([{ number: 10 }]), { status: 200 });
+        }
+        if (url.includes("gitlab.com/api/v4")) {
+          // MR 20 open; 21 closed
+          return new Response(JSON.stringify([{ iid: 20 }]), { status: 200 });
+        }
+        return new Response("unexpected", { status: 500 });
+      },
+    });
+    const { ports, deletions } = memoryPorts({
+      previews: [
+        {
+          canonicalRepoId: "https://github.com/acme/widgets",
+          prId: 10,
+          slug: "widgets",
+          dbName: "sprout_widgets_pr10",
+          createdAt: "2026-09-02T12:00:00.000Z",
+          createdAtMs: Date.parse("2026-09-02T12:00:00.000Z"),
+          status: "running",
+        },
+        {
+          canonicalRepoId: "https://gitlab.com/acme/sprouts",
+          prId: 20,
+          slug: "sprouts",
+          dbName: "sprout_sprouts_pr20",
+          createdAt: "2026-09-02T12:00:00.000Z",
+          createdAtMs: Date.parse("2026-09-02T12:00:00.000Z"),
+          status: "running",
+        },
+        {
+          canonicalRepoId: "https://github.com/acme/widgets",
+          prId: 11,
+          slug: "widgets",
+          dbName: "sprout_widgets_pr11",
+          createdAt: "2026-09-02T12:00:00.000Z",
+          createdAtMs: Date.parse("2026-09-02T12:00:00.000Z"),
+          status: "running",
+        },
+        {
+          canonicalRepoId: "https://gitlab.com/acme/sprouts",
+          prId: 21,
+          slug: "sprouts",
+          dbName: "sprout_sprouts_pr21",
+          createdAt: "2026-09-02T12:00:00.000Z",
+          createdAtMs: Date.parse("2026-09-02T12:00:00.000Z"),
+          status: "running",
+        },
+      ],
+    });
+    ports.listOpenPrIds = (repo) => forge.listOpenPrIds(repo);
+
+    const result = await runSweepPass(ports);
+    expect(result.forgeRepoFailures).toEqual([]);
+    expect(deletions).toEqual([
+      {
+        reason: "sweep:pr-not-open",
+        canonicalRepoId: "https://github.com/acme/widgets",
+        prId: 11,
+        slug: "widgets",
+        dbName: "sprout_widgets_pr11",
+        createdAt: "2026-09-02T12:00:00.000Z",
+      },
+      {
+        reason: "sweep:pr-not-open",
+        canonicalRepoId: "https://gitlab.com/acme/sprouts",
+        prId: 21,
+        slug: "sprouts",
+        dbName: "sprout_sprouts_pr21",
+        createdAt: "2026-09-02T12:00:00.000Z",
+      },
+    ]);
+  });
+
   test("invalid canonical repo id soft-fails into forgeRepoFailures", async () => {
     setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
     const { ports, deletions } = memoryPorts({

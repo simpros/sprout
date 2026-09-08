@@ -4,13 +4,16 @@ import { forgeApiError, type FetchLike, type ForgeClient } from "./types.ts";
 export type GitLabForgeOptions = {
   token: string;
   fetch?: FetchLike;
+  /** Override API root; default derived from canonical repo host. */
   apiBase?: string;
 };
 
 const PER_PAGE = 100;
 
-/** Parse https://gitlab.com/group/project → path (group/project). */
-export function parseGitLabProjectPath(canonicalRepoId: string): string {
+/** Parse https://gitlab.example/group/project → { host, path }. */
+export function parseGitLabProject(
+  canonicalRepoId: string,
+): { host: string; path: string } {
   let url: URL;
   try {
     url = new URL(canonicalRepoId);
@@ -20,8 +23,11 @@ export function parseGitLabProjectPath(canonicalRepoId: string): string {
       400,
     );
   }
-  if (url.hostname !== "gitlab.com") {
-    throw forgeApiError(`Not a gitlab.com repo id: ${canonicalRepoId}`, 400);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw forgeApiError(
+      `Invalid GitLab canonical repo id: ${canonicalRepoId}`,
+      400,
+    );
   }
   const path = url.pathname.replace(/^\/+|\/+$/g, "").replace(/\.git$/, "");
   if (!path || !path.includes("/")) {
@@ -30,17 +36,23 @@ export function parseGitLabProjectPath(canonicalRepoId: string): string {
       400,
     );
   }
-  return path;
+  return { host: url.hostname, path };
+}
+
+/** @deprecated Prefer parseGitLabProject; kept for callers expecting a path string. */
+export function parseGitLabProjectPath(canonicalRepoId: string): string {
+  return parseGitLabProject(canonicalRepoId).path;
 }
 
 export function createGitLabForge(options: GitLabForgeOptions): ForgeClient {
   const fetchImpl = options.fetch ?? fetch;
-  const apiBase = options.apiBase ?? "https://gitlab.com/api/v4";
 
   return {
     async listOpenPrIds(canonicalRepoId: string): Promise<number[]> {
-      const projectPath = parseGitLabProjectPath(canonicalRepoId);
-      const encoded = encodeURIComponent(projectPath);
+      const { host, path } = parseGitLabProject(canonicalRepoId);
+      const apiBase =
+        options.apiBase ?? `${new URL(canonicalRepoId).protocol}//${host}/api/v4`;
+      const encoded = encodeURIComponent(path);
       const ids: number[] = [];
       let page = 1;
 

@@ -123,7 +123,11 @@ export function bearer(token: string): HeadersInit {
 
 export async function postDeployToken(
   app: TestApp,
-  body: { canonical_repo_id: string; slug: string },
+  body: {
+    canonical_repo_id: string;
+    slug: string;
+    forge?: "github" | "gitlab";
+  },
 ) {
   const res = await app.app.handle(
     new Request("http://localhost/v1/admin/tokens", {

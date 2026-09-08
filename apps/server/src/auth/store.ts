@@ -118,14 +118,20 @@ export async function ensureAdminToken(
 
 export async function issueDeployToken(
   db: StateDb,
-  input: { canonicalRepoId: string; slug: string },
+  input: {
+    canonicalRepoId: string;
+    slug: string;
+    /** Optional explicit forge; null/undefined → infer from canonical URL at sweep. */
+    forge?: "github" | "gitlab" | null;
+  },
 ): Promise<IssueDeployTokenResult> {
   const raw = generateToken();
   const tokenHash = hashToken(raw);
+  const forge = input.forge ?? null;
 
   return db.transaction(async (tx) => {
     const [existing] = await tx
-      .select({ slug: repos.slug })
+      .select({ slug: repos.slug, forge: repos.forge })
       .from(repos)
       .where(eq(repos.canonicalId, input.canonicalRepoId))
       .limit(1);
@@ -134,10 +140,17 @@ export async function issueDeployToken(
       if (existing.slug !== input.slug) {
         return { ok: false as const, error: "slug_conflict" as const };
       }
+      if (forge !== null && existing.forge !== forge) {
+        await tx
+          .update(repos)
+          .set({ forge })
+          .where(eq(repos.canonicalId, input.canonicalRepoId));
+      }
     } else {
       await tx.insert(repos).values({
         canonicalId: input.canonicalRepoId,
         slug: input.slug,
+        forge,
       });
     }
 

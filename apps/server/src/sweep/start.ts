@@ -14,8 +14,11 @@ export function startGatewaySweep(deps: {
   app: PreviewAppOps;
 }): SweepTimerHandle {
   const forge = createForgeClient({
+    githubToken: deps.config.githubToken,
+    gitlabToken: deps.config.gitlabToken,
     forge: deps.config.forge,
     token: deps.config.forgeToken,
+    hostMap: deps.config.forgeHostMap,
   });
   const ports = createLiveSweepPorts({
     db: deps.db,
