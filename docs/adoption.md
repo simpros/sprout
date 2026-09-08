@@ -43,16 +43,30 @@ health:
 - `slug` — short name used in database names (`sprout_<slug>_pr<id>`) and
   container names. Alphanumeric.
 - `preview.hostname` — per-PR URL host; `{pr_id}` is substituted at deploy time.
+- `preview.env` — optional remap of the five connection env **names** the
+  gateway injects (see below). Unmapped keys stay `PG*`.
 - `health` — HTTP poll the gateway runs against the app container IP on the
   Postgres network before starting a seed container.
 
 ## App image: migrate at startup
 
-The gateway injects **only** these environment variables into preview app
-containers:
+By default the gateway injects these connection variables into preview app
+and seed containers:
 
 ```
 PGHOST  PGPORT  PGUSER  PGPASSWORD  PGDATABASE
+```
+
+Remap the **names** (not values) with optional `preview.env` in `.sprout.yaml`.
+Unmapped keys still inject as `PG*`. Remapping replaces the name (no dual
+alias); values still come from the gateway's single preview login:
+
+```yaml
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  env:
+    PGHOST: DATABASE_HOST
+    PGDATABASE: DATABASE_NAME
 ```
 
 Your app image must:
@@ -98,7 +112,8 @@ The gateway runs it after the app passes the health check, **once per PR**
 
 [`examples/adopting-repo/Dockerfile.seed`](../examples/adopting-repo/Dockerfile.seed)
 shows a minimal pattern: install deps, copy seed script, entrypoint runs
-`bun run seed` using the same `PG*` env the gateway injects (see
+`bun run seed` using the same connection env the gateway injects (default
+`PG*`, or remapped names from `preview.env` — see
 `docker-seed-entrypoint.sh`).
 
 Pass runtime inputs without storing secrets in yaml:

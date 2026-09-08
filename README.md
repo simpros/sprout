@@ -27,102 +27,43 @@ data isolation per PR.
 | **Operator** | Deploy Postgres + gateway + Traefik once ([compose stack](docs/deploy.md)). Issue deploy tokens. |
 | **Adopting repo** | Add `.sprout.yaml` + CI that builds images and runs `sprout deploy` / `sprout teardown` ([adoption guide](docs/adoption.md)). |
 
-## Preview databases
+Each PR gets one logical database (`sprout_<slug>_pr<id>`) on the shared
+Postgres — created on the first deploy attempt for that `(repo, pr)`, kept
+across synchronize re-deploys, and dropped on teardown / operator drop /
+sweep. Details: [adoption guide](docs/adoption.md), [CONTEXT](CONTEXT.md).
 
-Each PR gets one logical database on the **shared** Postgres instance — not a
-new Postgres server.
-
-| | |
-|---|---|
-| **Name** | `sprout_<slug>_pr<id>` (slug from `.sprout.yaml`, id = forge PR number) |
-| **Created by** | Gateway **preview-db** module on first successful `POST /v1/deploy` for that `(repo, pr)` |
-| **Credentials** | Static preview role (`sprout_preview` by default); gateway injects `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE` into app and seed containers (names remappable via `preview.env` in `.sprout.yaml`) |
-| **Dropped by** | `sprout teardown` (CI on PR close), operator `sprout drop <pr_id> --yes`, or **sweep** if teardown was missed |
-
-Under the hood on first deploy: write a provisioning row in SQLite →
-`CREATE DATABASE` under a db-name lock → grant the preview role → continue
-into app deployment. Re-deploys (PR synchronize) **keep** the same database
-and replace the app container only.
-
-### Verify a preview database
-
-```bash
-export SPROUT_URL=http://127.0.0.1:7331
-export SPROUT_TOKEN=<deploy-or-admin-token>
-
-sprout list                          # JSON previews; check db_name + status
-sprout doctor                        # gateway + Postgres + Docker sanity
-
-# On the Postgres host / network (operator):
-docker compose --env-file compose.env exec postgres \
-  psql -U postgres -c '\l' | grep sprout_
-```
-
-## Preview deployments
-
-CI (or a developer with a deploy token) drives the full preview lifecycle.
-The CLI talks to the gateway over HTTP; it never needs Postgres admin
-credentials or the Docker socket.
-
-### Commands
+## Commands
 
 From a clone (`bun install`), run the CLI via `bun run sprout …` (same entry
-as the published `sprout` binary).
+as the published `sprout` binary). Set `SPROUT_URL` (default
+`http://127.0.0.1:7331`).
+
+**Deploy token** (CI / adopting repo):
 
 ```bash
-export SPROUT_URL=http://127.0.0.1:7331   # default if unset
 export SPROUT_TOKEN=<deploy-token>
 
-# PR open / synchronize — requires .sprout.yaml in cwd
 sprout deploy -i ghcr.io/org/app:sha
 sprout deploy -i ghcr.io/org/app:sha -s ghcr.io/org/app-seed:sha \
   --seed-env FIXTURE_SET=demo
-
-# Prints: preview_url=https://pr-<id>.…
-# Exit non-zero unless status is running and preview_url is set.
-
-# PR close — identity from GITHUB_REPOSITORY + event payload (or git remote)
 sprout teardown
-
-# Operator introspection / purge
-sprout list
-sprout doctor
-sprout drop <pr_id> --yes            # confirm required; exit 2 without --yes
-sprout admin token create --scope deploy --repo https://github.com/org/repo
 sprout health                        # GET /healthz (no token)
 ```
 
-Canonical CI workflow (build images → deploy → comment URL → teardown on
-close): [`examples/adopting-repo/.github/workflows/sprout.yml`](examples/adopting-repo/.github/workflows/sprout.yml).
-
-### What `deploy` does under the hood
-
-1. CLI reads `.sprout.yaml`, resolves canonical repo id + PR id, `POST /v1/deploy`.
-2. Gateway pulls the app image (and seed image if `-s`).
-3. **Create** the preview database if this PR has none yet.
-4. **Replace** the preview app container (Traefik labels on the traefik
-   network; Postgres reachability on the postgres network). Injects connection
-   env (optionally remapped by `preview.env`).
-5. App entrypoint waits for Postgres, runs **migrations**, starts the server.
-6. Gateway **health-polls** the container (defaults, or `health` in yaml —
-   required when seeding).
-7. Optional **seed image** runs once (skipped on later syncs once `seeded_at`
-   is set). Gateway connection keys win over colliding `--seed-env` values.
-8. Status → `running`; CLI prints `preview_url=…`.
-
-`teardown` removes the container, drops the database, and tombstones the
-control-plane row (idempotent if already gone). **Sweep** periodically
-reconciles forge open-PR lists against gateway state if CI missed a teardown.
-
-### Verify a preview deployment
+**Admin token** (operator — bootstrap from gateway logs / `SPROUT_ADMIN_TOKEN`;
+see [docs/deploy.md](docs/deploy.md#bootstrap-admin-token)):
 
 ```bash
-sprout list                          # status should be "running"
-curl -sf "https://pr-<id>.your.preview.host/health"   # or http://127.0.0.1:$TRAEFIK_HTTP_PORT with Host header
+export SPROUT_TOKEN=<admin-token>
 
-docker compose --env-file compose.env ps
-docker ps --filter name=sprout-      # container name: sprout-<slug>-pr-<id>
+sprout list
+sprout doctor
+sprout drop <pr_id> --yes
+sprout admin token create --scope deploy --repo https://github.com/org/repo
 ```
+
+Canonical CI workflow:
+[`examples/adopting-repo/.github/workflows/sprout.yml`](examples/adopting-repo/.github/workflows/sprout.yml).
 
 ## Operator quick start
 
