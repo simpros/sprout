@@ -27,6 +27,19 @@ export const OPTIONAL_STRING_ENV = [
   "SPROUT_FORGE_TOKEN",
 ] as const;
 
+/**
+ * Every gateway env name that `.env.example` must document.
+ * Includes loadConfig keys plus admin (absent vs blank) and SQLite path
+ * (resolved outside loadConfig via `resolveStateDbPath`).
+ */
+export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
+  ...REQUIRED_ENV,
+  ...Object.keys(OPTIONAL_ENV_DEFAULTS),
+  ...OPTIONAL_STRING_ENV,
+  "SPROUT_ADMIN_TOKEN",
+  "SPROUT_STATE_DB_PATH",
+];
+
 export type Config = {
   previewPostgresUrl: string;
   /** Hostname preview containers use for PGHOST (often not the admin DSN host). */

@@ -66,8 +66,8 @@ credentials or the Docker socket.
 
 ### Commands
 
-From a clone (`bun install`), the CLI entrypoint is `apps/cli/src/index.ts`
-(bin name `sprout`). In this repo you can also use `bun run pbuddy …`.
+From a clone (`bun install`), run the CLI via `bun run sprout …` (same entry
+as the published `sprout` binary).
 
 ```bash
 export SPROUT_URL=http://127.0.0.1:7331   # default if unset

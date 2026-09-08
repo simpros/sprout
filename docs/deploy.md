@@ -32,14 +32,14 @@ external orchestrators:
 
 ```bash
 # From the repo root (reproducible with Bun 1.4.0 base + frozen lockfile)
-docker build -t ghcr.io/simpros/preview-buddy:0.1.0 \
-  --build-arg PB_VERSION=0.1.0 \
+docker build -t ghcr.io/simpros/sprout:0.1.0 \
+  --build-arg SPROUT_VERSION=0.1.0 \
   .
 # Optional: push after docker login to GHCR (or your registry)
-# docker push ghcr.io/simpros/preview-buddy:0.1.0
+# docker push ghcr.io/simpros/sprout:0.1.0
 ```
 
-Image label `org.opencontainers.image.version` mirrors `PB_VERSION` (default
+Image label `org.opencontainers.image.version` mirrors `SPROUT_VERSION` (default
 `0.1.0`). Pin operators and CI to that tag (or the matching git tag `v0.1.0`).
 
 Tear down:
@@ -290,4 +290,4 @@ below.
 - [Adoption guide](adoption.md) — `.sprout.yaml`, CI workflows, app entrypoint
 - `examples/adopting-repo/` — copy-paste adopting-repo files
 - [`CONTEXT.md`](../CONTEXT.md) — domain vocabulary
-- [Spec #12](https://github.com/simpros/preview-buddy/issues/12) — normative v0.1 specification
+- [Spec #12](https://github.com/simpros/sprout/issues/12) — normative v0.1 specification
