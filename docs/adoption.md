@@ -207,8 +207,8 @@ The **canonical** workflow is
 — copy it rather than pasting fragments from this guide. It covers:
 
 1. Install `sprout` from a workspace clone pinned to a SHA/branch of this
-   tree (or retag `v0.1.0` onto the post-rename merge before pinning that tag;
-   keeps `@sprout/api-client` resolution; same as the in-repo `sprout` bin).
+   tree (or the `v0.2.0` release when published; keeps `@sprout/api-client`
+   resolution; same as the in-repo `sprout` bin).
 2. Build and push app + seed images tagged with `${{ github.sha }}`.
 3. `sprout deploy -i … -s …`, capture `preview_url=` from `deploy.log`, comment
    on the PR.

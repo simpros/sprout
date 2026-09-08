@@ -32,17 +32,16 @@ external orchestrators:
 
 ```bash
 # From the repo root (reproducible with Bun 1.4.0 base + frozen lockfile)
-docker build -t ghcr.io/simpros/sprout:0.1.0 \
-  --build-arg SPROUT_VERSION=0.1.0 \
+docker build -t ghcr.io/simpros/sprout:0.2.0 \
+  --build-arg SPROUT_VERSION=0.2.0 \
   .
 # Optional: push after docker login to GHCR (or your registry)
-# docker push ghcr.io/simpros/sprout:0.1.0
+# docker push ghcr.io/simpros/sprout:0.2.0
 ```
 
 Image label `org.opencontainers.image.version` mirrors `SPROUT_VERSION` (default
-`0.1.0`). Pin operators and CI to an image built from this branch (or the
-post-rename merge SHA). Do not treat today's git tag `v0.1.0` as that
-artifact — it still points at the pre-rename tree until retagged.
+`0.2.0`). Pin operators and CI to an image built from this branch or the
+`v0.2.0` release tag when published.
 
 Tear down:
 
@@ -238,18 +237,23 @@ See `.env.example` (host gateway / `bun run dev`) and `compose.env.example`
 
 ## Postgres preview role
 
-On boot (and again before each `CREATE DATABASE`), the gateway ensures the
-static preview login exists via the admin DSN: if `SPROUT_PG_USER` is missing it
-`CREATE ROLE … LOGIN PASSWORD …`; if present it `ALTER ROLE … LOGIN PASSWORD …`
-so password rotation is `change SPROUT_PG_PASSWORD` + restart. Role names must
-match the lowercase `SAFE_ROLE` guard. The admin connection must have
-`CREATEROLE` (or be superuser); otherwise boot fails with a clear error instead
-of a later `CREATE DATABASE … OWNER` failure.
+**Fresh Postgres, zero SQL.** Point `SPROUT_PREVIEW_POSTGRES_URL` at a new
+instance whose admin has `CREATEROLE` (or is superuser), set
+`SPROUT_PG_USER` / `SPROUT_PG_PASSWORD`, start the gateway — no
+`CREATE ROLE`, no init scripts, no compose one-shot. Compose no longer ships
+an `ensure-preview-role` service; the gateway owns role ensure on boot
+(and again before each `CREATE DATABASE`).
 
-Operators only provide the admin DSN plus the desired preview user/password —
-the gateway owns the rest. An optional manual helper remains at
+If `SPROUT_PG_USER` is missing the gateway runs
+`CREATE ROLE … LOGIN PASSWORD …`; if present it
+`ALTER ROLE … LOGIN PASSWORD …` so password rotation is
+`change SPROUT_PG_PASSWORD` + restart. Role names must match the lowercase
+`SAFE_ROLE` guard. Without `CREATEROLE` (or superuser), boot fails with a
+clear error instead of a later `CREATE DATABASE … OWNER` failure.
+
+An optional manual helper remains at
 `deploy/postgres/ensure-preview-role.sh` for pre-provisioning without starting
-the gateway; compose does not run it.
+the gateway.
 
 The gateway preview-db module grants that role ownership when it creates each
 `sprout_<slug>_pr<id>` database.
