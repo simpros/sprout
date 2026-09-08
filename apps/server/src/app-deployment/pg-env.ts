@@ -1,4 +1,5 @@
 import {
+  CANONICAL_ENV_KEYS,
   type CanonicalEnvKey,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
@@ -30,4 +31,28 @@ export function pgConnectionEnv(
   return fields.map(
     ([key, value]) => `${connectionEnv?.[key] ?? key}=${value}`,
   );
+}
+
+function envKey(entry: string): string {
+  const eq = entry.indexOf("=");
+  return eq === -1 ? entry : entry.slice(0, eq);
+}
+
+/**
+ * Gateway connection keys replace colliding user seed-env keys.
+ * Reserved = canonical PG* ∪ emitted names (after remap), then append
+ * gateway env once — remapping must not reopen override holes on PG*.
+ */
+export function withGatewayConnectionEnv(
+  userEnv: string[],
+  gatewayEnv: string[],
+): string[] {
+  const reserved = new Set<string>([
+    ...CANONICAL_ENV_KEYS,
+    ...gatewayEnv.map(envKey),
+  ]);
+  return [
+    ...userEnv.filter((e) => !reserved.has(envKey(e))),
+    ...gatewayEnv,
+  ];
 }

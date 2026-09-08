@@ -101,7 +101,7 @@ describe("POST /v1/deploy seed image", () => {
     expect(fakeDocker!.creates).toEqual([]);
   });
 
-  test("runs one-shot seed after healthy app with PG* after user env", async () => {
+  test("runs one-shot seed after healthy app; gateway replaces colliding seed_env", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(
       deployToken,
@@ -129,7 +129,6 @@ describe("POST /v1/deploy seed image", () => {
     });
     expect(seedCreate.env).toEqual([
       "FIXTURE_SET=demo",
-      "PGHOST=attacker",
       "PGHOST=postgres",
       "PGPORT=5432",
       "PGUSER=sprout_preview",
@@ -156,6 +155,7 @@ describe("POST /v1/deploy seed image", () => {
     expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
   });
 
+  // Remap + merge: app/seed share remapped names; colliding seed_env keys are stripped.
   test("applies the same connection env remap to seed as app", async () => {
     const { deployToken } = await setup();
     const remap = {
@@ -186,7 +186,6 @@ describe("POST /v1/deploy seed image", () => {
     expect(fakeDocker!.creates[0]!.env).toEqual(expectedConnection);
     expect(fakeDocker!.creates[1]!.env).toEqual([
       "FIXTURE_SET=demo",
-      "DATABASE_HOST=attacker",
       ...expectedConnection,
     ]);
   });
