@@ -1,11 +1,9 @@
 name: release
 
 # release.published alone has produced zero runs (re-publish of an already-
-# published release fires `edited`, not `published`). Tag push + manual
-# dispatch are the reliable paths; keep published for first-time releases.
+# published release fires `edited`, not `published`). Tag push covers first-
+# time releases; workflow_dispatch rebuilds an existing tag.
 on:
-  release:
-    types: [published]
   push:
     tags: ["v*"]
   workflow_dispatch:
@@ -19,10 +17,6 @@ permissions:
   contents: read
   packages: write
 
-concurrency:
-  group: release-image-${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
-  cancel-in-progress: true
-
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -33,31 +27,10 @@ jobs:
       - name: Resolve image version
         id: ver
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
           REF_NAME: ${{ github.ref_name }}
           DISPATCH_TAG: ${{ inputs.tag }}
         run: |
-          case "$EVENT_NAME" in
-            release)
-              tag="$RELEASE_TAG"
-              prerelease="$RELEASE_PRERELEASE"
-              ;;
-            workflow_dispatch)
-              tag="$DISPATCH_TAG"
-              prerelease=false
-              ;;
-            push)
-              tag="$REF_NAME"
-              prerelease=false
-              ;;
-            *)
-              echo "Unsupported event: $EVENT_NAME" >&2
-              exit 1
-              ;;
-          esac
-
+          tag="${DISPATCH_TAG:-$REF_NAME}"
           if [ -z "$tag" ]; then
             echo "Could not resolve release tag" >&2
             exit 1
@@ -65,9 +38,8 @@ jobs:
 
           version="${tag#v}"
           # Semver prerelease / build metadata: do not move :latest
-          if [ "$prerelease" != "true" ] && [[ "$version" == *-* ]]; then
-            prerelease=true
-          fi
+          prerelease=false
+          [[ "$version" == *-* ]] && prerelease=true
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
           tags="ghcr.io/simpros/sprout:${version}"
