@@ -1,9 +1,11 @@
 # Seeding via a user-provided one-shot seed image
 
 Optional seeding runs in a **seed image** built and published by the adopting
-repo's CI (same commit as the app image). The gateway starts a one-shot
-container with `PG*` env injected; the image entrypoint owns all install and
-seed logic.
+repo's CI (same commit as the app image). The gateway treats that image as the
+**after-healthy** timing hook: it starts a one-shot container only after
+`health.expect` passes, with connection env injected; the image entrypoint
+owns all install and seed logic. See `docs/adoption.md` for the ordering,
+timeout, failure, and resume contract.
 
 Gateway-side repo cloning with forge tokens was rejected: auth complexity,
 slow cold paths, and coupling to forge APIs for something adopters already

@@ -120,7 +120,10 @@ export async function runSeedPhase(
   }
 }
 
-/** Post-health closer: no seed → running; else seed phase. */
+/**
+ * After-healthy hook entry: no seed → running; else run seed phase.
+ * Seed image is the only after-healthy hook impl in v0.1.
+ */
 export async function promoteAfterHealthy(
   deps: SeedPhaseDeps,
   starting: PreviewRow,

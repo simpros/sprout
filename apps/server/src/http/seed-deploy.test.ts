@@ -9,6 +9,7 @@ import {
   createFakePreviewDb,
   type FakePreviewDb,
 } from "../preview-db/fake.ts";
+import type { HealthProbe } from "../app-deployment/health.ts";
 import {
   bearer,
   createTestApp,
@@ -34,6 +35,8 @@ afterEach(async () => {
 async function setup(options?: {
   waitResults?: Record<string, { exitCode: number } | "timeout">;
   seedTimeoutMs?: number;
+  healthProbe?: HealthProbe;
+  healthClock?: { now(): number; sleep(ms: number): Promise<void> };
 }) {
   fakePreviewDb = createFakePreviewDb();
   fakeDocker = createFakeDockerClient({
@@ -46,6 +49,8 @@ async function setup(options?: {
     replaceDeps: options?.seedTimeoutMs
       ? { seedTimeoutMs: options.seedTimeoutMs }
       : undefined,
+    healthProbe: options?.healthProbe,
+    healthClock: options?.healthClock,
   });
   const { body } = await postDeployToken(testApp, {
     canonical_repo_id: REPO,
@@ -99,6 +104,79 @@ describe("POST /v1/deploy seed image", () => {
     expect(res.body).toEqual({ error: "health_required_for_seed" });
     expect(fakePreviewDb!.created).toEqual([]);
     expect(fakeDocker!.creates).toEqual([]);
+  });
+
+  test("after-healthy hook: seed starts only after health expect is met", async () => {
+    const timeline: string[] = [];
+    let attempts = 0;
+    let now = 0;
+    const { deployToken } = await setup({
+      healthProbe: {
+        async getStatus() {
+          attempts += 1;
+          timeline.push(`health:${attempts === 1 ? 503 : 200}`);
+          return attempts === 1 ? 503 : 200;
+        },
+      },
+      healthClock: {
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      },
+    });
+    const originalCreate = fakeDocker!.createAndStart.bind(fakeDocker);
+    fakeDocker!.createAndStart = async (spec) => {
+      timeline.push(
+        spec.name.endsWith("-seed") ? "seed:create" : "app:create",
+      );
+      return originalCreate(spec);
+    };
+
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(timeline).toEqual([
+      "app:create",
+      "health:503",
+      "health:200",
+      "seed:create",
+    ]);
+  });
+
+  test("after-healthy hook: seed does not run when health times out", async () => {
+    let now = 0;
+    const { deployToken } = await setup({
+      healthProbe: {
+        async getStatus() {
+          return 503;
+        },
+      },
+      healthClock: {
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      },
+    });
+
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "health_timeout" });
+    expect(
+      fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
+    ).toHaveLength(0);
   });
 
   test("runs one-shot seed after healthy app; gateway replaces colliding seed_env", async () => {
