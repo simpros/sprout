@@ -82,12 +82,6 @@ export function createPostgresPreviewDb(
       }
       await sql.unsafe(stmt);
     } catch (err) {
-      if (
-        err instanceof Error &&
-        err.message.startsWith("cannot ensure preview role")
-      ) {
-        throw err;
-      }
       throw roleEnsureError(previewRole, err);
     }
   }

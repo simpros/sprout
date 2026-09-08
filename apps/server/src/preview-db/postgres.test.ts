@@ -184,7 +184,7 @@ describe.skipIf(!dockerAvailable)("ensurePreviewRole (postgres)", () => {
     });
 
     await expect(db.ensurePreviewRole()).rejects.toThrow(
-      /CREATEROLE|role-creation|cannot ensure preview role/i,
+      /cannot ensure preview role "should_not_exist": admin connection lacks CREATEROLE/,
     );
   });
 });
