@@ -1,4 +1,4 @@
-import { FORGE_KINDS, type ForgeKind } from "./forge/client.ts";
+import { GITHUB_HOSTS } from "./forge/kind.ts";
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -8,7 +8,6 @@ export const REQUIRED_ENV = [
   "SPROUT_TRAEFIK_NETWORK",
   "SPROUT_POSTGRES_NETWORK",
   "SPROUT_REGISTRY_URL",
-  "SPROUT_FORGE",
 ] as const;
 
 export const OPTIONAL_ENV_DEFAULTS = {
@@ -24,7 +23,9 @@ export const OPTIONAL_ENV_DEFAULTS = {
 export const OPTIONAL_STRING_ENV = [
   "SPROUT_REGISTRY_USER",
   "SPROUT_REGISTRY_PASSWORD",
-  "SPROUT_FORGE_TOKEN",
+  "SPROUT_GITHUB_TOKEN",
+  "SPROUT_GITLAB_TOKEN",
+  "SPROUT_FORGE_HOSTS",
 ] as const;
 
 /**
@@ -54,10 +55,12 @@ export type Config = {
   registryUser: string;
   /** Empty string = anonymous registry pull. */
   registryPassword: string;
-  /** Sweep-only forge API token (not used for cloning). Empty until a sweep forge call. */
-  forge: ForgeKind;
-  /** Empty string allowed at boot; forge API calls fail if still unset. */
-  forgeToken: string;
+  /** GitHub PAT for sweep open-PR listing. */
+  githubToken: string;
+  /** GitLab PAT for sweep open-MR listing. */
+  gitlabToken: string;
+  /** Extra self-managed GitLab hosts (from SPROUT_FORGE_HOSTS). */
+  extraGitlabHosts: ReadonlySet<string>;
   adminToken?: string;
   ttlHours: number;
   sweepMinutes: number;
@@ -92,6 +95,41 @@ function optionalStringEnv(key: (typeof OPTIONAL_STRING_ENV)[number]): string {
   return process.env[key]?.trim() ?? "";
 }
 
+/**
+ * Parse `host=gitlab` pairs (also accepts `host:gitlab`) into extra GitLab hosts.
+ * Built-in GitHub hosts cannot be remapped. Empty / unset → empty set.
+ */
+export function parseExtraGitlabHosts(raw: string): ReadonlySet<string> {
+  const trimmed = raw.trim();
+  if (trimmed === "") return new Set();
+  const out = new Set<string>();
+  for (const part of trimmed.split(",")) {
+    const entry = part.trim();
+    if (entry === "") continue;
+    const sep = entry.includes("=") ? "=" : entry.includes(":") ? ":" : null;
+    if (!sep) {
+      throw new Error(
+        `Invalid SPROUT_FORGE_HOSTS entry "${entry}": expected host=gitlab`,
+      );
+    }
+    const [hostRaw, kindRaw] = entry.split(sep, 2);
+    const host = hostRaw?.trim().toLowerCase() ?? "";
+    const kind = kindRaw?.trim().toLowerCase() ?? "";
+    if (!host || kind !== "gitlab") {
+      throw new Error(
+        `Invalid SPROUT_FORGE_HOSTS entry "${entry}": expected host=gitlab (custom hosts → GitLab only; github.com is inferred)`,
+      );
+    }
+    if (GITHUB_HOSTS.has(host)) {
+      throw new Error(
+        `Invalid SPROUT_FORGE_HOSTS entry "${entry}": ${host} is a built-in GitHub host and cannot be remapped`,
+      );
+    }
+    out.add(host);
+  }
+  return out;
+}
+
 export function loadConfig(): Config {
   const missing = REQUIRED_ENV.filter((key) => {
     const raw = process.env[key];
@@ -104,12 +142,6 @@ export function loadConfig(): Config {
   }
 
   const adminTokenRaw = process.env.SPROUT_ADMIN_TOKEN?.trim();
-  const forgeRaw = requiredEnv("SPROUT_FORGE").toLowerCase();
-  if (!FORGE_KINDS.includes(forgeRaw as ForgeKind)) {
-    throw new Error(
-      `Invalid SPROUT_FORGE: must be one of ${FORGE_KINDS.join(", ")}`,
-    );
-  }
 
   return {
     previewPostgresUrl: requiredEnv("SPROUT_PREVIEW_POSTGRES_URL"),
@@ -126,8 +158,11 @@ export function loadConfig(): Config {
     registryUrl: requiredEnv("SPROUT_REGISTRY_URL"),
     registryUser: optionalStringEnv("SPROUT_REGISTRY_USER"),
     registryPassword: optionalStringEnv("SPROUT_REGISTRY_PASSWORD"),
-    forge: forgeRaw as ForgeKind,
-    forgeToken: optionalStringEnv("SPROUT_FORGE_TOKEN"),
+    githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
+    gitlabToken: optionalStringEnv("SPROUT_GITLAB_TOKEN"),
+    extraGitlabHosts: parseExtraGitlabHosts(
+      optionalStringEnv("SPROUT_FORGE_HOSTS"),
+    ),
     adminToken: adminTokenRaw === "" ? undefined : adminTokenRaw,
     ttlHours: parsePositiveInt(
       "SPROUT_TTL_HOURS",
@@ -169,8 +204,9 @@ export function configSummary(config: Config): Record<string, string | number> {
     registryUrl: config.registryUrl,
     registryUser: config.registryUser === "" ? "[anonymous]" : config.registryUser,
     registryPassword: config.registryPassword === "" ? "[anonymous]" : "[set]",
-    forge: config.forge,
-    forgeToken: config.forgeToken === "" ? "[unset]" : "[set]",
+    githubToken: config.githubToken === "" ? "[unset]" : "[set]",
+    gitlabToken: config.gitlabToken === "" ? "[unset]" : "[set]",
+    extraGitlabHosts: config.extraGitlabHosts.size,
     ttlHours: config.ttlHours,
     sweepMinutes: config.sweepMinutes,
     previewPortDefault: config.previewPortDefault,

@@ -134,4 +134,19 @@ describe("createGitHubForge", () => {
       expect(String(error)).toContain("Invalid GitHub canonical repo id");
     }
   });
+
+  test("accepts www.github.com hostnames", async () => {
+    const forge = createGitHubForge({
+      token: "gh-token",
+      fetch: async (input) => {
+        expect(String(input)).toContain(
+          "api.github.com/repos/acme/widgets/pulls",
+        );
+        return new Response(JSON.stringify([{ number: 5 }]), { status: 200 });
+      },
+    });
+    await expect(
+      forge.listOpenPrIds("https://www.github.com/acme/widgets"),
+    ).resolves.toEqual([5]);
+  });
 });

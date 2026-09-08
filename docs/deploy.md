@@ -193,7 +193,18 @@ Required today (gateway fails fast if missing):
 | `SPROUT_TRAEFIK_NETWORK` | Docker network name for Traefik-facing containers |
 | `SPROUT_POSTGRES_NETWORK` | Docker network name for database reachability |
 | `SPROUT_REGISTRY_URL` | Registry host for pulling preview images |
-| `SPROUT_FORGE` | `github` or `gitlab` — sweep forge type |
+
+Optional forge credentials for sweep open-PR / open-MR listing (empty at boot
+is allowed; required when sweep calls that forge). Forge kind is chosen
+**per repo** from the canonical repo URL (`github.com` → GitHub,
+`gitlab.com` → GitLab) or `SPROUT_FORGE_HOSTS` for self-managed GitLab hosts —
+not from a gateway-wide forge switch:
+
+| Variable | Description |
+|---|---|
+| `SPROUT_GITHUB_TOKEN` | GitHub PAT for sweep |
+| `SPROUT_GITLAB_TOKEN` | GitLab PAT for sweep |
+| `SPROUT_FORGE_HOSTS` | Optional `host=gitlab` pairs (comma-separated), e.g. `git.example.com=gitlab` |
 
 Optional registry auth (empty = anonymous pulls — real registry mode, not a
 sentinel string):
@@ -209,7 +220,6 @@ Additional v0.1 variables:
 |---|---|
 | `SPROUT_PG_PORT` | Port preview containers use for `PGPORT` (default `5432`) |
 | `SPROUT_ADMIN_TOKEN` | Bootstrap admin bearer token; auto-generated if omitted or blank — only a non-empty value pins the token |
-| `SPROUT_FORGE_TOKEN` | PAT for sweep open-PR listing (optional at boot; required when sweep calls the forge) |
 | `SPROUT_STATE_DB_PATH` | SQLite path (use a volume mount in production) |
 
 Optional tuning (defaults in parentheses):

@@ -1,4 +1,5 @@
 import { finiteIdsFromArray } from "./parse.ts";
+import { GITHUB_HOSTS } from "./kind.ts";
 import { forgeApiError, type FetchLike, type ForgeClient } from "./types.ts";
 
 export type GitHubForgeOptions = {
@@ -23,7 +24,7 @@ function parseGitHubRepo(canonicalRepoId: string): {
       400,
     );
   }
-  if (url.hostname !== "github.com") {
+  if (!GITHUB_HOSTS.has(url.hostname.toLowerCase())) {
     throw forgeApiError(`Not a github.com repo id: ${canonicalRepoId}`, 400);
   }
   const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
