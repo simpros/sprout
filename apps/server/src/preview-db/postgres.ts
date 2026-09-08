@@ -25,6 +25,14 @@ function isDuplicateDatabase(err: unknown): boolean {
   return /already exists/i.test(message);
 }
 
+function isDuplicateRole(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = "code" in err ? String(err.code) : "";
+  if (code === "42710") return true;
+  const message = "message" in err ? String(err.message) : String(err);
+  return /already exists/i.test(message);
+}
+
 function isInsufficientPrivilege(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const code = "code" in err ? String(err.code) : "";
@@ -56,39 +64,80 @@ export function createPostgresPreviewDb(
   const previewRole = options.previewRole;
   const previewPassword = options.previewPassword;
 
-  async function ensurePreviewRole(): Promise<void> {
+  /** Process-lifetime memo: password rotation is env change + restart. */
+  let roleEnsured = false;
+  let ensureInFlight: Promise<void> | undefined;
+
+  /** Build CREATE/ALTER via Postgres format(%I/%L) so passwords stay escaped. */
+  async function roleDdl(kind: "create" | "alter"): Promise<string> {
+    const template =
+      kind === "create"
+        ? "CREATE ROLE %I LOGIN PASSWORD %L"
+        : "ALTER ROLE %I LOGIN PASSWORD %L";
+    const rows = await sql<{ stmt: string }[]>`
+      SELECT format(
+        ${template},
+        ${previewRole}::text,
+        ${previewPassword}::text
+      ) AS stmt
+    `;
+    const stmt = rows[0]?.stmt;
+    if (!stmt) {
+      throw new Error("role ensure produced no SQL statement");
+    }
+    return stmt;
+  }
+
+  async function ensurePreviewRoleOnce(): Promise<void> {
     try {
-      // format(%I/%L) quotes identifiers and literals safely (incl. password chars).
-      const rows = await sql<{ stmt: string }[]>`
-        SELECT CASE
-          WHEN EXISTS (
-            SELECT FROM pg_catalog.pg_roles WHERE rolname = ${previewRole}
-          )
-          THEN format(
-            'ALTER ROLE %I LOGIN PASSWORD %L',
-            ${previewRole}::text,
-            ${previewPassword}::text
-          )
-          ELSE format(
-            'CREATE ROLE %I LOGIN PASSWORD %L',
-            ${previewRole}::text,
-            ${previewPassword}::text
-          )
-        END AS stmt
+      const existing = await sql`
+        SELECT 1 AS ok
+        FROM pg_catalog.pg_roles
+        WHERE rolname = ${previewRole}
+        LIMIT 1
       `;
-      const stmt = rows[0]?.stmt;
-      if (!stmt) {
-        throw new Error("role ensure produced no SQL statement");
+      if (existing.length > 0) {
+        await sql.unsafe(await roleDdl("alter"));
+        return;
       }
-      await sql.unsafe(stmt);
+      try {
+        await sql.unsafe(await roleDdl("create"));
+      } catch (err) {
+        // Concurrent ensure: another caller created the role between SELECT and CREATE.
+        if (!isDuplicateRole(err)) throw roleEnsureError(previewRole, err);
+        await sql.unsafe(await roleDdl("alter"));
+      }
     } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.startsWith(`cannot ensure preview role "${previewRole}"`)
+      ) {
+        throw err;
+      }
       throw roleEnsureError(previewRole, err);
     }
+  }
+
+  async function ensurePreviewRole(): Promise<void> {
+    if (roleEnsured) return;
+    if (!ensureInFlight) {
+      ensureInFlight = ensurePreviewRoleOnce().then(
+        () => {
+          roleEnsured = true;
+        },
+        (err) => {
+          ensureInFlight = undefined;
+          throw err;
+        },
+      );
+    }
+    await ensureInFlight;
   }
 
   return {
     async createDatabase(dbName) {
       assertPreviewDbName(dbName);
+      // Defensive if boot skipped ensure; memoized after first success (no hot-path ALTER).
       await ensurePreviewRole();
       const existing = await sql`
         SELECT 1 AS ok FROM pg_database WHERE datname = ${dbName} LIMIT 1
