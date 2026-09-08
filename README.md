@@ -1,6 +1,6 @@
 # sprout
 
-**v0.1.0** — per-PR **preview databases** (and optional preview app containers)
+**v0.2.0** — per-PR **preview databases** (and optional preview app containers)
 for self-hosted deployments.
 
 When a pull request opens, CI calls the sprout **gateway**, which
@@ -13,6 +13,14 @@ deploy` / `sprout teardown`) — the gateway does not take forge webhooks.
 create DB → start app (migrate) → seed (optional) → running → drop
 ```
 
+## How
+
+Operator boot is zero-SQL on fresh Postgres: the gateway auto-provisions the
+static preview login (`SPROUT_PG_USER`) from the admin DSN on startup. Sweep
+is mixed-forge — one gateway lists open PRs/MRs across GitHub and GitLab by
+inferring forge kind per canonical repo URL (`SPROUT_GITHUB_TOKEN` /
+`SPROUT_GITLAB_TOKEN`, optional `SPROUT_FORGE_HOSTS` for self-managed GitLab).
+
 ## Why
 
 Preview deployments often share one database with production or with each
@@ -24,7 +32,7 @@ data isolation per PR.
 
 | Who | Job |
 |---|---|
-| **Operator** | Deploy Postgres + gateway + Traefik once ([compose stack](docs/deploy.md)). Issue deploy tokens. |
+| **Operator** | Deploy Postgres + gateway + Traefik once ([compose stack](docs/deploy.md)). Issue deploy tokens. No manual `CREATE ROLE`; set per-forge sweep tokens as needed. |
 | **Adopting repo** | Add `.sprout.yaml` + CI that builds images and runs `sprout deploy` / `sprout teardown` ([adoption guide](docs/adoption.md)). |
 
 Each PR gets one logical database (`sprout_<slug>_pr<id>`) on the shared
@@ -90,8 +98,7 @@ checklist: [`docs/deploy.md`](docs/deploy.md).
 
 ## Status
 
-**v0.1.0 release candidate** on this branch (package / image version `0.1.0`).
-Do not pin adopters to git tag `v0.1.0` until it is retagged onto the
-post-rename merge commit — that tag tip is still the pre-rename tree. Core
-gateway paths land incrementally; see open issues on the tracker for remaining
-modules.
+**v0.2.0 operator-magic** on this branch (package / image version `0.2.0`).
+Gateway boot ensures `SPROUT_PG_USER` from the admin DSN; sweep selects forge
+per repo (no gateway-wide `SPROUT_FORGE`). Milestone
+[v0.2.0](https://github.com/simpros/sprout/milestone/1) tracks the slice.
