@@ -25,7 +25,9 @@ if (generatedAdminToken) {
 const previewDb = createPostgresPreviewDb({
   url: config.previewPostgresUrl,
   previewRole: config.previewPgUser,
+  previewPassword: config.previewPgPassword,
 });
+await previewDb.ensurePreviewRole();
 
 const docker = createDockerEngineClient({
   registryAuth:

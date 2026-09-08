@@ -8,6 +8,7 @@ const SAFE_ROLE = /^[a-z_][a-z0-9_]*$/;
 export type PostgresPreviewDbOptions = {
   url: string;
   previewRole: string;
+  previewPassword: string;
 };
 
 function assertSafeRole(role: string): void {
@@ -24,16 +25,77 @@ function isDuplicateDatabase(err: unknown): boolean {
   return /already exists/i.test(message);
 }
 
+function isInsufficientPrivilege(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = "code" in err ? String(err.code) : "";
+  if (code === "42501") return true;
+  const message = "message" in err ? String(err.message) : String(err);
+  return /permission denied|must be superuser|must have createrole/i.test(
+    message,
+  );
+}
+
+function roleEnsureError(role: string, err: unknown): Error {
+  const detail =
+    err && typeof err === "object" && "message" in err
+      ? String(err.message)
+      : String(err);
+  if (isInsufficientPrivilege(err)) {
+    return new Error(
+      `cannot ensure preview role "${role}": admin connection lacks CREATEROLE (or superuser) privilege: ${detail}`,
+    );
+  }
+  return new Error(`cannot ensure preview role "${role}": ${detail}`);
+}
+
 export function createPostgresPreviewDb(
   options: PostgresPreviewDbOptions,
 ): PreviewDb {
   assertSafeRole(options.previewRole);
   const sql = new SQL(options.url);
   const previewRole = options.previewRole;
+  const previewPassword = options.previewPassword;
+
+  async function ensurePreviewRole(): Promise<void> {
+    try {
+      // format(%I/%L) quotes identifiers and literals safely (incl. password chars).
+      const rows = await sql<{ stmt: string }[]>`
+        SELECT CASE
+          WHEN EXISTS (
+            SELECT FROM pg_catalog.pg_roles WHERE rolname = ${previewRole}
+          )
+          THEN format(
+            'ALTER ROLE %I LOGIN PASSWORD %L',
+            ${previewRole}::text,
+            ${previewPassword}::text
+          )
+          ELSE format(
+            'CREATE ROLE %I LOGIN PASSWORD %L',
+            ${previewRole}::text,
+            ${previewPassword}::text
+          )
+        END AS stmt
+      `;
+      const stmt = rows[0]?.stmt;
+      if (!stmt) {
+        throw new Error("role ensure produced no SQL statement");
+      }
+      await sql.unsafe(stmt);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.startsWith("cannot ensure preview role")
+      ) {
+        throw err;
+      }
+      throw roleEnsureError(previewRole, err);
+    }
+  }
 
   return {
     async createDatabase(dbName) {
       assertPreviewDbName(dbName);
+      await ensurePreviewRole();
       const existing = await sql`
         SELECT 1 AS ok FROM pg_database WHERE datname = ${dbName} LIMIT 1
       `;
@@ -77,6 +139,8 @@ export function createPostgresPreviewDb(
       }
       return out;
     },
+
+    ensurePreviewRole,
 
     async ping() {
       await sql`SELECT 1`;

@@ -11,8 +11,6 @@
 services:
   postgres:
     profiles: ["bundled-postgres"]
-  ensure-preview-role:
-    profiles: ["bundled-postgres"]
   traefik:
     profiles: ["bundled-traefik"]
   gateway:

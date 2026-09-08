@@ -29,6 +29,7 @@ export function createFakePreviewDb(): FakePreviewDb {
       }
       return out;
     },
+    async ensurePreviewRole() {},
     async ping() {},
   };
 }
