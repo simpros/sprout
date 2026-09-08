@@ -16,7 +16,6 @@ import {
   canResumeSeed,
   promoteAfterHealthy,
   resumeIncompleteSeed,
-  type DeployEphemerals,
 } from "./seed-phase.ts";
 
 export type { PreviewRow };
@@ -247,13 +246,6 @@ async function ensureDatabase(
   });
 }
 
-type AttachInput = {
-  hostname: string;
-  appImage: string;
-  health: HealthSpec;
-  connectionEnv?: PreviewEnvMap;
-};
-
 /**
  * Replace + health only. Ends at healthy `starting` — seed/promote is a
  * separate phase owned by attachThenPromote / promoteAfterHealthy.
@@ -261,7 +253,7 @@ type AttachInput = {
 async function attachAppContainer(
   deps: LifecycleDeps,
   row: PreviewRow,
-  input: AttachInput,
+  input: ProvisionInput,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewRow>> {
   let containerId: string;
@@ -318,30 +310,33 @@ async function attachAppContainer(
   return { ok: true, value: starting };
 }
 
+/** Project request-scoped seed/remap fields only at the seed-phase boundary. */
+function deployEphemerals(input: ProvisionInput) {
+  return { seed: input.seed, connectionEnv: input.connectionEnv };
+}
+
 /** Attach (replace+health) then promote (running or seed phase). */
 async function attachThenPromote(
   deps: LifecycleDeps,
   row: PreviewRow,
-  attachInput: AttachInput,
-  ephemerals: DeployEphemerals,
+  input: ProvisionInput,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewSnapshot>> {
   const attached = await attachAppContainer(
     deps,
     row,
-    attachInput,
+    input,
     refreshGeneration,
   );
   if (!attached.ok) return attached;
-  return promoteAfterHealthy(deps, attached.value, ephemerals);
+  return promoteAfterHealthy(deps, attached.value, deployEphemerals(input));
 }
 
 /** Fresh / recovered identity: CREATE failure → failed; else attach+promote. */
 async function bringUpNew(
   deps: LifecycleDeps,
   row: PreviewRow,
-  attachInput: AttachInput,
-  ephemerals: DeployEphemerals,
+  input: ProvisionInput,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
@@ -349,26 +344,19 @@ async function bringUpNew(
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return ensured;
   }
-  return attachThenPromote(
-    deps,
-    row,
-    attachInput,
-    ephemerals,
-    refreshGeneration,
-  );
+  return attachThenPromote(deps, row, input, refreshGeneration);
 }
 
 /** Stuck-create resume: leave provisioning on CREATE failure; else attach+promote. */
 async function resumeProvisioning(
   deps: LifecycleDeps,
   row: PreviewRow,
-  attachInput: AttachInput,
-  ephemerals: DeployEphemerals,
+  input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
   if (!ensured.ok) return ensured;
   // Mint generation when stuck-create finally becomes live.
-  return attachThenPromote(deps, row, attachInput, ephemerals, true);
+  return attachThenPromote(deps, row, input, true);
 }
 
 /** slug + dbName ownership; hostname is routing and may change on replace. */
@@ -402,13 +390,12 @@ function requireDbIdentity(
 async function resumeSeedIncomplete(
   deps: LifecycleDeps,
   row: PreviewRow,
-  attachInput: AttachInput,
-  ephemerals: DeployEphemerals,
+  input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
-  if (canResumeSeed(row, attachInput)) {
-    return resumeIncompleteSeed(deps, row, ephemerals);
+  if (canResumeSeed(row, input)) {
+    return resumeIncompleteSeed(deps, row, deployEphemerals(input));
   }
-  return attachThenPromote(deps, row, attachInput, ephemerals, false);
+  return attachThenPromote(deps, row, input, false);
 }
 
 async function provisionUnlocked(
@@ -416,16 +403,6 @@ async function provisionUnlocked(
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
   const requestedDbName = previewDbName(input.slug, input.prId);
-  const ephemerals: DeployEphemerals = {
-    seed: input.seed,
-    connectionEnv: input.connectionEnv,
-  };
-  const attachInput: AttachInput = {
-    hostname: input.hostname,
-    appImage: input.appImage,
-    health: input.health,
-    connectionEnv: input.connectionEnv,
-  };
   let row = await getPreviewRow(deps.db, input.repo, input.prId);
 
   if (!row) {
@@ -444,7 +421,7 @@ async function provisionUnlocked(
       return { ok: false, status: 500, error: "preview_row_missing" };
     }
     // First live: mint generation at attach (DB+app ready).
-    return bringUpNew(deps, inserted, attachInput, ephemerals, true);
+    return bringUpNew(deps, inserted, input, true);
   }
 
   const status = parsePreviewStatus(row.status);
@@ -458,28 +435,28 @@ async function provisionUnlocked(
         requestedDbName,
       );
       // Intent write already minted createdAt — do not remint on attach.
-      return bringUpNew(deps, intent, attachInput, ephemerals, false);
+      return bringUpNew(deps, intent, input, false);
     }
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
         // Seed-failed keep-container: same resume as crash-mid-seed.
-        if (canResumeSeed(row, attachInput)) {
-          return resumeIncompleteSeed(deps, row, ephemerals);
+        if (canResumeSeed(row, input)) {
+          return resumeIncompleteSeed(deps, row, deployEphemerals(input));
         }
-        return bringUpNew(deps, row, attachInput, ephemerals, false);
+        return bringUpNew(deps, row, input, false);
       }
       const intent = await writeProvisioningIntent(
         deps,
         input,
         requestedDbName,
       );
-      return bringUpNew(deps, intent, attachInput, ephemerals, false);
+      return bringUpNew(deps, intent, input, false);
     }
     case "seeding": {
       // Crash/restart mid-seed: lock already serializes in-flight seed.
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return resumeSeedIncomplete(deps, row, attachInput, ephemerals);
+      return resumeSeedIncomplete(deps, row, input);
     }
     case "running":
     case "starting": {
@@ -488,13 +465,13 @@ async function provisionUnlocked(
       // DB already ensured; re-attach + health without reminting TTL.
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return attachThenPromote(deps, row, attachInput, ephemerals, false);
+      return attachThenPromote(deps, row, input, false);
     }
     case "provisioning": {
       // Stuck create: refuse slug/dbName rewrite; ensure DB then attach (mints generation).
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return resumeProvisioning(deps, row, attachInput, ephemerals);
+      return resumeProvisioning(deps, row, input);
     }
     case "removing":
       return {

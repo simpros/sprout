@@ -6,7 +6,11 @@ import {
   parseEnvFile,
   requireComposeEnv,
 } from "./harness/config.ts";
-import { containerEnv, envMap } from "./harness/docker.ts";
+import {
+  containerEnv,
+  envMap,
+  previewAppContainerName,
+} from "./harness/docker.ts";
 
 const enabled = process.env.SPROUT_E2E_MANAGED === "1";
 
@@ -63,7 +67,7 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
     expect(deployed.data?.status).toBe("running");
 
     try {
-      const name = `sprout-${e2eConfig.slug}-pr-${prId}`;
+      const name = previewAppContainerName(e2eConfig.slug, prId);
       const env = envMap(await containerEnv(name));
 
       expect(env.get("DATABASE_HOST")).toBe(expectedHost);

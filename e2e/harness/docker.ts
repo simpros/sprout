@@ -1,6 +1,11 @@
 /** Host-side Docker helpers for e2e acceptance (inspect only). */
 import { run } from "./exec.ts";
 
+/** Mirrors apps/server `previewContainerName` — single e2e owner of the grammar. */
+export function previewAppContainerName(slug: string, prId: number): string {
+  return `sprout-${slug}-pr-${prId}`;
+}
+
 async function dockerText(args: string[]): Promise<string> {
   const { stdout } = await run(["docker", ...args]);
   return stdout;
