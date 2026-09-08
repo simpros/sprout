@@ -277,7 +277,8 @@ describe("createLiveSweepPorts", () => {
 
     const rows = await testDb.db.select().from(previews);
     expect(rows[0]?.status).toBe("failed");
-    expect(rows[0]?.containerId).toBe("ctr-10");
+    // destroy removes the container before DROP; markPreviewFailed clears the claim
+    expect(rows[0]?.containerId).toBeNull();
   });
 
   test("container remove failure is best-effort; DROP still proceeds", async () => {
