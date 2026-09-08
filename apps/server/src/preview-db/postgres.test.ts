@@ -7,6 +7,7 @@ describe("createPostgresPreviewDb", () => {
       createPostgresPreviewDb({
         url: "postgres://localhost/postgres",
         previewRole: "Pb_Preview",
+        previewPassword: "secret",
       }),
     ).toThrow(/unsafe preview role/);
   });
@@ -16,6 +17,7 @@ describe("createPostgresPreviewDb", () => {
       createPostgresPreviewDb({
         url: "postgres://localhost/postgres",
         previewRole: "sprout_preview",
+        previewPassword: "secret",
       }),
     ).not.toThrow();
   });

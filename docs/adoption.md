@@ -8,7 +8,10 @@ Copy-paste files live in [`examples/adopting-repo/`](../examples/adopting-repo/)
 
 ## Prerequisites
 
-- Operator has deployed the [operator compose stack](deploy.md).
+- Operator has deployed the [operator compose stack](deploy.md) (or an
+  equivalent gateway against external Postgres/Traefik). The gateway needs an
+  admin Postgres DSN with `CREATEROLE` (or superuser); it creates the preview
+  login itself — adopting repos never run SQL.
 - A **deploy token** scoped to your repo's canonical id
   (`https://github.com/<org>/<repo>`).
 - CI secrets: `SPROUT_URL`, `SPROUT_TOKEN`.

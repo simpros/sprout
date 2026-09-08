@@ -46,28 +46,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot: create/sync SPROUT_PG_USER over TCP after Postgres is healthy.
-  # Stock postgres entrypoint stays PID 1 — no custom supervisor.
-  ensure-preview-role:
-    image: postgres:16-alpine
-    restart: "no"
-    networks:
-      - postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-sprout_admin}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
-      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in compose.env}
-      PGHOST: ${SPROUT_PG_HOST:-postgres}
-      PGPORT: ${SPROUT_PG_PORT:-5432}
-      SPROUT_PG_USER: ${SPROUT_PG_USER:-sprout_preview}
-      SPROUT_PG_PASSWORD: ${SPROUT_PG_PASSWORD:?set SPROUT_PG_PASSWORD in compose.env}
-    volumes:
-      - ./deploy/postgres/ensure-preview-role.sh:/ensure-preview-role.sh:ro
-    entrypoint: ["/bin/bash", "/ensure-preview-role.sh"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   traefik:
     image: traefik:v3.6
     restart: unless-stopped
@@ -99,8 +77,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ensure-preview-role:
-        condition: service_completed_successfully
     environment:
       SPROUT_PREVIEW_POSTGRES_URL: ${SPROUT_PREVIEW_POSTGRES_URL:?set SPROUT_PREVIEW_POSTGRES_URL in compose.env}
       SPROUT_PG_HOST: ${SPROUT_PG_HOST:-postgres}

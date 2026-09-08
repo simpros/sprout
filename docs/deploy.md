@@ -152,7 +152,7 @@ docker compose -f docker-compose.yml -f docker-compose.external.yml \
 ```
 
 The overlay marks both networks `external: true` and disables the bundled
-`traefik` / `postgres` / `ensure-preview-role` services (via profiles). Point
+`traefik` / `postgres` services (via profiles). Point
 `SPROUT_PREVIEW_POSTGRES_URL` at the external Postgres admin DSN.
 
 Also set **`SPROUT_PG_HOST`** (and `SPROUT_PG_PORT` if not 5432) to the hostname
@@ -161,21 +161,10 @@ preview app and seed containers use to reach Postgres on
 (dual-homed setups). The bundled default `postgres` only works when a service
 with that DNS name exists on the network.
 
-Create the preview role on the external instance once (the bundled one-shot
-does not run under the overlay):
-
-```bash
-# From a host that can reach the external Postgres on SPROUT_POSTGRES_NETWORK:
-export PGHOST=<hostname-on-postgres-network>   # same as SPROUT_PG_HOST
-export PGPORT=5432
-export POSTGRES_USER=<admin-user>
-export POSTGRES_DB=postgres
-export PGPASSWORD=<admin-password>
-export SPROUT_PG_USER=sprout_preview
-export SPROUT_PG_PASSWORD=<preview-password>
-bash deploy/postgres/ensure-preview-role.sh
-# Or equivalent: CREATE ROLE sprout_preview LOGIN PASSWORD '…';
-```
+The gateway creates or syncs the preview login (`SPROUT_PG_USER` /
+`SPROUT_PG_PASSWORD`) on boot from the admin DSN — no manual `CREATE ROLE` and
+no compose one-shot. The admin role needs `CREATEROLE` (or superuser); otherwise
+boot fails with a clear error.
 
 Also ensure the external Traefik has `--providers.docker=true` and
 `--providers.docker.exposedbydefault=false` (or equivalent) so only labelled
@@ -197,10 +186,10 @@ Required today (gateway fails fast if missing):
 
 | Variable | Description |
 |---|---|
-| `SPROUT_PREVIEW_POSTGRES_URL` | Admin DSN for `CREATE DATABASE` / `DROP DATABASE` |
+| `SPROUT_PREVIEW_POSTGRES_URL` | Admin DSN for role ensure, `CREATE DATABASE`, `DROP DATABASE` (needs `CREATEROLE` or superuser) |
 | `SPROUT_PG_HOST` | Hostname preview containers use for `PGHOST` |
-| `SPROUT_PG_USER` | Static preview login; granted ownership of each `sprout_*` database |
-| `SPROUT_PG_PASSWORD` | Password preview containers use for `PGPASSWORD` |
+| `SPROUT_PG_USER` | Static preview login; gateway ensures it exists; granted ownership of each `sprout_*` database |
+| `SPROUT_PG_PASSWORD` | Password preview containers use for `PGPASSWORD` (synced onto the role on every gateway boot) |
 | `SPROUT_TRAEFIK_NETWORK` | Docker network name for Traefik-facing containers |
 | `SPROUT_POSTGRES_NETWORK` | Docker network name for database reachability |
 | `SPROUT_REGISTRY_URL` | Registry host for pulling preview images |
@@ -239,16 +228,20 @@ See `.env.example` (host gateway / `bun run dev`) and `compose.env.example`
 
 ## Postgres preview role
 
-The compose stack runs a one-shot `ensure-preview-role` service after Postgres
-is healthy. It executes `deploy/postgres/ensure-preview-role.sh` over TCP
-(stock `postgres` image entrypoint stays PID 1 — no custom supervisor). The
-script creates or `ALTER`s the static preview login (`SPROUT_PG_USER` /
-`SPROUT_PG_PASSWORD`) using `format(... %I … %L)` so special characters in the
-password are safe. Changing `SPROUT_PG_PASSWORD` and re-running the one-shot
-(`docker compose --env-file compose.env run --rm ensure-preview-role`) updates
-the role password without recreating the data volume.
+On boot (and again before each `CREATE DATABASE`), the gateway ensures the
+static preview login exists via the admin DSN: if `SPROUT_PG_USER` is missing it
+`CREATE ROLE … LOGIN PASSWORD …`; if present it `ALTER ROLE … LOGIN PASSWORD …`
+so password rotation is `change SPROUT_PG_PASSWORD` + restart. Role names must
+match the lowercase `SAFE_ROLE` guard. The admin connection must have
+`CREATEROLE` (or be superuser); otherwise boot fails with a clear error instead
+of a later `CREATE DATABASE … OWNER` failure.
 
-The gateway preview-db module grants that role access when it creates each
+Operators only provide the admin DSN plus the desired preview user/password —
+the gateway owns the rest. An optional manual helper remains at
+`deploy/postgres/ensure-preview-role.sh` for pre-provisioning without starting
+the gateway; compose does not run it.
+
+The gateway preview-db module grants that role ownership when it creates each
 `sprout_<slug>_pr<id>` database.
 
 ## Bootstrap admin token
@@ -280,7 +273,7 @@ below.
 | Check | Command |
 |---|---|
 | Postgres healthy | `docker compose --env-file compose.env ps postgres` |
-| Preview role synced | `docker compose --env-file compose.env ps -a ensure-preview-role` (exited 0) |
+| Preview role synced | Gateway started cleanly (boot runs `ensurePreviewRole`); or check `psql` can `\du` the `SPROUT_PG_USER` login |
 | Gateway healthy | `curl -sf http://127.0.0.1:7331/healthz` |
 | Admin password not drifted | `psql` login with `POSTGRES_*` succeeds **and** gateway startup log `configSummary` redacted `previewPostgresUrl` shows the same user/host/db as `SPROUT_PREVIEW_POSTGRES_URL` (password masked as `***`). If only one of `POSTGRES_PASSWORD` / DSN password was changed, admin SQL fails while the other still works. |
 | Networks exist | `docker network inspect sprout-traefik sprout-postgres` |

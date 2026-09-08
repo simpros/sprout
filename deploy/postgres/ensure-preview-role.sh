@@ -1,7 +1,7 @@
 #!/bin/bash
-# Create or sync the static preview login. Safe for passwords with quotes/special chars.
-# Invoked by the ensure-preview-role one-shot service (TCP via PGHOST/PGPORT/PGPASSWORD),
-# or run manually against an external Postgres instance with the same env.
+# Optional: create/sync the static preview login without starting the gateway.
+# Prefer letting the gateway ensure the role on boot via SPROUT_PREVIEW_POSTGRES_URL.
+# Invoked manually against Postgres (TCP via PGHOST/PGPORT/PGPASSWORD).
 set -euo pipefail
 
 preview_user="${SPROUT_PG_USER:-sprout_preview}"

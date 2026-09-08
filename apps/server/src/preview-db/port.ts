@@ -10,6 +10,11 @@ export type PreviewDb = {
   createDatabase(dbName: string): Promise<void>;
   dropDatabase(dbName: string): Promise<void>;
   listPreviewDatabases(): Promise<CatalogDatabase[]>;
+  /**
+   * Create or sync the static preview login (`LOGIN` + password) via the admin
+   * connection. Throws a clear error when the admin lacks CREATEROLE.
+   */
+  ensurePreviewRole(): Promise<void>;
   /** Connectivity check (`SELECT 1`). Throws when unreachable. */
   ping(): Promise<void>;
 };
