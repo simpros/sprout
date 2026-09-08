@@ -17,30 +17,37 @@ function assertSafeRole(role: string): void {
   }
 }
 
-function isDuplicateDatabase(err: unknown): boolean {
+function pgErrorMatches(
+  err: unknown,
+  opts: { codes: string[]; messageRe?: RegExp },
+): boolean {
   if (!err || typeof err !== "object") return false;
   const code = "code" in err ? String(err.code) : "";
-  if (code === "42P04") return true;
+  if (opts.codes.includes(code)) return true;
+  if (!opts.messageRe) return false;
   const message = "message" in err ? String(err.message) : String(err);
-  return /already exists/i.test(message);
+  return opts.messageRe.test(message);
+}
+
+function isDuplicateDatabase(err: unknown): boolean {
+  return pgErrorMatches(err, {
+    codes: ["42P04"],
+    messageRe: /already exists/i,
+  });
 }
 
 function isDuplicateRole(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const code = "code" in err ? String(err.code) : "";
-  if (code === "42710") return true;
-  const message = "message" in err ? String(err.message) : String(err);
-  return /already exists/i.test(message);
+  return pgErrorMatches(err, {
+    codes: ["42710"],
+    messageRe: /already exists/i,
+  });
 }
 
 function isInsufficientPrivilege(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const code = "code" in err ? String(err.code) : "";
-  if (code === "42501") return true;
-  const message = "message" in err ? String(err.message) : String(err);
-  return /permission denied|must be superuser|must have createrole/i.test(
-    message,
-  );
+  return pgErrorMatches(err, {
+    codes: ["42501"],
+    messageRe: /permission denied|must be superuser|must have createrole/i,
+  });
 }
 
 function roleEnsureError(role: string, err: unknown): Error {
@@ -104,16 +111,10 @@ export function createPostgresPreviewDb(
         await sql.unsafe(await roleDdl("create"));
       } catch (err) {
         // Concurrent ensure: another caller created the role between SELECT and CREATE.
-        if (!isDuplicateRole(err)) throw roleEnsureError(previewRole, err);
+        if (!isDuplicateRole(err)) throw err;
         await sql.unsafe(await roleDdl("alter"));
       }
     } catch (err) {
-      if (
-        err instanceof Error &&
-        err.message.startsWith(`cannot ensure preview role "${previewRole}"`)
-      ) {
-        throw err;
-      }
       throw roleEnsureError(previewRole, err);
     }
   }
