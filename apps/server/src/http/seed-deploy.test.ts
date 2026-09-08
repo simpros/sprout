@@ -156,6 +156,41 @@ describe("POST /v1/deploy seed image", () => {
     expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
   });
 
+  test("applies the same connection env remap to seed as app", async () => {
+    const { deployToken } = await setup();
+    const remap = {
+      PGHOST: "DATABASE_HOST",
+      PGPORT: "DATABASE_PORT",
+      PGUSER: "DATABASE_USER",
+      PGPASSWORD: "DATABASE_PASSWORD",
+      PGDATABASE: "DATABASE_NAME",
+    };
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        env: remap,
+        seed_image: SEED_IMAGE,
+        seed_env: ["FIXTURE_SET=demo", "DATABASE_HOST=attacker"],
+        health: healthBlock(),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(fakeDocker!.creates).toHaveLength(2);
+    const expectedConnection = [
+      "DATABASE_HOST=postgres",
+      "DATABASE_PORT=5432",
+      "DATABASE_USER=sprout_preview",
+      "DATABASE_PASSWORD=preview-secret",
+      "DATABASE_NAME=sprout_myapp_pr42",
+    ];
+    expect(fakeDocker!.creates[0]!.env).toEqual(expectedConnection);
+    expect(fakeDocker!.creates[1]!.env).toEqual([
+      "FIXTURE_SET=demo",
+      "DATABASE_HOST=attacker",
+      ...expectedConnection,
+    ]);
+  });
+
   test("skips seed on synchronize when seeded_at already set", async () => {
     const { deployToken } = await setup();
     const first = await postDeploy(

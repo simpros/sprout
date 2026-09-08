@@ -73,6 +73,35 @@ describe("replacePreviewApp", () => {
     });
   });
 
+  test("applies connection env remap on create (replace, not alias)", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "ghcr.io/org/app:sha": 3000 },
+    });
+
+    await replacePreviewApp(
+      { docker, ...baseDeps },
+      {
+        slug: "myapp",
+        prId: 42,
+        hostname: "pr-42.myapp.preview.example.com",
+        image: "ghcr.io/org/app:sha",
+        dbName: "prev_myapp_pr42",
+        connectionEnv: {
+          PGHOST: "DATABASE_HOST",
+          PGUSER: "DATABASE_USER",
+        },
+      },
+    );
+
+    expect(docker.creates[0]!.env).toEqual([
+      "DATABASE_HOST=postgres",
+      "PGPORT=5432",
+      "DATABASE_USER=sprout_preview",
+      "PGPASSWORD=sekrit",
+      "PGDATABASE=prev_myapp_pr42",
+    ]);
+  });
+
   test("falls back to previewPortDefault when image has no EXPOSE", async () => {
     const docker = createFakeDockerClient();
     const result = await replacePreviewApp(

@@ -1,5 +1,5 @@
 import {
-  validatePreviewEnvMap,
+  parsePreviewEnvMap,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
 import type { Result } from "./result.ts";
@@ -41,6 +41,35 @@ function requireString(
   return { ok: true, value: value.trim() };
 }
 
+/** Absent or empty map → undefined (no remapping). Path-aware CLI errors. */
+function parsePreviewEnv(
+  raw: unknown,
+): Result<PreviewEnvMap | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: "preview.env must be a mapping" };
+  }
+
+  const parsed = parsePreviewEnvMap(raw);
+  if (!parsed.ok) {
+    const { issue } = parsed;
+    switch (issue.code) {
+      case "unknown_env_key":
+        return unknownKey(`preview.env.${issue.key}`);
+      case "empty_env_target":
+        return { ok: false, error: `preview.env.${issue.key} is required` };
+      case "invalid_env_target":
+        return { ok: false, error: `preview.env.${issue.key} is invalid` };
+      case "env_target_collision":
+        return {
+          ok: false,
+          error: `preview.env: target collision: ${issue.target}`,
+        };
+    }
+  }
+  return { ok: true, value: parsed.value };
+}
+
 export function parseSproutYaml(raw: string): Result<SproutYaml> {
   let parsed: unknown;
   try {
@@ -72,7 +101,7 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const hostname = requireString(parsed.preview.hostname, "preview.hostname");
   if (!hostname.ok) return hostname;
 
-  const env = validatePreviewEnvMap(parsed.preview.env, "preview.env");
+  const env = parsePreviewEnv(parsed.preview.env);
   if (!env.ok) return env;
 
   const value: SproutYaml = {

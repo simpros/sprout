@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { PreviewEnvMap } from "@sprout/preview-env";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { SeedImageResult, SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
@@ -17,6 +18,15 @@ export type SeedPhaseDeps = {
   db: StateDb;
   app: Pick<PreviewAppOps, "runSeed">;
 };
+
+/** Deploy-scoped seed inputs: seed image + optional connectionEnv remap. */
+export type SeedPhaseInput = {
+  seed?: SeedImageSpec;
+  connectionEnv?: PreviewEnvMap;
+};
+
+/** runSeedPhase requires a concrete seed image. */
+export type SeedPhaseRunInput = SeedPhaseInput & { seed: SeedImageSpec };
 
 /** Running snapshot returned by seed/promote closers (matches PreviewSnapshot). */
 export type SeedPhaseSnapshot = {
@@ -60,11 +70,12 @@ async function markSeedFailed(
 /**
  * Seed phase ownership: enter seeding → run → running+seededAt | failed(keep container).
  * Any post-enter throw still markSeedFailed so the row cannot tombstone as seeding.
+ * connectionEnv is deploy-scoped (sibling to seed), not part of SeedImageSpec.
  */
 export async function runSeedPhase(
   deps: SeedPhaseDeps,
   row: PreviewRow,
-  seed: SeedImageSpec,
+  input: SeedPhaseRunInput,
 ): Promise<Result<SeedPhaseSnapshot>> {
   await updatePreviewRow(
     deps.db,
@@ -77,10 +88,11 @@ export async function runSeedPhase(
     const seedResult: SeedImageResult = await deps.app.runSeed({
       slug: row.slug,
       prId: row.prId,
-      image: seed.image,
+      image: input.seed.image,
       dbName: row.dbName,
-      env: seed.env,
-      args: seed.args,
+      env: input.seed.env,
+      args: input.seed.args,
+      connectionEnv: input.connectionEnv,
     });
 
     if (!seedResult.ok) {
@@ -112,14 +124,17 @@ export async function runSeedPhase(
 export async function promoteAfterHealthy(
   deps: SeedPhaseDeps,
   starting: PreviewRow,
-  seed?: SeedImageSpec,
+  input: SeedPhaseInput = {},
 ): Promise<Result<SeedPhaseSnapshot>> {
   const shouldSeed =
-    seed !== undefined &&
+    input.seed !== undefined &&
     (starting.seededAt === null || starting.seededAt === undefined);
 
-  if (shouldSeed && seed) {
-    return runSeedPhase(deps, starting, seed);
+  if (shouldSeed && input.seed) {
+    return runSeedPhase(deps, starting, {
+      seed: input.seed,
+      connectionEnv: input.connectionEnv,
+    });
   }
 
   const updated = await updatePreviewRow(
@@ -153,14 +168,17 @@ export function canResumeSeed(
 export async function resumeIncompleteSeed(
   deps: SeedPhaseDeps,
   row: PreviewRow,
-  seed: SeedImageSpec | undefined,
+  input: SeedPhaseInput,
 ): Promise<Result<SeedPhaseSnapshot>> {
-  if (!seed) {
+  if (!input.seed) {
     return {
       ok: false,
       status: 422,
       error: "seed_image_required_to_resume_seeding",
     };
   }
-  return runSeedPhase(deps, row, seed);
+  return runSeedPhase(deps, row, {
+    seed: input.seed,
+    connectionEnv: input.connectionEnv,
+  });
 }

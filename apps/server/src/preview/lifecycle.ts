@@ -1,4 +1,5 @@
 import { and, eq, ne } from "drizzle-orm";
+import type { PreviewEnvMap } from "@sprout/preview-env";
 import type { HealthSpec } from "../app-deployment/health.ts";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
@@ -72,6 +73,8 @@ export type ProvisionInput = {
   health: HealthSpec;
   /** Present when deploy requested a seed image; env/args not persisted. */
   seed?: SeedImageSpec;
+  /** Connection env name remap; request-scoped, not persisted. */
+  connectionEnv?: PreviewEnvMap;
 };
 
 export type TeardownInput = {
@@ -243,20 +246,27 @@ async function ensureDatabase(
   });
 }
 
-type AttachInput = {
+/**
+ * Deploy-scoped work for one provision: attach fields + optional seed/remap.
+ * Built once in provisionUnlocked; seed and connectionEnv travel together.
+ */
+type DeployWork = {
   hostname: string;
   appImage: string;
   health: HealthSpec;
+  seed?: SeedImageSpec;
+  connectionEnv?: PreviewEnvMap;
 };
 
 /**
  * Replace + health only. Ends at healthy `starting` — seed/promote is a
  * separate phase owned by attachThenPromote / promoteAfterHealthy.
+ * Ignores work.seed (promote owns that).
  */
 async function attachAppContainer(
   deps: LifecycleDeps,
   row: PreviewRow,
-  input: AttachInput,
+  work: DeployWork,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewRow>> {
   let containerId: string;
@@ -265,9 +275,10 @@ async function attachAppContainer(
     ({ containerId, port } = await deps.app.replace({
       slug: row.slug,
       prId: row.prId,
-      hostname: input.hostname,
-      image: input.appImage,
+      hostname: work.hostname,
+      image: work.appImage,
       dbName: row.dbName,
+      connectionEnv: work.connectionEnv,
     }));
   } catch {
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
@@ -279,8 +290,8 @@ async function attachAppContainer(
     deps.db,
     row,
     {
-      hostname: input.hostname,
-      appImage: input.appImage,
+      hostname: work.hostname,
+      appImage: work.appImage,
       containerId,
       status: "starting",
       ...(refreshGeneration ? { createdAt: now } : {}),
@@ -292,7 +303,7 @@ async function attachAppContainer(
   const outcome = await deps.app.waitHealthy(
     containerId,
     port,
-    input.health,
+    work.health,
   );
   if (outcome === "timeout") {
     console.warn("health:timeout");
@@ -316,26 +327,27 @@ async function attachAppContainer(
 async function attachThenPromote(
   deps: LifecycleDeps,
   row: PreviewRow,
-  attachInput: AttachInput,
-  seed: SeedImageSpec | undefined,
+  work: DeployWork,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewSnapshot>> {
   const attached = await attachAppContainer(
     deps,
     row,
-    attachInput,
+    work,
     refreshGeneration,
   );
   if (!attached.ok) return attached;
-  return promoteAfterHealthy(deps, attached.value, seed);
+  return promoteAfterHealthy(deps, attached.value, {
+    seed: work.seed,
+    connectionEnv: work.connectionEnv,
+  });
 }
 
 /** Fresh / recovered identity: CREATE failure → failed; else attach+promote. */
 async function bringUpNew(
   deps: LifecycleDeps,
   row: PreviewRow,
-  attachInput: AttachInput,
-  seed: SeedImageSpec | undefined,
+  work: DeployWork,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
@@ -343,20 +355,19 @@ async function bringUpNew(
     await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
     return ensured;
   }
-  return attachThenPromote(deps, row, attachInput, seed, refreshGeneration);
+  return attachThenPromote(deps, row, work, refreshGeneration);
 }
 
 /** Stuck-create resume: leave provisioning on CREATE failure; else attach+promote. */
 async function resumeProvisioning(
   deps: LifecycleDeps,
   row: PreviewRow,
-  attachInput: AttachInput,
-  seed: SeedImageSpec | undefined,
+  work: DeployWork,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
   if (!ensured.ok) return ensured;
   // Mint generation when stuck-create finally becomes live.
-  return attachThenPromote(deps, row, attachInput, seed, true);
+  return attachThenPromote(deps, row, work, true);
 }
 
 /** slug + dbName ownership; hostname is routing and may change on replace. */
@@ -390,13 +401,15 @@ function requireDbIdentity(
 async function resumeSeedIncomplete(
   deps: LifecycleDeps,
   row: PreviewRow,
-  attachInput: AttachInput,
-  seed: SeedImageSpec | undefined,
+  work: DeployWork,
 ): Promise<Result<PreviewSnapshot>> {
-  if (canResumeSeed(row, attachInput)) {
-    return resumeIncompleteSeed(deps, row, seed);
+  if (canResumeSeed(row, work)) {
+    return resumeIncompleteSeed(deps, row, {
+      seed: work.seed,
+      connectionEnv: work.connectionEnv,
+    });
   }
-  return attachThenPromote(deps, row, attachInput, seed, false);
+  return attachThenPromote(deps, row, work, false);
 }
 
 async function provisionUnlocked(
@@ -404,12 +417,13 @@ async function provisionUnlocked(
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
   const requestedDbName = previewDbName(input.slug, input.prId);
-  const attachInput: AttachInput = {
+  const work: DeployWork = {
     hostname: input.hostname,
     appImage: input.appImage,
     health: input.health,
+    seed: input.seed,
+    connectionEnv: input.connectionEnv,
   };
-  const seed = input.seed;
   let row = await getPreviewRow(deps.db, input.repo, input.prId);
 
   if (!row) {
@@ -428,7 +442,7 @@ async function provisionUnlocked(
       return { ok: false, status: 500, error: "preview_row_missing" };
     }
     // First live: mint generation at attach (DB+app ready).
-    return bringUpNew(deps, inserted, attachInput, seed, true);
+    return bringUpNew(deps, inserted, work, true);
   }
 
   const status = parsePreviewStatus(row.status);
@@ -442,28 +456,31 @@ async function provisionUnlocked(
         requestedDbName,
       );
       // Intent write already minted createdAt — do not remint on attach.
-      return bringUpNew(deps, intent, attachInput, seed, false);
+      return bringUpNew(deps, intent, work, false);
     }
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
         // Seed-failed keep-container: same resume as crash-mid-seed.
-        if (canResumeSeed(row, attachInput)) {
-          return resumeIncompleteSeed(deps, row, seed);
+        if (canResumeSeed(row, work)) {
+          return resumeIncompleteSeed(deps, row, {
+            seed: work.seed,
+            connectionEnv: work.connectionEnv,
+          });
         }
-        return bringUpNew(deps, row, attachInput, seed, false);
+        return bringUpNew(deps, row, work, false);
       }
       const intent = await writeProvisioningIntent(
         deps,
         input,
         requestedDbName,
       );
-      return bringUpNew(deps, intent, attachInput, seed, false);
+      return bringUpNew(deps, intent, work, false);
     }
     case "seeding": {
       // Crash/restart mid-seed: lock already serializes in-flight seed.
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return resumeSeedIncomplete(deps, row, attachInput, seed);
+      return resumeSeedIncomplete(deps, row, work);
     }
     case "running":
     case "starting": {
@@ -472,13 +489,13 @@ async function provisionUnlocked(
       // DB already ensured; re-attach + health without reminting TTL.
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return attachThenPromote(deps, row, attachInput, seed, false);
+      return attachThenPromote(deps, row, work, false);
     }
     case "provisioning": {
       // Stuck create: refuse slug/dbName rewrite; ensure DB then attach (mints generation).
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return resumeProvisioning(deps, row, attachInput, seed);
+      return resumeProvisioning(deps, row, work);
     }
     case "removing":
       return {

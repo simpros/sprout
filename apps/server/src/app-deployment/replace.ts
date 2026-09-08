@@ -1,3 +1,4 @@
+import type { PreviewEnvMap } from "@sprout/preview-env";
 import { traefikLabels } from "./labels.ts";
 import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
@@ -24,6 +25,8 @@ export type ReplacePreviewAppInput = {
   hostname: string;
   image: string;
   dbName: string;
+  /** Request-scoped connection env name remap; not persisted. */
+  connectionEnv?: PreviewEnvMap;
 };
 
 /** Force-remove the preview app container for one PR (idempotent via Engine). */
@@ -38,7 +41,8 @@ export async function removePreviewApp(
 /**
  * Replace (or first-start) the preview app container for one PR.
  * Force-removes any prior container with the stable name, then creates+starts
- * with dual-network attach, Traefik labels, and PG* env only.
+ * with dual-network attach, Traefik labels, and connection env
+ * (PG* names, optionally remapped via connectionEnv).
  * Resolves Traefik port from image EXPOSE (or previewPortDefault).
  * Caller must already have pulled the image (outside the preview lock).
  */
@@ -53,7 +57,7 @@ export async function replacePreviewApp(
   const { id } = await deps.docker.createAndStart({
     name,
     image: input.image,
-    env: pgConnectionEnv(deps.pg, input.dbName),
+    env: pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
     labels: traefikLabels({
       routerName: name,
       hostname: input.hostname,
