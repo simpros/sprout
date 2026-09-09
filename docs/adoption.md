@@ -15,7 +15,9 @@ Copy-paste files live in [`examples/adopting-repo/`](../examples/adopting-repo/)
 - A **deploy token** scoped to your repo's canonical id
   (`https://github.com/<org>/<repo>`).
 - CI secrets: `SPROUT_URL`, `SPROUT_TOKEN`.
-- Pull credentials on the gateway (`SPROUT_REGISTRY_USER`/`PASSWORD`, empty = anonymous); image host comes from the deploy `app_image`.
+- Host Docker daemon authenticated for private image pulls (`docker login` /
+  credential helper on the gateway host). Public/anonymous pulls need no login.
+  Image host comes from the deploy `app_image`.
 
 ## `.sprout.yaml`
 

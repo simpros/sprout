@@ -230,21 +230,16 @@ describe("createDockerEngineClient", () => {
     await docker.removeByName("sprout-gone-pr-1");
   });
 
-  test("pullImage sends registry auth when configured", async () => {
-    const seen: { auth: string | null } = { auth: null };
+  test("pullImage omits X-Registry-Auth (daemon owns pull auth)", async () => {
+    let auth: string | null = "unset";
     const docker = createDockerEngineClient({
-      registryAuth: { username: "u", password: "p" },
       fetch: async (_input, init) => {
-        seen.auth = new Headers(init?.headers).get("X-Registry-Auth");
+        auth = new Headers(init?.headers).get("X-Registry-Auth");
         return new Response("{}", { status: 200 });
       },
     });
     await docker.pullImage("ghcr.io/org/app:tag");
-    expect(seen.auth).toBe(
-      Buffer.from(JSON.stringify({ username: "u", password: "p" })).toString(
-        "base64",
-      ),
-    );
+    expect(auth).toBeNull();
   });
 
   test("pullImage throws when progress stream encodes an error", async () => {
