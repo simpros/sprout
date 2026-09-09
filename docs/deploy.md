@@ -26,22 +26,24 @@ dev`).
 
 ## Gateway Docker image
 
-The gateway is **one image, one process** (root `Dockerfile`). Compose builds
-it via `build: .`; you can also build and tag it alone for registry push or
-external orchestrators:
+The gateway is **one image, one process** (root `Dockerfile`), and the image
+also embeds the `sprout` CLI (same Bun lockfile / version pin as the gateway)
+so operators can `docker exec` against localhost without a host-side install.
+Compose builds it via `build: .`; you can also build and tag it alone for
+registry push or external orchestrators:
 
 ```bash
 # From the repo root (reproducible with Bun 1.4.0 base + frozen lockfile)
-docker build -t ghcr.io/simpros/sprout:0.2.0 \
-  --build-arg SPROUT_VERSION=0.2.0 \
+docker build -t ghcr.io/simpros/sprout:0.2.1 \
+  --build-arg SPROUT_VERSION=0.2.1 \
   .
 # Optional: push after docker login to GHCR (or your registry)
-# docker push ghcr.io/simpros/sprout:0.2.0
+# docker push ghcr.io/simpros/sprout:0.2.1
 ```
 
 Image label `org.opencontainers.image.version` mirrors `SPROUT_VERSION` (default
-`0.2.0`). Pin operators and CI to an image built from this branch or the
-`v0.2.0` release tag when published.
+`0.2.1`). Pin operators and CI to an image built from this branch or the
+`v0.2.1` release tag when published.
 
 Tear down:
 
@@ -263,13 +265,20 @@ After first boot, read the admin token from gateway logs if you left
 docker compose --env-file compose.env logs gateway | grep -i admin
 ```
 
-Create a **deploy token** for each adopting repo:
+Create a **deploy token** for each adopting repo by exec'ing the CLI already
+in the gateway image (`SPROUT_URL` defaults to `http://127.0.0.1:7331`):
 
 ```bash
-export SPROUT_URL=http://127.0.0.1:7331
-export SPROUT_TOKEN=<admin-token>
-sprout admin token create --scope deploy --repo https://github.com/org/repo
+# Primary path: CLI embedded in the gateway image
+docker compose --env-file compose.env exec -e SPROUT_TOKEN=<admin-token> gateway \
+  sprout admin token create --scope deploy --repo https://github.com/org/repo --slug org-repo
+
+# Smoke the embedded CLI (no token / no SPROUT_URL needed)
+docker compose --env-file compose.env exec gateway sprout health
 ```
+
+Host-side CLI works the same way if you prefer (`export SPROUT_URL=…` /
+`SPROUT_TOKEN=…`, then `sprout admin token create …`).
 
 Store the deploy token in the adopting repo's CI secrets as `SPROUT_TOKEN`.
 
