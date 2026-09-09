@@ -7,7 +7,6 @@ export const REQUIRED_ENV = [
   "SPROUT_PG_PASSWORD",
   "SPROUT_TRAEFIK_NETWORK",
   "SPROUT_POSTGRES_NETWORK",
-  "SPROUT_REGISTRY_URL",
 ] as const;
 
 export const OPTIONAL_ENV_DEFAULTS = {
@@ -50,7 +49,6 @@ export type Config = {
   previewPgPassword: string;
   traefikNetwork: string;
   postgresNetwork: string;
-  registryUrl: string;
   /** Empty string = anonymous registry pull. */
   registryUser: string;
   /** Empty string = anonymous registry pull. */
@@ -155,7 +153,6 @@ export function loadConfig(): Config {
     previewPgPassword: requiredEnv("SPROUT_PG_PASSWORD"),
     traefikNetwork: requiredEnv("SPROUT_TRAEFIK_NETWORK"),
     postgresNetwork: requiredEnv("SPROUT_POSTGRES_NETWORK"),
-    registryUrl: requiredEnv("SPROUT_REGISTRY_URL"),
     registryUser: optionalStringEnv("SPROUT_REGISTRY_USER"),
     registryPassword: optionalStringEnv("SPROUT_REGISTRY_PASSWORD"),
     githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
@@ -201,7 +198,6 @@ export function configSummary(config: Config): Record<string, string | number> {
     previewPgPassword: config.previewPgPassword === "" ? "[empty]" : "[set]",
     traefikNetwork: config.traefikNetwork,
     postgresNetwork: config.postgresNetwork,
-    registryUrl: config.registryUrl,
     registryUser: config.registryUser === "" ? "[anonymous]" : config.registryUser,
     registryPassword: config.registryPassword === "" ? "[anonymous]" : "[set]",
     githubToken: config.githubToken === "" ? "[unset]" : "[set]",

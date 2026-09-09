@@ -14,7 +14,6 @@ const TEST_REQUIRED_VALUES: Record<(typeof REQUIRED_ENV)[number], string> = {
   SPROUT_PG_PASSWORD: "preview-secret",
   SPROUT_TRAEFIK_NETWORK: "traefik",
   SPROUT_POSTGRES_NETWORK: "postgres",
-  SPROUT_REGISTRY_URL: "registry.example.com",
 };
 
 function setRequiredEnv(): void {
@@ -136,6 +135,12 @@ describe("loadConfig", () => {
     expect(config.registryPassword).toBe("");
   });
 
+  test("boots without SPROUT_REGISTRY_URL (image host is in app_image)", () => {
+    setRequiredEnv();
+    delete process.env.SPROUT_REGISTRY_URL;
+    expect(() => loadConfig()).not.toThrow();
+  });
+
   test("allows empty forge tokens at boot", () => {
     setRequiredEnv();
     delete process.env.SPROUT_GITHUB_TOKEN;
@@ -154,7 +159,6 @@ describe("loadConfig", () => {
       previewPgPassword: "x",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
-      registryUrl: "ghcr.io",
       registryUser: "",
       registryPassword: "",
       githubToken: "",
@@ -179,7 +183,6 @@ describe("loadConfig", () => {
       previewPgPassword: "preview-secret",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
-      registryUrl: "registry.example.com",
       registryUser: "puller",
       registryPassword: "registry-secret",
       githubToken: "gh",
@@ -210,7 +213,6 @@ describe("loadConfig", () => {
       previewPgPassword: "x",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
-      registryUrl: "ghcr.io",
       registryUser: "",
       registryPassword: "",
       githubToken: "",

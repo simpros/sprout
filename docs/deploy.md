@@ -191,7 +191,6 @@ Required today (gateway fails fast if missing):
 | `SPROUT_PG_PASSWORD` | Password preview containers use for `PGPASSWORD` (synced onto the role on every gateway boot) |
 | `SPROUT_TRAEFIK_NETWORK` | Docker network name for Traefik-facing containers |
 | `SPROUT_POSTGRES_NETWORK` | Docker network name for database reachability |
-| `SPROUT_REGISTRY_URL` | Registry host for pulling preview images |
 
 Optional forge credentials for sweep open-PR / open-MR listing (empty at boot
 is allowed; required when sweep calls that forge). Forge kind is chosen
@@ -206,7 +205,8 @@ not from a gateway-wide forge switch:
 | `SPROUT_FORGE_HOSTS` | Optional `host=gitlab` pairs (comma-separated), e.g. `git.example.com=gitlab` |
 
 Optional registry auth (empty = anonymous pulls — real registry mode, not a
-sentinel string):
+sentinel string). The deploy request carries a fully-qualified `app_image`;
+sprout does not take a separate registry host env var.
 
 | Variable | Description |
 |---|---|
