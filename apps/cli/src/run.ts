@@ -19,7 +19,6 @@ import { cliVersion } from "./version.ts";
 
 export type { CliDeps, CliIo };
 export { resolveGatewayUrl };
-export { cliVersion };
 
 type Command = {
   needsToken: boolean;

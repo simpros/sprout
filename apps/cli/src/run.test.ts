@@ -3,7 +3,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiClient } from "@sprout/api-client";
-import { cliVersion, runCli, type CliDeps } from "./run.ts";
+import { runCli, type CliDeps } from "./run.ts";
+import { cliVersion } from "./version.ts";
 
 type Captured = {
   method: string;

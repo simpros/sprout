@@ -18,13 +18,13 @@ permissions:
   packages: write
 
 jobs:
-  docker:
+  meta:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      version: ${{ steps.ver.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-      - name: Resolve image version
+      - name: Resolve release tag
         id: ver
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -35,13 +35,26 @@ jobs:
             echo "Could not resolve release tag" >&2
             exit 1
           fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
-          version="${tag#v}"
+  docker:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - name: Derive image tags
+        id: tags
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          version="$VERSION"
           # Semver prerelease / build metadata: do not move :latest
           prerelease=false
           [[ "$version" == *-* ]] && prerelease=true
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
           tags="ghcr.io/simpros/sprout:${version}"
           if [ "$prerelease" != "true" ]; then
             tags="${tags}"$'\n'"ghcr.io/simpros/sprout:latest"
@@ -60,48 +73,31 @@ jobs:
         with:
           context: .
           push: true
-          build-args: SPROUT_VERSION=${{ steps.ver.outputs.version }}
-          tags: ${{ steps.ver.outputs.tags }}
+          build-args: SPROUT_VERSION=${{ needs.meta.outputs.version }}
+          tags: ${{ steps.tags.outputs.tags }}
 
   cli:
+    needs: meta
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
-      - name: Resolve release tag
-        id: ver
-        env:
-          REF_NAME: ${{ github.ref_name }}
-          DISPATCH_TAG: ${{ inputs.tag }}
-        run: |
-          tag="${DISPATCH_TAG:-$REF_NAME}"
-          if [ -z "$tag" ]; then
-            echo "Could not resolve release tag" >&2
-            exit 1
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          ref: ${{ needs.meta.outputs.tag }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
       - run: bun install --frozen-lockfile
       - name: Compile CLI binary
         env:
-          TAG: ${{ steps.ver.outputs.tag }}
-        run: |
-          mkdir -p dist
-          bun build --compile \
-            --target=bun-linux-x64-musl \
-            --define SPROUT_CLI_VERSION="\"${TAG}\"" \
-            --outfile dist/sprout-linux-x64 \
-            apps/cli/src/index.ts
+          SPROUT_CLI_VERSION: ${{ needs.meta.outputs.tag }}
+        run: bun run --filter @sprout/cli compile
       # Host is glibc; the musl binary needs Alpine (+ libstdc++, which Bun's
       # musl embed still links dynamically on 1.4.x).
       - name: Smoke-test on musl (Alpine)
         env:
-          TAG: ${{ steps.ver.outputs.tag }}
+          TAG: ${{ needs.meta.outputs.tag }}
         run: |
           docker run --rm \
             -v "$PWD/dist/sprout-linux-x64:/sprout:ro" \
@@ -110,7 +106,7 @@ jobs:
       - name: Upload sprout-linux-x64 to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.ver.outputs.tag }}
+          TAG: ${{ needs.meta.outputs.tag }}
         run: |
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "sprout ${TAG}" --generate-notes

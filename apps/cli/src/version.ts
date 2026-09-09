@@ -1,6 +1,7 @@
 /**
- * Injected by `bun build --compile --define SPROUT_CLI_VERSION=...`.
- * Unset when running from source → "dev".
+ * Injected by `bun run compile` via `--define SPROUT_CLI_VERSION=...`
+ * (from env `SPROUT_CLI_VERSION`, default `dev`). Unset when running from
+ * source → "dev".
  */
 declare const SPROUT_CLI_VERSION: string | undefined;
 
