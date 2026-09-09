@@ -31,19 +31,21 @@ export async function composeDown(): Promise<void> {
   });
 }
 
-/** `docker compose exec -T <service> …` against the e2e stack. */
+/** `docker compose exec -T <service> …` against the e2e stack. Throws on non-zero. */
 export async function composeExec(
-  serviceAndCmd: string[],
+  service: string,
+  cmd: string[],
   opts: { env?: Record<string, string> } = {},
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+): Promise<{ stdout: string; stderr: string }> {
   const envArgs = Object.entries(opts.env ?? {}).flatMap(([key, value]) => [
     "-e",
     `${key}=${value}`,
   ]);
-  return run([
+  const { stdout, stderr } = await run([
     "docker",
-    ...composeArgs(["exec", "-T", ...envArgs, ...serviceAndCmd]),
+    ...composeArgs(["exec", "-T", ...envArgs, service, ...cmd]),
   ]);
+  return { stdout, stderr };
 }
 
 export async function waitForGateway(

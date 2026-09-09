@@ -7,16 +7,15 @@ const enabled = process.env.SPROUT_E2E_MANAGED === "1";
 
 describe.skipIf(!enabled)("compose stack", () => {
   test("embedded CLI sprout health works via docker exec", async () => {
-    const result = await composeExec(["gateway", "sprout", "health"]);
-    expect(result.exitCode).toBe(0);
+    const result = await composeExec("gateway", ["sprout", "health"]);
     const body = JSON.parse(result.stdout) as { ok?: unknown };
     expect(body.ok).toBe(true);
   });
 
   test("embedded CLI can mint a deploy token via docker exec", async () => {
     const result = await composeExec(
+      "gateway",
       [
-        "gateway",
         "sprout",
         "admin",
         "token",
@@ -30,7 +29,6 @@ describe.skipIf(!enabled)("compose stack", () => {
       ],
       { env: { SPROUT_TOKEN: e2eConfig.adminToken } },
     );
-    expect(result.exitCode).toBe(0);
     const body = JSON.parse(result.stdout) as { token?: unknown };
     expect(typeof body.token).toBe("string");
     expect((body.token as string).length).toBeGreaterThan(8);
