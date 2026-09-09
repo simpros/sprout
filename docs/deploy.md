@@ -204,14 +204,10 @@ not from a gateway-wide forge switch:
 | `SPROUT_GITLAB_TOKEN` | GitLab PAT for sweep |
 | `SPROUT_FORGE_HOSTS` | Optional `host=gitlab` pairs (comma-separated), e.g. `git.example.com=gitlab` |
 
-Optional registry auth (empty = anonymous pulls — real registry mode, not a
-sentinel string). The deploy request carries a fully-qualified `app_image`;
-sprout does not take a separate registry host env var.
-
-| Variable | Description |
-|---|---|
-| `SPROUT_REGISTRY_USER` | Registry username |
-| `SPROUT_REGISTRY_PASSWORD` | Registry password or token |
+Image pulls use the host Docker daemon's auth (`docker login` / credential
+helper). Sprout does not take registry credentials; empty/anonymous pulls work
+when the daemon has none. The deploy request carries a fully-qualified
+`app_image`.
 
 Additional v0.1 variables:
 
