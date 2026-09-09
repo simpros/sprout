@@ -15,9 +15,11 @@ import {
   type CliDeps,
   type CliIo,
 } from "./context.ts";
+import { cliVersion } from "./version.ts";
 
 export type { CliDeps, CliIo };
 export { resolveGatewayUrl };
+export { cliVersion };
 
 type Command = {
   needsToken: boolean;
@@ -44,6 +46,11 @@ export async function runCli(
       deps.io,
       "usage: sprout <deploy|teardown|list|doctor|drop|admin> …",
     );
+  }
+
+  if (name === "--version" || name === "-V") {
+    deps.io.stdout(cliVersion());
+    return 0;
   }
 
   const command = COMMANDS[name];

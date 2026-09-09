@@ -62,3 +62,57 @@ jobs:
           push: true
           build-args: SPROUT_VERSION=${{ steps.ver.outputs.version }}
           tags: ${{ steps.ver.outputs.tags }}
+
+  cli:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Resolve release tag
+        id: ver
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${DISPATCH_TAG:-$REF_NAME}"
+          if [ -z "$tag" ]; then
+            echo "Could not resolve release tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Compile CLI binary
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          mkdir -p dist
+          bun build --compile \
+            --target=bun-linux-x64-musl \
+            --define SPROUT_CLI_VERSION="\"${TAG}\"" \
+            --outfile dist/sprout-linux-x64 \
+            apps/cli/src/index.ts
+      # Host is glibc; the musl binary needs Alpine (+ libstdc++, which Bun's
+      # musl embed still links dynamically on 1.4.x).
+      - name: Smoke-test on musl (Alpine)
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          docker run --rm \
+            -v "$PWD/dist/sprout-linux-x64:/sprout:ro" \
+            alpine:3.20 \
+            sh -c 'apk add --no-cache libstdc++ >/dev/null && test "$(/sprout --version)" = "'"$TAG"'"'
+      - name: Upload sprout-linux-x64 to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "sprout ${TAG}" --generate-notes
+          fi
+          gh release upload "$TAG" dist/sprout-linux-x64 --clobber

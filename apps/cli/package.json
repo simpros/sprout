@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "compile": "bun build --compile --target=bun-linux-x64-musl --outfile ../../dist/sprout-linux-x64 ./src/index.ts",
     "test": "bun test"
   },
   "dependencies": {
