@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiClient } from "@sprout/api-client";
 import { runCli, type CliDeps } from "./run.ts";
+import { cliVersion } from "./version.ts";
 
 type Captured = {
   method: string;
@@ -457,6 +458,19 @@ preview:
     );
     expect(code).toBe(1);
     expect(stderr[0]).toBe("unknown command: totally-bogus");
+  });
+
+  test("--version prints cliVersion without requiring SPROUT_TOKEN", async () => {
+    const code = await runCli(["--version"], deps({ env: {} }));
+    expect(code).toBe(0);
+    expect(stdout).toEqual([cliVersion()]);
+    expect(stderr).toEqual([]);
+  });
+
+  test("-V is an alias for --version", async () => {
+    const code = await runCli(["-V"], deps({ env: {} }));
+    expect(code).toBe(0);
+    expect(stdout).toEqual([cliVersion()]);
   });
 
   test("admin token create requires explicit --repo even when CI derives one", async () => {
