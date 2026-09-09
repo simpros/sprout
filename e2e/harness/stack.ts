@@ -31,6 +31,21 @@ export async function composeDown(): Promise<void> {
   });
 }
 
+/** `docker compose exec -T <service> …` against the e2e stack. */
+export async function composeExec(
+  serviceAndCmd: string[],
+  opts: { env?: Record<string, string> } = {},
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const envArgs = Object.entries(opts.env ?? {}).flatMap(([key, value]) => [
+    "-e",
+    `${key}=${value}`,
+  ]);
+  return run([
+    "docker",
+    ...composeArgs(["exec", "-T", ...envArgs, ...serviceAndCmd]),
+  ]);
+}
+
 export async function waitForGateway(
   timeoutMs = 120_000,
   intervalMs = 1_000,

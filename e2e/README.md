@@ -14,14 +14,15 @@ Requires Docker. Project name `sprout-e2e`. `run.ts` reads
 missing), brings compose up, waits for `/healthz`, then runs tests with
 `SPROUT_E2E_MANAGED=1` plus injected `SPROUT_E2E_GATEWAY_URL` / `SPROUT_E2E_ADMIN_TOKEN`.
 
-Smoke assertion: admin can mint a deploy token via `@sprout/api-client`.
+Smoke assertions: embedded `sprout health` / `sprout admin token create` via
+`docker compose exec`, plus admin mint via `@sprout/api-client`.
 Role defaults in `compose.e2e.env` are `sprout_admin` / `sprout_preview`.
 
 ## Suites
 
 | Suite | Status |
 |---|---|
-| `stack.test.ts` | compose smoke under `SPROUT_E2E_MANAGED` |
+| `stack.test.ts` | compose smoke + embedded CLI exec under `SPROUT_E2E_MANAGED` |
 | `lifecycle.test.ts` | deploy with `preview.env` remap; asserts adopter env names on the app container |
 | `sweep.test.ts` | `test.todo` breadcrumb — #30 sweep |
 

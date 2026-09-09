@@ -4,8 +4,8 @@
  *
  *   bun run test:e2e
  *
- * Requires Docker. Asserts compose smoke (admin mint deploy token) and
- * remapped preview.env injection on a deploy (see lifecycle.test.ts).
+ * Requires Docker. Asserts compose smoke (embedded CLI exec + admin mint)
+ * and remapped preview.env injection on a deploy (see lifecycle.test.ts).
  */
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
