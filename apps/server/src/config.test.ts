@@ -22,6 +22,8 @@ function setRequiredEnv(): void {
   }
   process.env.SPROUT_GITHUB_TOKEN = "gh-token";
   process.env.SPROUT_GITLAB_TOKEN = "gl-token";
+  process.env.SPROUT_REGISTRY_USER = "puller";
+  process.env.SPROUT_REGISTRY_PASSWORD = "registry-secret";
 }
 
 function clearGatewayEnv(): void {
@@ -31,6 +33,9 @@ function clearGatewayEnv(): void {
   delete process.env.SPROUT_GITHUB_TOKEN;
   delete process.env.SPROUT_GITLAB_TOKEN;
   delete process.env.SPROUT_FORGE_HOSTS;
+  delete process.env.SPROUT_REGISTRY_USER;
+  delete process.env.SPROUT_REGISTRY_PASSWORD;
+  delete process.env.SPROUT_REGISTRY_URL;
   for (const key of Object.keys(OPTIONAL_ENV_DEFAULTS)) {
     delete process.env[key];
   }
@@ -122,15 +127,35 @@ describe("loadConfig", () => {
     );
   });
 
-  test("boots with stale SPROUT_REGISTRY_* vars ignored", () => {
+  test("loads registry pull credentials", () => {
     setRequiredEnv();
-    process.env.SPROUT_REGISTRY_USER = "stale";
-    process.env.SPROUT_REGISTRY_PASSWORD = "stale";
-    process.env.SPROUT_REGISTRY_URL = "stale.example.com";
-    expect(() => loadConfig()).not.toThrow();
+    const config = loadConfig();
+    expect(config.registryUser).toBe("puller");
+    expect(config.registryPassword).toBe("registry-secret");
+  });
+
+  test("allows empty registry user/password for anonymous pulls", () => {
+    setRequiredEnv();
     delete process.env.SPROUT_REGISTRY_USER;
     delete process.env.SPROUT_REGISTRY_PASSWORD;
-    delete process.env.SPROUT_REGISTRY_URL;
+    const config = loadConfig();
+    expect(config.registryUser).toBe("");
+    expect(config.registryPassword).toBe("");
+  });
+
+  test("rejects password without registry user", () => {
+    setRequiredEnv();
+    delete process.env.SPROUT_REGISTRY_USER;
+    process.env.SPROUT_REGISTRY_PASSWORD = "only-password";
+    expect(() => loadConfig()).toThrow(
+      "SPROUT_REGISTRY_PASSWORD is set but SPROUT_REGISTRY_USER is empty",
+    );
+  });
+
+  test("ignores stale SPROUT_REGISTRY_URL (host is in app_image)", () => {
+    setRequiredEnv();
+    process.env.SPROUT_REGISTRY_URL = "stale.example.com";
+    expect(() => loadConfig()).not.toThrow();
   });
 
   test("allows empty forge tokens at boot", () => {
@@ -151,6 +176,8 @@ describe("loadConfig", () => {
       previewPgPassword: "x",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
+      registryUser: "",
+      registryPassword: "",
       githubToken: "",
       gitlabToken: "",
       extraGitlabHosts: new Set(),
@@ -173,6 +200,8 @@ describe("loadConfig", () => {
       previewPgPassword: "preview-secret",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
+      registryUser: "puller",
+      registryPassword: "registry-secret",
       githubToken: "gh",
       gitlabToken: "gl",
       extraGitlabHosts: new Set(["git.example.com"]),
@@ -185,8 +214,34 @@ describe("loadConfig", () => {
 
     expect(String(summary.previewPostgresUrl)).not.toContain("sekrit");
     expect(summary.previewPgPassword).toBe("[set]");
+    expect(summary.registryPassword).toBe("[set]");
+    expect(summary.registryUser).toBe("puller");
     expect(summary.githubToken).toBe("[set]");
     expect(summary.gitlabToken).toBe("[set]");
     expect(summary.extraGitlabHosts).toBe(1);
+  });
+
+  test("configSummary marks anonymous registry creds", () => {
+    const summary = configSummary({
+      previewPostgresUrl: "postgres://admin@localhost:5432/postgres",
+      previewPgHost: "postgres",
+      previewPgPort: 5432,
+      previewPgUser: "sprout_preview",
+      previewPgPassword: "x",
+      traefikNetwork: "traefik",
+      postgresNetwork: "postgres",
+      registryUser: "",
+      registryPassword: "",
+      githubToken: "",
+      gitlabToken: "",
+      extraGitlabHosts: new Set(),
+      ttlHours: 72,
+      sweepMinutes: 30,
+      previewPortDefault: 8080,
+      seedTimeout: 180,
+      port: 7331,
+    });
+    expect(summary.registryUser).toBe("[anonymous]");
+    expect(summary.registryPassword).toBe("[anonymous]");
   });
 });

@@ -250,7 +250,10 @@ describe("POST /v1/deploy", () => {
       deployBody({ app_image: "ghcr.io/org/myapp:bad" }),
     );
     expect(res.status).toBe(500);
-    expect(res.body).toEqual({ error: "preview_app_deploy_failed" });
+    expect(res.body).toEqual({
+      error: "preview_app_deploy_failed",
+      detail: "registry blip",
+    });
 
     const [row] = await testApp!.db
       .select()
@@ -262,6 +265,23 @@ describe("POST /v1/deploy", () => {
     expect(row?.status).toBe("running");
     expect(row?.appImage).toBe(APP_IMAGE);
     expect(row?.containerId).toBe("fake-1");
+  });
+
+  test("registry pull failure returns stable error + detail", async () => {
+    const { deployToken } = await setup({
+      exposedPorts: { [APP_IMAGE]: 3000 },
+    });
+    fakeDocker!.pullImage = async () => {
+      throw new Error(
+        "Docker pull registry.example/private:1 failed: access forbidden",
+      );
+    };
+    const res = await postDeploy(deployToken, deployBody());
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({
+      error: "preview_app_deploy_failed",
+      detail: "access forbidden",
+    });
   });
 
   test("retries createDatabase when stuck in provisioning with no DB", async () => {

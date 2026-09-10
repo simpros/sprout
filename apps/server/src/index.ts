@@ -29,7 +29,12 @@ const previewDb = createPostgresPreviewDb({
 });
 await previewDb.ensurePreviewRole();
 
-const docker = createDockerEngineClient();
+const docker = createDockerEngineClient({
+  registryAuth: {
+    username: config.registryUser,
+    password: config.registryPassword,
+  },
+});
 
 const app = bindPreviewOps({
   docker,

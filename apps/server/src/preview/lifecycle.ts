@@ -3,6 +3,7 @@ import { and, eq, ne } from "drizzle-orm";
 import type { HealthSpec } from "../app-deployment/health.ts";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
+import { extractPullDetail } from "../docker/pull-failure.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import { previewDbName } from "../preview-db/names.ts";
@@ -113,7 +114,7 @@ export type TeardownSnapshot = {
 
 type Result<T> =
   | { ok: true; value: T }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; detail?: string };
 
 /**
  * Serialize control-plane mutations per (repo, prId).
@@ -582,8 +583,13 @@ async function pullImageOrFail(
   try {
     await app.pullImage(image);
     return { ok: true, value: true };
-  } catch {
-    return { ok: false, status: 500, error };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error,
+      detail: extractPullDetail(err),
+    };
   }
 }
 

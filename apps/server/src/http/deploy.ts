@@ -105,7 +105,7 @@ export type TeardownBody = {
 
 type Result<T> =
   | { ok: true; value: T }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; detail?: string };
 
 function resolveRepo(
   auth: AuthContext,
@@ -120,10 +120,12 @@ function resolveRepo(
 function mapResult<T>(
   result: Result<T>,
   set: { status?: number | string },
-): T | { error: string } {
+): T | { error: string; detail?: string } {
   if (!result.ok) {
     set.status = result.status;
-    return { error: result.error };
+    return result.detail !== undefined
+      ? { error: result.error, detail: result.detail }
+      : { error: result.error };
   }
   return result.value;
 }

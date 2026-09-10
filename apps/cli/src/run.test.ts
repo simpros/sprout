@@ -139,6 +139,41 @@ describe("sprout CLI command surface", () => {
     ]);
   });
 
+  test("deploy surfaces registry pull failure detail from gateway", async () => {
+    const baseUrl = startGateway(async () => {
+      return Response.json(
+        {
+          error: "preview_app_deploy_failed",
+          detail: "access forbidden",
+        },
+        { status: 500 },
+      );
+    });
+
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["deploy", "-i", "ghcr.io/org/private:sha"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "deploy-token",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/42/merge",
+        },
+        readTextFile: async (path) =>
+          path.endsWith(".sprout.yaml")
+            ? await Bun.file(path).text()
+            : null,
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe(
+      "preview_app_deploy_failed: access forbidden",
+    );
+  });
+
   test("deploy includes preview.env remap on the request body", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({
