@@ -63,8 +63,24 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
       },
     });
     expect(deployed.error).toBeNull();
-    expect(deployed.status).toBe(200);
-    expect(deployed.data?.status).toBe("running");
+    expect(deployed.status).toBe(202);
+
+    const deadline = Date.now() + 90_000;
+    let status = deployed.data?.status;
+    while (status !== "running") {
+      expect(Date.now() < deadline).toBe(true);
+      await Bun.sleep(2_000);
+      const polled = await client.v1.preview.get({
+        query: {
+          canonical_repo_id: e2eConfig.canonicalRepoId,
+          pr_id: String(prId),
+        },
+      });
+      expect(polled.error).toBeNull();
+      expect(polled.status).toBe(200);
+      status = polled.data?.status;
+    }
+    expect(status).toBe("running");
 
     try {
       const name = previewAppContainerName(e2eConfig.slug, prId);

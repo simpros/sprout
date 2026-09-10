@@ -10,6 +10,36 @@ import {
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
+import { deployOutcome } from "./deploy-outcome.ts";
+
+/** Extra budget beyond health.timeout for image pull + replace + optional seed. */
+const DEPLOY_POLL_BUFFER_MS = 180_000;
+const DEFAULT_HEALTH_TIMEOUT_MS = 120_000;
+const DEFAULT_POLL_INTERVAL_MS = 2_000;
+
+/** Parse `Ns` durations; missing uses fallback. Malformed throws (no silent default). */
+function parseSecondsMs(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const match = /^(\d+)s$/.exec(raw.trim());
+  if (!match) {
+    throw new Error(`invalid duration (expected Ns): ${raw}`);
+  }
+  return Number(match[1]) * 1000;
+}
+
+function pollBudgetMs(yaml: SproutYaml): number {
+  return (
+    parseSecondsMs(yaml.health?.timeout, DEFAULT_HEALTH_TIMEOUT_MS) +
+    DEPLOY_POLL_BUFFER_MS
+  );
+}
+
+function pollIntervalMs(yaml: SproutYaml): number {
+  return Math.max(
+    200,
+    parseSecondsMs(yaml.health?.interval, DEFAULT_POLL_INTERVAL_MS),
+  );
+}
 
 export async function runDeploy(
   tokens: string[],
@@ -102,13 +132,47 @@ export async function runDeploy(
   const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return fail(ctx.deps.io, result.message);
 
-  const data = result.data;
-  if (data.status !== "running") {
-    return fail(ctx.deps.io, `deploy ended with status: ${data.status}`);
+  let data = result.data;
+  let outcome = deployOutcome(data);
+  if (outcome.kind === "failed") return fail(ctx.deps.io, outcome.message);
+
+  if (outcome.kind !== "ready") {
+    const sleep =
+      ctx.deps.sleep ??
+      ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    const now = ctx.deps.now ?? (() => Date.now());
+    let deadline: number;
+    let interval: number;
+    try {
+      deadline = now() + pollBudgetMs(yaml.value);
+      interval = pollIntervalMs(yaml.value);
+    } catch (err) {
+      return fail(
+        ctx.deps.io,
+        err instanceof Error ? err.message : "invalid_health_duration",
+      );
+    }
+
+    while (true) {
+      if (now() >= deadline) {
+        return fail(ctx.deps.io, "deploy_timeout");
+      }
+      const statusResponse = await ctx.client.v1.preview.get({
+        query: {
+          canonical_repo_id: identity.value.repo,
+          pr_id: String(identity.value.prId),
+        },
+      });
+      const statusResult = readEden<PreviewSnapshot>(statusResponse);
+      if (!statusResult.ok) return fail(ctx.deps.io, statusResult.message);
+      data = statusResult.data;
+      outcome = deployOutcome(data);
+      if (outcome.kind === "failed") return fail(ctx.deps.io, outcome.message);
+      if (outcome.kind === "ready") break;
+      await sleep(interval);
+    }
   }
-  if (!data.preview_url) {
-    return fail(ctx.deps.io, "deploy succeeded without preview_url");
-  }
+
   ctx.deps.io.stdout(`preview_url=${data.preview_url}`);
   return 0;
 }

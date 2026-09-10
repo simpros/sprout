@@ -15,7 +15,7 @@ function errorBody(error: unknown): unknown {
   return error;
 }
 
-function errorMessage(body: unknown): string {
+function bodyDetail(body: unknown): string {
   if (body && typeof body === "object" && "error" in body) {
     const error = String((body as { error: unknown }).error);
     const detail = (body as { detail?: unknown }).detail;
@@ -23,6 +23,17 @@ function errorMessage(body: unknown): string {
       return `${error}: ${detail.trim()}`;
     }
     return error;
+  }
+  if (typeof body === "string" && body.trim() !== "") {
+    return body.trim().slice(0, 500);
+  }
+  if (body != null) {
+    try {
+      const raw = JSON.stringify(body);
+      if (raw && raw !== "{}") return raw.slice(0, 500);
+    } catch {
+      // ignore
+    }
   }
   return "request failed";
 }
@@ -38,7 +49,7 @@ export function readEden<T = unknown>(response: EdenLike): EdenResult<T> {
       ok: false,
       status,
       body,
-      message: errorMessage(body),
+      message: `${status} ${bodyDetail(body)}`,
     };
   }
   return {

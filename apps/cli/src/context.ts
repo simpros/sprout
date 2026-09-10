@@ -19,6 +19,9 @@ export type CliDeps = {
   getGitRemoteUrl: () => string | null;
   createClient: (baseUrl: string, token: string) => ApiClient;
   io: CliIo;
+  /** Test seam for deploy status polling. */
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
 };
 
 /** Shared runtime for a single command invocation. */

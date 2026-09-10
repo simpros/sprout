@@ -170,8 +170,30 @@ describe("sprout CLI command surface", () => {
 
     expect(code).toBe(1);
     expect(stderr[0]).toBe(
-      "preview_app_deploy_failed: access forbidden",
+      "500 preview_app_deploy_failed: access forbidden",
     );
+  });
+
+  test("deploy prints HTTP status and body on failure", async () => {
+    const baseUrl = startGateway(async () =>
+      Response.json({ error: "unauthorized" }, { status: 401 }),
+    );
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["deploy", "-i", "ghcr.io/org/app:sha"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "deploy-token",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/42/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr).toEqual(["401 unauthorized"]);
   });
 
   test("deploy includes preview.env remap on the request body", async () => {
