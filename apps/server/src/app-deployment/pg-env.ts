@@ -39,7 +39,7 @@ function envKey(entry: string): string {
 }
 
 /**
- * Gateway connection keys replace colliding user seed-env keys.
+ * Gateway connection keys replace colliding user env keys (app or seed).
  * Reserved = canonical PG* ∪ emitted names (after remap), then append
  * gateway env once — remapping must not reopen override holes on PG*.
  */

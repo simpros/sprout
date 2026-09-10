@@ -15,12 +15,17 @@ export type SproutHealth = {
 
 export type SproutYaml = {
   slug: string;
-  preview: { hostname: string; env?: PreviewEnvMap };
+  preview: {
+    hostname: string;
+    env?: PreviewEnvMap;
+    /** Static adopter env for the app container (secrets via --app-env / --app-env-file). */
+    app_env?: Record<string, string>;
+  };
   health?: SproutHealth;
 };
 
 const TOP_KEYS = new Set(["slug", "preview", "health"]);
-const PREVIEW_KEYS = new Set(["hostname", "env"]);
+const PREVIEW_KEYS = new Set(["hostname", "env", "app_env"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -70,6 +75,33 @@ function parsePreviewEnv(
   return { ok: true, value: parsed.value };
 }
 
+/** Absent or empty map → undefined. Values must be strings (no secret store). */
+function parseAppEnv(
+  raw: unknown,
+): Result<Record<string, string> | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: "preview.app_env must be a mapping" };
+  }
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (key.trim() === "") {
+      return { ok: false, error: "preview.app_env key is required" };
+    }
+    if (typeof value !== "string") {
+      return {
+        ok: false,
+        error: `preview.app_env.${key} must be a string`,
+      };
+    }
+    out[key] = value;
+  }
+  if (Object.keys(out).length === 0) {
+    return { ok: true, value: undefined };
+  }
+  return { ok: true, value: out };
+}
+
 export function parseSproutYaml(raw: string): Result<SproutYaml> {
   let parsed: unknown;
   try {
@@ -104,11 +136,15 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const env = parsePreviewEnv(parsed.preview.env);
   if (!env.ok) return env;
 
+  const appEnv = parseAppEnv(parsed.preview.app_env);
+  if (!appEnv.ok) return appEnv;
+
   const value: SproutYaml = {
     slug: slug.value,
     preview: { hostname: hostname.value },
   };
   if (env.value) value.preview.env = env.value;
+  if (appEnv.value) value.preview.app_env = appEnv.value;
 
   if (parsed.health !== undefined) {
     if (!isPlainObject(parsed.health)) {

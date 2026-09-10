@@ -74,6 +74,8 @@ export type ProvisionInput = {
   health: HealthSpec;
   /** Present when deploy requested a seed image; env/args not persisted. */
   seed?: SeedImageSpec;
+  /** Adopter KEY=VALUE for the app container; request-scoped, not persisted. */
+  appEnv: string[];
   /** Connection env name remap; request-scoped, not persisted. */
   connectionEnv?: PreviewEnvMap;
 };
@@ -266,6 +268,7 @@ async function attachAppContainer(
       hostname: input.hostname,
       image: input.appImage,
       dbName: row.dbName,
+      appEnv: input.appEnv,
       connectionEnv: input.connectionEnv,
     }));
   } catch {

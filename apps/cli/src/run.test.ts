@@ -329,6 +329,187 @@ preview:
     });
   });
 
+  test("deploy forwards --app-env and preview.app_env (yaml then flags)", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-9.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    BETTER_AUTH_URL: "https://pr-static.example.com"
+    SHARED: from-yaml
+`);
+    const code = await runCli(
+      [
+        "deploy",
+        "-i",
+        "app:1",
+        "--app-env",
+        "BETTER_AUTH_SECRET=sekrit",
+        "--app-env",
+        "SHARED=from-cli",
+      ],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/9/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      app_env: [
+        "BETTER_AUTH_URL=https://pr-static.example.com",
+        "SHARED=from-cli",
+        "BETTER_AUTH_SECRET=sekrit",
+      ],
+    });
+    expect(captured[0]?.body).not.toHaveProperty("seed_env");
+  });
+
+  test("deploy rejects invalid --app-env before calling the gateway", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({ ok: true, status: "running", preview_url: "x" });
+    });
+
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["deploy", "-i", "app:1", "--app-env", "NOTAKEY"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/9/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe("invalid --app-env: NOTAKEY");
+    expect(captured).toEqual([]);
+  });
+
+  test("deploy forwards --app-env-file (yaml → file → flags)", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-11.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    SHARED: from-yaml
+    KEEP: yaml
+`);
+    await Bun.write(
+      `${cwd}/preview.app.env`,
+      `# ci secrets
+SHARED=from-file
+FILE_ONLY=1
+`,
+    );
+    const code = await runCli(
+      [
+        "deploy",
+        "-i",
+        "app:1",
+        "--app-env-file",
+        "preview.app.env",
+        "--app-env",
+        "SHARED=from-cli",
+      ],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/11/merge",
+        },
+        readTextFile: async (path) => {
+          const file = Bun.file(path);
+          if (!(await file.exists())) return null;
+          return file.text();
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      app_env: ["SHARED=from-cli", "KEEP=yaml", "FILE_ONLY=1"],
+    });
+  });
+
+  test("deploy rejects invalid --app-env-file before calling the gateway", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({ ok: true, status: "running", preview_url: "x" });
+    });
+
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    await Bun.write(`${cwd}/bad.env`, "OK=1\nNOTAKEY\n");
+    const code = await runCli(
+      ["deploy", "-i", "app:1", "--app-env-file", "bad.env"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/9/merge",
+        },
+        readTextFile: async (path) => {
+          const file = Bun.file(path);
+          if (!(await file.exists())) return null;
+          return file.text();
+        },
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe("invalid --app-env-file bad.env:2: NOTAKEY");
+    expect(captured).toEqual([]);
+  });
+
   test("teardown is idempotent exit 0 when preview absent", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({

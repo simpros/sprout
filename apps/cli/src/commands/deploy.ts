@@ -1,4 +1,5 @@
 import type { PreviewSnapshot } from "@sprout/api-client";
+import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
 import type { CliContext } from "../context.ts";
 import {
   fail,
@@ -19,6 +20,8 @@ export async function runDeploy(
     "-s",
     "--seed-env",
     "--seed-arg",
+    "--app-env",
+    "--app-env-file",
     "--repo",
   ]);
   if (!flags.ok) return fail(ctx.deps.io, flags.error);
@@ -56,6 +59,7 @@ export async function runDeploy(
     seed_image?: string;
     seed_env?: string[];
     seed_arg?: string[];
+    app_env?: string[];
     env?: PreviewEnvMap;
   } = {
     canonical_repo_id: identity.value.repo,
@@ -73,6 +77,26 @@ export async function runDeploy(
   if (flags.value.seedEnv.length > 0) body.seed_env = flags.value.seedEnv;
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
+
+  const dotenvFiles: DotenvFile[] = [];
+  for (const filePath of flags.value.appEnvFile) {
+    const resolved = filePath.startsWith("/")
+      ? filePath
+      : `${ctx.deps.cwd}/${filePath}`;
+    const raw = await ctx.deps.readTextFile(resolved);
+    if (raw === null) {
+      return fail(ctx.deps.io, `cannot read --app-env-file: ${filePath}`);
+    }
+    dotenvFiles.push({ pathLabel: filePath, content: raw });
+  }
+
+  const appEnv = mergeAppEnv(
+    yaml.value.preview.app_env,
+    dotenvFiles,
+    flags.value.appEnv,
+  );
+  if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);
+  if (appEnv.value) body.app_env = appEnv.value;
 
   const response = await ctx.client.v1.deploy.post(body);
   const result = readEden<PreviewSnapshot>(response);

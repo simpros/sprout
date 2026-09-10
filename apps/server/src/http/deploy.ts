@@ -24,6 +24,7 @@ export const healthBody = t.Object({
 
 export const MAX_SEED_ENV = 16;
 export const MAX_SEED_ARG = 16;
+export const MAX_APP_ENV = 32;
 
 export const deployBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
@@ -36,6 +37,7 @@ export const deployBody = t.Object({
   seed_image: t.Optional(t.String({ minLength: 1 })),
   seed_env: t.Optional(t.Array(t.String())),
   seed_arg: t.Optional(t.Array(t.String())),
+  app_env: t.Optional(t.Array(t.String())),
 });
 
 /** Identity is (canonical_repo_id, pr_id); slug is not part of teardown. */
@@ -55,7 +57,24 @@ export type DeployBody = {
   seed_image?: string;
   seed_env?: string[];
   seed_arg?: string[];
+  app_env?: string[];
 };
+
+/** Cap + `KEY=VALUE` shape check shared by seed_env and app_env. */
+function validateKvEnvEntries(
+  entries: string[],
+  opts: { max: number; tooMany: string; invalid: string },
+): { ok: true } | { ok: false; error: string } {
+  if (entries.length > opts.max) {
+    return { ok: false, error: opts.tooMany };
+  }
+  for (const entry of entries) {
+    if (entry.indexOf("=") <= 0) {
+      return { ok: false, error: opts.invalid };
+    }
+  }
+  return { ok: true };
+}
 
 /** Validate optional seed fields; health is required when seed_image is set. */
 export function resolveSeedRequest(
@@ -76,18 +95,15 @@ export function resolveSeedRequest(
   if (!body.health) {
     return { ok: false, error: "health_required_for_seed" };
   }
-  if (seedEnv.length > MAX_SEED_ENV) {
-    return { ok: false, error: "too_many_seed_env" };
-  }
   if (seedArg.length > MAX_SEED_ARG) {
     return { ok: false, error: "too_many_seed_arg" };
   }
-  for (const entry of seedEnv) {
-    const eq = entry.indexOf("=");
-    if (eq <= 0) {
-      return { ok: false, error: "invalid_seed_env" };
-    }
-  }
+  const envCheck = validateKvEnvEntries(seedEnv, {
+    max: MAX_SEED_ENV,
+    tooMany: "too_many_seed_env",
+    invalid: "invalid_seed_env",
+  });
+  if (!envCheck.ok) return envCheck;
   return {
     ok: true,
     value: {
@@ -96,6 +112,20 @@ export function resolveSeedRequest(
       args: seedArg,
     },
   };
+}
+
+/** Validate adopter app env (`KEY=VALUE`); empty list is allowed. */
+export function resolveAppEnvRequest(
+  body: Pick<DeployBody, "app_env">,
+): { ok: true; value: string[] } | { ok: false; error: string } {
+  const appEnv = body.app_env ?? [];
+  const check = validateKvEnvEntries(appEnv, {
+    max: MAX_APP_ENV,
+    tooMany: "too_many_app_env",
+    invalid: "invalid_app_env",
+  });
+  if (!check.ok) return check;
+  return { ok: true, value: appEnv };
 }
 
 export type TeardownBody = {
@@ -171,6 +201,11 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: seed.error };
     }
+    const appEnv = resolveAppEnvRequest(body);
+    if (!appEnv.ok) {
+      set.status = 422;
+      return { error: appEnv.error };
+    }
     const health = resolveHealthSpec(body.health);
     if (!health.ok) {
       set.status = 422;
@@ -186,6 +221,7 @@ export function deploy(deps: LifecycleDeps) {
         appImage: body.app_image,
         health: health.value,
         seed: seed.value,
+        appEnv: appEnv.value,
         connectionEnv: connectionEnv.value,
       }),
       set,
