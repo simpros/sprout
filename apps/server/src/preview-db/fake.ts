@@ -4,16 +4,26 @@ import type { CatalogDatabase, PreviewDb } from "./port.ts";
 export type FakePreviewDb = PreviewDb & {
   created: string[];
   dropped: string[];
+  restrictedEnsured: string[];
 };
 
 export function createFakePreviewDb(): FakePreviewDb {
   const created: string[] = [];
   const dropped: string[] = [];
+  const restrictedEnsured: string[] = [];
+
   return {
     created,
     dropped,
+    restrictedEnsured,
     async createDatabase(dbName) {
-      created.push(dbName);
+      const live = new Set(created);
+      for (const name of dropped) live.delete(name);
+      if (!live.has(dbName)) {
+        created.push(dbName);
+      }
+      // Companion ensure runs on every createDatabase call (incl. sync re-ensure).
+      restrictedEnsured.push(dbName);
     },
     async dropDatabase(dbName) {
       dropped.push(dbName);

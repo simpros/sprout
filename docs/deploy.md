@@ -262,7 +262,11 @@ An optional manual helper remains at
 the gateway.
 
 The gateway preview-db module grants that role ownership when it creates each
-`sprout_<slug>_pr<id>` database.
+`sprout_<slug>_pr<id>` database, and also creates a per-DB restricted companion
+LOGIN (`<dbName>_app`) with `CONNECT` + schema `USAGE`. Containers receive
+owner credentials as `PGUSER`/`PGPASSWORD` and companion credentials as
+`PGAPPUSER`/`PGAPPPASSWORD` (remappable via `preview.env` — see the adoption
+guide). Teardown drops the database then the companion role.
 
 ## Worktree DB (local provisioner)
 

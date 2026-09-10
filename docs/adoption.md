@@ -46,8 +46,9 @@ health:
 - `slug` — short name used in database names (`sprout_<slug>_pr<id>`) and
   container names. Alphanumeric.
 - `preview.hostname` — per-PR URL host; `{pr_id}` is substituted at deploy time.
-- `preview.env` — optional remap of the five connection env **names** the
-  gateway injects (see below). Unmapped keys stay `PG*`.
+- `preview.env` — optional remap of the connection env **names** the
+  gateway injects (see below). Unmapped keys stay canonical (`PG*` /
+  `PGAPP*`).
 - `preview.app_env` — optional static string map injected into the app
   container (see Extra app env). Prefer `--app-env` / `--app-env-file` for
   secrets.
@@ -62,11 +63,19 @@ and seed containers:
 
 ```
 PGHOST  PGPORT  PGUSER  PGPASSWORD  PGDATABASE
+PGAPPUSER  PGAPPPASSWORD
 ```
 
+- **Owner** (`PGUSER` / `PGPASSWORD`): the static preview login
+  (`SPROUT_PG_USER`). Owns each preview database — use this for migrations.
+- **Restricted companion** (`PGAPPUSER` / `PGAPPPASSWORD`): a per-preview
+  LOGIN named `<dbName>_app` (e.g. `sprout_myapp_pr42_app`) with `CONNECT`
+  and schema `USAGE` only. Password is derived by the gateway (stable for
+  the life of the preview). Use this for RLS-constrained runtime queries.
+
 Remap the **names** (not values) with optional `preview.env` in `.sprout.yaml`.
-Unmapped keys still inject as `PG*`. Remapping replaces the name (no dual
-alias); values still come from the gateway's single preview login:
+Unmapped keys still inject under their canonical names. Remapping replaces
+the name (no dual alias):
 
 ```yaml
 preview:
@@ -74,25 +83,45 @@ preview:
   env:
     PGHOST: DATABASE_HOST
     PGDATABASE: DATABASE_NAME
+    PGAPPUSER: APP_DATABASE_USER
+    PGAPPPASSWORD: APP_DATABASE_PASSWORD
 ```
 
 If you remap, your entrypoint must read the adopter names; the snippets below
-assume the default `PG*` map.
+assume the default `PG*` / `PGAPP*` map.
 
 Your app image must:
 
 1. Wait until Postgres accepts connections.
-2. Run migrations against the injected database name (default `PGDATABASE`).
+2. Run migrations as the **owner** against the injected database name
+   (default `PGDATABASE`). Migrations that create an `app_user` role should
+   instead `GRANT` table privileges to the companion role named in
+   `PGAPPUSER` (do not `CREATE ROLE` — the gateway already provisioned it).
 3. Start the web server (expose a port — first `EXPOSE` wins, else gateway uses
-   `SPROUT_PREVIEW_PORT_DEFAULT`).
+   `SPROUT_PREVIEW_PORT_DEFAULT`), connecting runtime queries as
+   `PGAPPUSER` when you need RLS.
 
 There is **no mandatory wrapper image** from sprout. Copy an entrypoint
 that fits your stack.
 
+### Dual-role (RLS) previews
+
+Product databases that use a privileged owner + restricted RLS role work on
+previews without cluster `CREATEROLE` on the preview login:
+
+1. Migrate with `PGUSER` / `PGPASSWORD` (owner).
+2. `GRANT` the needed table/sequence privileges to the role in `PGAPPUSER`
+   (and enable RLS / policies as in production).
+3. Open the app pool with `PGAPPUSER` / `PGAPPPASSWORD` (remap to
+   `APP_DATABASE_USER` / `APP_DATABASE_PASSWORD` via `preview.env` if that
+   matches your product env names).
+
+Teardown drops the database and then the companion role.
+
 ### Extra app env (non-connection)
 
-Adopters often need runtime env beyond the five connection fields
-(`BETTER_AUTH_SECRET`, app URLs, trusted origins, dual-role passwords, etc.).
+Adopters often need runtime env beyond the connection fields
+(`BETTER_AUTH_SECRET`, app URLs, trusted origins, etc.).
 Pass those as:
 
 - Static map in `.sprout.yaml` under `preview.app_env` (no secrets in git)

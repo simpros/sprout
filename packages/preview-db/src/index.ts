@@ -8,6 +8,13 @@ export {
   SAFE_ROLE,
 } from "./ensure-role.ts";
 export {
+  deriveRestrictedPassword,
+  dropRestrictedRole,
+  ensureRestrictedRole,
+  PG_IDENT_MAX,
+  restrictedRoleName,
+} from "./restricted-role.ts";
+export {
   isWorktreeInputError,
   WorktreeInputError,
   type WorktreeInputErrorCode,

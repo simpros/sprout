@@ -1,16 +1,15 @@
 import {
-  CANONICAL_ENV_KEYS,
   ENV_TARGET_RE,
-  isCanonicalEnvKey,
-  type CanonicalEnvKey,
+  OWNER_ENV_KEYS,
+  type OwnerEnvKey,
 } from "@sprout/preview-env";
 
-/** Worktree-local emission beyond the five canonical PG* keys (ADR-0007). */
+/** Worktree-local emission beyond the owner PG* keys (ADR-0007). */
 export const DATABASE_URL_LOGICAL = "DATABASE_URL" as const;
 
 export type WorktreeEnvLogicalKey =
   | typeof DATABASE_URL_LOGICAL
-  | CanonicalEnvKey;
+  | OwnerEnvKey;
 
 /** Default env names written by worktree-db provision. */
 export const DEFAULT_ENV_KEYS: Record<WorktreeEnvLogicalKey, string> = {
@@ -24,7 +23,7 @@ export const DEFAULT_ENV_KEYS: Record<WorktreeEnvLogicalKey, string> = {
 
 const WORKTREE_ENV_LOGICAL_KEYS = [
   DATABASE_URL_LOGICAL,
-  ...CANONICAL_ENV_KEYS,
+  ...OWNER_ENV_KEYS,
 ] as const satisfies readonly WorktreeEnvLogicalKey[];
 
 /** Connection values keyed by the same logical names as env emission (ADR-0007). */
@@ -51,7 +50,10 @@ export function connectionEnvValues(conn: {
 }
 
 function isWorktreeEnvLogicalKey(key: string): key is WorktreeEnvLogicalKey {
-  return key === DATABASE_URL_LOGICAL || isCanonicalEnvKey(key);
+  return (
+    key === DATABASE_URL_LOGICAL ||
+    (OWNER_ENV_KEYS as readonly string[]).includes(key)
+  );
 }
 
 /**

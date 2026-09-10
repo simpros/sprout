@@ -3,6 +3,10 @@ import {
   type CanonicalEnvKey,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
+import {
+  deriveRestrictedPassword,
+  restrictedRoleName,
+} from "@sprout/preview-db";
 
 /** Gateway-owned Postgres connection fields for preview containers. */
 export type AppDeployPg = {
@@ -13,20 +17,26 @@ export type AppDeployPg = {
 };
 
 /**
- * Five connection vars for preview DB access (gateway-owned).
- * Optional remap replaces emitted names (no dual alias); unmapped stay PG*.
+ * Connection vars for preview DB access (gateway-owned).
+ * Five owner fields plus per-DB restricted companion (`PGAPPUSER` /
+ * `PGAPPPASSWORD`). Optional remap replaces emitted names (no dual alias);
+ * unmapped stay canonical.
  */
 export function pgConnectionEnv(
   pg: AppDeployPg,
   dbName: string,
   connectionEnv?: PreviewEnvMap,
 ): string[] {
+  const restrictedUser = restrictedRoleName(dbName);
+  const restrictedPassword = deriveRestrictedPassword(pg.password, dbName);
   const fields: [CanonicalEnvKey, string][] = [
     ["PGHOST", pg.host],
     ["PGPORT", String(pg.port)],
     ["PGUSER", pg.user],
     ["PGPASSWORD", pg.password],
     ["PGDATABASE", dbName],
+    ["PGAPPUSER", restrictedUser],
+    ["PGAPPPASSWORD", restrictedPassword],
   ];
   return fields.map(
     ([key, value]) => `${connectionEnv?.[key] ?? key}=${value}`,

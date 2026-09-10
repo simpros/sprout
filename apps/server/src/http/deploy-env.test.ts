@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import {
+  deriveRestrictedPassword,
+  restrictedRoleName,
+} from "@sprout/preview-db";
+import {
   createFakeDockerClient,
   type FakeDockerClient,
 } from "../docker/fake.ts";
@@ -18,6 +22,12 @@ import {
   TEST_REPO as REPO,
   type TestApp,
 } from "./test-helpers.ts";
+
+const DB = "sprout_myapp_pr42";
+const companion = [
+  `PGAPPUSER=${restrictedRoleName(DB)}`,
+  `PGAPPPASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
+];
 
 let testApp: TestApp | undefined;
 let fakePreviewDb: FakePreviewDb | undefined;
@@ -82,6 +92,7 @@ describe("POST /v1/deploy connection env remap", () => {
       "DATABASE_USER=sprout_preview",
       "DATABASE_PASSWORD=preview-secret",
       "DATABASE_NAME=sprout_myapp_pr42",
+      ...companion,
     ]);
     // Remap is request-scoped — not written to SQLite.
     const [row] = await testApp!.db
@@ -129,6 +140,30 @@ describe("POST /v1/deploy connection env remap", () => {
 });
 
 describe("POST /v1/deploy app_env", () => {
+  test("injects companion PGAPP* and remaps to APP_DATABASE_*", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        env: {
+          PGAPPUSER: "APP_DATABASE_USER",
+          PGAPPPASSWORD: "APP_DATABASE_PASSWORD",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(fakeDocker!.creates[0]!.env).toEqual([
+      "PGHOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=sprout_preview",
+      "PGPASSWORD=preview-secret",
+      "PGDATABASE=sprout_myapp_pr42",
+      `APP_DATABASE_USER=${restrictedRoleName(DB)}`,
+      `APP_DATABASE_PASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
+    ]);
+    expect(fakePreviewDb!.restrictedEnsured).toContain(DB);
+  });
+
   test("injects app_env with colliding connection keys stripped", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(
@@ -150,6 +185,7 @@ describe("POST /v1/deploy app_env", () => {
       "PGUSER=sprout_preview",
       "PGPASSWORD=preview-secret",
       "PGDATABASE=sprout_myapp_pr42",
+      ...companion,
     ]);
     const [row] = await testApp!.db
       .select()

@@ -2,11 +2,16 @@
 
 **Status:** accepted, implemented.
 
-Adopters remap the five canonical connection env names the gateway injects
+Adopters remap the canonical connection env names the gateway injects
 into preview app and seed containers via optional `preview.env` in
-`.sprout.yaml` (keys `PGHOST`…`PGDATABASE` → adopter names). Unmapped keys
-still inject as `PG*`. Remapping replaces the name (no dual alias). Values
-still come from the gateway's single preview login.
+`.sprout.yaml` (keys `PGHOST`…`PGDATABASE`, plus companion
+`PGAPPUSER` / `PGAPPPASSWORD` → adopter names). Unmapped keys still
+inject under their canonical names. Remapping replaces the name (no dual
+alias).
 
-A second restricted DB role is out of scope. Product durable identity rename is
-a separate decision (ADR-0006).
+Owner values (`PGUSER` / `PGPASSWORD`) come from the gateway's static
+preview login. Companion values are a per-preview-DB restricted LOGIN
+(`<dbName>_app`) with a password derived from the owner preview password
+— dual-role / RLS apps use the companion for runtime queries and the
+owner for migrations. Product durable identity rename is a separate
+decision (ADR-0006).

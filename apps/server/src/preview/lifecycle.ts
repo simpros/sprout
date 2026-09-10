@@ -331,7 +331,11 @@ async function attachThenPromote(
   return promoteAfterHealthy(deps, attached.value, deployEphemerals(input));
 }
 
-/** Fresh / recovered identity: CREATE failure → failed; else attach+promote. */
+/**
+ * Ensure catalog (DB + companion) under lock; mark failed on ensure error;
+ * then attach+promote. Shared by fresh create, recovered identity, and
+ * sync/replace paths that inject env.
+ */
 async function bringUpNew(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -394,7 +398,8 @@ async function resumeSeedIncomplete(
   if (canResumeSeed(row, input)) {
     return resumeIncompleteSeed(deps, row, deployEphemerals(input));
   }
-  return attachThenPromote(deps, row, input, false);
+  // Replace path: same ensure-then-attach policy as fresh/recovered.
+  return bringUpNew(deps, row, input, false);
 }
 
 async function provisionUnlocked(
@@ -461,10 +466,10 @@ async function provisionUnlocked(
     case "starting": {
       // Live / mid-health claim: refuse slug/dbName rewrite.
       // Hostname/image may still change when identity matches.
-      // DB already ensured; re-attach + health without reminting TTL.
+      // Re-ensure catalog under lock, then re-attach without reminting TTL.
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      return attachThenPromote(deps, row, input, false);
+      return bringUpNew(deps, row, input, false);
     }
     case "provisioning": {
       // Stuck create: refuse slug/dbName rewrite; ensure DB then attach (mints generation).
@@ -597,7 +602,7 @@ async function pullImageOrFail(
  * - failed + same slug/dbName + live app (seed-incomplete): resume seed only
  * - failed + same slug/dbName + no live app: ensure DB + attach without burning generation
  * - failed + new slug/dbName: rewrite intent, then bring-up
- * - starting|running + same slug/dbName: re-attach + health (no CREATE retry, no TTL remint)
+ * - starting|running + same slug/dbName: ensure DB (idempotent) then re-attach + health (no TTL remint)
  * - provisioning + same slug/dbName: ensure DB then attach (mints generation)
  * - seeding + same slug/dbName + same image/hostname: resume seed only (crash recovery)
  * - seeding + image/hostname change: attachThenPromote (replace earned)
