@@ -9,6 +9,9 @@ export type FlagBag = {
   repo?: string;
   slug?: string;
   scope?: string;
+  envFile?: string;
+  adminUrl?: string;
+  rename: string[];
   rest: string[];
 };
 
@@ -21,6 +24,9 @@ const FLAG_DEFS = [
   { flag: "--repo", field: "repo", kind: "string" },
   { flag: "--slug", field: "slug", kind: "string" },
   { flag: "--scope", field: "scope", kind: "string" },
+  { flag: "--env-file", field: "envFile", kind: "string" },
+  { flag: "--admin-url", field: "adminUrl", kind: "string", allowDash: true },
+  { flag: "--rename", field: "rename", kind: "repeat" },
 ] as const;
 
 export type FlagName = (typeof FLAG_DEFS)[number]["flag"];
@@ -38,6 +44,7 @@ export function parseFlags(
   const out: FlagBag = {
     seedEnv: [],
     seedArg: [],
+    rename: [],
     yes: false,
     rest: [],
   };

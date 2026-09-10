@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./api-type": "./src/http/api-type.ts"
+    "./api-type": "./src/http/api-type.ts",
+    "./preview-db/worktree": "./src/preview-db/worktree.ts",
+    "./preview-db/worktree-names": "./src/preview-db/worktree-names.ts"
   },
   "scripts": {
     "dev": "bun run --watch src/index.ts",

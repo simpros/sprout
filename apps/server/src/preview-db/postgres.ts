@@ -1,21 +1,13 @@
 import { SQL } from "bun";
+import { ensureLoginRole, assertSafeRole } from "./ensure-role.ts";
 import { assertPreviewDbName, parsePreviewDatabaseName } from "./names.ts";
 import type { CatalogDatabase, PreviewDb } from "./port.ts";
-
-/** Unquoted Postgres identifiers fold to lowercase — require lowercase roles. */
-const SAFE_ROLE = /^[a-z_][a-z0-9_]*$/;
 
 export type PostgresPreviewDbOptions = {
   url: string;
   previewRole: string;
   previewPassword: string;
 };
-
-function assertSafeRole(role: string): void {
-  if (!SAFE_ROLE.test(role)) {
-    throw new Error(`refusing unsafe preview role name: ${role}`);
-  }
-}
 
 function pgErrorMatches(
   err: unknown,
@@ -36,33 +28,6 @@ function isDuplicateDatabase(err: unknown): boolean {
   });
 }
 
-function isDuplicateRole(err: unknown): boolean {
-  return pgErrorMatches(err, {
-    codes: ["42710"],
-    messageRe: /already exists/i,
-  });
-}
-
-function isInsufficientPrivilege(err: unknown): boolean {
-  return pgErrorMatches(err, {
-    codes: ["42501"],
-    messageRe: /permission denied|must be superuser|must have createrole/i,
-  });
-}
-
-function roleEnsureError(role: string, err: unknown): Error {
-  const detail =
-    err && typeof err === "object" && "message" in err
-      ? String(err.message)
-      : String(err);
-  if (isInsufficientPrivilege(err)) {
-    return new Error(
-      `cannot ensure preview role "${role}": admin connection lacks CREATEROLE (or superuser) privilege: ${detail}`,
-    );
-  }
-  return new Error(`cannot ensure preview role "${role}": ${detail}`);
-}
-
 export function createPostgresPreviewDb(
   options: PostgresPreviewDbOptions,
 ): PreviewDb {
@@ -75,54 +40,10 @@ export function createPostgresPreviewDb(
   let roleEnsured = false;
   let ensureInFlight: Promise<void> | undefined;
 
-  /** Build CREATE/ALTER via Postgres format(%I/%L) so passwords stay escaped. */
-  async function roleDdl(kind: "create" | "alter"): Promise<string> {
-    const template =
-      kind === "create"
-        ? "CREATE ROLE %I LOGIN PASSWORD %L"
-        : "ALTER ROLE %I LOGIN PASSWORD %L";
-    const rows = await sql<{ stmt: string }[]>`
-      SELECT format(
-        ${template},
-        ${previewRole}::text,
-        ${previewPassword}::text
-      ) AS stmt
-    `;
-    const stmt = rows[0]?.stmt;
-    if (!stmt) {
-      throw new Error("role ensure produced no SQL statement");
-    }
-    return stmt;
-  }
-
-  async function ensurePreviewRoleOnce(): Promise<void> {
-    try {
-      const existing = await sql`
-        SELECT 1 AS ok
-        FROM pg_catalog.pg_roles
-        WHERE rolname = ${previewRole}
-        LIMIT 1
-      `;
-      if (existing.length > 0) {
-        await sql.unsafe(await roleDdl("alter"));
-        return;
-      }
-      try {
-        await sql.unsafe(await roleDdl("create"));
-      } catch (err) {
-        // Concurrent ensure: another caller created the role between SELECT and CREATE.
-        if (!isDuplicateRole(err)) throw err;
-        await sql.unsafe(await roleDdl("alter"));
-      }
-    } catch (err) {
-      throw roleEnsureError(previewRole, err);
-    }
-  }
-
   async function ensurePreviewRole(): Promise<void> {
     if (roleEnsured) return;
     if (!ensureInFlight) {
-      ensureInFlight = ensurePreviewRoleOnce().then(
+      ensureInFlight = ensureLoginRole(sql, previewRole, previewPassword).then(
         () => {
           roleEnsured = true;
         },
