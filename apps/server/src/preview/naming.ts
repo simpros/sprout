@@ -1,8 +1,5 @@
 const PREVIEW_CONTAINER_RE = /^sprout-([a-zA-Z0-9]+)-pr-(\d+)$/;
 
-/** Re-export DB parse from the single preview-db grammar. */
-export { parsePreviewDatabaseName } from "../preview-db/names.ts";
-
 export function previewContainerName(slug: string, prId: number): string {
   return `sprout-${slug}-pr-${prId}`;
 }

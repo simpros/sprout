@@ -121,6 +121,23 @@ export function bearer(token: string): HeadersInit {
   return { authorization: `Bearer ${token}` };
 }
 
+/** Shared fixture identity for HTTP deploy tests (single source with deployBody). */
+export const TEST_REPO = "https://github.com/org/repo";
+export const TEST_APP_IMAGE = "ghcr.io/org/myapp:sha-abc";
+export const TEST_HOSTNAME = "pr-42.myapp.preview.example.com";
+
+/** Shared default POST /v1/deploy body for HTTP tests. */
+export function deployBody(overrides: Record<string, unknown> = {}) {
+  return {
+    canonical_repo_id: TEST_REPO,
+    pr_id: 42,
+    slug: "myapp",
+    hostname: TEST_HOSTNAME,
+    app_image: TEST_APP_IMAGE,
+    ...overrides,
+  };
+}
+
 export async function postDeployToken(
   app: TestApp,
   body: { canonical_repo_id: string; slug: string },

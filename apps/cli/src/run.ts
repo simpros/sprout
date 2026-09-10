@@ -48,7 +48,7 @@ export async function runCli(
   if (!name) {
     return fail(
       deps.io,
-      "usage: sprout <deploy|teardown|list|doctor|drop|admin|worktree-db> …",
+      "usage: sprout <health|deploy|teardown|list|doctor|drop|admin|worktree-db> …",
     );
   }
 

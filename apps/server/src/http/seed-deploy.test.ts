@@ -13,12 +13,13 @@ import type { HealthProbe } from "../app-deployment/health.ts";
 import {
   bearer,
   createTestApp,
+  deployBody,
   postDeployToken,
+  TEST_APP_IMAGE as APP_IMAGE,
+  TEST_REPO as REPO,
   type TestApp,
 } from "./test-helpers.ts";
 
-const REPO = "https://github.com/org/repo";
-const APP_IMAGE = "ghcr.io/org/myapp:sha-abc";
 const SEED_IMAGE = "ghcr.io/org/myapp-seed:sha-abc";
 
 let testApp: TestApp | undefined;
@@ -57,17 +58,6 @@ async function setup(options?: {
     slug: "myapp",
   });
   return { deployToken: body.token as string };
-}
-
-function deployBody(overrides: Record<string, unknown> = {}) {
-  return {
-    canonical_repo_id: REPO,
-    pr_id: 42,
-    slug: "myapp",
-    hostname: "pr-42.myapp.preview.example.com",
-    app_image: APP_IMAGE,
-    ...overrides,
-  };
 }
 
 function healthBlock() {

@@ -13,13 +13,14 @@ import {
 import {
   bearer,
   createTestApp,
+  deployBody,
   postDeployToken,
+  TEST_APP_IMAGE as APP_IMAGE,
+  TEST_REPO as REPO,
   type TestApp,
 } from "./test-helpers.ts";
 
-const REPO = "https://github.com/org/repo";
 const OTHER_REPO = "https://github.com/org/other";
-const APP_IMAGE = "ghcr.io/org/myapp:sha-abc";
 
 let testApp: TestApp | undefined;
 let fakePreviewDb: FakePreviewDb | undefined;
@@ -57,17 +58,6 @@ async function setup(options?: {
     slug: "myapp",
   });
   return { deployToken: body.token as string };
-}
-
-function deployBody(overrides: Record<string, unknown> = {}) {
-  return {
-    canonical_repo_id: REPO,
-    pr_id: 42,
-    slug: "myapp",
-    hostname: "pr-42.myapp.preview.example.com",
-    app_image: APP_IMAGE,
-    ...overrides,
-  };
 }
 
 function teardownBody(overrides: Record<string, unknown> = {}) {

@@ -15,10 +15,8 @@
     "allowImportingTsExtensions": true,
     "paths": {
       "@sprout/api-client": ["./packages/api-client/src/index.ts"],
-      "@sprout/cli": ["./apps/cli/src/index.ts"],
       "@sprout/preview-db": ["./packages/preview-db/src/index.ts"],
-      "@sprout/preview-env": ["./packages/preview-env/src/index.ts"],
-      "@sprout/server": ["./apps/server/src/index.ts"]
+      "@sprout/preview-env": ["./packages/preview-env/src/index.ts"]
     },
     "types": []
   }
