@@ -5,23 +5,17 @@ export type FakePreviewDb = PreviewDb & {
   created: string[];
   dropped: string[];
   restrictedEnsured: string[];
-  /** Owner password used to derive companion credentials (matches test PG bag). */
-  ownerPassword: string;
 };
 
-export function createFakePreviewDb(
-  options: { ownerPassword?: string } = {},
-): FakePreviewDb {
+export function createFakePreviewDb(): FakePreviewDb {
   const created: string[] = [];
   const dropped: string[] = [];
   const restrictedEnsured: string[] = [];
-  const ownerPassword = options.ownerPassword ?? "preview-secret";
 
   return {
     created,
     dropped,
     restrictedEnsured,
-    ownerPassword,
     async createDatabase(dbName) {
       const live = new Set(created);
       for (const name of dropped) live.delete(name);

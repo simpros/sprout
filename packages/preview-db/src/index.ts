@@ -11,6 +11,7 @@ export {
   deriveRestrictedPassword,
   dropRestrictedRole,
   ensureRestrictedRole,
+  PG_IDENT_MAX,
   restrictedRoleName,
 } from "./restricted-role.ts";
 export {

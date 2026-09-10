@@ -331,7 +331,11 @@ async function attachThenPromote(
   return promoteAfterHealthy(deps, attached.value, deployEphemerals(input));
 }
 
-/** Fresh / recovered identity: CREATE failure → failed; else attach+promote. */
+/**
+ * Ensure catalog (DB + companion) under lock; mark failed on ensure error;
+ * then attach+promote. Shared by fresh create, recovered identity, and
+ * sync/replace paths that inject env.
+ */
 async function bringUpNew(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -394,13 +398,8 @@ async function resumeSeedIncomplete(
   if (canResumeSeed(row, input)) {
     return resumeIncompleteSeed(deps, row, deployEphemerals(input));
   }
-  // Replace path: ensure catalog (incl. companion) under lock before inject.
-  const ensured = await ensureDatabase(deps, row);
-  if (!ensured.ok) {
-    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
-    return ensured;
-  }
-  return attachThenPromote(deps, row, input, false);
+  // Replace path: same ensure-then-attach policy as fresh/recovered.
+  return bringUpNew(deps, row, input, false);
 }
 
 async function provisionUnlocked(
@@ -467,16 +466,10 @@ async function provisionUnlocked(
     case "starting": {
       // Live / mid-health claim: refuse slug/dbName rewrite.
       // Hostname/image may still change when identity matches.
-      // Re-ensure catalog (idempotent CREATE + companion) under lock, then
-      // re-attach + health without reminting TTL.
+      // Re-ensure catalog under lock, then re-attach without reminting TTL.
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const ensured = await ensureDatabase(deps, row);
-      if (!ensured.ok) {
-        await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
-        return ensured;
-      }
-      return attachThenPromote(deps, row, input, false);
+      return bringUpNew(deps, row, input, false);
     }
     case "provisioning": {
       // Stuck create: refuse slug/dbName rewrite; ensure DB then attach (mints generation).

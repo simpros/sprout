@@ -7,6 +7,7 @@ import {
   deriveRestrictedPassword,
   dropRestrictedRole,
   ensureRestrictedRole,
+  PG_IDENT_MAX,
   restrictedRoleName,
 } from "./restricted-role.ts";
 
@@ -17,6 +18,11 @@ describe("restrictedRoleName / deriveRestrictedPassword", () => {
     expect(restrictedRoleName("sprout_myapp_pr42")).toBe(
       "sprout_myapp_pr42_app",
     );
+  });
+
+  test("refuses companion names longer than Postgres NAMEDATALEN", () => {
+    const tooLongDb = "a".repeat(PG_IDENT_MAX - "_app".length + 1);
+    expect(() => restrictedRoleName(tooLongDb)).toThrow(/identifier limit/);
   });
 
   test("password is deterministic for the same owner secret + db", () => {

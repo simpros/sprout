@@ -2,9 +2,21 @@ import { createHmac } from "node:crypto";
 import { SQL } from "bun";
 import { assertSafeRole, ensureLoginRole } from "./ensure-role.ts";
 
+/**
+ * Postgres NAMEDATALEN − 1: unquoted identifiers longer than this are
+ * truncated (and can collide). Companion roles must fit without truncation.
+ */
+export const PG_IDENT_MAX = 63;
+
 /** Companion LOGIN role for one preview DB: `<dbName>_app`. */
 export function restrictedRoleName(dbName: string): string {
-  return `${dbName}_app`;
+  const role = `${dbName}_app`;
+  if (role.length > PG_IDENT_MAX) {
+    throw new Error(
+      `companion role name exceeds Postgres identifier limit (${PG_IDENT_MAX}): ${role}`,
+    );
+  }
+  return role;
 }
 
 /**

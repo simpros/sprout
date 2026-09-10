@@ -12,7 +12,7 @@ import {
   type LifecycleDeps,
 } from "../preview/lifecycle.ts";
 import type { Result } from "../preview/result.ts";
-import { validatePrId, validateSlug } from "../preview-db/names.ts";
+import { validatePrId, validatePreviewIdentity } from "../preview-db/names.ts";
 
 export type { LifecycleDeps };
 
@@ -173,15 +173,10 @@ export function deploy(deps: LifecycleDeps) {
     }
     const repo = resolveRepo(auth, body.canonical_repo_id);
     if (!repo.ok) return mapResult(repo, set);
-    const slugErr = validateSlug(body.slug);
-    if (slugErr) {
+    const identityErr = validatePreviewIdentity(body.slug, body.pr_id);
+    if (identityErr) {
       set.status = 422;
-      return { error: slugErr };
-    }
-    const prErr = validatePrId(body.pr_id);
-    if (prErr) {
-      set.status = 422;
-      return { error: prErr };
+      return { error: identityErr };
     }
     const connectionEnv = parsePreviewEnvMap(body.env);
     if (!connectionEnv.ok) {
