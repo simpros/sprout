@@ -26,6 +26,16 @@ export type RegistryAuthConfig = {
 const DOCKER_HUB_SERVERADDRESS = "https://index.docker.io/v1/";
 
 /**
+ * Collapse Docker Hub synonyms to `docker.io` so map keys and image-ref
+ * lookup share one host identity.
+ */
+export function canonicalizeRegistryHost(host: string): string {
+  const h = host.trim().toLowerCase();
+  if (h === "index.docker.io" || h === "registry-1.docker.io") return "docker.io";
+  return h;
+}
+
+/**
  * Strip tag or digest from an image ref (`ghcr.io/org/app:tag` → `ghcr.io/org/app`).
  * Shared by host extraction and Engine `/images/create` query construction.
  */
@@ -51,15 +61,14 @@ export function registryHostFromImageRef(image: string): string {
     first.includes(":") ||
     first.toLowerCase() === "localhost"
   ) {
-    return first.toLowerCase();
+    return canonicalizeRegistryHost(first);
   }
   return "docker.io";
 }
 
 /** AuthConfig `serveraddress` for the Engine X-Registry-Auth payload. */
 export function registryServerAddress(host: string): string {
-  const normalized = host.trim().toLowerCase();
-  if (normalized === "docker.io" || normalized === "index.docker.io") {
+  if (canonicalizeRegistryHost(host) === "docker.io") {
     return DOCKER_HUB_SERVERADDRESS;
   }
   return host.trim();
@@ -85,13 +94,7 @@ export function resolveRegistryAuth(
 
 /** Base64 AuthConfig for Engine `X-Registry-Auth`. */
 export function encodeRegistryAuthHeader(auth: RegistryAuthConfig): string {
-  return Buffer.from(
-    JSON.stringify({
-      username: auth.username,
-      password: auth.password,
-      serveraddress: auth.serveraddress,
-    }),
-  ).toString("base64");
+  return Buffer.from(JSON.stringify(auth)).toString("base64");
 }
 
 /** Resolve + encode in one step for Engine pull. */

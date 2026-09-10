@@ -1,4 +1,9 @@
 import { GITHUB_HOSTS } from "./forge/kind.ts";
+import {
+  canonicalizeRegistryHost,
+  type RegistryCredential,
+  type RegistryPullAuth,
+} from "./docker/registry-auth.ts";
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -54,10 +59,7 @@ export type Config = {
    * Normalized registry pull auth: per-host map from SPROUT_REGISTRY_AUTHS_JSON
    * plus optional legacy USER/PASSWORD fallback (only when user is non-empty).
    */
-  registryPullAuth: {
-    byHost: ReadonlyMap<string, { username: string; password: string }>;
-    fallback?: { username: string; password: string };
-  };
+  registryPullAuth: RegistryPullAuth;
   /** GitHub PAT for sweep open-PR listing. */
   githubToken: string;
   /** GitLab PAT for sweep open-MR listing. */
@@ -141,7 +143,7 @@ export function parseExtraGitlabHosts(raw: string): ReadonlySet<string> {
  */
 export function parseRegistryAuthsJson(
   raw: string,
-): ReadonlyMap<string, { username: string; password: string }> {
+): ReadonlyMap<string, RegistryCredential> {
   const trimmed = raw.trim();
   if (trimmed === "") return new Map();
 
@@ -157,19 +159,27 @@ export function parseRegistryAuthsJson(
     );
   }
 
-  const out = new Map<string, { username: string; password: string }>();
+  const out = new Map<string, RegistryCredential>();
+  /** First raw JSON key seen for each canonical host (for duplicate errors). */
+  const rawKeyByHost = new Map<string, string>();
   for (const [hostRaw, entry] of Object.entries(
     parsed as Record<string, unknown>,
   )) {
-    const host = hostRaw.trim().toLowerCase();
+    const host = canonicalizeRegistryHost(hostRaw);
     if (host === "") {
       throw new Error(
         "Invalid SPROUT_REGISTRY_AUTHS_JSON: registry host keys must be non-empty",
       );
     }
+    const priorRaw = rawKeyByHost.get(host);
+    if (priorRaw !== undefined) {
+      throw new Error(
+        `Invalid SPROUT_REGISTRY_AUTHS_JSON: duplicate registry host "${host}" (keys "${priorRaw}" and "${hostRaw}")`,
+      );
+    }
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error(
-        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${host}": expected {username, password}`,
+        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${hostRaw}": expected {username, password}`,
       );
     }
     const row = entry as Record<string, unknown>;
@@ -178,14 +188,15 @@ export function parseRegistryAuthsJson(
     const password = typeof row.password === "string" ? row.password : null;
     if (username === null || password === null) {
       throw new Error(
-        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${host}": expected string fields username and password`,
+        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${hostRaw}": expected string fields username and password`,
       );
     }
     if (username === "") {
       throw new Error(
-        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${host}": username must be non-empty (omit the host for anonymous)`,
+        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${hostRaw}": username must be non-empty (omit the host for anonymous)`,
       );
     }
+    rawKeyByHost.set(host, hostRaw);
     out.set(host, { username, password });
   }
   return out;
@@ -214,7 +225,7 @@ export function loadConfig(): Config {
   const byHost = parseRegistryAuthsJson(
     optionalStringEnv("SPROUT_REGISTRY_AUTHS_JSON"),
   );
-  const registryPullAuth = {
+  const registryPullAuth: RegistryPullAuth = {
     byHost,
     ...(registryUser !== ""
       ? { fallback: { username: registryUser, password: registryPassword } }

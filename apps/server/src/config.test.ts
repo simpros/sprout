@@ -106,6 +106,48 @@ describe("parseRegistryAuthsJson", () => {
     expect(map.get("ghcr.io")).toEqual({ username: "u", password: "p" });
   });
 
+  test("canonicalizes Docker Hub synonyms to docker.io", () => {
+    const map = parseRegistryAuthsJson(
+      JSON.stringify({
+        "index.docker.io": { username: "hub", password: "tok" },
+      }),
+    );
+    expect(map.get("docker.io")).toEqual({
+      username: "hub",
+      password: "tok",
+    });
+    expect(map.has("index.docker.io")).toBe(false);
+
+    const map2 = parseRegistryAuthsJson(
+      JSON.stringify({
+        "registry-1.docker.io": { username: "hub2", password: "tok2" },
+      }),
+    );
+    expect(map2.get("docker.io")).toEqual({
+      username: "hub2",
+      password: "tok2",
+    });
+  });
+
+  test("rejects duplicate hosts after canonicalize", () => {
+    expect(() =>
+      parseRegistryAuthsJson(
+        JSON.stringify({
+          "GHCR.IO": { username: "a", password: "1" },
+          "ghcr.io": { username: "b", password: "2" },
+        }),
+      ),
+    ).toThrow('duplicate registry host "ghcr.io"');
+    expect(() =>
+      parseRegistryAuthsJson(
+        JSON.stringify({
+          "index.docker.io": { username: "a", password: "1" },
+          "docker.io": { username: "b", password: "2" },
+        }),
+      ),
+    ).toThrow('duplicate registry host "docker.io"');
+  });
+
   test("rejects invalid JSON", () => {
     expect(() => parseRegistryAuthsJson("{")).toThrow("must be valid JSON");
   });
