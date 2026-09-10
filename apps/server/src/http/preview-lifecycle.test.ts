@@ -237,10 +237,11 @@ describe("POST /v1/deploy", () => {
       deployToken,
       deployBody({ app_image: "ghcr.io/org/myapp:bad" }),
     );
-    expect(res.settleStatus).toBe(500);
-    expect(res.body).toEqual({
-      error: "preview_app_pull_failed",
-      detail: "registry blip",
+    expect(res.outcome).toBe("failed");
+    expect(res.body).toMatchObject({
+      status: "running",
+      last_error: "preview_app_pull_failed",
+      last_error_detail: "registry blip",
     });
 
     const [row] = await testApp!.db
@@ -291,10 +292,10 @@ describe("POST /v1/deploy", () => {
       );
     };
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.settleStatus).toBe(500);
-    expect(res.body).toEqual({
-      error: "preview_app_pull_failed",
-      detail: "access forbidden",
+    expect(res.outcome).toBe("failed");
+    expect(res.body).toMatchObject({
+      last_error: "preview_app_pull_failed",
+      last_error_detail: "access forbidden",
     });
   });
 
@@ -407,8 +408,11 @@ describe("POST /v1/deploy", () => {
       },
     });
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.settleStatus).toBe(500);
-    expect(res.body).toEqual({ error: "preview_db_create_failed" });
+    expect(res.outcome).toBe("failed");
+    expect(res.body).toMatchObject({
+      status: "failed",
+      last_error: "preview_db_create_failed",
+    });
 
     const [row] = await testApp!.db
       .select()
@@ -431,7 +435,7 @@ describe("POST /v1/deploy", () => {
         fakePreviewDb!.created.push(dbName);
       },
     });
-    expect((await postDeploy(deployToken, deployBody())).settleStatus).toBe(500);
+    expect((await postDeploy(deployToken, deployBody())).outcome).toBe("failed");
     const res = await postDeploy(deployToken, deployBody());
     expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({ status: "running" });
@@ -595,8 +599,11 @@ describe("POST /v1/deploy", () => {
       deployToken,
       deployBody({ app_image: "ghcr.io/org/myapp:next" }),
     );
-    expect(fail.settleStatus).toBe(500);
-    expect(fail.body).toEqual({ error: "preview_app_deploy_failed" });
+    expect(fail.outcome).toBe("failed");
+    expect(fail.body).toMatchObject({
+      status: "failed",
+      last_error: "preview_app_deploy_failed",
+    });
 
     const [failedRow] = await testApp!.db
       .select()
@@ -829,8 +836,11 @@ describe("POST /v1/deploy", () => {
       status: "provisioning",
     });
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.settleStatus).toBe(500);
-    expect(res.body).toEqual({ error: "preview_db_create_failed" });
+    expect(res.outcome).toBe("failed");
+    expect(res.body).toMatchObject({
+      status: "failed",
+      last_error: "preview_db_create_failed",
+    });
     expect(calls).toBe(1);
     const [row] = await testApp!.db
       .select()

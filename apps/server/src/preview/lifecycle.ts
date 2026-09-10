@@ -311,58 +311,31 @@ async function writeProvisioningIntent(
   );
 }
 
-/** Same-identity accept: flip to provisioning without burning TTL or rewriting routing. */
-async function markAcceptProvisioning(
+/**
+ * Same-identity accept patch: clear sticky errors and set the in-flight plan
+ * status. Optional remint advances TTL generation (stuck provisioning only).
+ */
+async function patchAccept(
   deps: LifecycleDeps,
   row: PreviewRow,
+  fields: {
+    status: "provisioning" | "seeding";
+    remint?: boolean;
+    hostname?: string;
+  },
 ): Promise<PreviewRow> {
   const now = utcIsoNow();
   return updatePreviewRow(
     deps.db,
     row,
     {
-      status: "provisioning",
+      status: fields.status,
+      ...(fields.hostname != null ? { hostname: fields.hostname } : {}),
       ...clearLastError,
+      ...(fields.remint ? { createdAt: now } : {}),
       updatedAt: now,
     },
     "preview_row_missing_on_accept",
-  );
-}
-
-/** Clear sticky errors without changing phase (seed-resume accept). */
-async function clearAcceptErrors(
-  deps: LifecycleDeps,
-  row: PreviewRow,
-): Promise<PreviewRow> {
-  return updatePreviewRow(
-    deps.db,
-    row,
-    {
-      ...clearLastError,
-      updatedAt: utcIsoNow(),
-    },
-    "preview_row_missing_on_accept_clear",
-  );
-}
-
-/** Stuck provisioning accept: remint generation now (complete path does not). */
-async function remintAcceptProvisioning(
-  deps: LifecycleDeps,
-  row: PreviewRow,
-  input: ProvisionInput,
-): Promise<PreviewRow> {
-  const now = utcIsoNow();
-  return updatePreviewRow(
-    deps.db,
-    row,
-    {
-      hostname: input.hostname,
-      status: "provisioning",
-      ...clearLastError,
-      createdAt: now,
-      updatedAt: now,
-    },
-    "preview_row_missing_on_accept_remint",
   );
 }
 
@@ -569,13 +542,13 @@ export async function claimDeployIntent(
     }
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
-        // Keep failed+container when seed-incomplete so complete can resume
-        // without treating a never-seeded running row as seed-resume.
+        // Seed-resume accept writes in-flight `seeding` so `failed` stays
+        // terminal-only for CLI pollers (keep containerId/appImage).
         if (canResumeSeed(row, input)) {
-          const next = await clearAcceptErrors(deps, row);
+          const next = await patchAccept(deps, row, { status: "seeding" });
           return { ok: true, value: previewSnapshotFromRow(next) };
         }
-        const next = await markAcceptProvisioning(deps, row);
+        const next = await patchAccept(deps, row, { status: "provisioning" });
         return { ok: true, value: previewSnapshotFromRow(next) };
       }
       const intent = await writeProvisioningIntent(
@@ -589,23 +562,27 @@ export async function claimDeployIntent(
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
       if (canResumeSeed(row, input)) {
-        const next = await clearAcceptErrors(deps, row);
+        const next = await patchAccept(deps, row, { status: "seeding" });
         return { ok: true, value: previewSnapshotFromRow(next) };
       }
-      const next = await markAcceptProvisioning(deps, row);
+      const next = await patchAccept(deps, row, { status: "provisioning" });
       return { ok: true, value: previewSnapshotFromRow(next) };
     }
     case "running":
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await markAcceptProvisioning(deps, row);
+      const next = await patchAccept(deps, row, { status: "provisioning" });
       return { ok: true, value: previewSnapshotFromRow(next) };
     }
     case "provisioning": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await remintAcceptProvisioning(deps, row, input);
+      const next = await patchAccept(deps, row, {
+        status: "provisioning",
+        remint: true,
+        hostname: input.hostname,
+      });
       return { ok: true, value: previewSnapshotFromRow(next) };
     }
   }
@@ -616,10 +593,10 @@ export async function claimDeployIntent(
  * {@link claimDeployIntent} already wrote/cleared the intent row. Never remints
  * createdAt — accept owns generation.
  *
- * Status after claim is the plan: seed-resume leaves `seeding`/`failed`;
- * everything else is `provisioning`. Do not re-enter seed on a live same-image
- * row — that still has containerId/appImage and would wrongly match canResumeSeed
- * without the seeding|failed guard.
+ * Status after claim is the plan: seed-resume is `seeding`; everything else is
+ * `provisioning`. Do not re-enter seed on a live same-image row — that still has
+ * containerId/appImage and would wrongly match canResumeSeed without the
+ * seeding-only guard (`failed` is terminal after accept).
  */
 async function completeProvisionUnlocked(
   deps: LifecycleDeps,
@@ -643,10 +620,7 @@ async function completeProvisionUnlocked(
   if (status.value === "removed") {
     return { ok: false, status: 404, error: "preview_not_found" };
   }
-  if (
-    (status.value === "seeding" || status.value === "failed") &&
-    canResumeSeed(row, input)
-  ) {
+  if (status.value === "seeding" && canResumeSeed(row, input)) {
     return resumeIncompleteSeed(deps, row, deployEphemerals(input));
   }
   return ensureThenAttach(deps, row, input);

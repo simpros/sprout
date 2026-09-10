@@ -162,8 +162,11 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(res.settleStatus).toBe(500);
-    expect(res.body).toEqual({ error: "health_timeout" });
+    expect(res.outcome).toBe("failed");
+    expect(res.body).toMatchObject({
+      status: "failed",
+      last_error: "health_timeout",
+    });
     expect(
       fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
     ).toHaveLength(0);
@@ -312,8 +315,11 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(res.settleStatus).toBe(500);
-    expect(res.body).toEqual({ error: "seed_failed" });
+    expect(res.outcome).toBe("failed");
+    expect(res.body).toMatchObject({
+      status: "failed",
+      last_error: "seed_failed",
+    });
 
     const [row] = await testApp!.db
       .select()
@@ -369,8 +375,11 @@ describe("POST /v1/deploy seed image", () => {
           health: healthBlock(),
         }),
       );
-      expect(res.settleStatus).toBe(500);
-      expect(res.body).toEqual({ error: "seed_failed" });
+      expect(res.outcome).toBe("failed");
+      expect(res.body).toMatchObject({
+        status: "failed",
+        last_error: "seed_failed",
+      });
 
       const [row] = await testApp!.db
         .select()
@@ -408,8 +417,11 @@ describe("POST /v1/deploy seed image", () => {
           health: healthBlock(),
         }),
       );
-      expect(res.settleStatus).toBe(500);
-      expect(res.body).toEqual({ error: "seed_failed" });
+      expect(res.outcome).toBe("failed");
+      expect(res.body).toMatchObject({
+        status: "failed",
+        last_error: "seed_failed",
+      });
       expect(
         warns.some(
           (args) => args[0] === "seed:failed" && args[1] === "timeout",
@@ -441,7 +453,7 @@ describe("POST /v1/deploy seed image", () => {
       deployToken,
       deployBody({ seed_image: SEED_IMAGE, health: healthBlock() }),
     );
-    expect(failed.settleStatus).toBe(500);
+    expect(failed.outcome).toBe("failed");
 
     const appCreatesAfterFail = fakeDocker.creates.filter(
       (c) => c.name === "sprout-myapp-pr-42",
@@ -516,7 +528,7 @@ describe("POST /v1/deploy seed image", () => {
     expect(row?.containerId).toBe("fake-stuck");
   });
 
-  test("seed-incomplete resume without seed_image returns 422", async () => {
+  test("seed-incomplete resume without seed_image settles failed + last_error", async () => {
     const { deployToken } = await setup();
     await testApp!.db.insert(previews).values({
       canonicalRepoId: REPO,
@@ -535,9 +547,10 @@ describe("POST /v1/deploy seed image", () => {
       deployBody({ health: healthBlock() }),
     );
     expect(res.acceptStatus).toBe(202);
-    expect(res.settleStatus).toBe(422);
-    expect(res.body).toEqual({
-      error: "seed_image_required_to_resume_seeding",
+    expect(res.outcome).toBe("failed");
+    expect(res.body).toMatchObject({
+      status: "failed",
+      last_error: "seed_image_required_to_resume_seeding",
     });
 
     const [row] = await testApp!.db

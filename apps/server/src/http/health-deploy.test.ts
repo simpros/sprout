@@ -220,8 +220,11 @@ describe("POST /v1/deploy health polling", () => {
         },
       });
       const res = await postDeploy(deployToken, deployBody());
-      expect(res.settleStatus).toBe(500);
-      expect(res.body).toEqual({ error: "health_timeout" });
+      expect(res.outcome).toBe("failed");
+      expect(res.body).toMatchObject({
+        status: "failed",
+        last_error: "health_timeout",
+      });
 
       const [row] = await testApp!.db
         .select()

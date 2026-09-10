@@ -156,8 +156,27 @@ export async function postDeployToken(
 }
 
 /**
- * POST /v1/deploy then, on 202, poll GET /v1/preview until running or terminal error.
- * Returns accept and settle statuses separately so tests do not re-teach the sync shape.
+ * Mirror of CLI `deployOutcome` — keep field rules in sync with
+ * apps/cli/src/commands/deploy-outcome.ts (no shared package; avoid cycles).
+ */
+function snapshotDeployOutcome(
+  data: Record<string, unknown>,
+): "ready" | "failed" | "pending" {
+  if (typeof data.last_error === "string") return "failed";
+  if (data.status === "failed") return "failed";
+  if (
+    data.status === "running" &&
+    typeof data.preview_url === "string" &&
+    data.preview_url.length > 0
+  ) {
+    return "ready";
+  }
+  return "pending";
+}
+
+/**
+ * POST /v1/deploy then, on 202, poll GET /v1/preview until ready or terminal.
+ * Async settle returns the snapshot body — never invents fake HTTP error codes.
  */
 export async function postDeployAndSettle(
   app: TestApp,
@@ -165,7 +184,10 @@ export async function postDeployAndSettle(
   body: Record<string, unknown>,
 ): Promise<{
   acceptStatus: number;
+  /** Sync reject status when accept ≠ 202; 200 when GET poll settled. */
   settleStatus: number;
+  /** ready | failed after poll; rejected when accept was non-202. */
+  outcome: "ready" | "failed" | "rejected";
   body: Record<string, unknown>;
 }> {
   const res = await app.app.handle(
@@ -188,51 +210,13 @@ export async function postDeployAndSettle(
     return {
       acceptStatus,
       settleStatus: acceptStatus,
+      outcome: "rejected",
       body: asRecord(json),
     };
   }
 
   const repo = String(body.canonical_repo_id);
   const prId = Number(body.pr_id);
-
-  /** Map snapshot sticky errors to settle shape tests assert (GET itself is 200). */
-  const settleFromSnapshot = (
-    pollBody: Record<string, unknown>,
-  ): {
-    acceptStatus: number;
-    settleStatus: number;
-    body: Record<string, unknown>;
-  } | null => {
-    const lastError =
-      typeof pollBody.last_error === "string" ? pollBody.last_error : null;
-    if (lastError) {
-      const settleStatus =
-        lastError === "seed_image_required_to_resume_seeding" ? 422 : 500;
-      const detail =
-        typeof pollBody.last_error_detail === "string"
-          ? pollBody.last_error_detail
-          : undefined;
-      return {
-        acceptStatus,
-        settleStatus,
-        body:
-          detail !== undefined
-            ? { error: lastError, detail }
-            : { error: lastError },
-      };
-    }
-    if (pollBody.status === "failed") {
-      return {
-        acceptStatus,
-        settleStatus: 500,
-        body: { error: "preview_failed" },
-      };
-    }
-    if (pollBody.status === "running") {
-      return { acceptStatus, settleStatus: 200, body: pollBody };
-    }
-    return null;
-  };
 
   for (let i = 0; i < 500; i++) {
     const poll = await app.app.handle(
@@ -243,10 +227,32 @@ export async function postDeployAndSettle(
     );
     const pollBody = asRecord(await poll.json());
     if (poll.status === 200) {
-      const settled = settleFromSnapshot(pollBody);
-      if (settled) return settled;
+      const outcome = snapshotDeployOutcome(pollBody);
+      if (outcome === "ready") {
+        return {
+          acceptStatus,
+          settleStatus: 200,
+          outcome,
+          body: pollBody,
+        };
+      }
+      if (outcome === "failed") {
+        // settleStatus stays 202 (accept) — assert outcome + snapshot fields,
+        // not invented 4xx/5xx codes.
+        return {
+          acceptStatus,
+          settleStatus: acceptStatus,
+          outcome,
+          body: pollBody,
+        };
+      }
     } else if (poll.status >= 400) {
-      return { acceptStatus, settleStatus: poll.status, body: pollBody };
+      return {
+        acceptStatus,
+        settleStatus: poll.status,
+        outcome: "rejected",
+        body: pollBody,
+      };
     }
     await new Promise<void>((resolve) => setImmediate(resolve));
   }

@@ -10,6 +10,7 @@ import {
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
+import { deployOutcome } from "./deploy-outcome.ts";
 
 /** Extra budget beyond health.timeout for image pull + replace + optional seed. */
 const DEPLOY_POLL_BUFFER_MS = 180_000;
@@ -38,35 +39,6 @@ function pollIntervalMs(yaml: SproutYaml): number {
     200,
     parseSecondsMs(yaml.health?.interval, DEFAULT_POLL_INTERVAL_MS),
   );
-}
-
-/** Ready only when running with a URL and no sticky last deploy error. */
-function isReady(data: PreviewSnapshot): data is PreviewSnapshot & {
-  preview_url: string;
-  status: "running";
-} {
-  return (
-    data.status === "running" &&
-    typeof data.preview_url === "string" &&
-    data.last_error == null
-  );
-}
-
-/** Terminal failure from snapshot fields (GET returns 200 + last_error). */
-function deployFailureMessage(data: PreviewSnapshot): string | null {
-  if (data.last_error) {
-    if (
-      typeof data.last_error_detail === "string" &&
-      data.last_error_detail.trim() !== ""
-    ) {
-      return `${data.last_error}: ${data.last_error_detail.trim()}`;
-    }
-    return data.last_error;
-  }
-  if (data.status === "failed") {
-    return "preview_failed";
-  }
-  return null;
 }
 
 export async function runDeploy(
@@ -161,10 +133,10 @@ export async function runDeploy(
   if (!result.ok) return fail(ctx.deps.io, result.message);
 
   let data = result.data;
-  const immediateFail = deployFailureMessage(data);
-  if (immediateFail) return fail(ctx.deps.io, immediateFail);
+  let outcome = deployOutcome(data);
+  if (outcome.kind === "failed") return fail(ctx.deps.io, outcome.message);
 
-  if (!isReady(data)) {
+  if (outcome.kind !== "ready") {
     const sleep =
       ctx.deps.sleep ??
       ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -194,9 +166,9 @@ export async function runDeploy(
       const statusResult = readEden<PreviewSnapshot>(statusResponse);
       if (!statusResult.ok) return fail(ctx.deps.io, statusResult.message);
       data = statusResult.data;
-      const failMsg = deployFailureMessage(data);
-      if (failMsg) return fail(ctx.deps.io, failMsg);
-      if (isReady(data)) break;
+      outcome = deployOutcome(data);
+      if (outcome.kind === "failed") return fail(ctx.deps.io, outcome.message);
+      if (outcome.kind === "ready") break;
       await sleep(interval);
     }
   }
