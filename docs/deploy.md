@@ -271,19 +271,25 @@ docker compose --env-file compose.env logs gateway | grep -i admin
 ```
 
 Create a **deploy token** for each adopting repo by exec'ing the CLI already
-in the gateway image (`SPROUT_URL` defaults to `http://127.0.0.1:7331`):
+in the gateway image (`SPROUT_URL` defaults to `http://127.0.0.1:7331`).
+Against that loopback URL the CLI falls back to the container's
+`SPROUT_ADMIN_TOKEN`, so you do not need to re-export it as `SPROUT_TOKEN`:
 
 ```bash
-# Primary path: CLI embedded in the gateway image
-docker compose --env-file compose.env exec -e SPROUT_TOKEN=<admin-token> gateway \
+# Primary path: CLI embedded in the gateway image (uses SPROUT_ADMIN_TOKEN)
+docker compose --env-file compose.env exec gateway \
   sprout admin token create --scope deploy --repo https://github.com/org/repo --slug org-repo
 
 # Smoke the embedded CLI (no token / no SPROUT_URL needed)
 docker compose --env-file compose.env exec gateway sprout health
 ```
 
-Host-side CLI works the same way if you prefer (`export SPROUT_URL=…` /
-`SPROUT_TOKEN=…`, then `sprout admin token create …`).
+When the admin token was auto-generated (blank `SPROUT_ADMIN_TOKEN` in
+`compose.env`), copy it from the boot logs and pass
+`-e SPROUT_TOKEN=<admin-token>` (or pin `SPROUT_ADMIN_TOKEN` and restart).
+
+Host-side CLI against a remote gateway still needs an explicit
+`SPROUT_TOKEN` — `SPROUT_ADMIN_TOKEN` is only a loopback fallback.
 
 Store the deploy token in the adopting repo's CI secrets as `SPROUT_TOKEN`.
 

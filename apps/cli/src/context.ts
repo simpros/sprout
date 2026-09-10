@@ -33,14 +33,42 @@ export function resolveGatewayUrl(
   return env.SPROUT_URL?.trim() || "http://127.0.0.1:7331";
 }
 
+/** Loopback / default gateway — safe to fall back to SPROUT_ADMIN_TOKEN. */
+export function isLocalGatewayUrl(url: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return (
+    hostname === "127.0.0.1" ||
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
 export function fail(io: CliIo, message: string, code = 1): number {
   io.stderr(message);
   return code;
 }
 
+/**
+ * Bearer for authed commands: SPROUT_TOKEN always wins. Against a local
+ * gateway only, SPROUT_ADMIN_TOKEN is an in-container fallback so operators
+ * need not re-export the admin secret as SPROUT_TOKEN.
+ */
 export function requireToken(deps: CliDeps): string | null {
-  const token = deps.env.SPROUT_TOKEN?.trim();
-  return token || null;
+  const explicit = deps.env.SPROUT_TOKEN?.trim();
+  if (explicit) return explicit;
+
+  if (isLocalGatewayUrl(resolveGatewayUrl(deps.env))) {
+    const admin = deps.env.SPROUT_ADMIN_TOKEN?.trim();
+    if (admin) return admin;
+  }
+
+  return null;
 }
 
 export async function loadYaml(deps: CliDeps): Promise<Result<SproutYaml>> {
@@ -120,7 +148,13 @@ export function authedContext(
 ): Result<CliContext> {
   const token = requireToken(deps);
   if (!token) {
-    return { ok: false, error: "SPROUT_TOKEN is required" };
+    const local = isLocalGatewayUrl(resolveGatewayUrl(deps.env));
+    return {
+      ok: false,
+      error: local
+        ? "SPROUT_TOKEN or SPROUT_ADMIN_TOKEN is required"
+        : "SPROUT_TOKEN is required",
+    };
   }
   return {
     ok: true,
