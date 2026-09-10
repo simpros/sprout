@@ -14,6 +14,65 @@ export type FlagBag = {
   rest: string[];
 };
 
+type FlagKind = "boolean" | "string" | "repeat";
+
+export type ArgvFlagDef<TFlag extends string = string> = {
+  flag: TFlag;
+  field: string;
+  kind: FlagKind;
+  allowDash?: boolean;
+};
+
+/**
+ * Bag-agnostic argv walker. Callers keep distinct typed bags; this owns the
+ * rest/allow-set/missing-value/string-vs-repeat loop once.
+ */
+export function parseArgv<TFlag extends string, TBag extends { rest: string[] }>(
+  defs: readonly ArgvFlagDef<TFlag>[],
+  tokens: string[],
+  allowed: readonly TFlag[],
+  emptyBag: TBag,
+): Result<TBag> {
+  const byName = new Map(defs.map((d) => [d.flag, d] as const));
+  const allow = new Set<TFlag>(allowed);
+  const out = emptyBag;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (!token.startsWith("-")) {
+      out.rest.push(token);
+      continue;
+    }
+
+    const def = byName.get(token as TFlag);
+    if (!def || !allow.has(def.flag)) {
+      return { ok: false, error: `unknown flag: ${token}` };
+    }
+
+    if (def.kind === "boolean") {
+      (out as Record<string, unknown>)[def.field] = true;
+      continue;
+    }
+
+    const value = tokens[++i];
+    if (value === undefined || (!def.allowDash && value.startsWith("-"))) {
+      return { ok: false, error: `missing value for ${def.flag}` };
+    }
+
+    if (def.kind === "repeat") {
+      const list = (out as Record<string, unknown>)[def.field];
+      if (!Array.isArray(list)) {
+        return { ok: false, error: `internal: ${def.flag} is not a list field` };
+      }
+      list.push(value);
+    } else {
+      (out as Record<string, unknown>)[def.field] = value;
+    }
+  }
+
+  return { ok: true, value: out };
+}
+
 const FLAG_DEFS = [
   { flag: "-i", field: "image", kind: "string" },
   { flag: "-s", field: "seedImage", kind: "string" },
@@ -25,21 +84,16 @@ const FLAG_DEFS = [
   { flag: "--repo", field: "repo", kind: "string" },
   { flag: "--slug", field: "slug", kind: "string" },
   { flag: "--scope", field: "scope", kind: "string" },
-] as const;
+] as const satisfies readonly ArgvFlagDef[];
 
 export type FlagName = (typeof FLAG_DEFS)[number]["flag"];
-
-const FLAG_BY_NAME = new Map(
-  FLAG_DEFS.map((d) => [d.flag, d] as const),
-);
 
 /** Parse argv tokens, accepting only the listed flags. */
 export function parseFlags(
   tokens: string[],
   allowed: readonly FlagName[],
 ): Result<FlagBag> {
-  const allow = new Set<FlagName>(allowed);
-  const out: FlagBag = {
+  const emptyBag: FlagBag = {
     seedEnv: [],
     seedArg: [],
     appEnv: [],
@@ -47,36 +101,5 @@ export function parseFlags(
     yes: false,
     rest: [],
   };
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]!;
-    if (!token.startsWith("-")) {
-      out.rest.push(token);
-      continue;
-    }
-
-    const def = FLAG_BY_NAME.get(token as FlagName);
-    if (!def || !allow.has(def.flag)) {
-      return { ok: false, error: `unknown flag: ${token}` };
-    }
-
-    if (def.kind === "boolean") {
-      out[def.field] = true;
-      continue;
-    }
-
-    const value = tokens[++i];
-    const allowDash = "allowDash" in def && def.allowDash;
-    if (value === undefined || (!allowDash && value.startsWith("-"))) {
-      return { ok: false, error: `missing value for ${def.flag}` };
-    }
-
-    if (def.kind === "repeat") {
-      out[def.field].push(value);
-    } else {
-      out[def.field] = value;
-    }
-  }
-
-  return { ok: true, value: out };
+  return parseArgv(FLAG_DEFS, tokens, allowed, emptyBag);
 }

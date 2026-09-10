@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
-import { dockerAvailable, startTempPostgres } from "./postgres-it.ts";
+import { dockerAvailable, startTempPostgres } from "@sprout/preview-db/testing";
 import { createPostgresPreviewDb } from "./postgres.ts";
 
 const hasDocker = await dockerAvailable();

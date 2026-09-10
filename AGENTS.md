@@ -30,6 +30,8 @@ bun run db:migrate   # runtime migrator (apps/server; same as boot)
 - `apps/server` — gateway process, Drizzle schema/migrations, Elysia HTTP app
 - `apps/cli` — `sprout` CLI (uses api-client)
 - `packages/api-client` — typed Eden client against `@sprout/server/api-type`
+- `packages/preview-db` — shared Postgres catalog DDL (ensure-role, worktree provision/drop)
+- `packages/preview-env` — canonical PG* env names + adopter remap (ADR-0007)
 
 ## Style
 

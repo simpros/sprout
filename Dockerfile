@@ -9,6 +9,7 @@ COPY package.json bun.lock bunfig.toml turbo.json tsconfig.base.json tsconfig.js
 COPY apps/server/package.json apps/server/
 COPY apps/cli/package.json apps/cli/
 COPY packages/preview-env/package.json packages/preview-env/
+COPY packages/preview-db/package.json packages/preview-db/
 COPY packages/api-client/package.json packages/api-client/
 
 RUN bun install --frozen-lockfile
@@ -16,6 +17,7 @@ RUN bun install --frozen-lockfile
 COPY apps/server apps/server
 COPY apps/cli apps/cli
 COPY packages/preview-env packages/preview-env
+COPY packages/preview-db packages/preview-db
 COPY packages/api-client packages/api-client
 
 # Operator exec path: `docker exec <gateway> sprout …` against localhost.

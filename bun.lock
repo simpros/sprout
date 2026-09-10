@@ -11,11 +11,13 @@
     },
     "apps/cli": {
       "name": "@sprout/cli",
+      "version": "0.3.1",
       "bin": {
         "sprout": "./src/index.ts",
       },
       "dependencies": {
         "@sprout/api-client": "workspace:*",
+        "@sprout/preview-db": "workspace:*",
         "@sprout/preview-env": "workspace:*",
       },
       "devDependencies": {
@@ -25,7 +27,9 @@
     },
     "apps/server": {
       "name": "@sprout/server",
+      "version": "0.3.1",
       "dependencies": {
+        "@sprout/preview-db": "workspace:*",
         "@sprout/preview-env": "workspace:*",
         "drizzle-orm": "1.0.0-rc.5-ab785fc",
         "elysia": "1.4.30",
@@ -38,11 +42,19 @@
     },
     "packages/api-client": {
       "name": "@sprout/api-client",
+      "version": "0.3.1",
       "dependencies": {
         "@elysia/eden": "1.4.10",
         "@sprout/server": "workspace:*",
         "elysia": "1.4.30",
       },
+      "devDependencies": {
+        "@types/bun": "1.4.0",
+        "typescript": "^5.9.3",
+      },
+    },
+    "packages/preview-db": {
+      "name": "@sprout/preview-db",
       "devDependencies": {
         "@types/bun": "1.4.0",
         "typescript": "^5.9.3",
@@ -122,6 +134,8 @@
     "@sprout/api-client": ["@sprout/api-client@workspace:packages/api-client"],
 
     "@sprout/cli": ["@sprout/cli@workspace:apps/cli"],
+
+    "@sprout/preview-db": ["@sprout/preview-db@workspace:packages/preview-db"],
 
     "@sprout/preview-env": ["@sprout/preview-env@workspace:packages/preview-env"],
 

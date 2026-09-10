@@ -71,6 +71,15 @@ sprout drop <pr_id> --yes
 sprout admin token create --scope deploy --repo https://github.com/org/repo
 ```
 
+**Local worktree DB** (no gateway token — admin Postgres DSN with
+`CREATEROLE` or superuser; see [docs/deploy.md](docs/deploy.md#worktree-db)):
+
+```bash
+sprout worktree-db provision --slug my-agent --env-file .env \
+  --admin-url "$ADMIN_DSN"
+sprout worktree-db drop --slug my-agent --admin-url "$ADMIN_DSN"
+```
+
 Canonical CI workflow:
 [`examples/adopting-repo/.github/workflows/sprout.yml`](examples/adopting-repo/.github/workflows/sprout.yml).
 

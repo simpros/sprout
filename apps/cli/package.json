@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@sprout/api-client": "workspace:*",
+    "@sprout/preview-db": "workspace:*",
     "@sprout/preview-env": "workspace:*"
   },
   "devDependencies": {

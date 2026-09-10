@@ -6,6 +6,7 @@ import { runDrop } from "./commands/drop.ts";
 import { runHealth } from "./commands/health.ts";
 import { runList } from "./commands/list.ts";
 import { runTeardown } from "./commands/teardown.ts";
+import { runWorktreeDb } from "./commands/worktree-db.ts";
 import {
   authedContext,
   fail,
@@ -33,6 +34,10 @@ const COMMANDS: Record<string, Command> = {
   doctor: { needsToken: true, run: runDoctor },
   drop: { needsToken: true, run: runDrop },
   admin: { needsToken: true, run: runAdmin },
+  "worktree-db": {
+    needsToken: false,
+    run: async (tokens, ctx) => runWorktreeDb(tokens, ctx.deps),
+  },
 };
 
 export async function runCli(
@@ -43,7 +48,7 @@ export async function runCli(
   if (!name) {
     return fail(
       deps.io,
-      "usage: sprout <deploy|teardown|list|doctor|drop|admin> …",
+      "usage: sprout <deploy|teardown|list|doctor|drop|admin|worktree-db> …",
     );
   }
 
