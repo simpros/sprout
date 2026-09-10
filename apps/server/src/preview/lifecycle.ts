@@ -116,7 +116,10 @@ export type TeardownSnapshot = {
 };
 
 /** Last async provision error per preview — for GET /v1/preview after 202. */
-const provisionErrors = new Map<string, string>();
+const provisionErrors = new Map<
+  string,
+  { error: string; detail?: string }
+>();
 
 /** In-flight async deploys so GET does not return a stale running snapshot mid-pull. */
 const inFlightDeploys = new Map<string, number>();
@@ -132,8 +135,12 @@ export function recordProvisionError(
   repo: string,
   prId: number,
   error: string,
+  detail?: string,
 ): void {
-  provisionErrors.set(previewKey(repo, prId), error);
+  provisionErrors.set(
+    previewKey(repo, prId),
+    detail !== undefined ? { error, detail } : { error },
+  );
 }
 
 export function clearProvisionError(repo: string, prId: number): void {
@@ -143,7 +150,7 @@ export function clearProvisionError(repo: string, prId: number): void {
 export function peekProvisionError(
   repo: string,
   prId: number,
-): string | undefined {
+): { error: string; detail?: string } | undefined {
   return provisionErrors.get(previewKey(repo, prId));
 }
 
@@ -805,7 +812,12 @@ export async function runAsyncDeploy(
     const result = await provisionPreview(deps, input);
     if (inFlightDeploys.get(key) !== gen) return;
     if (!result.ok) {
-      recordProvisionError(input.repo, input.prId, result.error);
+      recordProvisionError(
+        input.repo,
+        input.prId,
+        result.error,
+        result.detail,
+      );
     } else {
       clearProvisionError(input.repo, input.prId);
     }
@@ -867,6 +879,14 @@ export async function readPreviewStatus(
   }
 
   if (!row || row.status === "removed") {
+    if (stickyError) {
+      return {
+        ok: false,
+        status: 500,
+        error: stickyError.error,
+        detail: stickyError.detail,
+      };
+    }
     return { ok: false, status: 404, error: "preview_not_found" };
   }
 
@@ -882,7 +902,12 @@ export async function readPreviewStatus(
   }
 
   if (stickyError) {
-    return { ok: false, status: 500, error: stickyError };
+    return {
+      ok: false,
+      status: 500,
+      error: stickyError.error,
+      detail: stickyError.detail,
+    };
   }
 
   if (status.value === "failed") {
