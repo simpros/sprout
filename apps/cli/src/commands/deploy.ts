@@ -1,9 +1,5 @@
 import type { PreviewSnapshot } from "@sprout/api-client";
-import {
-  mergeAppEnv,
-  parseDotenv,
-  resolveAppEnvFilePath,
-} from "../app-env.ts";
+import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
 import type { CliContext } from "../context.ts";
 import {
   fail,
@@ -82,21 +78,21 @@ export async function runDeploy(
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  const fromFiles: string[] = [];
+  const dotenvFiles: DotenvFile[] = [];
   for (const filePath of flags.value.appEnvFile) {
-    const resolved = resolveAppEnvFilePath(ctx.deps.cwd, filePath);
+    const resolved = filePath.startsWith("/")
+      ? filePath
+      : `${ctx.deps.cwd}/${filePath}`;
     const raw = await ctx.deps.readTextFile(resolved);
     if (raw === null) {
       return fail(ctx.deps.io, `cannot read --app-env-file: ${filePath}`);
     }
-    const parsed = parseDotenv(raw, filePath);
-    if (!parsed.ok) return fail(ctx.deps.io, parsed.error);
-    fromFiles.push(...parsed.value);
+    dotenvFiles.push({ pathLabel: filePath, content: raw });
   }
 
   const appEnv = mergeAppEnv(
     yaml.value.preview.app_env,
-    fromFiles,
+    dotenvFiles,
     flags.value.appEnv,
   );
   if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);

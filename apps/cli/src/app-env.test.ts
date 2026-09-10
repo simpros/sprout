@@ -1,47 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  mergeAppEnv,
-  parseDotenv,
-  resolveAppEnvFilePath,
-} from "./app-env.ts";
-
-describe("parseDotenv", () => {
-  test("parses KEY=VALUE lines; skips blanks and comments", () => {
-    expect(
-      parseDotenv(
-        `# secrets for preview
-BETTER_AUTH_SECRET=sekrit
-
-FOO=bar=baz
-# trailing
-`,
-        "preview.env",
-      ),
-    ).toEqual({
-      ok: true,
-      value: ["BETTER_AUTH_SECRET=sekrit", "FOO=bar=baz"],
-    });
-  });
-
-  test("rejects invalid lines with path and line number", () => {
-    expect(parseDotenv("OK=1\nNOTAKEY\n", "ci.env")).toEqual({
-      ok: false,
-      error: "invalid --app-env-file ci.env:2: NOTAKEY",
-    });
-    expect(parseDotenv("=novalue\n", "/tmp/x.env")).toEqual({
-      ok: false,
-      error: "invalid --app-env-file /tmp/x.env:1: =novalue",
-    });
-  });
-
-  test("empty / comments-only → empty list", () => {
-    expect(parseDotenv("", "empty.env")).toEqual({ ok: true, value: [] });
-    expect(parseDotenv("# only\n\n", "c.env")).toEqual({
-      ok: true,
-      value: [],
-    });
-  });
-});
+import { mergeAppEnv } from "./app-env.ts";
 
 describe("mergeAppEnv", () => {
   test("yaml-only → KEY=VALUE list", () => {
@@ -57,7 +15,15 @@ describe("mergeAppEnv", () => {
     expect(
       mergeAppEnv(
         { SHARED: "from-yaml", KEEP: "yaml" },
-        ["SHARED=from-file", "FILE_ONLY=1"],
+        [
+          {
+            pathLabel: "preview.env",
+            content: `# secrets
+SHARED=from-file
+FILE_ONLY=1
+`,
+          },
+        ],
         ["SHARED=from-cli", "NEW=flag"],
       ),
     ).toEqual({
@@ -75,7 +41,12 @@ describe("mergeAppEnv", () => {
     expect(
       mergeAppEnv(
         undefined,
-        ["A=1", "SHARED=file1", "B=2"],
+        [
+          {
+            pathLabel: "a.env",
+            content: "A=1\nSHARED=file1\nB=2\n",
+          },
+        ],
         [],
       ),
     ).toEqual({
@@ -85,7 +56,10 @@ describe("mergeAppEnv", () => {
     expect(
       mergeAppEnv(
         undefined,
-        ["SHARED=file1", "A=1", "SHARED=file2"],
+        [
+          { pathLabel: "a.env", content: "SHARED=file1\nA=1\n" },
+          { pathLabel: "b.env", content: "SHARED=file2\n" },
+        ],
         [],
       ),
     ).toEqual({
@@ -105,20 +79,64 @@ describe("mergeAppEnv", () => {
     });
   });
 
+  test("invalid dotenv line fails with path and line number", () => {
+    expect(
+      mergeAppEnv(
+        undefined,
+        [{ pathLabel: "ci.env", content: "OK=1\nNOTAKEY\n" }],
+        [],
+      ),
+    ).toEqual({
+      ok: false,
+      error: "invalid --app-env-file ci.env:2: NOTAKEY",
+    });
+    expect(
+      mergeAppEnv(
+        undefined,
+        [{ pathLabel: "/tmp/x.env", content: "=novalue\n" }],
+        [],
+      ),
+    ).toEqual({
+      ok: false,
+      error: "invalid --app-env-file /tmp/x.env:1: =novalue",
+    });
+  });
+
+  test("empty / comments-only dotenv → no keys from file", () => {
+    expect(
+      mergeAppEnv(
+        undefined,
+        [{ pathLabel: "empty.env", content: "" }],
+        [],
+      ),
+    ).toEqual({ ok: true, value: undefined });
+    expect(
+      mergeAppEnv(
+        undefined,
+        [{ pathLabel: "c.env", content: "# only\n\n" }],
+        [],
+      ),
+    ).toEqual({ ok: true, value: undefined });
+  });
+
+  test("values may contain `=`", () => {
+    expect(
+      mergeAppEnv(
+        undefined,
+        [{ pathLabel: "p.env", content: "FOO=bar=baz\n" }],
+        [],
+      ),
+    ).toEqual({
+      ok: true,
+      value: ["FOO=bar=baz"],
+    });
+  });
+
   test("empty yaml, files, and flags → omit", () => {
     expect(mergeAppEnv(undefined, [], [])).toEqual({
       ok: true,
       value: undefined,
     });
     expect(mergeAppEnv({}, [], [])).toEqual({ ok: true, value: undefined });
-  });
-});
-
-describe("resolveAppEnvFilePath", () => {
-  test("keeps absolute paths; joins relative to cwd", () => {
-    expect(resolveAppEnvFilePath("/work", "/tmp/a.env")).toBe("/tmp/a.env");
-    expect(resolveAppEnvFilePath("/work", "preview.env")).toBe(
-      "/work/preview.env",
-    );
   });
 });
