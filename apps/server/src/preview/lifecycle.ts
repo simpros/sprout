@@ -218,10 +218,11 @@ const clearLastError = {
 } as const;
 
 /**
- * Registry pull failed before replace. If a container is still claimed, restore
- * `running` so a bad registry blip cannot poison a ready preview. Sticky
- * `last_error` fields travel on the snapshot (GET/list agree on phase). Used
- * only from the pull preflight path — never for bring-up / replace failures.
+ * Registry pull failed before replace. Must run under {@link withPreviewLock}.
+ * No-ops if teardown already won (`removing` / `removed` / missing). If a
+ * container is still claimed, restore `running` so a bad registry blip cannot
+ * poison a ready preview. Sticky `last_error` fields travel on the snapshot.
+ * Used only from the pull preflight path — never for bring-up / replace.
  */
 async function persistPullFailure(
   db: StateDb,
@@ -231,7 +232,10 @@ async function persistPullFailure(
   detail?: string,
 ): Promise<void> {
   const row = await getPreviewRow(db, repo, prId);
-  if (row?.containerId) {
+  if (!row || row.status === "removing" || row.status === "removed") {
+    return;
+  }
+  if (row.containerId) {
     await db
       .update(previews)
       .set({
@@ -262,7 +266,9 @@ async function persistPullFailure(
 
 /**
  * Bring-up / replace / health / ensure / drop failure: clear containerId so
- * Traefik orphans are not claimed. Exported for unexpected background crashes.
+ * Traefik orphans are not claimed. Callers that run outside a held preview
+ * lock (background catch) must wrap with {@link withPreviewLock} and skip
+ * `removing` / `removed` so teardown cannot be resurrected.
  */
 export async function markPreviewFailed(
   db: StateDb,
@@ -736,62 +742,52 @@ async function pullImageOrFail(
   }
 }
 
-/**
- * Pull images then complete bring-up under the preview lock.
- * Call only after {@link claimDeployIntent} has written the provisioning row
- * (async accept path). Pull stays outside the lock so a hung registry cannot
- * stall teardown for the same (repo, prId).
- */
-export async function provisionPreview(
+/** Pull app (+ optional seed) outside the preview lock. */
+async function pullImagesOutsideLock(
   deps: LifecycleDeps,
   input: ProvisionInput,
-): Promise<Result<PreviewSnapshot>> {
+): Promise<Result<true>> {
   if (input.seed) {
     const [appPull, seedPull] = await Promise.all([
       pullImageOrFail(deps.app, input.appImage, "preview_app_pull_failed"),
       pullImageOrFail(deps.app, input.seed.image, "preview_seed_pull_failed"),
     ]);
-    if (!appPull.ok) {
-      await persistPullFailure(
-        deps.db,
-        input.repo,
-        input.prId,
-        appPull.error,
-        appPull.detail,
-      );
-      return appPull;
-    }
-    if (!seedPull.ok) {
-      await persistPullFailure(
-        deps.db,
-        input.repo,
-        input.prId,
-        seedPull.error,
-        seedPull.detail,
-      );
-      return seedPull;
-    }
-  } else {
-    const appPull = await pullImageOrFail(
-      deps.app,
-      input.appImage,
-      "preview_app_pull_failed",
-    );
-    if (!appPull.ok) {
-      await persistPullFailure(
-        deps.db,
-        input.repo,
-        input.prId,
-        appPull.error,
-        appPull.detail,
-      );
-      return appPull;
-    }
+    if (!appPull.ok) return appPull;
+    if (!seedPull.ok) return seedPull;
+    return { ok: true, value: true };
   }
-
-  return withPreviewLock(input.repo, input.prId, () =>
-    completeProvisionUnlocked(deps, input),
+  return pullImageOrFail(
+    deps.app,
+    input.appImage,
+    "preview_app_pull_failed",
   );
+}
+
+/**
+ * Pull images then complete bring-up under the preview lock.
+ * Call only after {@link claimDeployIntent} has written the provisioning row
+ * (async accept path). Pull stays outside the lock so a hung registry cannot
+ * stall teardown; durable pull-failure writes happen under the lock so they
+ * cannot resurrect a `removed` row.
+ */
+export async function provisionPreview(
+  deps: LifecycleDeps,
+  input: ProvisionInput,
+): Promise<Result<PreviewSnapshot>> {
+  const pull = await pullImagesOutsideLock(deps, input);
+  return withPreviewLock(input.repo, input.prId, async () => {
+    if (!pull.ok) {
+      await persistPullFailure(
+        deps.db,
+        input.repo,
+        input.prId,
+        pull.error,
+        pull.detail,
+      );
+      return pull;
+    }
+    return completeProvisionUnlocked(deps, input);
+  });
 }
 
 export function teardownPreview(

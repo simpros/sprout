@@ -88,12 +88,20 @@ export async function runAsyncDeploy(
   } catch (err) {
     console.warn("provision:background_failed", err);
     try {
-      await markPreviewFailed(
-        deps.db,
-        input.repo,
-        input.prId,
-        "preview_app_deploy_failed",
-      );
+      // Same rule as pull-failure persist: only mutate a live intent under the
+      // preview lock so teardown cannot be resurrected.
+      await withPreviewLock(input.repo, input.prId, async () => {
+        const row = await getPreviewRow(deps.db, input.repo, input.prId);
+        if (!row || row.status === "removing" || row.status === "removed") {
+          return;
+        }
+        await markPreviewFailed(
+          deps.db,
+          input.repo,
+          input.prId,
+          "preview_app_deploy_failed",
+        );
+      });
     } catch {
       // best-effort
     }
