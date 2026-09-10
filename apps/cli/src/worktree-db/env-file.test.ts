@@ -1,28 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import {
+  connectionEnvValues,
   mergeConnectionEnvFile,
   parseEnvRenames,
   readEnvFileValue,
   resolveEnvKeyNames,
 } from "./env-file.ts";
 
-const values = {
-  databaseUrl: "postgres://u:p@localhost:5432/db",
+const values = connectionEnvValues({
+  databaseUrl: "postgres://u:p@localhost:5432/u",
   host: "localhost",
   port: 5432,
-  user: "u",
+  objectName: "u",
   password: "p",
-  database: "db",
-};
+});
 
 describe("mergeConnectionEnvFile", () => {
   test("creates file content when missing", () => {
     const out = mergeConnectionEnvFile(null, values);
-    expect(out).toContain("DATABASE_URL=postgres://u:p@localhost:5432/db\n");
+    expect(out).toContain("DATABASE_URL=postgres://u:p@localhost:5432/u\n");
     expect(out).toContain("PGHOST=localhost\n");
     expect(out).toContain("PGUSER=u\n");
     expect(out).toContain("PGPASSWORD=p\n");
-    expect(out).toContain("PGDATABASE=db\n");
+    expect(out).toContain("PGDATABASE=u\n");
     expect(out).toContain("PGPORT=5432\n");
   });
 
@@ -38,7 +38,7 @@ describe("mergeConnectionEnvFile", () => {
     expect(out).toContain("FOO=bar\n");
     expect(out).toContain("# keep\n");
     expect(out).toContain("PGHOST=localhost\n");
-    expect(out).toContain("DATABASE_URL=postgres://u:p@localhost:5432/db\n");
+    expect(out).toContain("DATABASE_URL=postgres://u:p@localhost:5432/u\n");
     expect(out).not.toContain("PGHOST=old");
   });
 
@@ -68,6 +68,21 @@ describe("parseEnvRenames", () => {
   test("rejects unknown logical keys and camelCase leftovers", () => {
     expect(parseEnvRenames(["NOPE=X"]).ok).toBe(false);
     expect(parseEnvRenames(["databaseUrl=X"]).ok).toBe(false);
+  });
+
+  test("rejects target collisions (ADR-0007)", () => {
+    const result = parseEnvRenames(["PGHOST=FOO", "PGUSER=FOO"]);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.error).toContain("target collision");
+    expect(result.error).toContain("FOO");
+  });
+
+  test("rejects rename that collides with an unrenamed default", () => {
+    const result = parseEnvRenames(["PGHOST=PGUSER"]);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.error).toContain("target collision");
   });
 });
 

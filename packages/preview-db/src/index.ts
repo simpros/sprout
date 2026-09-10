@@ -9,16 +9,9 @@ export {
 } from "./ensure-role.ts";
 export {
   isWorktreeInputError,
-  throwWorktreeInputError,
-  type WorktreeInputError,
+  WorktreeInputError,
   type WorktreeInputErrorCode,
 } from "./errors.ts";
-export {
-  isDuplicateDatabase,
-  isDuplicateRole,
-  isInsufficientPrivilege,
-  pgErrorMatches,
-} from "./pg-errors.ts";
 export {
   assertWorktreeObjectName,
   isWorktreeObjectName,

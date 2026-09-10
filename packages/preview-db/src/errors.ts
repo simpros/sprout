@@ -2,26 +2,34 @@ export type WorktreeInputErrorCode =
   | "invalid_admin_url"
   | "invalid_worktree_key";
 
-export type WorktreeInputError = Error & {
-  code: WorktreeInputErrorCode;
-  value: string;
-};
+/** Typed input validation failure from worktree provision/drop. */
+export class WorktreeInputError extends Error {
+  readonly code: WorktreeInputErrorCode;
+  readonly value: string;
+
+  constructor(
+    code: WorktreeInputErrorCode,
+    value: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "WorktreeInputError";
+    this.code = code;
+    this.value = value;
+  }
+}
 
 export function isWorktreeInputError(
   err: unknown,
 ): err is WorktreeInputError {
-  if (!(err instanceof Error) || !("code" in err)) return false;
-  const code = (err as { code: unknown }).code;
-  return code === "invalid_admin_url" || code === "invalid_worktree_key";
+  return err instanceof WorktreeInputError;
 }
 
+/** Package-internal; not re-exported from the public index. */
 export function throwWorktreeInputError(
   code: WorktreeInputErrorCode,
   value: string,
   message: string,
 ): never {
-  const err = new Error(message) as WorktreeInputError;
-  err.code = code;
-  err.value = value;
-  throw err;
+  throw new WorktreeInputError(code, value, message);
 }

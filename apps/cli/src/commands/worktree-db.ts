@@ -10,11 +10,11 @@ import {
 import type { CliDeps } from "../context.ts";
 import { fail } from "../context.ts";
 import {
+  connectionEnvValues,
   mergeConnectionEnvFile,
   parseEnvRenames,
   readEnvFileValue,
   resolveEnvKeyNames,
-  type ConnectionEnvValues,
 } from "../worktree-db/env-file.ts";
 import { parseWorktreeDbFlags } from "../worktree-db/flags.ts";
 
@@ -42,17 +42,6 @@ const defaultWorktreeDeps: WorktreeDbDeps = {
   drop: dropWorktreeDb,
   writeTextFile: writeTextFileAtomic,
 };
-
-function connectionValues(conn: WorktreeConnection): ConnectionEnvValues {
-  return {
-    databaseUrl: conn.databaseUrl,
-    host: conn.host,
-    port: conn.port,
-    user: conn.objectName,
-    password: conn.password,
-    database: conn.objectName,
-  };
-}
 
 function mapLibraryError(err: unknown): string {
   if (isWorktreeInputError(err)) {
@@ -132,7 +121,11 @@ async function runProvision(
     return fail(deps.io, mapLibraryError(err));
   }
 
-  const body = mergeConnectionEnvFile(existing, connectionValues(conn), names);
+  const body = mergeConnectionEnvFile(
+    existing,
+    connectionEnvValues(conn),
+    names,
+  );
   try {
     await worktreeDeps.writeTextFile(envFile, body);
   } catch (err) {

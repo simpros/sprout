@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
-import { dockerAvailable, startTempPostgres } from "./postgres-it.ts";
 import {
   assertWorktreeObjectName,
   dropWorktreeDb,
   provisionWorktreeDb,
 } from "./index.ts";
+import { dockerAvailable, startTempPostgres } from "./testing.ts";
 
 const hasDocker = await dockerAvailable();
 

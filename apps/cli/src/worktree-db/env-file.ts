@@ -22,30 +22,46 @@ export const DEFAULT_ENV_KEYS: Record<WorktreeEnvLogicalKey, string> = {
   PGDATABASE: "PGDATABASE",
 };
 
-export type ConnectionEnvValues = {
+const WORKTREE_ENV_LOGICAL_KEYS = [
+  DATABASE_URL_LOGICAL,
+  ...CANONICAL_ENV_KEYS,
+] as const satisfies readonly WorktreeEnvLogicalKey[];
+
+/** Connection values keyed by the same logical names as env emission (ADR-0007). */
+export type ConnectionEnvValues = Record<WorktreeEnvLogicalKey, string>;
+
+export type EnvKeyNames = Record<WorktreeEnvLogicalKey, string>;
+
+/** Map a provision result onto logical env keys (one naming system end-to-end). */
+export function connectionEnvValues(conn: {
   databaseUrl: string;
   host: string;
   port: number;
-  user: string;
+  objectName: string;
   password: string;
-  database: string;
-};
-
-export type EnvKeyNames = Record<WorktreeEnvLogicalKey, string>;
+}): ConnectionEnvValues {
+  return {
+    DATABASE_URL: conn.databaseUrl,
+    PGHOST: conn.host,
+    PGPORT: String(conn.port),
+    PGUSER: conn.objectName,
+    PGPASSWORD: conn.password,
+    PGDATABASE: conn.objectName,
+  };
+}
 
 function isWorktreeEnvLogicalKey(key: string): key is WorktreeEnvLogicalKey {
   return key === DATABASE_URL_LOGICAL || isCanonicalEnvKey(key);
 }
 
-/** Parse KEY=VALUE rename pairs; unknown logical keys are rejected. */
+/**
+ * Parse KEY=VALUE rename pairs; unknown logical keys and target collisions
+ * (same invariant as parsePreviewEnvMap / ADR-0007) are rejected.
+ */
 export function parseEnvRenames(
   pairs: string[],
 ): { ok: true; value: Partial<EnvKeyNames> } | { ok: false; error: string } {
   const out: Partial<EnvKeyNames> = {};
-  const logical = [
-    DATABASE_URL_LOGICAL,
-    ...CANONICAL_ENV_KEYS,
-  ] as WorktreeEnvLogicalKey[];
   for (const pair of pairs) {
     const eq = pair.indexOf("=");
     if (eq <= 0) {
@@ -59,7 +75,7 @@ export function parseEnvRenames(
     if (!isWorktreeEnvLogicalKey(logicalKey)) {
       return {
         ok: false,
-        error: `unknown --rename logical key: ${logicalKey} (want ${logical.join(", ")})`,
+        error: `unknown --rename logical key: ${logicalKey} (want ${WORKTREE_ENV_LOGICAL_KEYS.join(", ")})`,
       };
     }
     if (!ENV_TARGET_RE.test(name)) {
@@ -67,6 +83,21 @@ export function parseEnvRenames(
     }
     out[logicalKey] = name;
   }
+
+  const names = resolveEnvKeyNames(out);
+  const seenTargets = new Map<string, WorktreeEnvLogicalKey>();
+  for (const logical of WORKTREE_ENV_LOGICAL_KEYS) {
+    const target = names[logical];
+    const priorKey = seenTargets.get(target);
+    if (priorKey !== undefined) {
+      return {
+        ok: false,
+        error: `--rename: target collision: ${target} (${priorKey} and ${logical})`,
+      };
+    }
+    seenTargets.set(target, logical);
+  }
+
   return { ok: true, value: out };
 }
 
@@ -100,14 +131,10 @@ export function mergeConnectionEnvFile(
   values: ConnectionEnvValues,
   names: EnvKeyNames = DEFAULT_ENV_KEYS,
 ): string {
-  const managed = new Map<string, string>([
-    [names.DATABASE_URL, values.databaseUrl],
-    [names.PGHOST, values.host],
-    [names.PGPORT, String(values.port)],
-    [names.PGUSER, values.user],
-    [names.PGPASSWORD, values.password],
-    [names.PGDATABASE, values.database],
-  ]);
+  const managed = new Map<string, string>();
+  for (const logical of WORKTREE_ENV_LOGICAL_KEYS) {
+    managed.set(names[logical], values[logical]);
+  }
 
   const lines: string[] = [];
   const seen = new Set<string>();
