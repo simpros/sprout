@@ -27,5 +27,6 @@ RUN printf '%s\n' '#!/usr/bin/env bash' \
 
 WORKDIR /app/apps/server
 ENV SPROUT_STATE_DB_PATH=/data/sprout.db
+ENV SPROUT_ADMIN_TOKEN_PATH=/data/admin-token
 EXPOSE 7331
 CMD ["bun", "run", "start"]

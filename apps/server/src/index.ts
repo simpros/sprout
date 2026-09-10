@@ -1,5 +1,5 @@
 import { bindPreviewOps } from "./app-deployment/ops.ts";
-import { ensureAdminToken } from "./auth/store.ts";
+import { bootstrapAdminToken } from "./auth/bootstrap-admin.ts";
 import { configSummary, loadConfig } from "./config.ts";
 import { createDockerEngineClient } from "./docker/engine.ts";
 import { startServer } from "./http/app.ts";
@@ -14,13 +14,7 @@ console.log("sprout starting", configSummary(config));
 const { sql, db } = connectState();
 await runMigrations(sql);
 
-const generatedAdminToken = await ensureAdminToken(db, config.adminToken);
-if (generatedAdminToken) {
-  console.warn(
-    "SPROUT_ADMIN_TOKEN not set; generated bootstrap admin token (store securely):",
-    generatedAdminToken,
-  );
-}
+await bootstrapAdminToken(db, config.adminToken);
 
 const previewDb = createPostgresPreviewDb({
   url: config.previewPostgresUrl,

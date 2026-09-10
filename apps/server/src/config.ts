@@ -38,6 +38,7 @@ export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
   ...OPTIONAL_STRING_ENV,
   "SPROUT_ADMIN_TOKEN",
   "SPROUT_STATE_DB_PATH",
+  "SPROUT_ADMIN_TOKEN_PATH",
 ];
 
 export type Config = {

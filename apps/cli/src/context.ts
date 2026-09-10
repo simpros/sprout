@@ -33,14 +33,66 @@ export function resolveGatewayUrl(
   return env.SPROUT_URL?.trim() || "http://127.0.0.1:7331";
 }
 
+/** Well-known default; compose/image set `SPROUT_ADMIN_TOKEN_PATH` explicitly. */
+const DEFAULT_ADMIN_TOKEN_PATH = "admin-token";
+
+/**
+ * Path for the gateway-persisted bootstrap admin token.
+ * CLI does not derive this from the control-plane DB path — publish via
+ * `SPROUT_ADMIN_TOKEN_PATH` (compose/Dockerfile set `/data/admin-token`).
+ */
+export function resolveAdminTokenPath(env: NodeJS.ProcessEnv): string {
+  return env.SPROUT_ADMIN_TOKEN_PATH?.trim() || DEFAULT_ADMIN_TOKEN_PATH;
+}
+
+/** Loopback hosts where admin env/file fallback is safe. */
+export function isLocalGatewayHostname(hostname: string): boolean {
+  return (
+    hostname === "127.0.0.1" ||
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
 export function fail(io: CliIo, message: string, code = 1): number {
   io.stderr(message);
   return code;
 }
 
-export function requireToken(deps: CliDeps): string | null {
-  const token = deps.env.SPROUT_TOKEN?.trim();
-  return token || null;
+/**
+ * Bearer for authed commands (full local-admin policy):
+ * 1. `SPROUT_TOKEN` (explicit)
+ * 2. on loopback only: `SPROUT_ADMIN_TOKEN`
+ * 3. on loopback only: admin token file (`SPROUT_ADMIN_TOKEN_PATH` or default)
+ */
+export async function requireToken(deps: CliDeps): Promise<Result<string>> {
+  const explicit = deps.env.SPROUT_TOKEN?.trim();
+  if (explicit) return { ok: true, value: explicit };
+
+  const urlRaw = resolveGatewayUrl(deps.env);
+  let hostname: string;
+  try {
+    hostname = new URL(urlRaw).hostname;
+  } catch {
+    return { ok: false, error: "invalid SPROUT_URL" };
+  }
+
+  if (!isLocalGatewayHostname(hostname)) {
+    return { ok: false, error: "SPROUT_TOKEN is required" };
+  }
+
+  const admin = deps.env.SPROUT_ADMIN_TOKEN?.trim();
+  if (admin) return { ok: true, value: admin };
+
+  const fromFile = await deps.readTextFile(resolveAdminTokenPath(deps.env));
+  const fileToken = fromFile?.trim();
+  if (fileToken) return { ok: true, value: fileToken };
+
+  return {
+    ok: false,
+    error: "SPROUT_TOKEN or SPROUT_ADMIN_TOKEN is required",
+  };
 }
 
 export async function loadYaml(deps: CliDeps): Promise<Result<SproutYaml>> {
@@ -115,18 +167,16 @@ export function substituteHostname(template: string, prId: number): string {
   return template.replaceAll("{pr_id}", String(prId));
 }
 
-export function authedContext(
+export async function authedContext(
   deps: CliDeps,
-): Result<CliContext> {
-  const token = requireToken(deps);
-  if (!token) {
-    return { ok: false, error: "SPROUT_TOKEN is required" };
-  }
+): Promise<Result<CliContext>> {
+  const token = await requireToken(deps);
+  if (!token.ok) return token;
   return {
     ok: true,
     value: {
       deps,
-      client: deps.createClient(resolveGatewayUrl(deps.env), token),
+      client: deps.createClient(resolveGatewayUrl(deps.env), token.value),
     },
   };
 }
