@@ -35,6 +35,7 @@ function clearGatewayEnv(): void {
   delete process.env.SPROUT_FORGE_HOSTS;
   delete process.env.SPROUT_REGISTRY_USER;
   delete process.env.SPROUT_REGISTRY_PASSWORD;
+  delete process.env.SPROUT_REGISTRY_AUTHS_JSON;
   delete process.env.SPROUT_REGISTRY_URL;
   for (const key of Object.keys(OPTIONAL_ENV_DEFAULTS)) {
     delete process.env[key];
@@ -127,11 +128,14 @@ describe("loadConfig", () => {
     );
   });
 
-  test("loads registry pull credentials", () => {
+  test("normalizes legacy registry pair into registryPullAuth.fallback", () => {
     setRequiredEnv();
     const config = loadConfig();
-    expect(config.registryUser).toBe("puller");
-    expect(config.registryPassword).toBe("registry-secret");
+    expect(config.registryPullAuth.byHost.size).toBe(0);
+    expect(config.registryPullAuth.fallback).toEqual({
+      username: "puller",
+      password: "registry-secret",
+    });
   });
 
   test("allows empty registry user/password for anonymous pulls", () => {
@@ -139,8 +143,8 @@ describe("loadConfig", () => {
     delete process.env.SPROUT_REGISTRY_USER;
     delete process.env.SPROUT_REGISTRY_PASSWORD;
     const config = loadConfig();
-    expect(config.registryUser).toBe("");
-    expect(config.registryPassword).toBe("");
+    expect(config.registryPullAuth.byHost.size).toBe(0);
+    expect(config.registryPullAuth.fallback).toBeUndefined();
   });
 
   test("rejects password without registry user", () => {
@@ -150,6 +154,33 @@ describe("loadConfig", () => {
     expect(() => loadConfig()).toThrow(
       "SPROUT_REGISTRY_PASSWORD is set but SPROUT_REGISTRY_USER is empty",
     );
+  });
+
+  test("loads SPROUT_REGISTRY_AUTHS_JSON into registryPullAuth.byHost", () => {
+    setRequiredEnv();
+    process.env.SPROUT_REGISTRY_AUTHS_JSON = JSON.stringify({
+      "ghcr.io": { username: "gh", password: "gh-tok" },
+      "registry.gitlab.com": { username: "gl", password: "gl-tok" },
+    });
+    const config = loadConfig();
+    expect(config.registryPullAuth.byHost.get("ghcr.io")).toEqual({
+      username: "gh",
+      password: "gh-tok",
+    });
+    expect(config.registryPullAuth.byHost.get("registry.gitlab.com")).toEqual({
+      username: "gl",
+      password: "gl-tok",
+    });
+    expect(config.registryPullAuth.fallback).toEqual({
+      username: "puller",
+      password: "registry-secret",
+    });
+  });
+
+  test("fails fast on malformed SPROUT_REGISTRY_AUTHS_JSON", () => {
+    setRequiredEnv();
+    process.env.SPROUT_REGISTRY_AUTHS_JSON = "{not-json";
+    expect(() => loadConfig()).toThrow("Invalid SPROUT_REGISTRY_AUTHS_JSON");
   });
 
   test("ignores stale SPROUT_REGISTRY_URL (host is in app_image)", () => {
@@ -176,8 +207,7 @@ describe("loadConfig", () => {
       previewPgPassword: "x",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
-      registryUser: "",
-      registryPassword: "",
+      registryPullAuth: { byHost: new Map() },
       githubToken: "",
       gitlabToken: "",
       extraGitlabHosts: new Set(),
@@ -200,8 +230,12 @@ describe("loadConfig", () => {
       previewPgPassword: "preview-secret",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
-      registryUser: "puller",
-      registryPassword: "registry-secret",
+      registryPullAuth: {
+        byHost: new Map([
+          ["ghcr.io", { username: "gh", password: "secret" }],
+        ]),
+        fallback: { username: "puller", password: "registry-secret" },
+      },
       githubToken: "gh",
       gitlabToken: "gl",
       extraGitlabHosts: new Set(["git.example.com"]),
@@ -214,14 +248,14 @@ describe("loadConfig", () => {
 
     expect(String(summary.previewPostgresUrl)).not.toContain("sekrit");
     expect(summary.previewPgPassword).toBe("[set]");
-    expect(summary.registryPassword).toBe("[set]");
-    expect(summary.registryUser).toBe("puller");
+    expect(summary.registryPullAuthHosts).toBe(1);
+    expect(summary.registryPullAuthFallback).toBe("[set]");
     expect(summary.githubToken).toBe("[set]");
     expect(summary.gitlabToken).toBe("[set]");
     expect(summary.extraGitlabHosts).toBe(1);
   });
 
-  test("configSummary marks anonymous registry creds", () => {
+  test("configSummary marks anonymous registry auth", () => {
     const summary = configSummary({
       previewPostgresUrl: "postgres://admin@localhost:5432/postgres",
       previewPgHost: "postgres",
@@ -230,8 +264,7 @@ describe("loadConfig", () => {
       previewPgPassword: "x",
       traefikNetwork: "traefik",
       postgresNetwork: "postgres",
-      registryUser: "",
-      registryPassword: "",
+      registryPullAuth: { byHost: new Map() },
       githubToken: "",
       gitlabToken: "",
       extraGitlabHosts: new Set(),
@@ -241,7 +274,7 @@ describe("loadConfig", () => {
       seedTimeout: 180,
       port: 7331,
     });
-    expect(summary.registryUser).toBe("[anonymous]");
-    expect(summary.registryPassword).toBe("[anonymous]");
+    expect(summary.registryPullAuthHosts).toBe(0);
+    expect(summary.registryPullAuthFallback).toBe("[unset]");
   });
 });

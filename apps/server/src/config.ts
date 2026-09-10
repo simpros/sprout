@@ -1,4 +1,8 @@
 import { GITHUB_HOSTS } from "./forge/kind.ts";
+import {
+  buildRegistryPullAuth,
+  type RegistryPullAuth,
+} from "./registry-auth.ts";
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -22,6 +26,7 @@ export const OPTIONAL_ENV_DEFAULTS = {
 export const OPTIONAL_STRING_ENV = [
   "SPROUT_REGISTRY_USER",
   "SPROUT_REGISTRY_PASSWORD",
+  "SPROUT_REGISTRY_AUTHS_JSON",
   "SPROUT_GITHUB_TOKEN",
   "SPROUT_GITLAB_TOKEN",
   "SPROUT_FORGE_HOSTS",
@@ -50,10 +55,11 @@ export type Config = {
   previewPgPassword: string;
   traefikNetwork: string;
   postgresNetwork: string;
-  /** Empty string = anonymous registry pull. */
-  registryUser: string;
-  /** Empty string = anonymous registry pull. */
-  registryPassword: string;
+  /**
+   * Normalized registry pull auth: per-host map from SPROUT_REGISTRY_AUTHS_JSON
+   * plus optional legacy USER/PASSWORD fallback (only when user is non-empty).
+   */
+  registryPullAuth: RegistryPullAuth;
   /** GitHub PAT for sweep open-PR listing. */
   githubToken: string;
   /** GitLab PAT for sweep open-MR listing. */
@@ -142,13 +148,11 @@ export function loadConfig(): Config {
 
   const adminTokenRaw = process.env.SPROUT_ADMIN_TOKEN?.trim();
 
-  const registryUser = optionalStringEnv("SPROUT_REGISTRY_USER");
-  const registryPassword = optionalStringEnv("SPROUT_REGISTRY_PASSWORD");
-  if (registryPassword !== "" && registryUser === "") {
-    throw new Error(
-      "SPROUT_REGISTRY_PASSWORD is set but SPROUT_REGISTRY_USER is empty",
-    );
-  }
+  const registryPullAuth = buildRegistryPullAuth({
+    authsJson: optionalStringEnv("SPROUT_REGISTRY_AUTHS_JSON"),
+    legacyUser: optionalStringEnv("SPROUT_REGISTRY_USER"),
+    legacyPassword: optionalStringEnv("SPROUT_REGISTRY_PASSWORD"),
+  });
 
   return {
     previewPostgresUrl: requiredEnv("SPROUT_PREVIEW_POSTGRES_URL"),
@@ -162,8 +166,7 @@ export function loadConfig(): Config {
     previewPgPassword: requiredEnv("SPROUT_PG_PASSWORD"),
     traefikNetwork: requiredEnv("SPROUT_TRAEFIK_NETWORK"),
     postgresNetwork: requiredEnv("SPROUT_POSTGRES_NETWORK"),
-    registryUser,
-    registryPassword,
+    registryPullAuth,
     githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
     gitlabToken: optionalStringEnv("SPROUT_GITLAB_TOKEN"),
     extraGitlabHosts: parseExtraGitlabHosts(
@@ -207,8 +210,10 @@ export function configSummary(config: Config): Record<string, string | number> {
     previewPgPassword: config.previewPgPassword === "" ? "[empty]" : "[set]",
     traefikNetwork: config.traefikNetwork,
     postgresNetwork: config.postgresNetwork,
-    registryUser: config.registryUser === "" ? "[anonymous]" : config.registryUser,
-    registryPassword: config.registryPassword === "" ? "[anonymous]" : "[set]",
+    registryPullAuthHosts: config.registryPullAuth.byHost.size,
+    registryPullAuthFallback: config.registryPullAuth.fallback
+      ? "[set]"
+      : "[unset]",
     githubToken: config.githubToken === "" ? "[unset]" : "[set]",
     gitlabToken: config.gitlabToken === "" ? "[unset]" : "[set]",
     extraGitlabHosts: config.extraGitlabHosts.size,
