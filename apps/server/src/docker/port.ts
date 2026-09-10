@@ -9,7 +9,7 @@ export type CatalogContainer = {
 export type ContainerCreateSpec = {
   name: string;
   image: string;
-  /** `KEY=VALUE` entries — app containers get only the five PG* vars. */
+  /** `KEY=VALUE` entries — connection credentials last after optional adopter env. */
   env: string[];
   labels: Record<string, string>;
   /** All networks attached via create-time EndpointsConfig. */

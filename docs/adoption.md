@@ -48,6 +48,8 @@ health:
 - `preview.hostname` — per-PR URL host; `{pr_id}` is substituted at deploy time.
 - `preview.env` — optional remap of the five connection env **names** the
   gateway injects (see below). Unmapped keys stay `PG*`.
+- `preview.app_env` — optional static string map injected into the app
+  container (see Extra app env). Prefer `--app-env` for secrets.
 - `health` — HTTP poll the gateway runs against the app container IP on the
   Postgres network. Required when using `-s`; gates the after-healthy seed hook
   (see below).
@@ -85,6 +87,37 @@ Your app image must:
 
 There is **no mandatory wrapper image** from sprout. Copy an entrypoint
 that fits your stack.
+
+### Extra app env (non-connection)
+
+Adopters often need runtime env beyond the five connection fields
+(`BETTER_AUTH_SECRET`, app URLs, trusted origins, dual-role passwords, etc.).
+Pass those either as:
+
+- Repeatable CLI flags (secrets from CI): `--app-env KEY=VALUE`
+- Static map in `.sprout.yaml` under `preview.app_env` (no secrets in git)
+
+```yaml
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  app_env:
+    LOG_LEVEL: info
+    FEATURE_PREVIEW_BANNER: "1"
+```
+
+```bash
+sprout deploy -i "$APP_IMAGE" \
+  --app-env BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+  --app-env BETTER_AUTH_URL="https://pr-${PR_ID}.myapp.preview.example.com" \
+  --app-env APP_DATABASE_PASSWORD="$APP_DATABASE_PASSWORD"
+```
+
+CLI merges yaml `app_env` first, then `--app-env` flags (duplicate keys:
+flags win). The gateway then appends connection credentials **last**, so
+adopter env can never override the five connection keys (canonical or
+remapped names). Seed `--seed-env` is unchanged and applies only to the
+seed container.
 
 ### Shell entrypoint (any runtime)
 

@@ -185,6 +185,63 @@ preview:
     });
   });
 
+  test("parses preview.app_env string map", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    BETTER_AUTH_URL: "https://pr-1.example.com"
+    KIDO_APP_URL: "https://pr-1.example.com"
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          app_env: {
+            BETTER_AUTH_URL: "https://pr-1.example.com",
+            KIDO_APP_URL: "https://pr-1.example.com",
+          },
+        },
+      },
+    });
+  });
+
+  test("treats empty preview.app_env as absent", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env: {}
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+      },
+    });
+  });
+
+  test("rejects non-string preview.app_env values", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    PORT: 3000
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.app_env.PORT must be a string",
+    });
+  });
+
   test("rejects unknown top-level keys", () => {
     const result = parseSproutYaml(`
 slug: myapp

@@ -102,6 +102,42 @@ describe("replacePreviewApp", () => {
     ]);
   });
 
+  test("prepends adopter appEnv; connection credentials last-wins", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "ghcr.io/org/app:sha": 3000 },
+    });
+
+    await replacePreviewApp(
+      { docker, ...baseDeps },
+      {
+        slug: "myapp",
+        prId: 42,
+        hostname: "pr-42.myapp.preview.example.com",
+        image: "ghcr.io/org/app:sha",
+        dbName: "sprout_myapp_pr42",
+        appEnv: [
+          "BETTER_AUTH_SECRET=sekrit",
+          "DATABASE_HOST=attacker",
+          "PGPASSWORD=stolen",
+        ],
+        connectionEnv: {
+          PGHOST: "DATABASE_HOST",
+        },
+      },
+    );
+
+    expect(docker.creates[0]!.env).toEqual([
+      "BETTER_AUTH_SECRET=sekrit",
+      "DATABASE_HOST=attacker",
+      "PGPASSWORD=stolen",
+      "DATABASE_HOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=sprout_preview",
+      "PGPASSWORD=sekrit",
+      "PGDATABASE=sprout_myapp_pr42",
+    ]);
+  });
+
   test("falls back to previewPortDefault when image has no EXPOSE", async () => {
     const docker = createFakeDockerClient();
     const result = await replacePreviewApp(

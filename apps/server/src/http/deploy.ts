@@ -24,6 +24,7 @@ export const healthBody = t.Object({
 
 export const MAX_SEED_ENV = 16;
 export const MAX_SEED_ARG = 16;
+export const MAX_APP_ENV = 32;
 
 export const deployBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
@@ -36,6 +37,7 @@ export const deployBody = t.Object({
   seed_image: t.Optional(t.String({ minLength: 1 })),
   seed_env: t.Optional(t.Array(t.String())),
   seed_arg: t.Optional(t.Array(t.String())),
+  app_env: t.Optional(t.Array(t.String())),
 });
 
 /** Identity is (canonical_repo_id, pr_id); slug is not part of teardown. */
@@ -55,6 +57,7 @@ export type DeployBody = {
   seed_image?: string;
   seed_env?: string[];
   seed_arg?: string[];
+  app_env?: string[];
 };
 
 /** Validate optional seed fields; health is required when seed_image is set. */
@@ -96,6 +99,28 @@ export function resolveSeedRequest(
       args: seedArg,
     },
   };
+}
+
+/** Validate optional adopter app env (`KEY=VALUE`); empty → undefined. */
+export function resolveAppEnvRequest(
+  body: Pick<DeployBody, "app_env">,
+):
+  | { ok: true; value: string[] | undefined }
+  | { ok: false; error: string } {
+  const appEnv = body.app_env ?? [];
+  if (appEnv.length === 0) {
+    return { ok: true, value: undefined };
+  }
+  if (appEnv.length > MAX_APP_ENV) {
+    return { ok: false, error: "too_many_app_env" };
+  }
+  for (const entry of appEnv) {
+    const eq = entry.indexOf("=");
+    if (eq <= 0) {
+      return { ok: false, error: "invalid_app_env" };
+    }
+  }
+  return { ok: true, value: appEnv };
 }
 
 export type TeardownBody = {
@@ -171,6 +196,11 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: seed.error };
     }
+    const appEnv = resolveAppEnvRequest(body);
+    if (!appEnv.ok) {
+      set.status = 422;
+      return { error: appEnv.error };
+    }
     const health = resolveHealthSpec(body.health);
     if (!health.ok) {
       set.status = 422;
@@ -186,6 +216,7 @@ export function deploy(deps: LifecycleDeps) {
         appImage: body.app_image,
         health: health.value,
         seed: seed.value,
+        appEnv: appEnv.value,
         connectionEnv: connectionEnv.value,
       }),
       set,

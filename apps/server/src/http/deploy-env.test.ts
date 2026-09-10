@@ -138,3 +138,60 @@ describe("POST /v1/deploy connection env remap", () => {
     expect(fakeDocker!.creates).toEqual([]);
   });
 });
+
+describe("POST /v1/deploy app_env", () => {
+  test("injects app_env before connection credentials (last-wins)", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        app_env: [
+          "BETTER_AUTH_SECRET=sekrit",
+          "PGHOST=attacker",
+          "APP_URL=https://pr-42.example.com",
+        ],
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(fakeDocker!.creates[0]!.env).toEqual([
+      "BETTER_AUTH_SECRET=sekrit",
+      "PGHOST=attacker",
+      "APP_URL=https://pr-42.example.com",
+      "PGHOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=sprout_preview",
+      "PGPASSWORD=preview-secret",
+      "PGDATABASE=sprout_myapp_pr42",
+    ]);
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row).toMatchObject({ status: "running", slug: "myapp" });
+  });
+
+  test("rejects invalid and oversized app_env", async () => {
+    const { deployToken } = await setup();
+    const invalid = await postDeploy(
+      deployToken,
+      deployBody({ app_env: ["=novalue", "OK=1"] }),
+    );
+    expect(invalid.status).toBe(422);
+    expect(invalid.body).toEqual({ error: "invalid_app_env" });
+
+    const tooMany = await postDeploy(
+      deployToken,
+      deployBody({
+        app_env: Array.from({ length: 33 }, (_, i) => `K${i}=v`),
+      }),
+    );
+    expect(tooMany.status).toBe(422);
+    expect(tooMany.body).toEqual({ error: "too_many_app_env" });
+
+    expect(fakePreviewDb!.created).toEqual([]);
+    expect(fakeDocker!.creates).toEqual([]);
+  });
+});

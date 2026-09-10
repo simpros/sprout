@@ -19,6 +19,7 @@ export async function runDeploy(
     "-s",
     "--seed-env",
     "--seed-arg",
+    "--app-env",
     "--repo",
   ]);
   if (!flags.ok) return fail(ctx.deps.io, flags.error);
@@ -56,6 +57,7 @@ export async function runDeploy(
     seed_image?: string;
     seed_env?: string[];
     seed_arg?: string[];
+    app_env?: string[];
     env?: PreviewEnvMap;
   } = {
     canonical_repo_id: identity.value.repo,
@@ -73,6 +75,15 @@ export async function runDeploy(
   if (flags.value.seedEnv.length > 0) body.seed_env = flags.value.seedEnv;
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
+
+  // Yaml map first, then --app-env (CLI last-wins for duplicate keys).
+  const appEnv = [
+    ...Object.entries(yaml.value.preview.app_env ?? {}).map(
+      ([key, value]) => `${key}=${value}`,
+    ),
+    ...flags.value.appEnv,
+  ];
+  if (appEnv.length > 0) body.app_env = appEnv;
 
   const response = await ctx.client.v1.deploy.post(body);
   const result = readEden<PreviewSnapshot>(response);

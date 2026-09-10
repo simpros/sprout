@@ -329,6 +329,62 @@ preview:
     });
   });
 
+  test("deploy forwards --app-env and preview.app_env (yaml then flags)", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-9.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    BETTER_AUTH_URL: "https://pr-static.example.com"
+    SHARED: from-yaml
+`);
+    const code = await runCli(
+      [
+        "deploy",
+        "-i",
+        "app:1",
+        "--app-env",
+        "BETTER_AUTH_SECRET=sekrit",
+        "--app-env",
+        "SHARED=from-cli",
+      ],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/9/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      app_env: [
+        "BETTER_AUTH_URL=https://pr-static.example.com",
+        "SHARED=from-yaml",
+        "BETTER_AUTH_SECRET=sekrit",
+        "SHARED=from-cli",
+      ],
+    });
+    expect(captured[0]?.body).not.toHaveProperty("seed_env");
+  });
+
   test("teardown is idempotent exit 0 when preview absent", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({

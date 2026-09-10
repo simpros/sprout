@@ -25,6 +25,8 @@ export type ReplacePreviewAppInput = {
   hostname: string;
   image: string;
   dbName: string;
+  /** Adopter KEY=VALUE entries; gateway appends connection env after (last-wins). */
+  appEnv?: string[];
   /** Request-scoped connection env name remap; not persisted. */
   connectionEnv?: PreviewEnvMap;
 };
@@ -41,8 +43,9 @@ export async function removePreviewApp(
 /**
  * Replace (or first-start) the preview app container for one PR.
  * Force-removes any prior container with the stable name, then creates+starts
- * with dual-network attach, Traefik labels, and connection env
- * (PG* names, optionally remapped via connectionEnv).
+ * with dual-network attach, Traefik labels, adopter app env, and connection env
+ * (PG* names, optionally remapped via connectionEnv). Connection credentials
+ * are appended after appEnv so adopters cannot override the five connection keys.
  * Resolves Traefik port from image EXPOSE (or previewPortDefault).
  * Caller must already have pulled the image (outside the preview lock).
  */
@@ -57,7 +60,10 @@ export async function replacePreviewApp(
   const { id } = await deps.docker.createAndStart({
     name,
     image: input.image,
-    env: pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
+    env: [
+      ...(input.appEnv ?? []),
+      ...pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
+    ],
     labels: traefikLabels({
       routerName: name,
       hostname: input.hostname,
