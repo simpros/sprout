@@ -58,13 +58,7 @@ async function setup() {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  const settled = await postDeployAndSettle(testApp!, token, body);
-  return {
-    acceptStatus: settled.acceptStatus,
-    settleStatus: settled.settleStatus,
-    status: settled.settleStatus,
-    body: settled.body,
-  };
+  return postDeployAndSettle(testApp!, token, body);
 }
 
 describe("POST /v1/deploy connection env remap", () => {
@@ -82,7 +76,7 @@ describe("POST /v1/deploy connection env remap", () => {
         },
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(fakeDocker!.creates[0]!.env).toEqual([
       "DATABASE_HOST=postgres",
       "DATABASE_PORT=5432",
@@ -112,7 +106,7 @@ describe("POST /v1/deploy connection env remap", () => {
       deployToken,
       deployBody({ env: { DATABASE_URL: "DATABASE_URL" } }),
     );
-    expect(unknown.status).toBe(422);
+    expect(unknown.settleStatus).toBe(422);
     expect(unknown.body).toEqual({ error: "unknown_env_key" });
 
     const collision = await postDeploy(
@@ -121,14 +115,14 @@ describe("POST /v1/deploy connection env remap", () => {
         env: { PGHOST: "DATABASE_HOST", PGPORT: "DATABASE_HOST" },
       }),
     );
-    expect(collision.status).toBe(422);
+    expect(collision.settleStatus).toBe(422);
     expect(collision.body).toEqual({ error: "env_target_collision" });
 
     const invalid = await postDeploy(
       deployToken,
       deployBody({ env: { PGHOST: "bad-name" } }),
     );
-    expect(invalid.status).toBe(422);
+    expect(invalid.settleStatus).toBe(422);
     expect(invalid.body).toEqual({ error: "invalid_env_target" });
 
     expect(fakePreviewDb!.created).toEqual([]);
@@ -148,7 +142,7 @@ describe("POST /v1/deploy app_env", () => {
         },
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(fakeDocker!.creates[0]!.env).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
@@ -173,7 +167,7 @@ describe("POST /v1/deploy app_env", () => {
         ],
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(fakeDocker!.creates[0]!.env).toEqual([
       "BETTER_AUTH_SECRET=sekrit",
       "APP_URL=https://pr-42.example.com",
@@ -200,7 +194,7 @@ describe("POST /v1/deploy app_env", () => {
       deployToken,
       deployBody({ app_env: ["=novalue", "OK=1"] }),
     );
-    expect(invalid.status).toBe(422);
+    expect(invalid.settleStatus).toBe(422);
     expect(invalid.body).toEqual({ error: "invalid_app_env" });
 
     const tooMany = await postDeploy(
@@ -209,7 +203,7 @@ describe("POST /v1/deploy app_env", () => {
         app_env: Array.from({ length: 33 }, (_, i) => `K${i}=v`),
       }),
     );
-    expect(tooMany.status).toBe(422);
+    expect(tooMany.settleStatus).toBe(422);
     expect(tooMany.body).toEqual({ error: "too_many_app_env" });
 
     expect(fakePreviewDb!.created).toEqual([]);

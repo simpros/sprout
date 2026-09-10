@@ -3,8 +3,8 @@ import type { Result } from "./result.ts";
 import {
   claimDeployIntent,
   getPreviewRow,
+  markPreviewFailed,
   parsePreviewStatus,
-  persistProvisionFailure,
   previewSnapshotFromRow,
   provisionPreview,
   withPreviewLock,
@@ -73,31 +73,22 @@ export async function acceptAsyncDeploy(
   });
 }
 
-/** Background half of async deploy: pull + bring-up; persist failures on the row. */
+/**
+ * Background half of async deploy: pull + bring-up.
+ * Durable failure is owned by {@link provisionPreview}; this only records
+ * unexpected throws so the row cannot sit forever in provisioning.
+ */
 export async function runAsyncDeploy(
   deps: LifecycleDeps,
   input: ProvisionInput,
 ): Promise<void> {
   const key = previewKey(input.repo, input.prId);
   try {
-    const result = await provisionPreview(deps, input);
-    if (!result.ok) {
-      try {
-        await persistProvisionFailure(
-          deps.db,
-          input.repo,
-          input.prId,
-          result.error,
-          result.detail,
-        );
-      } catch {
-        // best-effort
-      }
-    }
+    await provisionPreview(deps, input);
   } catch (err) {
     console.warn("provision:background_failed", err);
     try {
-      await persistProvisionFailure(
+      await markPreviewFailed(
         deps.db,
         input.repo,
         input.prId,

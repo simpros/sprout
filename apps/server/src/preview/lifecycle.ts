@@ -211,48 +211,39 @@ const clearLastError = {
 } as const;
 
 /**
- * Persist a terminal provision failure for GET /v1/preview polling.
- * Seed-resume / seed-run failures keep containerId so the app stays reclaimable.
- * Pull failures against a still-routable container restore `running` so a bad
- * registry blip cannot poison a ready preview (last_error still surfaces on GET).
+ * Registry pull failed before replace. If a container is still claimed, restore
+ * `running` so a bad registry blip cannot poison a ready preview (last_error
+ * still surfaces on GET). Used only from the pull preflight path — never for
+ * bring-up / replace failures.
  */
-export async function persistProvisionFailure(
+async function persistPullFailure(
   db: StateDb,
   repo: string,
   prId: number,
   error: string,
   detail?: string,
 ): Promise<void> {
-  const keepContainer =
-    error === "seed_image_required_to_resume_seeding" ||
-    error === "seed_failed";
-  const pullFailed =
-    error === "preview_app_deploy_failed" ||
-    error === "preview_seed_pull_failed";
-
-  if (pullFailed) {
-    const row = await getPreviewRow(db, repo, prId);
-    if (row?.containerId) {
-      await db
-        .update(previews)
-        .set({
-          status: "running",
-          lastError: error,
-          lastErrorDetail: detail ?? null,
-          updatedAt: utcIsoNow(),
-        })
-        .where(
-          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-        );
-      return;
-    }
+  const row = await getPreviewRow(db, repo, prId);
+  if (row?.containerId) {
+    await db
+      .update(previews)
+      .set({
+        status: "running",
+        lastError: error,
+        lastErrorDetail: detail ?? null,
+        updatedAt: utcIsoNow(),
+      })
+      .where(
+        and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+      );
+    return;
   }
 
   await db
     .update(previews)
     .set({
       status: "failed",
-      ...(keepContainer ? {} : { containerId: null }),
+      containerId: null,
       lastError: error,
       lastErrorDetail: detail ?? null,
       updatedAt: utcIsoNow(),
@@ -262,15 +253,29 @@ export async function persistProvisionFailure(
     );
 }
 
-/** Replace/health failure: clear containerId so Traefik orphans are not claimed. */
-async function markPreviewFailed(
+/**
+ * Bring-up / replace / health / ensure / drop failure: clear containerId so
+ * Traefik orphans are not claimed. Exported for unexpected background crashes.
+ */
+export async function markPreviewFailed(
   db: StateDb,
   repo: string,
   prId: number,
   error: string,
   detail?: string,
 ): Promise<void> {
-  await persistProvisionFailure(db, repo, prId, error, detail);
+  await db
+    .update(previews)
+    .set({
+      status: "failed",
+      containerId: null,
+      lastError: error,
+      lastErrorDetail: detail ?? null,
+      updatedAt: utcIsoNow(),
+    })
+    .where(
+      and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+    );
 }
 
 async function writeProvisioningIntent(
@@ -498,7 +503,15 @@ async function resumeProvisioning(
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
-  if (!ensured.ok) return ensured;
+  if (!ensured.ok) {
+    await markPreviewFailed(
+      deps.db,
+      row.canonicalRepoId,
+      row.prId,
+      ensured.error,
+    );
+    return ensured;
+  }
   return attachThenPromote(deps, row, input, false);
 }
 
@@ -624,7 +637,7 @@ export async function claimDeployIntent(
  * {@link claimDeployIntent} already wrote/cleared the intent row. Never remints
  * createdAt — accept owns generation.
  */
-export async function completeProvisionUnlocked(
+async function completeProvisionUnlocked(
   deps: LifecycleDeps,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
@@ -784,15 +797,42 @@ export async function provisionPreview(
       pullImageOrFail(deps.app, input.appImage, "preview_app_deploy_failed"),
       pullImageOrFail(deps.app, input.seed.image, "preview_seed_pull_failed"),
     ]);
-    if (!appPull.ok) return appPull;
-    if (!seedPull.ok) return seedPull;
+    if (!appPull.ok) {
+      await persistPullFailure(
+        deps.db,
+        input.repo,
+        input.prId,
+        appPull.error,
+        appPull.detail,
+      );
+      return appPull;
+    }
+    if (!seedPull.ok) {
+      await persistPullFailure(
+        deps.db,
+        input.repo,
+        input.prId,
+        seedPull.error,
+        seedPull.detail,
+      );
+      return seedPull;
+    }
   } else {
     const appPull = await pullImageOrFail(
       deps.app,
       input.appImage,
       "preview_app_deploy_failed",
     );
-    if (!appPull.ok) return appPull;
+    if (!appPull.ok) {
+      await persistPullFailure(
+        deps.db,
+        input.repo,
+        input.prId,
+        appPull.error,
+        appPull.detail,
+      );
+      return appPull;
+    }
   }
 
   return withPreviewLock(input.repo, input.prId, () =>

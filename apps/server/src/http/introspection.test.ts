@@ -54,13 +54,7 @@ async function setup() {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  const settled = await postDeployAndSettle(testApp!, token, body);
-  return {
-    acceptStatus: settled.acceptStatus,
-    settleStatus: settled.settleStatus,
-    status: settled.settleStatus,
-    body: settled.body,
-  };
+  return postDeployAndSettle(testApp!, token, body);
 }
 
 describe("GET /v1/previews", () => {
@@ -73,7 +67,7 @@ describe("GET /v1/previews", () => {
       hostname: "pr-42.myapp.preview.example.com",
       app_image: "myapp:latest",
     });
-    expect(deployed.status).toBe(200);
+    expect(deployed.settleStatus).toBe(200);
 
     const res = await testApp!.app.handle(
       new Request("http://localhost/v1/previews", {

@@ -80,13 +80,7 @@ function healthBlock() {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  const settled = await postDeployAndSettle(testApp!, token, body);
-  return {
-    acceptStatus: settled.acceptStatus,
-    settleStatus: settled.settleStatus,
-    status: settled.settleStatus,
-    body: settled.body,
-  };
+  return postDeployAndSettle(testApp!, token, body);
 }
 
 describe("POST /v1/deploy seed image", () => {
@@ -96,7 +90,7 @@ describe("POST /v1/deploy seed image", () => {
       deployToken,
       deployBody({ seed_image: SEED_IMAGE }),
     );
-    expect(res.status).toBe(422);
+    expect(res.settleStatus).toBe(422);
     expect(res.body).toEqual({ error: "health_required_for_seed" });
     expect(fakePreviewDb!.created).toEqual([]);
     expect(fakeDocker!.creates).toEqual([]);
@@ -136,7 +130,7 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(timeline).toEqual([
       "app:create",
       "health:503",
@@ -168,7 +162,7 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(res.status).toBe(500);
+    expect(res.settleStatus).toBe(500);
     expect(res.body).toEqual({ error: "health_timeout" });
     expect(
       fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
@@ -186,7 +180,7 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body.status).toBe("running");
     expect(res.body.preview_url).toBe(
       "https://pr-42.myapp.preview.example.com",
@@ -249,7 +243,7 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(fakeDocker!.creates).toHaveLength(2);
     const expectedConnection = [
       "DATABASE_HOST=postgres",
@@ -275,7 +269,7 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(first.status).toBe(200);
+    expect(first.settleStatus).toBe(200);
     const createsAfterFirst = fakeDocker!.creates.length;
     const pullsAfterFirst = fakeDocker!.pulls.length;
 
@@ -287,7 +281,7 @@ describe("POST /v1/deploy seed image", () => {
         app_image: APP_IMAGE,
       }),
     );
-    expect(second.status).toBe(200);
+    expect(second.settleStatus).toBe(200);
     expect(second.body.status).toBe("running");
     // App replace only — no second seed create.
     expect(fakeDocker!.creates.length).toBe(createsAfterFirst + 1);
@@ -318,7 +312,7 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(res.status).toBe(500);
+    expect(res.settleStatus).toBe(500);
     expect(res.body).toEqual({ error: "seed_failed" });
 
     const [row] = await testApp!.db
@@ -344,7 +338,7 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(tooManyEnv.status).toBe(422);
+    expect(tooManyEnv.settleStatus).toBe(422);
     expect(tooManyEnv.body).toEqual({ error: "too_many_seed_env" });
 
     const tooManyArg = await postDeploy(
@@ -355,7 +349,7 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(tooManyArg.status).toBe(422);
+    expect(tooManyArg.settleStatus).toBe(422);
     expect(tooManyArg.body).toEqual({ error: "too_many_seed_arg" });
   });
 
@@ -375,7 +369,7 @@ describe("POST /v1/deploy seed image", () => {
           health: healthBlock(),
         }),
       );
-      expect(res.status).toBe(500);
+      expect(res.settleStatus).toBe(500);
       expect(res.body).toEqual({ error: "seed_failed" });
 
       const [row] = await testApp!.db
@@ -414,7 +408,7 @@ describe("POST /v1/deploy seed image", () => {
           health: healthBlock(),
         }),
       );
-      expect(res.status).toBe(500);
+      expect(res.settleStatus).toBe(500);
       expect(res.body).toEqual({ error: "seed_failed" });
       expect(
         warns.some(
@@ -447,7 +441,7 @@ describe("POST /v1/deploy seed image", () => {
       deployToken,
       deployBody({ seed_image: SEED_IMAGE, health: healthBlock() }),
     );
-    expect(failed.status).toBe(500);
+    expect(failed.settleStatus).toBe(500);
 
     const appCreatesAfterFail = fakeDocker.creates.filter(
       (c) => c.name === "sprout-myapp-pr-42",
@@ -459,7 +453,7 @@ describe("POST /v1/deploy seed image", () => {
       deployToken,
       deployBody({ seed_image: SEED_IMAGE, health: healthBlock() }),
     );
-    expect(retry.status).toBe(200);
+    expect(retry.settleStatus).toBe(200);
     expect(retry.body.status).toBe("running");
     // Same image/hostname: seed-only resume — no second app create.
     expect(
@@ -503,7 +497,7 @@ describe("POST /v1/deploy seed image", () => {
         health: healthBlock(),
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body.status).toBe("running");
     // Resume must not replace the app — only run the seed container.
     expect(

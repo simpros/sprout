@@ -185,6 +185,21 @@ export async function resumeIncompleteSeed(
   ephemerals: DeployEphemerals,
 ): Promise<Result<SeedPhaseSnapshot>> {
   if (!ephemerals.seed) {
+    // Keep containerId so the healthy app stays reclaimable for a seeded retry.
+    await deps.db
+      .update(previews)
+      .set({
+        status: "failed",
+        lastError: "seed_image_required_to_resume_seeding",
+        lastErrorDetail: null,
+        updatedAt: utcIsoNow(),
+      })
+      .where(
+        and(
+          eq(previews.canonicalRepoId, row.canonicalRepoId),
+          eq(previews.prId, row.prId),
+        ),
+      );
     return {
       ok: false,
       status: 422,

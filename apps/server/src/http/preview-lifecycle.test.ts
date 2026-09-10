@@ -75,13 +75,7 @@ function teardownBody(overrides: Record<string, unknown> = {}) {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  const settled = await postDeployAndSettle(testApp!, token, body);
-  return {
-    acceptStatus: settled.acceptStatus,
-    settleStatus: settled.settleStatus,
-    status: settled.settleStatus,
-    body: settled.body,
-  };
+  return postDeployAndSettle(testApp!, token, body);
 }
 
 async function postTeardown(token: string, body: Record<string, unknown>) {
@@ -105,7 +99,7 @@ describe("POST /v1/deploy", () => {
       deployToken,
       deployBody({ slug: "bad_slug!" }),
     );
-    expect(res.status).toBe(422);
+    expect(res.settleStatus).toBe(422);
     expect(res.body).toEqual({ error: "invalid_slug" });
     expect(fakePreviewDb!.created).toEqual([]);
   });
@@ -113,7 +107,7 @@ describe("POST /v1/deploy", () => {
   test("rejects invalid pr_id before SQL", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(deployToken, deployBody({ pr_id: 0 }));
-    expect(res.status).toBe(422);
+    expect(res.settleStatus).toBe(422);
     expect(res.body).toEqual({ error: "invalid_pr_id" });
     expect(fakePreviewDb!.created).toEqual([]);
   });
@@ -121,7 +115,7 @@ describe("POST /v1/deploy", () => {
   test("creates preview database and SQLite row", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toEqual({
       ok: true,
       canonical_repo_id: REPO,
@@ -182,7 +176,7 @@ describe("POST /v1/deploy", () => {
       deployToken,
       deployBody({ canonical_repo_id: OTHER_REPO }),
     );
-    expect(res.status).toBe(403);
+    expect(res.settleStatus).toBe(403);
     expect(res.body).toEqual({ error: "forbidden" });
     expect(fakePreviewDb!.created).toEqual([]);
   });
@@ -202,7 +196,7 @@ describe("POST /v1/deploy", () => {
         hostname: "pr-42.myapp.preview.example.com",
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({
       slug: "myapp",
       db_name: "sprout_myapp_pr42",
@@ -243,7 +237,7 @@ describe("POST /v1/deploy", () => {
       deployToken,
       deployBody({ app_image: "ghcr.io/org/myapp:bad" }),
     );
-    expect(res.status).toBe(500);
+    expect(res.settleStatus).toBe(500);
     expect(res.body).toEqual({
       error: "preview_app_deploy_failed",
       detail: "registry blip",
@@ -271,7 +265,7 @@ describe("POST /v1/deploy", () => {
       );
     };
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(500);
+    expect(res.settleStatus).toBe(500);
     expect(res.body).toEqual({
       error: "preview_app_deploy_failed",
       detail: "access forbidden",
@@ -291,7 +285,7 @@ describe("POST /v1/deploy", () => {
     expect(fakePreviewDb!.created).toEqual([]);
 
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({
       db_name: "sprout_myapp_pr42",
       status: "running",
@@ -314,7 +308,7 @@ describe("POST /v1/deploy", () => {
     });
 
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({ status: "running" });
 
     const [row] = await testApp!.db
@@ -347,7 +341,7 @@ describe("POST /v1/deploy", () => {
     });
 
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({ status: "running" });
 
     const [row] = await testApp!.db
@@ -365,7 +359,7 @@ describe("POST /v1/deploy", () => {
     await postDeploy(deployToken, deployBody());
     await postTeardown(deployToken, teardownBody());
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(fakePreviewDb!.created).toEqual([
       "sprout_myapp_pr42",
       "sprout_myapp_pr42",
@@ -387,7 +381,7 @@ describe("POST /v1/deploy", () => {
       },
     });
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(500);
+    expect(res.settleStatus).toBe(500);
     expect(res.body).toEqual({ error: "preview_db_create_failed" });
 
     const [row] = await testApp!.db
@@ -411,9 +405,9 @@ describe("POST /v1/deploy", () => {
         fakePreviewDb!.created.push(dbName);
       },
     });
-    expect((await postDeploy(deployToken, deployBody())).status).toBe(500);
+    expect((await postDeploy(deployToken, deployBody())).settleStatus).toBe(500);
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({ status: "running" });
     expect(fakePreviewDb!.created).toEqual(["sprout_myapp_pr42"]);
   });
@@ -425,8 +419,8 @@ describe("POST /v1/deploy", () => {
       postDeploy(deployToken, body),
       postDeploy(deployToken, body),
     ]);
-    expect(a.status).toBe(200);
-    expect(b.status).toBe(200);
+    expect(a.settleStatus).toBe(200);
+    expect(b.settleStatus).toBe(200);
     expect(fakePreviewDb!.created.length).toBeGreaterThanOrEqual(1);
     expect(fakePreviewDb!.created.every((n) => n === "sprout_myapp_pr42")).toBe(
       true,
@@ -444,7 +438,7 @@ describe("POST /v1/deploy", () => {
       status: "removing",
     });
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(409);
+    expect(res.settleStatus).toBe(409);
     expect(res.body).toEqual({ error: "preview_teardown_in_progress" });
     expect(fakePreviewDb!.created).toEqual([]);
   });
@@ -463,11 +457,11 @@ describe("POST /v1/deploy", () => {
       postDeploy(deployToken, deployBody({ slug: "alpha" })),
       postDeploy(deployToken, deployBody({ slug: "beta" })),
     ]);
-    const statuses = [a.status, b.status].sort();
+    const statuses = [a.settleStatus, b.settleStatus].sort();
     // One deploy is accepted; the other hits in-flight 409 at accept time.
     expect(statuses).toEqual([200, 409]);
-    const winner = a.status === 200 ? a : b;
-    const loser = a.status === 409 ? a : b;
+    const winner = a.settleStatus === 200 ? a : b;
+    const loser = a.settleStatus === 409 ? a : b;
     expect(loser.body).toEqual({ error: "preview_deploy_in_progress" });
     expect(winner.body).toMatchObject({ status: "running" });
     const names = new Set(fakePreviewDb!.created);
@@ -498,7 +492,7 @@ describe("POST /v1/deploy", () => {
     });
 
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({ status: "running" });
 
     const [row] = await testApp!.db
@@ -526,7 +520,7 @@ describe("POST /v1/deploy", () => {
     });
 
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({
       status: "running",
       slug: "myapp",
@@ -575,15 +569,26 @@ describe("POST /v1/deploy", () => {
       deployToken,
       deployBody({ app_image: "ghcr.io/org/myapp:next" }),
     );
-    expect(fail.status).toBe(500);
+    expect(fail.settleStatus).toBe(500);
     expect(fail.body).toEqual({ error: "preview_app_deploy_failed" });
+
+    const [failedRow] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(failedRow!.status).toBe("failed");
+    expect(failedRow!.containerId).toBeNull();
+    expect(failedRow!.lastError).toBe("preview_app_deploy_failed");
 
     fakeDocker!.createAndStart = originalCreate;
     const ok = await postDeploy(
       deployToken,
       deployBody({ app_image: "ghcr.io/org/myapp:next" }),
     );
-    expect(ok.status).toBe(200);
+    expect(ok.settleStatus).toBe(200);
     expect(ok.body).toMatchObject({ status: "running" });
 
     const [row] = await testApp!.db
@@ -608,7 +613,7 @@ describe("POST /v1/deploy", () => {
         hostname: "pr-42.other.preview.example.com",
       }),
     );
-    expect(res.status).toBe(409);
+    expect(res.settleStatus).toBe(409);
     expect(res.body).toEqual({ error: "preview_identity_conflict" });
 
     const [row] = await testApp!.db
@@ -641,7 +646,7 @@ describe("POST /v1/deploy", () => {
         hostname: "pr-42.other.preview.example.com",
       }),
     );
-    expect(res.status).toBe(409);
+    expect(res.settleStatus).toBe(409);
     expect(res.body).toEqual({ error: "preview_identity_conflict" });
 
     const [row] = await testApp!.db
@@ -676,7 +681,7 @@ describe("POST /v1/deploy", () => {
       deployToken,
       deployBody({ hostname: "pr-42.alt.preview.example.com" }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({
       status: "running",
       slug: "myapp",
@@ -729,9 +734,9 @@ describe("POST /v1/deploy", () => {
     releaseCreate();
 
     const [a, t, b] = await Promise.all([first, teardown, second]);
-    expect(a.status).toBe(200);
+    expect(a.settleStatus).toBe(200);
     expect(t.status).toBe(200);
-    expect(b.status).toBe(200);
+    expect(b.settleStatus).toBe(200);
     expect(b.body).toMatchObject({
       slug: "beta",
       db_name: "sprout_beta_pr42",
@@ -759,15 +764,15 @@ describe("POST /v1/deploy", () => {
   test("parallel deploys after ready do not CREATE again", async () => {
     const { deployToken } = await setup();
     const first = await postDeploy(deployToken, deployBody());
-    expect(first.status).toBe(200);
+    expect(first.settleStatus).toBe(200);
     expect(first.body).toMatchObject({ status: "running" });
 
     const [a, b] = await Promise.all([
       postDeploy(deployToken, deployBody()),
       postDeploy(deployToken, deployBody()),
     ]);
-    expect(a.status).toBe(200);
-    expect(b.status).toBe(200);
+    expect(a.settleStatus).toBe(200);
+    expect(b.settleStatus).toBe(200);
     expect(fakePreviewDb!.created).toEqual(["sprout_myapp_pr42"]);
     expect(fakePreviewDb!.dropped).toEqual([]);
     const [row] = await testApp!.db
@@ -798,7 +803,7 @@ describe("POST /v1/deploy", () => {
       status: "provisioning",
     });
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(500);
+    expect(res.settleStatus).toBe(500);
     expect(res.body).toEqual({ error: "preview_db_create_failed" });
     expect(calls).toBe(1);
     const [row] = await testApp!.db

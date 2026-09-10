@@ -66,13 +66,7 @@ async function setup(options?: {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  const settled = await postDeployAndSettle(testApp!, token, body);
-  return {
-    acceptStatus: settled.acceptStatus,
-    settleStatus: settled.settleStatus,
-    status: settled.settleStatus,
-    body: settled.body,
-  };
+  return postDeployAndSettle(testApp!, token, body);
 }
 
 async function postDeployRaw(token: string, body: Record<string, unknown>) {
@@ -146,7 +140,7 @@ describe("POST /v1/deploy health polling", () => {
   test("blocks until healthy and returns running with preview_url", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(deployToken, deployBody());
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(res.body).toEqual({
       ok: true,
       canonical_repo_id: REPO,
@@ -200,7 +194,7 @@ describe("POST /v1/deploy health polling", () => {
         },
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.settleStatus).toBe(200);
     expect(healthHits[0]).toBe(`http://${POSTGRES_IP}:3000/readyz`);
   });
 
@@ -226,7 +220,7 @@ describe("POST /v1/deploy health polling", () => {
         },
       });
       const res = await postDeploy(deployToken, deployBody());
-      expect(res.status).toBe(500);
+      expect(res.settleStatus).toBe(500);
       expect(res.body).toEqual({ error: "health_timeout" });
 
       const [row] = await testApp!.db
