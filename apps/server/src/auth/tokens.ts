@@ -1,7 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 
-type TokenScope = "admin" | "deploy";
-
 export function generateToken(): string {
   return `sprout_${randomBytes(32).toString("base64url")}`;
 }

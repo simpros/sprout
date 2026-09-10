@@ -15,11 +15,11 @@ import {
   createTestApp,
   deployBody,
   postDeployToken,
+  TEST_APP_IMAGE as APP_IMAGE,
+  TEST_REPO as REPO,
   type TestApp,
 } from "./test-helpers.ts";
 
-const REPO = "https://github.com/org/repo";
-const APP_IMAGE = "ghcr.io/org/myapp:sha-abc";
 /** Second network on create — fake assigns sequential IPs per attached network. */
 const POSTGRES_IP = "10.99.0.2";
 
