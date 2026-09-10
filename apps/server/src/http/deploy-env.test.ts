@@ -58,7 +58,13 @@ async function setup() {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  return postDeployAndSettle(testApp!, token, body);
+  const settled = await postDeployAndSettle(testApp!, token, body);
+  return {
+    acceptStatus: settled.acceptStatus,
+    settleStatus: settled.settleStatus,
+    status: settled.settleStatus,
+    body: settled.body,
+  };
 }
 
 describe("POST /v1/deploy connection env remap", () => {

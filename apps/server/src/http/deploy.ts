@@ -7,13 +7,15 @@ import {
 } from "../app-deployment/health.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
-  acceptAsyncDeploy,
-  readPreviewStatus,
-  runAsyncDeploy,
   teardownPreview,
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
+import {
+  acceptAsyncDeploy,
+  readPreviewStatus,
+  runAsyncDeploy,
+} from "../preview/async-deploy.ts";
 import type { Result } from "../preview/result.ts";
 import { validatePrId, validatePreviewIdentity } from "../preview-db/names.ts";
 

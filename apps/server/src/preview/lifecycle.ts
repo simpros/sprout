@@ -115,45 +115,6 @@ export type TeardownSnapshot = {
   status: "removed";
 };
 
-/** Last async provision error per preview — for GET /v1/preview after 202. */
-const provisionErrors = new Map<
-  string,
-  { error: string; detail?: string }
->();
-
-/** In-flight async deploys so GET does not return a stale running snapshot mid-pull. */
-const inFlightDeploys = new Map<string, number>();
-/** Snapshot returned while in-flight before the control-plane row exists. */
-const inFlightSnapshots = new Map<string, PreviewSnapshot>();
-let deployGeneration = 0;
-
-function previewKey(repo: string, prId: number): string {
-  return `${repo}\0${prId}`;
-}
-
-export function recordProvisionError(
-  repo: string,
-  prId: number,
-  error: string,
-  detail?: string,
-): void {
-  provisionErrors.set(
-    previewKey(repo, prId),
-    detail !== undefined ? { error, detail } : { error },
-  );
-}
-
-export function clearProvisionError(repo: string, prId: number): void {
-  provisionErrors.delete(previewKey(repo, prId));
-}
-
-export function peekProvisionError(
-  repo: string,
-  prId: number,
-): { error: string; detail?: string } | undefined {
-  return provisionErrors.get(previewKey(repo, prId));
-}
-
 export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
   const status = parsePreviewStatus(row.status);
   const parsed = status.ok ? status.value : "failed";
@@ -199,7 +160,7 @@ function withKeyedLock<T>(
   return run;
 }
 
-function withPreviewLock<T>(
+export function withPreviewLock<T>(
   repo: string,
   prId: number,
   fn: () => Promise<T>,
@@ -229,7 +190,7 @@ export function parsePreviewStatus(status: string): Result<PreviewStatus> {
   }
 }
 
-async function getPreviewRow(
+export async function getPreviewRow(
   db: StateDb,
   repo: string,
   prId: number,
@@ -244,18 +205,72 @@ async function getPreviewRow(
   return existing ?? null;
 }
 
+const clearLastError = {
+  lastError: null,
+  lastErrorDetail: null,
+} as const;
+
+/**
+ * Persist a terminal provision failure for GET /v1/preview polling.
+ * Seed-resume / seed-run failures keep containerId so the app stays reclaimable.
+ * Pull failures against a still-routable container restore `running` so a bad
+ * registry blip cannot poison a ready preview (last_error still surfaces on GET).
+ */
+export async function persistProvisionFailure(
+  db: StateDb,
+  repo: string,
+  prId: number,
+  error: string,
+  detail?: string,
+): Promise<void> {
+  const keepContainer =
+    error === "seed_image_required_to_resume_seeding" ||
+    error === "seed_failed";
+  const pullFailed =
+    error === "preview_app_deploy_failed" ||
+    error === "preview_seed_pull_failed";
+
+  if (pullFailed) {
+    const row = await getPreviewRow(db, repo, prId);
+    if (row?.containerId) {
+      await db
+        .update(previews)
+        .set({
+          status: "running",
+          lastError: error,
+          lastErrorDetail: detail ?? null,
+          updatedAt: utcIsoNow(),
+        })
+        .where(
+          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+        );
+      return;
+    }
+  }
+
+  await db
+    .update(previews)
+    .set({
+      status: "failed",
+      ...(keepContainer ? {} : { containerId: null }),
+      lastError: error,
+      lastErrorDetail: detail ?? null,
+      updatedAt: utcIsoNow(),
+    })
+    .where(
+      and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+    );
+}
+
 /** Replace/health failure: clear containerId so Traefik orphans are not claimed. */
 async function markPreviewFailed(
   db: StateDb,
   repo: string,
   prId: number,
+  error: string,
+  detail?: string,
 ): Promise<void> {
-  await db
-    .update(previews)
-    .set({ status: "failed", containerId: null, updatedAt: utcIsoNow() })
-    .where(
-      and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-    );
+  await persistProvisionFailure(db, repo, prId, error, detail);
 }
 
 async function writeProvisioningIntent(
@@ -275,11 +290,67 @@ async function writeProvisioningIntent(
       appImage: null,
       containerId: null,
       seededAt: null,
+      ...clearLastError,
       // New generation: TTL means age of this intent, not birth of the row key.
       createdAt: now,
       updatedAt: now,
     },
     "preview_row_missing_on_intent_write",
+  );
+}
+
+/** Same-identity accept: flip to provisioning without burning TTL or rewriting routing. */
+async function markAcceptProvisioning(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+): Promise<PreviewRow> {
+  const now = utcIsoNow();
+  return updatePreviewRow(
+    deps.db,
+    row,
+    {
+      status: "provisioning",
+      ...clearLastError,
+      updatedAt: now,
+    },
+    "preview_row_missing_on_accept",
+  );
+}
+
+/** Clear sticky errors without changing phase (seed-resume accept). */
+async function clearAcceptErrors(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+): Promise<PreviewRow> {
+  return updatePreviewRow(
+    deps.db,
+    row,
+    {
+      ...clearLastError,
+      updatedAt: utcIsoNow(),
+    },
+    "preview_row_missing_on_accept_clear",
+  );
+}
+
+/** Stuck provisioning accept: remint generation now (complete path does not). */
+async function remintAcceptProvisioning(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+  input: ProvisionInput,
+): Promise<PreviewRow> {
+  const now = utcIsoNow();
+  return updatePreviewRow(
+    deps.db,
+    row,
+    {
+      hostname: input.hostname,
+      status: "provisioning",
+      ...clearLastError,
+      createdAt: now,
+      updatedAt: now,
+    },
+    "preview_row_missing_on_accept_remint",
   );
 }
 
@@ -321,7 +392,12 @@ async function attachAppContainer(
       connectionEnv: input.connectionEnv,
     }));
   } catch {
-    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
+    await markPreviewFailed(
+      deps.db,
+      row.canonicalRepoId,
+      row.prId,
+      "preview_app_deploy_failed",
+    );
     return { ok: false, status: 500, error: "preview_app_deploy_failed" };
   }
 
@@ -334,6 +410,7 @@ async function attachAppContainer(
       appImage: input.appImage,
       containerId,
       status: "starting",
+      ...clearLastError,
       ...(refreshGeneration ? { createdAt: now } : {}),
       updatedAt: now,
     },
@@ -356,7 +433,12 @@ async function attachAppContainer(
         `preview container remove failed for ${row.slug} pr=${row.prId} after health timeout`,
       );
     }
-    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
+    await markPreviewFailed(
+      deps.db,
+      row.canonicalRepoId,
+      row.prId,
+      "health_timeout",
+    );
     return { ok: false, status: 500, error: "health_timeout" };
   }
 
@@ -398,13 +480,18 @@ async function bringUpNew(
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
   if (!ensured.ok) {
-    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
+    await markPreviewFailed(
+      deps.db,
+      row.canonicalRepoId,
+      row.prId,
+      ensured.error,
+    );
     return ensured;
   }
   return attachThenPromote(deps, row, input, refreshGeneration);
 }
 
-/** Stuck-create resume: leave provisioning on CREATE failure; else attach+promote. */
+/** Post-accept provisioning/starting/running: ensure DB then attach (no seed-resume). */
 async function resumeProvisioning(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -412,8 +499,7 @@ async function resumeProvisioning(
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row);
   if (!ensured.ok) return ensured;
-  // Mint generation when stuck-create finally becomes live.
-  return attachThenPromote(deps, row, input, true);
+  return attachThenPromote(deps, row, input, false);
 }
 
 /** slug + dbName ownership; hostname is routing and may change on replace. */
@@ -441,27 +527,17 @@ function requireDbIdentity(
 }
 
 /**
- * Live app, seed not done: resume seed only when image/hostname match;
- * otherwise replace is earned via attachThenPromote.
+ * Accept-time writer of truth: under the preview lock, insert or rewrite a
+ * `provisioning` intent row and return its snapshot. Does not pull or bring-up.
+ * Seed-resume / identity conflicts that need the request body are left to
+ * {@link completeProvisionUnlocked} (durable failure on the row for pollers).
  */
-async function resumeSeedIncomplete(
-  deps: LifecycleDeps,
-  row: PreviewRow,
-  input: ProvisionInput,
-): Promise<Result<PreviewSnapshot>> {
-  if (canResumeSeed(row, input)) {
-    return resumeIncompleteSeed(deps, row, deployEphemerals(input));
-  }
-  // Replace path: same ensure-then-attach policy as fresh/recovered.
-  return bringUpNew(deps, row, input, false);
-}
-
-async function provisionUnlocked(
+export async function claimDeployIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
   const requestedDbName = previewDbName(input.slug, input.prId);
-  let row = await getPreviewRow(deps.db, input.repo, input.prId);
+  const row = await getPreviewRow(deps.db, input.repo, input.prId);
 
   if (!row) {
     const [inserted] = await deps.db
@@ -478,65 +554,108 @@ async function provisionUnlocked(
     if (!inserted) {
       return { ok: false, status: 500, error: "preview_row_missing" };
     }
-    // First live: mint generation at attach (DB+app ready).
-    return bringUpNew(deps, inserted, input, true);
+    return { ok: true, value: previewSnapshotFromRow(inserted) };
   }
 
   const status = parsePreviewStatus(row.status);
   if (!status.ok) return status;
 
   switch (status.value) {
-    case "removed": {
-      const intent = await writeProvisioningIntent(
-        deps,
-        input,
-        requestedDbName,
-      );
-      // Intent write already minted createdAt — do not remint on attach.
-      return bringUpNew(deps, intent, input, false);
-    }
-    case "failed": {
-      if (dbIdentityMatches(row, input, requestedDbName)) {
-        // Seed-failed keep-container: same resume as crash-mid-seed.
-        if (canResumeSeed(row, input)) {
-          return resumeIncompleteSeed(deps, row, deployEphemerals(input));
-        }
-        return bringUpNew(deps, row, input, false);
-      }
-      const intent = await writeProvisioningIntent(
-        deps,
-        input,
-        requestedDbName,
-      );
-      return bringUpNew(deps, intent, input, false);
-    }
-    case "seeding": {
-      // Crash/restart mid-seed: lock already serializes in-flight seed.
-      const identity = requireDbIdentity(row, input, requestedDbName);
-      if (!identity.ok) return identity;
-      return resumeSeedIncomplete(deps, row, input);
-    }
-    case "running":
-    case "starting": {
-      // Live / mid-health claim: refuse slug/dbName rewrite.
-      // Hostname/image may still change when identity matches.
-      // Re-ensure catalog under lock, then re-attach without reminting TTL.
-      const identity = requireDbIdentity(row, input, requestedDbName);
-      if (!identity.ok) return identity;
-      return bringUpNew(deps, row, input, false);
-    }
-    case "provisioning": {
-      // Stuck create: refuse slug/dbName rewrite; ensure DB then attach (mints generation).
-      const identity = requireDbIdentity(row, input, requestedDbName);
-      if (!identity.ok) return identity;
-      return resumeProvisioning(deps, row, input);
-    }
     case "removing":
       return {
         ok: false,
         status: 409,
         error: "preview_teardown_in_progress",
       };
+    case "removed": {
+      const intent = await writeProvisioningIntent(
+        deps,
+        input,
+        requestedDbName,
+      );
+      return { ok: true, value: previewSnapshotFromRow(intent) };
+    }
+    case "failed": {
+      if (dbIdentityMatches(row, input, requestedDbName)) {
+        // Keep failed+container when seed-incomplete so complete can resume
+        // without treating a never-seeded running row as seed-resume.
+        if (canResumeSeed(row, input)) {
+          const next = await clearAcceptErrors(deps, row);
+          return { ok: true, value: previewSnapshotFromRow(next) };
+        }
+        const next = await markAcceptProvisioning(deps, row);
+        return { ok: true, value: previewSnapshotFromRow(next) };
+      }
+      const intent = await writeProvisioningIntent(
+        deps,
+        input,
+        requestedDbName,
+      );
+      return { ok: true, value: previewSnapshotFromRow(intent) };
+    }
+    case "seeding": {
+      const identity = requireDbIdentity(row, input, requestedDbName);
+      if (!identity.ok) return identity;
+      if (canResumeSeed(row, input)) {
+        const next = await clearAcceptErrors(deps, row);
+        return { ok: true, value: previewSnapshotFromRow(next) };
+      }
+      const next = await markAcceptProvisioning(deps, row);
+      return { ok: true, value: previewSnapshotFromRow(next) };
+    }
+    case "running":
+    case "starting": {
+      const identity = requireDbIdentity(row, input, requestedDbName);
+      if (!identity.ok) return identity;
+      const next = await markAcceptProvisioning(deps, row);
+      return { ok: true, value: previewSnapshotFromRow(next) };
+    }
+    case "provisioning": {
+      const identity = requireDbIdentity(row, input, requestedDbName);
+      if (!identity.ok) return identity;
+      const next = await remintAcceptProvisioning(deps, row, input);
+      return { ok: true, value: previewSnapshotFromRow(next) };
+    }
+  }
+}
+
+/**
+ * Post-accept bring-up under the preview lock. Assumes
+ * {@link claimDeployIntent} already wrote/cleared the intent row. Never remints
+ * createdAt — accept owns generation.
+ */
+export async function completeProvisionUnlocked(
+  deps: LifecycleDeps,
+  input: ProvisionInput,
+): Promise<Result<PreviewSnapshot>> {
+  const row = await getPreviewRow(deps.db, input.repo, input.prId);
+  if (!row) {
+    return { ok: false, status: 500, error: "preview_row_missing" };
+  }
+
+  const status = parsePreviewStatus(row.status);
+  if (!status.ok) return status;
+
+  switch (status.value) {
+    case "removing":
+      return {
+        ok: false,
+        status: 409,
+        error: "preview_teardown_in_progress",
+      };
+    case "removed":
+      return { ok: false, status: 404, error: "preview_not_found" };
+    case "seeding":
+    case "failed": {
+      if (canResumeSeed(row, input)) {
+        return resumeIncompleteSeed(deps, row, deployEphemerals(input));
+      }
+      return bringUpNew(deps, row, input, false);
+    }
+    case "provisioning":
+    case "starting":
+    case "running":
+      return resumeProvisioning(deps, row, input);
   }
 }
 
@@ -577,7 +696,7 @@ async function destroyPreviewRow(
     try {
       await deps.previewDb.dropDatabase(existing.dbName);
     } catch {
-      await markPreviewFailed(deps.db, repo, prId);
+      await markPreviewFailed(deps.db, repo, prId, "preview_db_drop_failed");
       return { ok: false, status: 500, error: "preview_db_drop_failed" };
     }
 
@@ -651,26 +770,10 @@ async function pullImageOrFail(
 }
 
 /**
- * Ensure a preview DB + healthy app container exist for (repo, prId).
- * - removed: rewrite identity, CREATE, start/replace app, health → running
- * - failed + same slug/dbName + live app (seed-incomplete): resume seed only
- * - failed + same slug/dbName + no live app: ensure DB + attach without burning generation
- * - failed + new slug/dbName: rewrite intent, then bring-up
- * - starting|running + same slug/dbName: ensure DB (idempotent) then re-attach + health (no TTL remint)
- * - provisioning + same slug/dbName: ensure DB then attach (mints generation)
- * - seeding + same slug/dbName + same image/hostname: resume seed only (crash recovery)
- * - seeding + image/hostname change: attachThenPromote (replace earned)
- * - seed-incomplete resume without seed_image: 422 seed_image_required_to_resume_seeding
- * - after-healthy hook: optional seed when seed image present and seeded_at unset
- * - live + slug/dbName mismatch: 409 preview_identity_conflict
- * - removing: 409
- *
- * Registry pull (app + optional seed) runs outside the preview lock so a hung
- * pull cannot stall teardown for the same (repo, prId). When seed is named,
- * both images pull in parallel — whether seed *runs* is gated under the lock
- * by seeded_at (clients that can omit seed_image on sync avoid unused pulls).
- * Port inspect stays inside replace. Health poll and seed wait hold the
- * preview lock (same-PR teardown queues behind).
+ * Pull images then complete bring-up under the preview lock.
+ * Call only after {@link claimDeployIntent} has written the provisioning row
+ * (async accept path). Pull stays outside the lock so a hung registry cannot
+ * stall teardown for the same (repo, prId).
  */
 export async function provisionPreview(
   deps: LifecycleDeps,
@@ -693,232 +796,8 @@ export async function provisionPreview(
   }
 
   return withPreviewLock(input.repo, input.prId, () =>
-    provisionUnlocked(deps, input),
+    completeProvisionUnlocked(deps, input),
   );
-}
-
-/**
- * Accept a deploy for async completion: validate identity conflicts, mark the
- * deploy in-flight, and return a provisioning snapshot. Does not mutate rows —
- * {@link provisionPreview} owns inserts/intent writes so failure semantics stay
- * unchanged. Callers return HTTP 202 then invoke {@link runAsyncDeploy} when
- * `launch` is true (parallel same-identity accepts join the in-flight deploy).
- */
-export async function acceptAsyncDeploy(
-  deps: LifecycleDeps,
-  input: ProvisionInput,
-): Promise<Result<{ snapshot: PreviewSnapshot; launch: boolean }>> {
-  return withPreviewLock(input.repo, input.prId, async () => {
-    const requestedDbName = previewDbName(input.slug, input.prId);
-    const row = await getPreviewRow(deps.db, input.repo, input.prId);
-
-    if (row) {
-      const status = parsePreviewStatus(row.status);
-      if (!status.ok) return status;
-
-      switch (status.value) {
-        case "removing":
-          return {
-            ok: false,
-            status: 409,
-            error: "preview_teardown_in_progress",
-          };
-        case "running":
-        case "starting":
-        case "seeding":
-        case "provisioning": {
-          const identity = requireDbIdentity(row, input, requestedDbName);
-          if (!identity.ok) return identity;
-          if (
-            status.value === "seeding" &&
-            canResumeSeed(row, {
-              appImage: input.appImage,
-              hostname: input.hostname,
-            }) &&
-            !input.seed
-          ) {
-            return {
-              ok: false,
-              status: 422,
-              error: "seed_image_required_to_resume_seeding",
-            };
-          }
-          break;
-        }
-        case "failed": {
-          if (
-            dbIdentityMatches(row, input, requestedDbName) &&
-            canResumeSeed(row, {
-              appImage: input.appImage,
-              hostname: input.hostname,
-            }) &&
-            !input.seed
-          ) {
-            return {
-              ok: false,
-              status: 422,
-              error: "seed_image_required_to_resume_seeding",
-            };
-          }
-          break;
-        }
-        case "removed":
-          break;
-      }
-    }
-
-    const key = previewKey(input.repo, input.prId);
-    const pending = inFlightSnapshots.get(key);
-    if (inFlightDeploys.has(key) && pending) {
-      if (
-        pending.slug === input.slug &&
-        pending.db_name === requestedDbName
-      ) {
-        return { ok: true, value: { snapshot: pending, launch: false } };
-      }
-      return {
-        ok: false,
-        status: 409,
-        error: "preview_deploy_in_progress",
-      };
-    }
-
-    clearProvisionError(input.repo, input.prId);
-    const gen = ++deployGeneration;
-    inFlightDeploys.set(key, gen);
-
-    const snapshot: PreviewSnapshot = {
-      ok: true,
-      canonical_repo_id: input.repo,
-      pr_id: input.prId,
-      slug: input.slug,
-      db_name: requestedDbName,
-      hostname: input.hostname,
-      status: "provisioning",
-    };
-    inFlightSnapshots.set(key, snapshot);
-    return { ok: true, value: { snapshot, launch: true } };
-  });
-}
-
-/** Background half of async deploy: pull + provision; record errors for poll. */
-export async function runAsyncDeploy(
-  deps: LifecycleDeps,
-  input: ProvisionInput,
-): Promise<void> {
-  const key = previewKey(input.repo, input.prId);
-  const gen = inFlightDeploys.get(key);
-  try {
-    const result = await provisionPreview(deps, input);
-    if (inFlightDeploys.get(key) !== gen) return;
-    if (!result.ok) {
-      recordProvisionError(
-        input.repo,
-        input.prId,
-        result.error,
-        result.detail,
-      );
-    } else {
-      clearProvisionError(input.repo, input.prId);
-    }
-  } catch (err) {
-    console.warn("provision:background_failed", err);
-    if (inFlightDeploys.get(key) === gen) {
-      recordProvisionError(
-        input.repo,
-        input.prId,
-        "preview_app_deploy_failed",
-      );
-      try {
-        await markPreviewFailed(deps.db, input.repo, input.prId);
-      } catch {
-        // best-effort
-      }
-    }
-  } finally {
-    if (inFlightDeploys.get(key) === gen) {
-      inFlightDeploys.delete(key);
-      inFlightSnapshots.delete(key);
-    }
-  }
-}
-
-/**
- * Deploy-token-readable preview status for CLI polling after POST /v1/deploy 202.
- */
-export async function readPreviewStatus(
-  deps: Pick<LifecycleDeps, "db">,
-  repo: string,
-  prId: number,
-): Promise<Result<PreviewSnapshot>> {
-  const key = previewKey(repo, prId);
-  const inFlight = inFlightDeploys.has(key);
-  const stickyError = peekProvisionError(repo, prId);
-
-  const row = await getPreviewRow(deps.db, repo, prId);
-
-  if (inFlight) {
-    if (row && row.status !== "removed") {
-      const snap = previewSnapshotFromRow(row);
-      const phase =
-        snap.status === "starting" || snap.status === "seeding"
-          ? snap.status
-          : "provisioning";
-      return {
-        ok: true,
-        value: {
-          ...snap,
-          status: phase,
-          preview_url: undefined,
-        },
-      };
-    }
-    const pending = inFlightSnapshots.get(key);
-    if (pending) return { ok: true, value: pending };
-    return { ok: false, status: 404, error: "preview_not_found" };
-  }
-
-  if (!row || row.status === "removed") {
-    if (stickyError) {
-      return {
-        ok: false,
-        status: 500,
-        error: stickyError.error,
-        detail: stickyError.detail,
-      };
-    }
-    return { ok: false, status: 404, error: "preview_not_found" };
-  }
-
-  const status = parsePreviewStatus(row.status);
-  if (!status.ok) return status;
-
-  if (status.value === "removing") {
-    return {
-      ok: false,
-      status: 409,
-      error: "preview_teardown_in_progress",
-    };
-  }
-
-  if (stickyError) {
-    return {
-      ok: false,
-      status: 500,
-      error: stickyError.error,
-      detail: stickyError.detail,
-    };
-  }
-
-  if (status.value === "failed") {
-    return {
-      ok: false,
-      status: 500,
-      error: "preview_failed",
-    };
-  }
-
-  return { ok: true, value: previewSnapshotFromRow(row) };
 }
 
 export function teardownPreview(

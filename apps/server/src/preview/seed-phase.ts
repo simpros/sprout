@@ -58,7 +58,12 @@ async function markSeedFailed(
 ): Promise<void> {
   await db
     .update(previews)
-    .set({ status: "failed", updatedAt: utcIsoNow() })
+    .set({
+      status: "failed",
+      lastError: "seed_failed",
+      lastErrorDetail: null,
+      updatedAt: utcIsoNow(),
+    })
     .where(
       and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
     );
@@ -106,7 +111,13 @@ async function runSeedPhase(
     const updated = await updatePreviewRow(
       deps.db,
       row,
-      { status: "running", seededAt, updatedAt: seededAt },
+      {
+        status: "running",
+        seededAt,
+        lastError: null,
+        lastErrorDetail: null,
+        updatedAt: seededAt,
+      },
       "preview_row_missing_on_seeded_running",
     );
     return { ok: true, value: toRunningSnapshot(updated) };
@@ -138,7 +149,12 @@ export async function promoteAfterHealthy(
   const updated = await updatePreviewRow(
     deps.db,
     starting,
-    { status: "running", updatedAt: utcIsoNow() },
+    {
+      status: "running",
+      lastError: null,
+      lastErrorDetail: null,
+      updatedAt: utcIsoNow(),
+    },
     "preview_row_missing_on_running",
   );
   return { ok: true, value: toRunningSnapshot(updated) };

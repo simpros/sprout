@@ -66,7 +66,13 @@ async function setup(options?: {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  return postDeployAndSettle(testApp!, token, body);
+  const settled = await postDeployAndSettle(testApp!, token, body);
+  return {
+    acceptStatus: settled.acceptStatus,
+    settleStatus: settled.settleStatus,
+    status: settled.settleStatus,
+    body: settled.body,
+  };
 }
 
 async function postDeployRaw(token: string, body: Record<string, unknown>) {

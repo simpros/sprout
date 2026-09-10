@@ -80,7 +80,13 @@ function healthBlock() {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  return postDeployAndSettle(testApp!, token, body);
+  const settled = await postDeployAndSettle(testApp!, token, body);
+  return {
+    acceptStatus: settled.acceptStatus,
+    settleStatus: settled.settleStatus,
+    status: settled.settleStatus,
+    body: settled.body,
+  };
 }
 
 describe("POST /v1/deploy seed image", () => {
@@ -534,7 +540,8 @@ describe("POST /v1/deploy seed image", () => {
       deployToken,
       deployBody({ health: healthBlock() }),
     );
-    expect(res.status).toBe(422);
+    expect(res.acceptStatus).toBe(202);
+    expect(res.settleStatus).toBe(422);
     expect(res.body).toEqual({
       error: "seed_image_required_to_resume_seeding",
     });
@@ -546,7 +553,9 @@ describe("POST /v1/deploy seed image", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       )
       .limit(1);
-    expect(row?.status).toBe("seeding");
+    expect(row?.status).toBe("failed");
+    expect(row?.lastError).toBe("seed_image_required_to_resume_seeding");
+    expect(row?.containerId).toBe("fake-stuck");
     expect(row?.seededAt).toBeNull();
   });
 });

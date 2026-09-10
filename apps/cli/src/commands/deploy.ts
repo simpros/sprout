@@ -16,23 +16,28 @@ const DEPLOY_POLL_BUFFER_MS = 180_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 120_000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 
-function parseTimeoutMs(raw: string | undefined): number {
-  if (!raw) return DEFAULT_HEALTH_TIMEOUT_MS;
+/** Parse `Ns` durations; missing uses fallback. Malformed throws (no silent default). */
+function parseSecondsMs(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
   const match = /^(\d+)s$/.exec(raw.trim());
-  if (!match) return DEFAULT_HEALTH_TIMEOUT_MS;
+  if (!match) {
+    throw new Error(`invalid duration (expected Ns): ${raw}`);
+  }
   return Number(match[1]) * 1000;
 }
 
 function pollBudgetMs(yaml: SproutYaml): number {
-  return parseTimeoutMs(yaml.health?.timeout) + DEPLOY_POLL_BUFFER_MS;
+  return (
+    parseSecondsMs(yaml.health?.timeout, DEFAULT_HEALTH_TIMEOUT_MS) +
+    DEPLOY_POLL_BUFFER_MS
+  );
 }
 
 function pollIntervalMs(yaml: SproutYaml): number {
-  const raw = yaml.health?.interval;
-  if (!raw) return DEFAULT_POLL_INTERVAL_MS;
-  const match = /^(\d+)s$/.exec(raw.trim());
-  if (!match) return DEFAULT_POLL_INTERVAL_MS;
-  return Math.max(200, Number(match[1]) * 1000);
+  return Math.max(
+    200,
+    parseSecondsMs(yaml.health?.interval, DEFAULT_POLL_INTERVAL_MS),
+  );
 }
 
 function isRunning(data: PreviewSnapshot): data is PreviewSnapshot & {
@@ -139,14 +144,22 @@ export async function runDeploy(
       ctx.deps.sleep ??
       ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     const now = ctx.deps.now ?? (() => Date.now());
-    const deadline = now() + pollBudgetMs(yaml.value);
-    const interval = pollIntervalMs(yaml.value);
+    let deadline: number;
+    let interval: number;
+    try {
+      deadline = now() + pollBudgetMs(yaml.value);
+      interval = pollIntervalMs(yaml.value);
+    } catch (err) {
+      return fail(
+        ctx.deps.io,
+        err instanceof Error ? err.message : "invalid_health_duration",
+      );
+    }
 
     while (!isRunning(data)) {
       if (now() >= deadline) {
         return fail(ctx.deps.io, "deploy_timeout");
       }
-      await sleep(interval);
       const statusResponse = await ctx.client.v1.preview.get({
         query: {
           canonical_repo_id: identity.value.repo,
@@ -156,6 +169,8 @@ export async function runDeploy(
       const statusResult = readEden<PreviewSnapshot>(statusResponse);
       if (!statusResult.ok) return fail(ctx.deps.io, statusResult.message);
       data = statusResult.data;
+      if (isRunning(data)) break;
+      await sleep(interval);
     }
   }
 

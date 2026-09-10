@@ -22,6 +22,9 @@ export const previews = sqliteTable(
       .notNull()
       .default(utcIsoNow),
     seededAt: text("seeded_at"),
+    /** Terminal async provision failure for GET /v1/preview polling. */
+    lastError: text("last_error"),
+    lastErrorDetail: text("last_error_detail"),
   },
   (table) => [
     primaryKey({ columns: [table.canonicalRepoId, table.prId] }),

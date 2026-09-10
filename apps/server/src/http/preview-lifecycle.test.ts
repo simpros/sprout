@@ -75,7 +75,13 @@ function teardownBody(overrides: Record<string, unknown> = {}) {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  return postDeployAndSettle(testApp!, token, body);
+  const settled = await postDeployAndSettle(testApp!, token, body);
+  return {
+    acceptStatus: settled.acceptStatus,
+    settleStatus: settled.settleStatus,
+    status: settled.settleStatus,
+    body: settled.body,
+  };
 }
 
 async function postTeardown(token: string, body: Record<string, unknown>) {
@@ -775,7 +781,7 @@ describe("POST /v1/deploy", () => {
     expect(row?.dbName).toBe("sprout_myapp_pr42");
   });
 
-  test("stuck provisioning ensure failure leaves status provisioning", async () => {
+  test("stuck provisioning ensure failure persists failed + last_error", async () => {
     let calls = 0;
     const { deployToken } = await setup({
       createDatabase: async () => {
@@ -793,6 +799,7 @@ describe("POST /v1/deploy", () => {
     });
     const res = await postDeploy(deployToken, deployBody());
     expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "preview_db_create_failed" });
     expect(calls).toBe(1);
     const [row] = await testApp!.db
       .select()
@@ -801,7 +808,8 @@ describe("POST /v1/deploy", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       )
       .limit(1);
-    expect(row?.status).toBe("provisioning");
+    expect(row?.status).toBe("failed");
+    expect(row?.lastError).toBe("preview_db_create_failed");
   });
 });
 

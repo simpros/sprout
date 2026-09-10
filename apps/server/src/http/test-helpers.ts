@@ -157,13 +157,17 @@ export async function postDeployToken(
 
 /**
  * POST /v1/deploy then, on 202, poll GET /v1/preview until running or terminal error.
- * Keeps existing HTTP tests aligned with the async health/seed completion path.
+ * Returns accept and settle statuses separately so tests do not re-teach the sync shape.
  */
 export async function postDeployAndSettle(
   app: TestApp,
   token: string,
   body: Record<string, unknown>,
-): Promise<{ status: number; body: any }> {
+): Promise<{
+  acceptStatus: number;
+  settleStatus: number;
+  body: Record<string, unknown>;
+}> {
   const res = await app.app.handle(
     new Request("http://localhost/v1/deploy", {
       method: "POST",
@@ -174,10 +178,18 @@ export async function postDeployAndSettle(
       body: JSON.stringify(body),
     }),
   );
-  const status = res.status;
-  const json = await res.json();
-  if (status !== 202) {
-    return { status, body: json };
+  const acceptStatus = res.status;
+  const json: unknown = await res.json();
+  const asRecord = (value: unknown): Record<string, unknown> =>
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : { value };
+  if (acceptStatus !== 202) {
+    return {
+      acceptStatus,
+      settleStatus: acceptStatus,
+      body: asRecord(json),
+    };
   }
 
   const repo = String(body.canonical_repo_id);
@@ -189,12 +201,12 @@ export async function postDeployAndSettle(
         { headers: bearer(token) },
       ),
     );
-    const pollBody = await poll.json();
+    const pollBody = asRecord(await poll.json());
     if (poll.status === 200 && pollBody.status === "running") {
-      return { status: 200, body: pollBody };
+      return { acceptStatus, settleStatus: 200, body: pollBody };
     }
     if (poll.status >= 400) {
-      return { status: poll.status, body: pollBody };
+      return { acceptStatus, settleStatus: poll.status, body: pollBody };
     }
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
