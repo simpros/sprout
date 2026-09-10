@@ -1,3 +1,4 @@
+import { dirname, join } from "node:path";
 import type { ApiClient } from "@sprout/api-client";
 import {
   normalizeGitRemoteUrl,
@@ -33,14 +34,18 @@ export function resolveGatewayUrl(
   return env.SPROUT_URL?.trim() || "http://127.0.0.1:7331";
 }
 
-/** Loopback / default gateway — safe to fall back to SPROUT_ADMIN_TOKEN. */
-export function isLocalGatewayUrl(url: string): boolean {
-  let hostname: string;
-  try {
-    hostname = new URL(url).hostname;
-  } catch {
-    return false;
-  }
+/**
+ * Path for the gateway-persisted bootstrap admin token (beside state DB).
+ * Matches `apps/server` `resolveAdminTokenPath`.
+ */
+export function resolveAdminTokenPath(env: NodeJS.ProcessEnv): string {
+  const override = env.SPROUT_ADMIN_TOKEN_PATH?.trim();
+  if (override) return override;
+  const dbPath = env.SPROUT_STATE_DB_PATH?.trim() || "sprout.db";
+  return join(dirname(dbPath), "admin-token");
+}
+
+function isLocalGatewayHostname(hostname: string): boolean {
   return (
     hostname === "127.0.0.1" ||
     hostname === "localhost" ||
@@ -49,26 +54,53 @@ export function isLocalGatewayUrl(url: string): boolean {
   );
 }
 
+/** Loopback / default gateway — safe to fall back to admin env/file. */
+export function isLocalGatewayUrl(url: string): boolean {
+  try {
+    return isLocalGatewayHostname(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function fail(io: CliIo, message: string, code = 1): number {
   io.stderr(message);
   return code;
 }
 
 /**
- * Bearer for authed commands: SPROUT_TOKEN always wins. Against a local
- * gateway only, SPROUT_ADMIN_TOKEN is an in-container fallback so operators
- * need not re-export the admin secret as SPROUT_TOKEN.
+ * Bearer for authed commands (full local-admin policy):
+ * 1. `SPROUT_TOKEN` (explicit)
+ * 2. on loopback only: `SPROUT_ADMIN_TOKEN`
+ * 3. on loopback only: admin token file beside the state DB
  */
-export function requireToken(deps: CliDeps): string | null {
+export async function requireToken(deps: CliDeps): Promise<Result<string>> {
   const explicit = deps.env.SPROUT_TOKEN?.trim();
-  if (explicit) return explicit;
+  if (explicit) return { ok: true, value: explicit };
 
-  if (isLocalGatewayUrl(resolveGatewayUrl(deps.env))) {
-    const admin = deps.env.SPROUT_ADMIN_TOKEN?.trim();
-    if (admin) return admin;
+  const urlRaw = resolveGatewayUrl(deps.env);
+  let hostname: string;
+  try {
+    hostname = new URL(urlRaw).hostname;
+  } catch {
+    return { ok: false, error: "invalid SPROUT_URL" };
   }
 
-  return null;
+  if (!isLocalGatewayHostname(hostname)) {
+    return { ok: false, error: "SPROUT_TOKEN is required" };
+  }
+
+  const admin = deps.env.SPROUT_ADMIN_TOKEN?.trim();
+  if (admin) return { ok: true, value: admin };
+
+  const fromFile = await deps.readTextFile(resolveAdminTokenPath(deps.env));
+  const fileToken = fromFile?.trim();
+  if (fileToken) return { ok: true, value: fileToken };
+
+  return {
+    ok: false,
+    error: "SPROUT_TOKEN or SPROUT_ADMIN_TOKEN is required",
+  };
 }
 
 export async function loadYaml(deps: CliDeps): Promise<Result<SproutYaml>> {
@@ -143,24 +175,16 @@ export function substituteHostname(template: string, prId: number): string {
   return template.replaceAll("{pr_id}", String(prId));
 }
 
-export function authedContext(
+export async function authedContext(
   deps: CliDeps,
-): Result<CliContext> {
-  const token = requireToken(deps);
-  if (!token) {
-    const local = isLocalGatewayUrl(resolveGatewayUrl(deps.env));
-    return {
-      ok: false,
-      error: local
-        ? "SPROUT_TOKEN or SPROUT_ADMIN_TOKEN is required"
-        : "SPROUT_TOKEN is required",
-    };
-  }
+): Promise<Result<CliContext>> {
+  const token = await requireToken(deps);
+  if (!token.ok) return token;
   return {
     ok: true,
     value: {
       deps,
-      client: deps.createClient(resolveGatewayUrl(deps.env), token),
+      client: deps.createClient(resolveGatewayUrl(deps.env), token.value),
     },
   };
 }

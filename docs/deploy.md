@@ -70,6 +70,7 @@ Durable runtime identity uses product `sprout*` names:
 |---|---|
 | Compose project / volumes | `sprout` / `sprout_*` |
 | Control-plane SQLite | `/data/sprout.db` (compose) / `sprout.db` (host) |
+| Bootstrap admin token file | `/data/admin-token` (compose) / `admin-token` (host); mode `0600` |
 | Traefik network | `sprout-traefik` |
 | Postgres network | `sprout-postgres` |
 | Preview Postgres roles | `sprout_admin` / `sprout_preview` |
@@ -263,8 +264,11 @@ The gateway preview-db module grants that role ownership when it creates each
 
 ## Bootstrap admin token
 
-After first boot, read the admin token from gateway logs if you left
-`SPROUT_ADMIN_TOKEN` unset or blank in `compose.env`:
+After first boot, the gateway persists the bootstrap admin bearer beside the
+control-plane DB (`/data/admin-token` when `SPROUT_STATE_DB_PATH=/data/sprout.db`,
+mode `0600`) for both pinned and auto-generated tokens. When
+`SPROUT_ADMIN_TOKEN` is unset or blank, the raw token is also printed once in
+gateway logs:
 
 ```bash
 docker compose --env-file compose.env logs gateway | grep -i admin
@@ -272,11 +276,12 @@ docker compose --env-file compose.env logs gateway | grep -i admin
 
 Create a **deploy token** for each adopting repo by exec'ing the CLI already
 in the gateway image (`SPROUT_URL` defaults to `http://127.0.0.1:7331`).
-Against that loopback URL the CLI falls back to the container's
-`SPROUT_ADMIN_TOKEN`, so you do not need to re-export it as `SPROUT_TOKEN`:
+Against that loopback URL the CLI resolves a bearer as:
+`SPROUT_TOKEN` → `SPROUT_ADMIN_TOKEN` → `/data/admin-token`, so bare
+`docker exec` works for pinned and auto-generated admin tokens:
 
 ```bash
-# Primary path: CLI embedded in the gateway image (uses SPROUT_ADMIN_TOKEN)
+# Primary path: CLI embedded in the gateway image (no SPROUT_TOKEN needed)
 docker compose --env-file compose.env exec gateway \
   sprout admin token create --scope deploy --repo https://github.com/org/repo --slug org-repo
 
@@ -284,12 +289,8 @@ docker compose --env-file compose.env exec gateway \
 docker compose --env-file compose.env exec gateway sprout health
 ```
 
-When the admin token was auto-generated (blank `SPROUT_ADMIN_TOKEN` in
-`compose.env`), copy it from the boot logs and pass
-`-e SPROUT_TOKEN=<admin-token>` (or pin `SPROUT_ADMIN_TOKEN` and restart).
-
 Host-side CLI against a remote gateway still needs an explicit
-`SPROUT_TOKEN` — `SPROUT_ADMIN_TOKEN` is only a loopback fallback.
+`SPROUT_TOKEN` — admin env/file fallback is loopback-only.
 
 Store the deploy token in the adopting repo's CI secrets as `SPROUT_TOKEN`.
 

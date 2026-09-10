@@ -61,7 +61,7 @@ export async function runCli(
     return command.run(tokens, unauthedContext(deps));
   }
 
-  const ctx = authedContext(deps);
+  const ctx = await authedContext(deps);
   if (!ctx.ok) return fail(deps.io, ctx.error);
   return command.run(tokens, ctx.value);
 }

@@ -532,6 +532,32 @@ preview:
     expect(captured[0]?.authorization).toBe("Bearer container-admin");
   });
 
+  test("local gateway accepts admin token file when env tokens are unset", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: null,
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({ previews: [] });
+    });
+
+    const code = await runCli(
+      ["list"],
+      deps({
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_STATE_DB_PATH: "/data/sprout.db",
+        },
+        readTextFile: async (path) =>
+          path === "/data/admin-token" ? "file-admin\n" : null,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.authorization).toBe("Bearer file-admin");
+  });
+
   test("remote gateway rejects SPROUT_ADMIN_TOKEN without SPROUT_TOKEN", async () => {
     const code = await runCli(
       ["list"],
@@ -544,6 +570,20 @@ preview:
     );
     expect(code).toBe(1);
     expect(stderr[0]).toBe("SPROUT_TOKEN is required");
+  });
+
+  test("invalid SPROUT_URL fails before admin fallback", async () => {
+    const code = await runCli(
+      ["list"],
+      deps({
+        env: {
+          SPROUT_URL: "not-a-url",
+          SPROUT_ADMIN_TOKEN: "container-admin",
+        },
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe("invalid SPROUT_URL");
   });
 
   test("admin token create requires explicit --repo even when CI derives one", async () => {

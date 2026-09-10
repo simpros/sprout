@@ -58,8 +58,9 @@ sprout teardown
 sprout health                        # GET /healthz (no token)
 ```
 
-**Admin token** (operator — bootstrap from gateway logs / `SPROUT_ADMIN_TOKEN`;
-see [docs/deploy.md](docs/deploy.md#bootstrap-admin-token)):
+**Admin token** (operator — in-container `docker exec` uses admin env/file on
+loopback; host CLI needs the token from logs / `SPROUT_ADMIN_TOKEN` — see
+[docs/deploy.md](docs/deploy.md#bootstrap-admin-token)):
 
 ```bash
 export SPROUT_TOKEN=<admin-token>
