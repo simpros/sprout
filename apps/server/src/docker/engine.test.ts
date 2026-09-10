@@ -230,7 +230,7 @@ describe("createDockerEngineClient", () => {
     await docker.removeByName("sprout-gone-pr-1");
   });
 
-  test("pullImage sends registry auth when configured", async () => {
+  test("pullImage sends registry auth with serveraddress when configured", async () => {
     const seen: { auth: string | null } = { auth: null };
     const docker = createDockerEngineClient({
       registryAuth: { username: "u", password: "p" },
@@ -241,9 +241,13 @@ describe("createDockerEngineClient", () => {
     });
     await docker.pullImage("ghcr.io/org/app:tag");
     expect(seen.auth).toBe(
-      Buffer.from(JSON.stringify({ username: "u", password: "p" })).toString(
-        "base64",
-      ),
+      Buffer.from(
+        JSON.stringify({
+          username: "u",
+          password: "p",
+          serveraddress: "ghcr.io",
+        }),
+      ).toString("base64"),
     );
   });
 
@@ -269,6 +273,61 @@ describe("createDockerEngineClient", () => {
       },
     });
     await docker.pullImage("ghcr.io/org/public:tag");
+    expect(auth).toBeNull();
+  });
+
+  test("pullImage selects per-host creds from registryAuths", async () => {
+    const seen: string[] = [];
+    const docker = createDockerEngineClient({
+      registryAuths: new Map([
+        ["ghcr.io", { username: "gh", password: "gh-tok" }],
+        ["registry.gitlab.com", { username: "gl", password: "gl-tok" }],
+      ]),
+      registryAuth: { username: "global", password: "gpass" },
+      fetch: async (_input, init) => {
+        const auth = new Headers(init?.headers).get("X-Registry-Auth");
+        if (auth) {
+          seen.push(
+            Buffer.from(auth, "base64").toString("utf8"),
+          );
+        } else {
+          seen.push("anonymous");
+        }
+        return new Response("{}", { status: 200 });
+      },
+    });
+    await docker.pullImage("ghcr.io/org/app:tag");
+    await docker.pullImage("registry.gitlab.com/group/seed:tag");
+    await docker.pullImage("quay.io/org/other:tag");
+    expect(JSON.parse(seen[0]!)).toEqual({
+      username: "gh",
+      password: "gh-tok",
+      serveraddress: "ghcr.io",
+    });
+    expect(JSON.parse(seen[1]!)).toEqual({
+      username: "gl",
+      password: "gl-tok",
+      serveraddress: "registry.gitlab.com",
+    });
+    expect(JSON.parse(seen[2]!)).toEqual({
+      username: "global",
+      password: "gpass",
+      serveraddress: "quay.io",
+    });
+  });
+
+  test("pullImage stays anonymous for unmatched host without fallback", async () => {
+    let auth: string | null = "unset";
+    const docker = createDockerEngineClient({
+      registryAuths: new Map([
+        ["ghcr.io", { username: "gh", password: "gh-tok" }],
+      ]),
+      fetch: async (_input, init) => {
+        auth = new Headers(init?.headers).get("X-Registry-Auth");
+        return new Response("{}", { status: 200 });
+      },
+    });
+    await docker.pullImage("quay.io/org/public:tag");
     expect(auth).toBeNull();
   });
 

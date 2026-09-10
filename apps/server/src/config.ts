@@ -1,4 +1,8 @@
 import { GITHUB_HOSTS } from "./forge/kind.ts";
+import {
+  parseRegistryAuthsJson,
+  type RegistryCredential,
+} from "./docker/registry-auth.ts";
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -22,6 +26,7 @@ export const OPTIONAL_ENV_DEFAULTS = {
 export const OPTIONAL_STRING_ENV = [
   "SPROUT_REGISTRY_USER",
   "SPROUT_REGISTRY_PASSWORD",
+  "SPROUT_REGISTRY_AUTHS_JSON",
   "SPROUT_GITHUB_TOKEN",
   "SPROUT_GITLAB_TOKEN",
   "SPROUT_FORGE_HOSTS",
@@ -49,10 +54,12 @@ export type Config = {
   previewPgPassword: string;
   traefikNetwork: string;
   postgresNetwork: string;
-  /** Empty string = anonymous registry pull. */
+  /** Empty string = anonymous registry pull (legacy global fallback). */
   registryUser: string;
-  /** Empty string = anonymous registry pull. */
+  /** Empty string = anonymous registry pull (legacy global fallback). */
   registryPassword: string;
+  /** Per-host pull creds from SPROUT_REGISTRY_AUTHS_JSON. */
+  registryAuths: ReadonlyMap<string, RegistryCredential>;
   /** GitHub PAT for sweep open-PR listing. */
   githubToken: string;
   /** GitLab PAT for sweep open-MR listing. */
@@ -148,6 +155,9 @@ export function loadConfig(): Config {
       "SPROUT_REGISTRY_PASSWORD is set but SPROUT_REGISTRY_USER is empty",
     );
   }
+  const registryAuths = parseRegistryAuthsJson(
+    optionalStringEnv("SPROUT_REGISTRY_AUTHS_JSON"),
+  );
 
   return {
     previewPostgresUrl: requiredEnv("SPROUT_PREVIEW_POSTGRES_URL"),
@@ -163,6 +173,7 @@ export function loadConfig(): Config {
     postgresNetwork: requiredEnv("SPROUT_POSTGRES_NETWORK"),
     registryUser,
     registryPassword,
+    registryAuths,
     githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
     gitlabToken: optionalStringEnv("SPROUT_GITLAB_TOKEN"),
     extraGitlabHosts: parseExtraGitlabHosts(
@@ -208,6 +219,7 @@ export function configSummary(config: Config): Record<string, string | number> {
     postgresNetwork: config.postgresNetwork,
     registryUser: config.registryUser === "" ? "[anonymous]" : config.registryUser,
     registryPassword: config.registryPassword === "" ? "[anonymous]" : "[set]",
+    registryAuths: config.registryAuths.size,
     githubToken: config.githubToken === "" ? "[unset]" : "[set]",
     gitlabToken: config.gitlabToken === "" ? "[unset]" : "[set]",
     extraGitlabHosts: config.extraGitlabHosts.size,

@@ -213,8 +213,9 @@ does not help gateway-initiated Engine API pulls — set these when images are p
 
 | Variable | Description |
 |---|---|
-| `SPROUT_REGISTRY_USER` | Registry username |
-| `SPROUT_REGISTRY_PASSWORD` | Registry password or token |
+| `SPROUT_REGISTRY_AUTHS_JSON` | Per-host cred map: `{"ghcr.io":{"user":"u","password":"p"},...}`. Host is parsed from each image ref; unmatched hosts pull anonymously (unless the legacy pair below is set). Malformed JSON fails at boot. |
+| `SPROUT_REGISTRY_USER` | Legacy single-registry username (fallback when image host is not in the map) |
+| `SPROUT_REGISTRY_PASSWORD` | Legacy single-registry password or token |
 
 Additional v0.1 variables:
 
