@@ -8,7 +8,7 @@ import {
   imageNameWithoutTagOrDigest,
   xRegistryAuthHeader,
   type RegistryPullAuth,
-} from "./registry-auth.ts";
+} from "../registry-auth.ts";
 
 export type DockerEngineOptions = {
   socketPath?: string;

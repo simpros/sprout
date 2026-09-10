@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseRegistryAuthsJson } from "../config.ts";
+import { parseRegistryAuthsJson } from "./config.ts";
 import {
   canonicalizeRegistryHost,
   encodeRegistryAuthHeader,
@@ -15,6 +15,23 @@ describe("canonicalizeRegistryHost", () => {
     expect(canonicalizeRegistryHost("registry-1.docker.io")).toBe("docker.io");
     expect(canonicalizeRegistryHost("Docker.IO")).toBe("docker.io");
     expect(canonicalizeRegistryHost("ghcr.io")).toBe("ghcr.io");
+  });
+
+  test("collapses AuthConfig / docker-config Hub URL keys", () => {
+    expect(canonicalizeRegistryHost("https://index.docker.io/v1/")).toBe(
+      "docker.io",
+    );
+    expect(canonicalizeRegistryHost("http://index.docker.io/v1")).toBe(
+      "docker.io",
+    );
+    expect(canonicalizeRegistryHost("https://registry-1.docker.io/v2/")).toBe(
+      "docker.io",
+    );
+  });
+
+  test("strips scheme so https://ghcr.io matches image-ref host", () => {
+    expect(canonicalizeRegistryHost("https://ghcr.io")).toBe("ghcr.io");
+    expect(canonicalizeRegistryHost("https://ghcr.io/")).toBe("ghcr.io");
   });
 });
 
@@ -120,6 +137,23 @@ describe("resolveRegistryAuth", () => {
         "index.docker.io": { username: "hub", password: "tok" },
       }),
     );
+    expect(resolveRegistryAuth("ubuntu:22.04", { byHost })).toEqual({
+      username: "hub",
+      password: "tok",
+      serveraddress: registryServerAddress("docker.io"),
+    });
+  });
+
+  test("JSON key https://index.docker.io/v1/ matches short-name pulls", () => {
+    const byHost = parseRegistryAuthsJson(
+      JSON.stringify({
+        "https://index.docker.io/v1/": { username: "hub", password: "tok" },
+      }),
+    );
+    expect(byHost.get("docker.io")).toEqual({
+      username: "hub",
+      password: "tok",
+    });
     expect(resolveRegistryAuth("ubuntu:22.04", { byHost })).toEqual({
       username: "hub",
       password: "tok",

@@ -3,7 +3,7 @@ import {
   canonicalizeRegistryHost,
   type RegistryCredential,
   type RegistryPullAuth,
-} from "./docker/registry-auth.ts";
+} from "./registry-auth.ts";
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",

@@ -26,12 +26,22 @@ export type RegistryAuthConfig = {
 const DOCKER_HUB_SERVERADDRESS = "https://index.docker.io/v1/";
 
 /**
- * Collapse Docker Hub synonyms to `docker.io` so map keys and image-ref
- * lookup share one host identity.
+ * Collapse Docker Hub synonyms (and URL-form keys from ~/.docker/config.json)
+ * to `docker.io` so map keys and image-ref lookup share one host identity.
  */
 export function canonicalizeRegistryHost(host: string): string {
-  const h = host.trim().toLowerCase();
-  if (h === "index.docker.io" || h === "registry-1.docker.io") return "docker.io";
+  let h = host.trim().toLowerCase();
+  h = h.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  // docker config / AuthConfig Hub keys → docker.io
+  if (
+    h === "docker.io" ||
+    h === "index.docker.io" ||
+    h === "registry-1.docker.io" ||
+    h.startsWith("index.docker.io/") ||
+    h.startsWith("registry-1.docker.io/")
+  ) {
+    return "docker.io";
+  }
   return h;
 }
 

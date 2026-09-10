@@ -127,6 +127,25 @@ describe("parseRegistryAuthsJson", () => {
       username: "hub2",
       password: "tok2",
     });
+
+    const map3 = parseRegistryAuthsJson(
+      JSON.stringify({
+        "https://index.docker.io/v1/": { username: "hub3", password: "tok3" },
+      }),
+    );
+    expect(map3.get("docker.io")).toEqual({
+      username: "hub3",
+      password: "tok3",
+    });
+  });
+
+  test("strips scheme from non-Hub hosts", () => {
+    const map = parseRegistryAuthsJson(
+      JSON.stringify({
+        "https://ghcr.io": { username: "u", password: "p" },
+      }),
+    );
+    expect(map.get("ghcr.io")).toEqual({ username: "u", password: "p" });
   });
 
   test("rejects duplicate hosts after canonicalize", () => {
@@ -142,6 +161,14 @@ describe("parseRegistryAuthsJson", () => {
       parseRegistryAuthsJson(
         JSON.stringify({
           "index.docker.io": { username: "a", password: "1" },
+          "docker.io": { username: "b", password: "2" },
+        }),
+      ),
+    ).toThrow('duplicate registry host "docker.io"');
+    expect(() =>
+      parseRegistryAuthsJson(
+        JSON.stringify({
+          "https://index.docker.io/v1/": { username: "a", password: "1" },
           "docker.io": { username: "b", password: "2" },
         }),
       ),
