@@ -18,6 +18,7 @@ import {
   promoteAfterHealthy,
   resumeIncompleteSeed,
 } from "./seed-phase.ts";
+import type { Result } from "./result.ts";
 
 export type { PreviewRow };
 
@@ -114,10 +115,6 @@ export type TeardownSnapshot = {
   status: "removed";
 };
 
-type Result<T> =
-  | { ok: true; value: T }
-  | { ok: false; status: number; error: string; detail?: string };
-
 /**
  * Serialize control-plane mutations per (repo, prId).
  * ADR 0001: one gateway process — in-process queue is the concurrency design.
@@ -125,15 +122,20 @@ type Result<T> =
  */
 const previewLocks = new Map<string, Promise<void>>();
 
-function withPreviewLock<T>(
-  repo: string,
-  prId: number,
+/**
+ * Serialize catalog DROP/CREATE per dbName so orphan sweep cannot race provision.
+ * Taken inside the (repo, prId) lock for lifecycle paths; alone for orphan drops.
+ */
+const dbNameLocks = new Map<string, Promise<void>>();
+
+function withKeyedLock<T>(
+  locks: Map<string, Promise<void>>,
+  key: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const key = `${repo}\0${prId}`;
-  const prev = previewLocks.get(key) ?? Promise.resolve();
+  const prev = locks.get(key) ?? Promise.resolve();
   const run = prev.then(fn, fn);
-  previewLocks.set(
+  locks.set(
     key,
     run.then(
       () => undefined,
@@ -143,26 +145,19 @@ function withPreviewLock<T>(
   return run;
 }
 
-/**
- * Serialize catalog DROP/CREATE per dbName so orphan sweep cannot race provision.
- * Taken inside the (repo, prId) lock for lifecycle paths; alone for orphan drops.
- */
-const dbNameLocks = new Map<string, Promise<void>>();
+function withPreviewLock<T>(
+  repo: string,
+  prId: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withKeyedLock(previewLocks, `${repo}\0${prId}`, fn);
+}
 
 function withDbNameLock<T>(
   dbName: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const prev = dbNameLocks.get(dbName) ?? Promise.resolve();
-  const run = prev.then(fn, fn);
-  dbNameLocks.set(
-    dbName,
-    run.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  return run;
+  return withKeyedLock(dbNameLocks, dbName, fn);
 }
 
 export function parsePreviewStatus(status: string): Result<PreviewStatus> {

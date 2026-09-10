@@ -121,6 +121,18 @@ export function bearer(token: string): HeadersInit {
   return { authorization: `Bearer ${token}` };
 }
 
+/** Shared default POST /v1/deploy body for HTTP tests. */
+export function deployBody(overrides: Record<string, unknown> = {}) {
+  return {
+    canonical_repo_id: "https://github.com/org/repo",
+    pr_id: 42,
+    slug: "myapp",
+    hostname: "pr-42.myapp.preview.example.com",
+    app_image: "ghcr.io/org/myapp:sha-abc",
+    ...overrides,
+  };
+}
+
 export async function postDeployToken(
   app: TestApp,
   body: { canonical_repo_id: string; slug: string },

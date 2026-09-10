@@ -11,20 +11,21 @@ import {
   teardownPreview,
   type LifecycleDeps,
 } from "../preview/lifecycle.ts";
+import type { Result } from "../preview/result.ts";
 import { validatePrId, validateSlug } from "../preview-db/names.ts";
 
 export type { LifecycleDeps };
 
-export const healthBody = t.Object({
+const healthBody = t.Object({
   path: t.String({ minLength: 1 }),
   interval: t.String({ minLength: 1 }),
   timeout: t.String({ minLength: 1 }),
   expect: t.Number(),
 });
 
-export const MAX_SEED_ENV = 16;
-export const MAX_SEED_ARG = 16;
-export const MAX_APP_ENV = 32;
+const MAX_SEED_ENV = 16;
+const MAX_SEED_ARG = 16;
+const MAX_APP_ENV = 32;
 
 export const deployBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
@@ -132,10 +133,6 @@ export type TeardownBody = {
   canonical_repo_id: string;
   pr_id: number;
 };
-
-type Result<T> =
-  | { ok: true; value: T }
-  | { ok: false; status: number; error: string; detail?: string };
 
 function resolveRepo(
   auth: AuthContext,

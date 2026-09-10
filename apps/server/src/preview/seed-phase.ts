@@ -4,15 +4,12 @@ import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { SeedImageResult, SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
+import type { Result } from "./result.ts";
 import {
   updatePreviewRow,
   utcIsoNow,
   type PreviewRow,
 } from "./row.ts";
-
-type Result<T> =
-  | { ok: true; value: T }
-  | { ok: false; status: number; error: string };
 
 export type SeedPhaseDeps = {
   db: StateDb;
@@ -71,7 +68,7 @@ async function markSeedFailed(
  * Seed phase ownership: enter seeding → run → running+seededAt | failed(keep container).
  * Any post-enter throw still markSeedFailed so the row cannot tombstone as seeding.
  */
-export async function runSeedPhase(
+async function runSeedPhase(
   deps: SeedPhaseDeps,
   row: PreviewRow,
   ephemerals: DeployEphemerals & { seed: SeedImageSpec },

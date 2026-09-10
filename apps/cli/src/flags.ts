@@ -1,6 +1,6 @@
 import type { Result } from "./result.ts";
 
-export type FlagBag = {
+type FlagBag = {
   image?: string;
   seedImage?: string;
   seedEnv: string[];
@@ -86,7 +86,7 @@ const FLAG_DEFS = [
   { flag: "--scope", field: "scope", kind: "string" },
 ] as const satisfies readonly ArgvFlagDef[];
 
-export type FlagName = (typeof FLAG_DEFS)[number]["flag"];
+type FlagName = (typeof FLAG_DEFS)[number]["flag"];
 
 /** Parse argv tokens, accepting only the listed flags. */
 export function parseFlags(

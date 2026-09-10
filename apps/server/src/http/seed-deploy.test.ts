@@ -13,6 +13,7 @@ import type { HealthProbe } from "../app-deployment/health.ts";
 import {
   bearer,
   createTestApp,
+  deployBody,
   postDeployToken,
   type TestApp,
 } from "./test-helpers.ts";
@@ -57,17 +58,6 @@ async function setup(options?: {
     slug: "myapp",
   });
   return { deployToken: body.token as string };
-}
-
-function deployBody(overrides: Record<string, unknown> = {}) {
-  return {
-    canonical_repo_id: REPO,
-    pr_id: 42,
-    slug: "myapp",
-    hostname: "pr-42.myapp.preview.example.com",
-    app_image: APP_IMAGE,
-    ...overrides,
-  };
 }
 
 function healthBlock() {
