@@ -139,11 +139,11 @@ describe("sprout CLI command surface", () => {
     ]);
   });
 
-  test("deploy surfaces registry auth failure detail from gateway", async () => {
+  test("deploy surfaces registry pull failure detail from gateway", async () => {
     const baseUrl = startGateway(async () => {
       return Response.json(
         {
-          error: "preview_app_registry_auth_failed",
+          error: "preview_app_deploy_failed",
           detail: "access forbidden",
         },
         { status: 500 },
@@ -170,7 +170,7 @@ describe("sprout CLI command surface", () => {
 
     expect(code).toBe(1);
     expect(stderr[0]).toBe(
-      "preview_app_registry_auth_failed: access forbidden",
+      "preview_app_deploy_failed: access forbidden",
     );
   });
 

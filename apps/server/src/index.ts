@@ -30,13 +30,10 @@ const previewDb = createPostgresPreviewDb({
 await previewDb.ensurePreviewRole();
 
 const docker = createDockerEngineClient({
-  registryAuth:
-    config.registryUser === ""
-      ? undefined
-      : {
-          username: config.registryUser,
-          password: config.registryPassword,
-        },
+  registryAuth: {
+    username: config.registryUser,
+    password: config.registryPassword,
+  },
 });
 
 const app = bindPreviewOps({

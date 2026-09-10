@@ -259,6 +259,19 @@ describe("createDockerEngineClient", () => {
     expect(auth).toBeNull();
   });
 
+  test("pullImage omits X-Registry-Auth when username is empty", async () => {
+    let auth: string | null = "unset";
+    const docker = createDockerEngineClient({
+      registryAuth: { username: "", password: "" },
+      fetch: async (_input, init) => {
+        auth = new Headers(init?.headers).get("X-Registry-Auth");
+        return new Response("{}", { status: 200 });
+      },
+    });
+    await docker.pullImage("ghcr.io/org/public:tag");
+    expect(auth).toBeNull();
+  });
+
   test("pullImage throws when progress stream encodes an error", async () => {
     const docker = createDockerEngineClient({
       fetch: async () =>

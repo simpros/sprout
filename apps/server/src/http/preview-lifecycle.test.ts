@@ -267,7 +267,7 @@ describe("POST /v1/deploy", () => {
     expect(row?.containerId).toBe("fake-1");
   });
 
-  test("registry auth pull failure returns distinct error + detail", async () => {
+  test("registry pull failure returns stable error + detail", async () => {
     const { deployToken } = await setup({
       exposedPorts: { [APP_IMAGE]: 3000 },
     });
@@ -279,7 +279,7 @@ describe("POST /v1/deploy", () => {
     const res = await postDeploy(deployToken, deployBody());
     expect(res.status).toBe(500);
     expect(res.body).toEqual({
-      error: "preview_app_registry_auth_failed",
+      error: "preview_app_deploy_failed",
       detail: "access forbidden",
     });
   });

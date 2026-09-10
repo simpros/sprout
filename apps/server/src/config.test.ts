@@ -143,6 +143,15 @@ describe("loadConfig", () => {
     expect(config.registryPassword).toBe("");
   });
 
+  test("rejects password without registry user", () => {
+    setRequiredEnv();
+    delete process.env.SPROUT_REGISTRY_USER;
+    process.env.SPROUT_REGISTRY_PASSWORD = "only-password";
+    expect(() => loadConfig()).toThrow(
+      "SPROUT_REGISTRY_PASSWORD is set but SPROUT_REGISTRY_USER is empty",
+    );
+  });
+
   test("ignores stale SPROUT_REGISTRY_URL (host is in app_image)", () => {
     setRequiredEnv();
     process.env.SPROUT_REGISTRY_URL = "stale.example.com";

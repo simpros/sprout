@@ -141,6 +141,14 @@ export function loadConfig(): Config {
 
   const adminTokenRaw = process.env.SPROUT_ADMIN_TOKEN?.trim();
 
+  const registryUser = optionalStringEnv("SPROUT_REGISTRY_USER");
+  const registryPassword = optionalStringEnv("SPROUT_REGISTRY_PASSWORD");
+  if (registryPassword !== "" && registryUser === "") {
+    throw new Error(
+      "SPROUT_REGISTRY_PASSWORD is set but SPROUT_REGISTRY_USER is empty",
+    );
+  }
+
   return {
     previewPostgresUrl: requiredEnv("SPROUT_PREVIEW_POSTGRES_URL"),
     previewPgHost: requiredEnv("SPROUT_PG_HOST"),
@@ -153,8 +161,8 @@ export function loadConfig(): Config {
     previewPgPassword: requiredEnv("SPROUT_PG_PASSWORD"),
     traefikNetwork: requiredEnv("SPROUT_TRAEFIK_NETWORK"),
     postgresNetwork: requiredEnv("SPROUT_POSTGRES_NETWORK"),
-    registryUser: optionalStringEnv("SPROUT_REGISTRY_USER"),
-    registryPassword: optionalStringEnv("SPROUT_REGISTRY_PASSWORD"),
+    registryUser,
+    registryPassword,
     githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
     gitlabToken: optionalStringEnv("SPROUT_GITLAB_TOKEN"),
     extraGitlabHosts: parseExtraGitlabHosts(

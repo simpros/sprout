@@ -3,7 +3,7 @@ import { and, eq, ne } from "drizzle-orm";
 import type { HealthSpec } from "../app-deployment/health.ts";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
-import { classifyPullFailure } from "../docker/pull-failure.ts";
+import { extractPullDetail } from "../docker/pull-failure.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import { previewDbName } from "../preview-db/names.ts";
@@ -578,18 +578,17 @@ async function teardownUnlocked(
 async function pullImageOrFail(
   app: PreviewAppOps,
   image: string,
-  codes: { auth: string; other: string },
+  error: string,
 ): Promise<Result<true>> {
   try {
     await app.pullImage(image);
     return { ok: true, value: true };
   } catch (err) {
-    const { kind, detail } = classifyPullFailure(err);
     return {
       ok: false,
       status: 500,
-      error: kind === "auth" ? codes.auth : codes.other,
-      detail,
+      error,
+      detail: extractPullDetail(err),
     };
   }
 }
@@ -622,22 +621,17 @@ export async function provisionPreview(
 ): Promise<Result<PreviewSnapshot>> {
   if (input.seed) {
     const [appPull, seedPull] = await Promise.all([
-      pullImageOrFail(deps.app, input.appImage, {
-        auth: "preview_app_registry_auth_failed",
-        other: "preview_app_deploy_failed",
-      }),
-      pullImageOrFail(deps.app, input.seed.image, {
-        auth: "preview_seed_registry_auth_failed",
-        other: "preview_seed_pull_failed",
-      }),
+      pullImageOrFail(deps.app, input.appImage, "preview_app_deploy_failed"),
+      pullImageOrFail(deps.app, input.seed.image, "preview_seed_pull_failed"),
     ]);
     if (!appPull.ok) return appPull;
     if (!seedPull.ok) return seedPull;
   } else {
-    const appPull = await pullImageOrFail(deps.app, input.appImage, {
-      auth: "preview_app_registry_auth_failed",
-      other: "preview_app_deploy_failed",
-    });
+    const appPull = await pullImageOrFail(
+      deps.app,
+      input.appImage,
+      "preview_app_deploy_failed",
+    );
     if (!appPull.ok) return appPull;
   }
 
