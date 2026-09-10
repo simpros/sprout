@@ -7,6 +7,8 @@ import type {
 
 export type DockerEngineOptions = {
   socketPath?: string;
+  /** Registry auth for pulls; omit or empty user = anonymous. */
+  registryAuth?: { username: string; password: string };
   fetch?: (
     input: string | URL | Request,
     init?: RequestInit & { unix?: string },
@@ -23,6 +25,18 @@ type ImageInspect = {
     ExposedPorts?: Record<string, unknown>;
   };
 };
+
+function encodeRegistryAuth(
+  auth: { username: string; password: string } | undefined,
+): string | undefined {
+  if (!auth || auth.username === "") return undefined;
+  return Buffer.from(
+    JSON.stringify({
+      username: auth.username,
+      password: auth.password,
+    }),
+  ).toString("base64");
+}
 
 function splitImageRef(image: string): { fromImage: string; tag: string } {
   const at = image.lastIndexOf("@");
@@ -86,6 +100,7 @@ export function createDockerEngineClient(
 ): PreviewDocker {
   const socketPath = options.socketPath ?? "/var/run/docker.sock";
   const fetchImpl = options.fetch ?? fetch;
+  const registryAuthHeader = encodeRegistryAuth(options.registryAuth);
 
   async function engine(
     path: string,
@@ -112,9 +127,13 @@ export function createDockerEngineClient(
     async pullImage(image) {
       const { fromImage, tag } = splitImageRef(image);
       const qs = new URLSearchParams({ fromImage, tag });
-      // Host Docker daemon auth (docker login / credential helper); no X-Registry-Auth.
+      const headers: Record<string, string> = {};
+      if (registryAuthHeader) {
+        headers["X-Registry-Auth"] = registryAuthHeader;
+      }
       const res = await engine(`/images/create?${qs}`, {
         method: "POST",
+        headers,
       });
       // Drain the progress stream body so the pull completes.
       const body = await res.text();

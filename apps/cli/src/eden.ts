@@ -17,7 +17,12 @@ function errorBody(error: unknown): unknown {
 
 function errorMessage(body: unknown): string {
   if (body && typeof body === "object" && "error" in body) {
-    return String((body as { error: unknown }).error);
+    const error = String((body as { error: unknown }).error);
+    const detail = (body as { detail?: unknown }).detail;
+    if (typeof detail === "string" && detail.trim() !== "") {
+      return `${error}: ${detail.trim()}`;
+    }
+    return error;
   }
   return "request failed";
 }

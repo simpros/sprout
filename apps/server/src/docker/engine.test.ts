@@ -230,7 +230,24 @@ describe("createDockerEngineClient", () => {
     await docker.removeByName("sprout-gone-pr-1");
   });
 
-  test("pullImage omits X-Registry-Auth (daemon owns pull auth)", async () => {
+  test("pullImage sends registry auth when configured", async () => {
+    const seen: { auth: string | null } = { auth: null };
+    const docker = createDockerEngineClient({
+      registryAuth: { username: "u", password: "p" },
+      fetch: async (_input, init) => {
+        seen.auth = new Headers(init?.headers).get("X-Registry-Auth");
+        return new Response("{}", { status: 200 });
+      },
+    });
+    await docker.pullImage("ghcr.io/org/app:tag");
+    expect(seen.auth).toBe(
+      Buffer.from(JSON.stringify({ username: "u", password: "p" })).toString(
+        "base64",
+      ),
+    );
+  });
+
+  test("pullImage omits X-Registry-Auth for anonymous pulls", async () => {
     let auth: string | null = "unset";
     const docker = createDockerEngineClient({
       fetch: async (_input, init) => {
@@ -238,7 +255,7 @@ describe("createDockerEngineClient", () => {
         return new Response("{}", { status: 200 });
       },
     });
-    await docker.pullImage("ghcr.io/org/app:tag");
+    await docker.pullImage("ghcr.io/org/public:tag");
     expect(auth).toBeNull();
   });
 
