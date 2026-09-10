@@ -18,7 +18,7 @@ export type SproutYaml = {
   preview: {
     hostname: string;
     env?: PreviewEnvMap;
-    /** Static adopter env for the app container (secrets via --app-env). */
+    /** Static adopter env for the app container (secrets via --app-env / --app-env-file). */
     app_env?: Record<string, string>;
   };
   health?: SproutHealth;

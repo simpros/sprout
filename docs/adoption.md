@@ -49,7 +49,8 @@ health:
 - `preview.env` — optional remap of the five connection env **names** the
   gateway injects (see below). Unmapped keys stay `PG*`.
 - `preview.app_env` — optional static string map injected into the app
-  container (see Extra app env). Prefer `--app-env` for secrets.
+  container (see Extra app env). Prefer `--app-env` / `--app-env-file` for
+  secrets.
 - `health` — HTTP poll the gateway runs against the app container IP on the
   Postgres network. Required when using `-s`; gates the after-healthy seed hook
   (see below).
@@ -92,10 +93,11 @@ that fits your stack.
 
 Adopters often need runtime env beyond the five connection fields
 (`BETTER_AUTH_SECRET`, app URLs, trusted origins, dual-role passwords, etc.).
-Pass those either as:
+Pass those as:
 
-- Repeatable CLI flags (secrets from CI): `--app-env KEY=VALUE`
 - Static map in `.sprout.yaml` under `preview.app_env` (no secrets in git)
+- Repeatable `--app-env-file PATH` (dotenv `KEY=VALUE` file; blank/`#` lines skipped)
+- Repeatable `--app-env KEY=VALUE` (secrets or one-offs from CI)
 
 ```yaml
 slug: myapp
@@ -108,15 +110,40 @@ preview:
 
 ```bash
 sprout deploy -i "$APP_IMAGE" \
-  --app-env BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
-  --app-env BETTER_AUTH_URL="https://pr-${PR_ID}.myapp.preview.example.com" \
-  --app-env APP_DATABASE_PASSWORD="$APP_DATABASE_PASSWORD"
+  --app-env-file "$PREVIEW_APP_ENV" \
+  --app-env BETTER_AUTH_URL="https://pr-${PR_ID}.myapp.preview.example.com"
 ```
 
-CLI merges yaml `app_env` first, then `--app-env` flags (duplicate keys:
-flags win, one entry per key on the wire). Gateway connection keys replace
-colliding adopter keys (canonical PG* ∪ remapped names) — same policy as
-seed `--seed-env`. Seed env applies only to the seed container.
+CLI merge order: yaml `app_env` first, then each `--app-env-file` in flag
+order, then `--app-env` flags (later wins on duplicate keys; one entry per
+key on the wire). Invalid dotenv lines or flags fail before any gateway
+call. Gateway connection keys replace colliding adopter keys (canonical
+PG* ∪ remapped names) — same policy as seed `--seed-env`. Seed env applies
+only to the seed container.
+
+#### CI: dotenv file from variables
+
+**GitLab** — store a file-type CI/CD variable (e.g. `PREVIEW_APP_ENV`). GitLab
+writes the file and exposes its path in `$PREVIEW_APP_ENV`:
+
+```yaml
+script:
+  - sprout deploy -i "$APP_IMAGE" --app-env-file "$PREVIEW_APP_ENV"
+```
+
+**GitHub Actions** — no file-type secrets; write a multiline secret/var to a
+temp file, then pass the path:
+
+```yaml
+- name: Write preview app env
+  env:
+    PREVIEW_APP_ENV: ${{ secrets.PREVIEW_APP_ENV }}
+  run: |
+    printf '%s\n' "$PREVIEW_APP_ENV" > "$RUNNER_TEMP/preview.app.env"
+    echo "PREVIEW_APP_ENV_FILE=$RUNNER_TEMP/preview.app.env" >> "$GITHUB_ENV"
+- name: Deploy
+  run: sprout deploy -i "$APP_IMAGE" --app-env-file "$PREVIEW_APP_ENV_FILE"
+```
 
 ### Shell entrypoint (any runtime)
 

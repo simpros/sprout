@@ -1,5 +1,9 @@
 import type { PreviewSnapshot } from "@sprout/api-client";
-import { mergeAppEnv } from "../app-env.ts";
+import {
+  mergeAppEnv,
+  parseDotenv,
+  resolveAppEnvFilePath,
+} from "../app-env.ts";
 import type { CliContext } from "../context.ts";
 import {
   fail,
@@ -21,6 +25,7 @@ export async function runDeploy(
     "--seed-env",
     "--seed-arg",
     "--app-env",
+    "--app-env-file",
     "--repo",
   ]);
   if (!flags.ok) return fail(ctx.deps.io, flags.error);
@@ -77,7 +82,23 @@ export async function runDeploy(
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  const appEnv = mergeAppEnv(yaml.value.preview.app_env, flags.value.appEnv);
+  const fromFiles: string[] = [];
+  for (const filePath of flags.value.appEnvFile) {
+    const resolved = resolveAppEnvFilePath(ctx.deps.cwd, filePath);
+    const raw = await ctx.deps.readTextFile(resolved);
+    if (raw === null) {
+      return fail(ctx.deps.io, `cannot read --app-env-file: ${filePath}`);
+    }
+    const parsed = parseDotenv(raw, filePath);
+    if (!parsed.ok) return fail(ctx.deps.io, parsed.error);
+    fromFiles.push(...parsed.value);
+  }
+
+  const appEnv = mergeAppEnv(
+    yaml.value.preview.app_env,
+    fromFiles,
+    flags.value.appEnv,
+  );
   if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);
   if (appEnv.value) body.app_env = appEnv.value;
 
