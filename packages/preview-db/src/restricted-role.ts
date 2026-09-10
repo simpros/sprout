@@ -10,6 +10,8 @@ export function restrictedRoleName(dbName: string): string {
 /**
  * Deterministic companion password from the owner preview password + db name.
  * Stable across gateway restarts without persisting secrets in SQLite.
+ * Derivation is the credential authority for env emission; ensure only mutates
+ * Postgres to match.
  */
 export function deriveRestrictedPassword(
   ownerPassword: string,
@@ -20,26 +22,24 @@ export function deriveRestrictedPassword(
     .digest("base64url");
 }
 
-export type RestrictedRoleCredentials = {
-  role: string;
-  password: string;
-};
-
 /**
  * Ensure a per-DB restricted LOGIN role, GRANT CONNECT + schema USAGE.
  * Does not own the database (owner stays the static preview login).
+ * Callers read credentials via {@link restrictedRoleName} /
+ * {@link deriveRestrictedPassword} at inject time.
  */
 export async function ensureRestrictedRole(
   sql: SQL,
   opts: { dbName: string; ownerPassword: string; adminUrl: string },
-): Promise<RestrictedRoleCredentials> {
+): Promise<void> {
+  assertSafeRole(opts.dbName);
   const role = restrictedRoleName(opts.dbName);
   assertSafeRole(role);
   const password = deriveRestrictedPassword(opts.ownerPassword, opts.dbName);
 
   await ensureLoginRole(sql, role, password);
 
-  // Identifiers validated (preview grammar + SAFE_ROLE).
+  // dbName + role checked via SAFE_ROLE (safe for unquoted DDL identifiers).
   await sql.unsafe(
     `GRANT CONNECT ON DATABASE ${opts.dbName} TO ${role}`,
   );
@@ -50,8 +50,6 @@ export async function ensureRestrictedRole(
   } finally {
     await dbSql.close();
   }
-
-  return { role, password };
 }
 
 /** DROP ROLE IF EXISTS for the companion; caller must DROP DATABASE first. */
@@ -59,6 +57,7 @@ export async function dropRestrictedRole(
   sql: SQL,
   dbName: string,
 ): Promise<void> {
+  assertSafeRole(dbName);
   const role = restrictedRoleName(dbName);
   assertSafeRole(role);
   await sql.unsafe(`DROP ROLE IF EXISTS ${role}`);

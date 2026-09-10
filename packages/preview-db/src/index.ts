@@ -12,7 +12,6 @@ export {
   dropRestrictedRole,
   ensureRestrictedRole,
   restrictedRoleName,
-  type RestrictedRoleCredentials,
 } from "./restricted-role.ts";
 export {
   isWorktreeInputError,

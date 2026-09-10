@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
+import {
+  deriveRestrictedPassword,
+  restrictedRoleName,
+} from "@sprout/preview-db";
 import { dockerAvailable, startTempPostgres } from "@sprout/preview-db/testing";
 import { createPostgresPreviewDb } from "./postgres.ts";
 
@@ -83,8 +87,8 @@ describe.skipIf(!hasDocker)("ensurePreviewRole (postgres)", () => {
     await preview`SELECT 1`;
     await preview.close();
 
-    const { role, password: appPassword } =
-      await db.ensureRestrictedRole(dbName);
+    const role = restrictedRoleName(dbName);
+    const appPassword = deriveRestrictedPassword(password, dbName);
     expect(role).toBe("sprout_ensure_pr1_app");
     const restricted = new SQL(
       `postgres://${role}:${encodeURIComponent(appPassword)}@127.0.0.1:${hostPort}/${dbName}`,

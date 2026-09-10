@@ -1,14 +1,23 @@
-/** Canonical gateway-emitted connection env names. */
-export const CANONICAL_ENV_KEYS = [
+/** Owner / primary connection env names (single-role surfaces). */
+export const OWNER_ENV_KEYS = [
   "PGHOST",
   "PGPORT",
   "PGUSER",
   "PGPASSWORD",
   "PGDATABASE",
-  "PGAPPUSER",
-  "PGAPPPASSWORD",
 ] as const;
 
+/** Restricted companion LOGIN env names (gateway dual-role injection). */
+export const COMPANION_ENV_KEYS = ["PGAPPUSER", "PGAPPPASSWORD"] as const;
+
+/** Canonical gateway-emitted connection env names (owner + companion). */
+export const CANONICAL_ENV_KEYS = [
+  ...OWNER_ENV_KEYS,
+  ...COMPANION_ENV_KEYS,
+] as const;
+
+export type OwnerEnvKey = (typeof OWNER_ENV_KEYS)[number];
+export type CompanionEnvKey = (typeof COMPANION_ENV_KEYS)[number];
 export type CanonicalEnvKey = (typeof CANONICAL_ENV_KEYS)[number];
 
 /** Partial remap of canonical connection env names → adopter names. */

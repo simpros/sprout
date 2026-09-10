@@ -1,7 +1,3 @@
-import {
-  deriveRestrictedPassword,
-  restrictedRoleName,
-} from "@sprout/preview-db";
 import { parsePreviewDatabaseName } from "./names.ts";
 import type { CatalogDatabase, PreviewDb } from "./port.ts";
 
@@ -21,22 +17,19 @@ export function createFakePreviewDb(
   const restrictedEnsured: string[] = [];
   const ownerPassword = options.ownerPassword ?? "preview-secret";
 
-  async function ensureRestrictedRole(dbName: string) {
-    restrictedEnsured.push(dbName);
-    return {
-      role: restrictedRoleName(dbName),
-      password: deriveRestrictedPassword(ownerPassword, dbName),
-    };
-  }
-
   return {
     created,
     dropped,
     restrictedEnsured,
     ownerPassword,
     async createDatabase(dbName) {
-      created.push(dbName);
-      await ensureRestrictedRole(dbName);
+      const live = new Set(created);
+      for (const name of dropped) live.delete(name);
+      if (!live.has(dbName)) {
+        created.push(dbName);
+      }
+      // Companion ensure runs on every createDatabase call (incl. sync re-ensure).
+      restrictedEnsured.push(dbName);
     },
     async dropDatabase(dbName) {
       dropped.push(dbName);
@@ -53,7 +46,6 @@ export function createFakePreviewDb(
       return out;
     },
     async ensurePreviewRole() {},
-    ensureRestrictedRole,
     async ping() {},
   };
 }

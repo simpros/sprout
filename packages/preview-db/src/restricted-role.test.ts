@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
 import { ensureDatabase } from "./catalog.ts";
-import { ensureLoginRole } from "./ensure-role.ts";
+import { assertSafeRole, ensureLoginRole } from "./ensure-role.ts";
 import { dockerAvailable, startTempPostgres } from "./postgres-it.ts";
 import {
   deriveRestrictedPassword,
@@ -28,6 +28,11 @@ describe("restrictedRoleName / deriveRestrictedPassword", () => {
     expect(a).not.toBe(c);
     expect(a).not.toBe(d);
     expect(a.length).toBeGreaterThan(20);
+  });
+
+  test("SAFE_ROLE rejects unsafe db identifiers", () => {
+    expect(() => assertSafeRole("bad-name")).toThrow(/unsafe/);
+    expect(() => assertSafeRole("sprout_rr_pr1")).not.toThrow();
   });
 });
 
@@ -56,18 +61,17 @@ describe.skipIf(!hasDocker)("ensureRestrictedRole (postgres)", () => {
   });
 
   test("creates non-owner LOGIN with CONNECT and authenticates", async () => {
-    const creds = await ensureRestrictedRole(admin, {
+    await ensureRestrictedRole(admin, {
       dbName,
       ownerPassword,
       adminUrl,
     });
-    expect(creds.role).toBe("sprout_rr_pr1_app");
-    expect(creds.password).toBe(
-      deriveRestrictedPassword(ownerPassword, dbName),
-    );
+    const role = restrictedRoleName(dbName);
+    const password = deriveRestrictedPassword(ownerPassword, dbName);
+    expect(role).toBe("sprout_rr_pr1_app");
 
     const restricted = new SQL(
-      `postgres://${creds.role}:${encodeURIComponent(creds.password)}@127.0.0.1:${hostPort}/${dbName}`,
+      `postgres://${role}:${encodeURIComponent(password)}@127.0.0.1:${hostPort}/${dbName}`,
     );
     await restricted`SELECT 1`;
 
@@ -77,43 +81,55 @@ describe.skipIf(!hasDocker)("ensureRestrictedRole (postgres)", () => {
       WHERE d.datname = ${dbName}
     `;
     expect(ownerCheck[0]?.owner).toBe(owner);
-    expect(ownerCheck[0]?.owner).not.toBe(creds.role);
+    expect(ownerCheck[0]?.owner).not.toBe(role);
 
     await restricted.close();
   }, 15_000);
 
   test("ensure is idempotent (re-sync password)", async () => {
-    const first = await ensureRestrictedRole(admin, {
+    await ensureRestrictedRole(admin, {
       dbName,
       ownerPassword,
       adminUrl,
     });
-    const second = await ensureRestrictedRole(admin, {
+    await ensureRestrictedRole(admin, {
       dbName,
       ownerPassword,
       adminUrl,
     });
-    expect(second).toEqual(first);
 
+    const role = restrictedRoleName(dbName);
+    const password = deriveRestrictedPassword(ownerPassword, dbName);
     const restricted = new SQL(
-      `postgres://${first.role}:${encodeURIComponent(first.password)}@127.0.0.1:${hostPort}/${dbName}`,
+      `postgres://${role}:${encodeURIComponent(password)}@127.0.0.1:${hostPort}/${dbName}`,
     );
     await restricted`SELECT 1`;
     await restricted.close();
   });
 
   test("dropRestrictedRole removes the companion after DROP DATABASE", async () => {
-    const creds = await ensureRestrictedRole(admin, {
+    await ensureRestrictedRole(admin, {
       dbName,
       ownerPassword,
       adminUrl,
     });
+    const role = restrictedRoleName(dbName);
     await admin.unsafe(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
     await dropRestrictedRole(admin, dbName);
 
     const roles = await admin`
-      SELECT 1 AS ok FROM pg_catalog.pg_roles WHERE rolname = ${creds.role}
+      SELECT 1 AS ok FROM pg_catalog.pg_roles WHERE rolname = ${role}
     `;
     expect(roles).toHaveLength(0);
+  });
+
+  test("refuses unsafe dbName before DDL", async () => {
+    await expect(
+      ensureRestrictedRole(admin, {
+        dbName: "bad;drop",
+        ownerPassword,
+        adminUrl,
+      }),
+    ).rejects.toThrow(/unsafe/);
   });
 });

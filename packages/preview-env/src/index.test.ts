@@ -1,5 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { parsePreviewEnvMap } from "./index.ts";
+import {
+  CANONICAL_ENV_KEYS,
+  COMPANION_ENV_KEYS,
+  OWNER_ENV_KEYS,
+  parsePreviewEnvMap,
+} from "./index.ts";
+
+describe("env key partitions", () => {
+  test("CANONICAL is owner then companion", () => {
+    expect([...CANONICAL_ENV_KEYS]).toEqual([
+      ...OWNER_ENV_KEYS,
+      ...COMPANION_ENV_KEYS,
+    ]);
+    expect(OWNER_ENV_KEYS).toEqual([
+      "PGHOST",
+      "PGPORT",
+      "PGUSER",
+      "PGPASSWORD",
+      "PGDATABASE",
+    ]);
+    expect(COMPANION_ENV_KEYS).toEqual(["PGAPPUSER", "PGAPPPASSWORD"]);
+  });
+});
 
 describe("parsePreviewEnvMap", () => {
   test("absent or empty map means no remapping", () => {

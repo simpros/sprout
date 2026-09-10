@@ -45,24 +45,17 @@ export function createPostgresPreviewDb(
     await ensureInFlight;
   }
 
-  async function ensureRestricted(
-    dbName: string,
-  ): Promise<{ role: string; password: string }> {
-    assertPreviewDbName(dbName);
-    return ensureRestrictedRole(sql, {
-      dbName,
-      ownerPassword: previewPassword,
-      adminUrl,
-    });
-  }
-
   return {
     async createDatabase(dbName) {
       assertPreviewDbName(dbName);
       // Defensive if boot skipped ensure; memoized after first success (no hot-path ALTER).
       await ensurePreviewRole();
       await ensureDatabase(sql, { name: dbName, owner: previewRole });
-      await ensureRestricted(dbName);
+      await ensureRestrictedRole(sql, {
+        dbName,
+        ownerPassword: previewPassword,
+        adminUrl,
+      });
     },
 
     async dropDatabase(dbName) {
@@ -90,8 +83,6 @@ export function createPostgresPreviewDb(
     },
 
     ensurePreviewRole,
-
-    ensureRestrictedRole: ensureRestricted,
 
     async ping() {
       await sql`SELECT 1`;
