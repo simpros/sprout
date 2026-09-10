@@ -11,6 +11,37 @@ import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
 
+/** Extra budget beyond health.timeout for image pull + replace + optional seed. */
+const DEPLOY_POLL_BUFFER_MS = 180_000;
+const DEFAULT_HEALTH_TIMEOUT_MS = 120_000;
+const DEFAULT_POLL_INTERVAL_MS = 2_000;
+
+function parseTimeoutMs(raw: string | undefined): number {
+  if (!raw) return DEFAULT_HEALTH_TIMEOUT_MS;
+  const match = /^(\d+)s$/.exec(raw.trim());
+  if (!match) return DEFAULT_HEALTH_TIMEOUT_MS;
+  return Number(match[1]) * 1000;
+}
+
+function pollBudgetMs(yaml: SproutYaml): number {
+  return parseTimeoutMs(yaml.health?.timeout) + DEPLOY_POLL_BUFFER_MS;
+}
+
+function pollIntervalMs(yaml: SproutYaml): number {
+  const raw = yaml.health?.interval;
+  if (!raw) return DEFAULT_POLL_INTERVAL_MS;
+  const match = /^(\d+)s$/.exec(raw.trim());
+  if (!match) return DEFAULT_POLL_INTERVAL_MS;
+  return Math.max(200, Number(match[1]) * 1000);
+}
+
+function isRunning(data: PreviewSnapshot): data is PreviewSnapshot & {
+  preview_url: string;
+  status: "running";
+} {
+  return data.status === "running" && typeof data.preview_url === "string";
+}
+
 export async function runDeploy(
   tokens: string[],
   ctx: CliContext,
@@ -102,13 +133,32 @@ export async function runDeploy(
   const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return fail(ctx.deps.io, result.message);
 
-  const data = result.data;
-  if (data.status !== "running") {
-    return fail(ctx.deps.io, `deploy ended with status: ${data.status}`);
+  let data = result.data;
+  if (!isRunning(data)) {
+    const sleep =
+      ctx.deps.sleep ??
+      ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    const now = ctx.deps.now ?? (() => Date.now());
+    const deadline = now() + pollBudgetMs(yaml.value);
+    const interval = pollIntervalMs(yaml.value);
+
+    while (!isRunning(data)) {
+      if (now() >= deadline) {
+        return fail(ctx.deps.io, "deploy_timeout");
+      }
+      await sleep(interval);
+      const statusResponse = await ctx.client.v1.preview.get({
+        query: {
+          canonical_repo_id: identity.value.repo,
+          pr_id: String(identity.value.prId),
+        },
+      });
+      const statusResult = readEden<PreviewSnapshot>(statusResponse);
+      if (!statusResult.ok) return fail(ctx.deps.io, statusResult.message);
+      data = statusResult.data;
+    }
   }
-  if (!data.preview_url) {
-    return fail(ctx.deps.io, "deploy succeeded without preview_url");
-  }
+
   ctx.deps.io.stdout(`preview_url=${data.preview_url}`);
   return 0;
 }

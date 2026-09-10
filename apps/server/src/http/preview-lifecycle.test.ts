@@ -18,6 +18,7 @@ import {
   bearer,
   createTestApp,
   deployBody,
+  postDeployAndSettle,
   postDeployToken,
   TEST_APP_IMAGE as APP_IMAGE,
   TEST_REPO as REPO,
@@ -74,17 +75,7 @@ function teardownBody(overrides: Record<string, unknown> = {}) {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  const res = await testApp!.app.handle(
-    new Request("http://localhost/v1/deploy", {
-      method: "POST",
-      headers: {
-        ...bearer(token),
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }),
-  );
-  return { status: res.status, body: await res.json() };
+  return postDeployAndSettle(testApp!, token, body);
 }
 
 async function postTeardown(token: string, body: Record<string, unknown>) {
@@ -467,10 +458,11 @@ describe("POST /v1/deploy", () => {
       postDeploy(deployToken, deployBody({ slug: "beta" })),
     ]);
     const statuses = [a.status, b.status].sort();
+    // One deploy is accepted; the other hits in-flight 409 at accept time.
     expect(statuses).toEqual([200, 409]);
     const winner = a.status === 200 ? a : b;
     const loser = a.status === 409 ? a : b;
-    expect(loser.body).toEqual({ error: "preview_identity_conflict" });
+    expect(loser.body).toEqual({ error: "preview_deploy_in_progress" });
     expect(winner.body).toMatchObject({ status: "running" });
     const names = new Set(fakePreviewDb!.created);
     expect(names.size).toBe(1);

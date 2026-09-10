@@ -14,6 +14,7 @@ import {
   bearer,
   createTestApp,
   deployBody,
+  postDeployAndSettle,
   postDeployToken,
   TEST_APP_IMAGE as APP_IMAGE,
   TEST_REPO as REPO,
@@ -65,6 +66,10 @@ async function setup(options?: {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
+  return postDeployAndSettle(testApp!, token, body);
+}
+
+async function postDeployRaw(token: string, body: Record<string, unknown>) {
   const res = await testApp!.app.handle(
     new Request("http://localhost/v1/deploy", {
       method: "POST",
@@ -79,6 +84,59 @@ async function postDeploy(token: string, body: Record<string, unknown>) {
 }
 
 describe("POST /v1/deploy health polling", () => {
+  test("returns 202 provisioning before pull and health complete", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { deployToken } = await setup({
+      healthProbe: {
+        async getStatus(url) {
+          healthHits.push(url);
+          await gate;
+          return 200;
+        },
+      },
+    });
+    const early = await postDeployRaw(deployToken, deployBody());
+    expect(early.status).toBe(202);
+    expect(early.body).toMatchObject({
+      ok: true,
+      status: "provisioning",
+      hostname: "pr-42.myapp.preview.example.com",
+    });
+    expect((early.body as { preview_url?: string }).preview_url).toBeUndefined();
+    // Health must not have completed before 202 (pull/replace may still be racing).
+    expect(healthHits.length).toBe(0);
+
+    release();
+
+    let settled: { status: number; body: unknown } | undefined;
+    for (let i = 0; i < 200; i++) {
+      const poll = await testApp!.app.handle(
+        new Request(
+          `http://localhost/v1/preview?canonical_repo_id=${encodeURIComponent(REPO)}&pr_id=42`,
+          { headers: bearer(deployToken) },
+        ),
+      );
+      const pollBody = await poll.json();
+      if (poll.status === 200 && pollBody.status === "running") {
+        settled = { status: poll.status, body: pollBody };
+        break;
+      }
+      if (poll.status >= 400) {
+        settled = { status: poll.status, body: pollBody };
+        break;
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    expect(settled?.status).toBe(200);
+    expect(settled?.body).toMatchObject({
+      status: "running",
+      preview_url: "https://pr-42.myapp.preview.example.com",
+    });
+  });
+
   test("blocks until healthy and returns running with preview_url", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(deployToken, deployBody());

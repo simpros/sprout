@@ -7,9 +7,12 @@ import {
 } from "../app-deployment/health.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
-  provisionPreview,
+  acceptAsyncDeploy,
+  readPreviewStatus,
+  runAsyncDeploy,
   teardownPreview,
   type LifecycleDeps,
+  type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
 import type { Result } from "../preview/result.ts";
 import { validatePrId, validatePreviewIdentity } from "../preview-db/names.ts";
@@ -45,6 +48,11 @@ export const deployBody = t.Object({
 export const teardownBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   pr_id: t.Number(),
+});
+
+export const previewQuery = t.Object({
+  canonical_repo_id: t.String({ minLength: 1 }),
+  pr_id: t.String({ minLength: 1 }),
 });
 
 export type DeployBody = {
@@ -134,6 +142,11 @@ export type TeardownBody = {
   pr_id: number;
 };
 
+export type PreviewQuery = {
+  canonical_repo_id: string;
+  pr_id: string;
+};
+
 function resolveRepo(
   auth: AuthContext,
   requested: string,
@@ -166,7 +179,7 @@ export function deploy(deps: LifecycleDeps) {
     body: DeployBody;
     auth: AuthContext | null;
     set: { status?: number | string };
-  }) => {
+  }): Promise<PreviewSnapshot | { error: string }> => {
     if (!auth) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -204,20 +217,53 @@ export function deploy(deps: LifecycleDeps) {
       return { error: health.error };
     }
 
-    return mapResult(
-      await provisionPreview(deps, {
-        repo: repo.value,
-        prId: body.pr_id,
-        slug: body.slug,
-        hostname: body.hostname,
-        appImage: body.app_image,
-        health: health.value,
-        seed: seed.value,
-        appEnv: appEnv.value,
-        connectionEnv: connectionEnv.value,
-      }),
-      set,
-    );
+    const input = {
+      repo: repo.value,
+      prId: body.pr_id,
+      slug: body.slug,
+      hostname: body.hostname,
+      appImage: body.app_image,
+      health: health.value,
+      seed: seed.value,
+      appEnv: appEnv.value,
+      connectionEnv: connectionEnv.value,
+    };
+
+    // 202 before pull/health/seed so Cloudflare (~100s) cannot kill the POST.
+    const accepted = await acceptAsyncDeploy(deps, input);
+    if (!accepted.ok) return mapResult(accepted, set);
+
+    set.status = 202;
+    if (accepted.value.launch) {
+      void runAsyncDeploy(deps, input);
+    }
+    return accepted.value.snapshot;
+  };
+}
+
+export function getPreview(deps: LifecycleDeps) {
+  return async ({
+    query,
+    auth,
+    set,
+  }: {
+    query: PreviewQuery;
+    auth: AuthContext | null;
+    set: { status?: number | string };
+  }) => {
+    if (!auth) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    const repo = resolveRepo(auth, query.canonical_repo_id);
+    if (!repo.ok) return mapResult(repo, set);
+    const prId = Number(query.pr_id);
+    const prErr = validatePrId(prId);
+    if (prErr) {
+      set.status = 422;
+      return { error: prErr };
+    }
+    return mapResult(await readPreviewStatus(deps, repo.value, prId), set);
   };
 }
 

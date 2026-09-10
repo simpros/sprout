@@ -10,7 +10,7 @@ import {
   listTokens,
   revokeToken,
 } from "./admin-tokens.ts";
-import { deploy, deployBody, teardown, teardownBody } from "./deploy.ts";
+import { deploy, deployBody, getPreview, previewQuery, teardown, teardownBody } from "./deploy.ts";
 import { doctor, drop, dropBody, listPreviews } from "./introspection.ts";
 
 export type RouteDeps = {
@@ -60,6 +60,7 @@ export function createRoutes(deps: RouteDeps) {
           body: dropBody,
         })
         .post("/deploy", deploy(lifecycle), { body: deployBody })
+        .get("/preview", getPreview(lifecycle), { query: previewQuery })
         .post("/teardown", teardown(lifecycle), { body: teardownBody })
         .all("/*", stubNotImplemented),
     );

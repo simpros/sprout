@@ -155,4 +155,52 @@ export async function postDeployToken(
   return { status: res.status, body: await res.json() };
 }
 
+/**
+ * POST /v1/deploy then, on 202, poll GET /v1/preview until running or terminal error.
+ * Keeps existing HTTP tests aligned with the async health/seed completion path.
+ */
+export async function postDeployAndSettle(
+  app: TestApp,
+  token: string,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: any }> {
+  const res = await app.app.handle(
+    new Request("http://localhost/v1/deploy", {
+      method: "POST",
+      headers: {
+        ...bearer(token),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+  const status = res.status;
+  const json = await res.json();
+  if (status !== 202) {
+    return { status, body: json };
+  }
+
+  const repo = String(body.canonical_repo_id);
+  const prId = Number(body.pr_id);
+  for (let i = 0; i < 500; i++) {
+    const poll = await app.app.handle(
+      new Request(
+        `http://localhost/v1/preview?canonical_repo_id=${encodeURIComponent(repo)}&pr_id=${prId}`,
+        { headers: bearer(token) },
+      ),
+    );
+    const pollBody = await poll.json();
+    if (poll.status === 200 && pollBody.status === "running") {
+      return { status: 200, body: pollBody };
+    }
+    if (poll.status >= 400) {
+      return { status: poll.status, body: pollBody };
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error(
+    `deploy did not settle for ${repo} pr=${prId}; last=${JSON.stringify(json)}`,
+  );
+}
+
 export type { FakeDockerClient };

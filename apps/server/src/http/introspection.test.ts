@@ -8,6 +8,7 @@ import type { FakeDockerClient } from "../docker/fake.ts";
 import {
   bearer,
   createTestApp,
+  postDeployAndSettle,
   postDeployToken,
   type TestApp,
 } from "./test-helpers.ts";
@@ -53,17 +54,7 @@ async function setup() {
 }
 
 async function postDeploy(token: string, body: Record<string, unknown>) {
-  const res = await testApp!.app.handle(
-    new Request("http://localhost/v1/deploy", {
-      method: "POST",
-      headers: {
-        ...bearer(token),
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }),
-  );
-  return { status: res.status, body: await res.json() };
+  return postDeployAndSettle(testApp!, token, body);
 }
 
 describe("GET /v1/previews", () => {

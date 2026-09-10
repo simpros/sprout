@@ -115,6 +115,53 @@ export type TeardownSnapshot = {
   status: "removed";
 };
 
+/** Last async provision error per preview — for GET /v1/preview after 202. */
+const provisionErrors = new Map<string, string>();
+
+/** In-flight async deploys so GET does not return a stale running snapshot mid-pull. */
+const inFlightDeploys = new Map<string, number>();
+/** Snapshot returned while in-flight before the control-plane row exists. */
+const inFlightSnapshots = new Map<string, PreviewSnapshot>();
+let deployGeneration = 0;
+
+function previewKey(repo: string, prId: number): string {
+  return `${repo}\0${prId}`;
+}
+
+export function recordProvisionError(
+  repo: string,
+  prId: number,
+  error: string,
+): void {
+  provisionErrors.set(previewKey(repo, prId), error);
+}
+
+export function clearProvisionError(repo: string, prId: number): void {
+  provisionErrors.delete(previewKey(repo, prId));
+}
+
+export function peekProvisionError(
+  repo: string,
+  prId: number,
+): string | undefined {
+  return provisionErrors.get(previewKey(repo, prId));
+}
+
+export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
+  const status = parsePreviewStatus(row.status);
+  const parsed = status.ok ? status.value : "failed";
+  return {
+    ok: true,
+    canonical_repo_id: row.canonicalRepoId,
+    pr_id: row.prId,
+    slug: row.slug,
+    db_name: row.dbName,
+    hostname: row.hostname,
+    status: parsed,
+    ...(parsed === "running" ? { preview_url: `https://${row.hostname}` } : {}),
+  };
+}
+
 /**
  * Serialize control-plane mutations per (repo, prId).
  * ADR 0001: one gateway process — in-process queue is the concurrency design.
@@ -641,6 +688,212 @@ export async function provisionPreview(
   return withPreviewLock(input.repo, input.prId, () =>
     provisionUnlocked(deps, input),
   );
+}
+
+/**
+ * Accept a deploy for async completion: validate identity conflicts, mark the
+ * deploy in-flight, and return a provisioning snapshot. Does not mutate rows —
+ * {@link provisionPreview} owns inserts/intent writes so failure semantics stay
+ * unchanged. Callers return HTTP 202 then invoke {@link runAsyncDeploy} when
+ * `launch` is true (parallel same-identity accepts join the in-flight deploy).
+ */
+export async function acceptAsyncDeploy(
+  deps: LifecycleDeps,
+  input: ProvisionInput,
+): Promise<Result<{ snapshot: PreviewSnapshot; launch: boolean }>> {
+  return withPreviewLock(input.repo, input.prId, async () => {
+    const requestedDbName = previewDbName(input.slug, input.prId);
+    const row = await getPreviewRow(deps.db, input.repo, input.prId);
+
+    if (row) {
+      const status = parsePreviewStatus(row.status);
+      if (!status.ok) return status;
+
+      switch (status.value) {
+        case "removing":
+          return {
+            ok: false,
+            status: 409,
+            error: "preview_teardown_in_progress",
+          };
+        case "running":
+        case "starting":
+        case "seeding":
+        case "provisioning": {
+          const identity = requireDbIdentity(row, input, requestedDbName);
+          if (!identity.ok) return identity;
+          if (
+            status.value === "seeding" &&
+            canResumeSeed(row, {
+              appImage: input.appImage,
+              hostname: input.hostname,
+            }) &&
+            !input.seed
+          ) {
+            return {
+              ok: false,
+              status: 422,
+              error: "seed_image_required_to_resume_seeding",
+            };
+          }
+          break;
+        }
+        case "failed": {
+          if (
+            dbIdentityMatches(row, input, requestedDbName) &&
+            canResumeSeed(row, {
+              appImage: input.appImage,
+              hostname: input.hostname,
+            }) &&
+            !input.seed
+          ) {
+            return {
+              ok: false,
+              status: 422,
+              error: "seed_image_required_to_resume_seeding",
+            };
+          }
+          break;
+        }
+        case "removed":
+          break;
+      }
+    }
+
+    const key = previewKey(input.repo, input.prId);
+    const pending = inFlightSnapshots.get(key);
+    if (inFlightDeploys.has(key) && pending) {
+      if (
+        pending.slug === input.slug &&
+        pending.db_name === requestedDbName
+      ) {
+        return { ok: true, value: { snapshot: pending, launch: false } };
+      }
+      return {
+        ok: false,
+        status: 409,
+        error: "preview_deploy_in_progress",
+      };
+    }
+
+    clearProvisionError(input.repo, input.prId);
+    const gen = ++deployGeneration;
+    inFlightDeploys.set(key, gen);
+
+    const snapshot: PreviewSnapshot = {
+      ok: true,
+      canonical_repo_id: input.repo,
+      pr_id: input.prId,
+      slug: input.slug,
+      db_name: requestedDbName,
+      hostname: input.hostname,
+      status: "provisioning",
+    };
+    inFlightSnapshots.set(key, snapshot);
+    return { ok: true, value: { snapshot, launch: true } };
+  });
+}
+
+/** Background half of async deploy: pull + provision; record errors for poll. */
+export async function runAsyncDeploy(
+  deps: LifecycleDeps,
+  input: ProvisionInput,
+): Promise<void> {
+  const key = previewKey(input.repo, input.prId);
+  const gen = inFlightDeploys.get(key);
+  try {
+    const result = await provisionPreview(deps, input);
+    if (inFlightDeploys.get(key) !== gen) return;
+    if (!result.ok) {
+      recordProvisionError(input.repo, input.prId, result.error);
+    } else {
+      clearProvisionError(input.repo, input.prId);
+    }
+  } catch (err) {
+    console.warn("provision:background_failed", err);
+    if (inFlightDeploys.get(key) === gen) {
+      recordProvisionError(
+        input.repo,
+        input.prId,
+        "preview_app_deploy_failed",
+      );
+      try {
+        await markPreviewFailed(deps.db, input.repo, input.prId);
+      } catch {
+        // best-effort
+      }
+    }
+  } finally {
+    if (inFlightDeploys.get(key) === gen) {
+      inFlightDeploys.delete(key);
+      inFlightSnapshots.delete(key);
+    }
+  }
+}
+
+/**
+ * Deploy-token-readable preview status for CLI polling after POST /v1/deploy 202.
+ */
+export async function readPreviewStatus(
+  deps: Pick<LifecycleDeps, "db">,
+  repo: string,
+  prId: number,
+): Promise<Result<PreviewSnapshot>> {
+  const key = previewKey(repo, prId);
+  const inFlight = inFlightDeploys.has(key);
+  const stickyError = peekProvisionError(repo, prId);
+
+  const row = await getPreviewRow(deps.db, repo, prId);
+
+  if (inFlight) {
+    if (row && row.status !== "removed") {
+      const snap = previewSnapshotFromRow(row);
+      const phase =
+        snap.status === "starting" || snap.status === "seeding"
+          ? snap.status
+          : "provisioning";
+      return {
+        ok: true,
+        value: {
+          ...snap,
+          status: phase,
+          preview_url: undefined,
+        },
+      };
+    }
+    const pending = inFlightSnapshots.get(key);
+    if (pending) return { ok: true, value: pending };
+    return { ok: false, status: 404, error: "preview_not_found" };
+  }
+
+  if (!row || row.status === "removed") {
+    return { ok: false, status: 404, error: "preview_not_found" };
+  }
+
+  const status = parsePreviewStatus(row.status);
+  if (!status.ok) return status;
+
+  if (status.value === "removing") {
+    return {
+      ok: false,
+      status: 409,
+      error: "preview_teardown_in_progress",
+    };
+  }
+
+  if (stickyError) {
+    return { ok: false, status: 500, error: stickyError };
+  }
+
+  if (status.value === "failed") {
+    return {
+      ok: false,
+      status: 500,
+      error: "preview_failed",
+    };
+  }
+
+  return { ok: true, value: previewSnapshotFromRow(row) };
 }
 
 export function teardownPreview(

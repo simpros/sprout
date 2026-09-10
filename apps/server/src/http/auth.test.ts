@@ -244,7 +244,7 @@ describe("bearer auth", () => {
         }),
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
   });
 
   test("deploy token can reach deploy routes", async () => {
@@ -270,7 +270,7 @@ describe("bearer auth", () => {
         }),
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
   });
 });
 
