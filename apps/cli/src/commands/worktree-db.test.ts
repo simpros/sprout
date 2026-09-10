@@ -88,7 +88,7 @@ describe("sprout worktree-db", () => {
     expect(io.stderr).toEqual([]);
   });
 
-  test("drop calls through with worktreeKey + admin-url", async () => {
+  test("drop calls through and prints normalized identity", async () => {
     const io = { stdout: [] as string[], stderr: [] as string[] };
     const deps = makeDeps(process.cwd(), io);
     const dropped: { worktreeKey: string; adminUrl: string }[] = [];
@@ -98,6 +98,10 @@ describe("sprout worktree-db", () => {
       },
       drop: async (opts) => {
         dropped.push(opts);
+        return {
+          worktreeKey: "agent-alpha",
+          objectName: "sprout_wt_agent_alpha",
+        };
       },
       writeTextFile: async () => {
         throw new Error("write unused");
@@ -108,7 +112,7 @@ describe("sprout worktree-db", () => {
       [
         "drop",
         "--slug",
-        "agent-alpha",
+        "Agent Alpha!!",
         "--admin-url",
         "postgres://postgres:x@127.0.0.1:5432/postgres",
       ],
@@ -118,10 +122,15 @@ describe("sprout worktree-db", () => {
     expect(code).toBe(0);
     expect(dropped).toEqual([
       {
-        worktreeKey: "agent-alpha",
+        worktreeKey: "Agent Alpha!!",
         adminUrl: "postgres://postgres:x@127.0.0.1:5432/postgres",
       },
     ]);
+    expect(JSON.parse(io.stdout[0]!)).toEqual({
+      ok: true,
+      slug: "agent-alpha",
+      object_name: "sprout_wt_agent_alpha",
+    });
   });
 
   test("missing flags fail with usage", async () => {

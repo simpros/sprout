@@ -6,8 +6,13 @@ export {
   assertSafeRole,
   ensureLoginRole,
   SAFE_ROLE,
-  type EnsureLoginRoleOptions,
 } from "./ensure-role.ts";
+export {
+  isWorktreeInputError,
+  throwWorktreeInputError,
+  type WorktreeInputError,
+  type WorktreeInputErrorCode,
+} from "./errors.ts";
 export {
   isDuplicateDatabase,
   isDuplicateRole,
@@ -25,6 +30,7 @@ export {
   dropWorktreeDb,
   provisionWorktreeDb,
   type DropWorktreeDbOptions,
+  type DropWorktreeDbResult,
   type ProvisionWorktreeDbOptions,
   type WorktreeConnection,
 } from "./worktree.ts";

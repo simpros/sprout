@@ -2,7 +2,9 @@ import { rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   dropWorktreeDb,
+  isWorktreeInputError,
   provisionWorktreeDb,
+  type DropWorktreeDbResult,
   type WorktreeConnection,
 } from "@sprout/preview-db";
 import type { CliDeps } from "../context.ts";
@@ -53,10 +55,13 @@ function connectionValues(conn: WorktreeConnection): ConnectionEnvValues {
 }
 
 function mapLibraryError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return message
-    .replace(/\badminUrl\b/g, "--admin-url")
-    .replace(/\bworktreeKey\b/g, "--slug");
+  if (isWorktreeInputError(err)) {
+    if (err.code === "invalid_admin_url") {
+      return `invalid --admin-url: ${err.value}`;
+    }
+    return `invalid --slug (empty after normalize): ${err.value}`;
+  }
+  return err instanceof Error ? err.message : String(err);
 }
 
 export async function runWorktreeDb(
@@ -172,12 +177,23 @@ async function runDrop(
     );
   }
 
+  let dropped: DropWorktreeDbResult;
   try {
-    await worktreeDeps.drop({ adminUrl, worktreeKey: slug });
+    dropped = await worktreeDeps.drop({ adminUrl, worktreeKey: slug });
   } catch (err) {
     return fail(deps.io, mapLibraryError(err));
   }
 
-  deps.io.stdout(JSON.stringify({ ok: true, slug }, null, 2));
+  deps.io.stdout(
+    JSON.stringify(
+      {
+        ok: true,
+        slug: dropped.worktreeKey,
+        object_name: dropped.objectName,
+      },
+      null,
+      2,
+    ),
+  );
   return 0;
 }

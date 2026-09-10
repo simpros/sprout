@@ -1,6 +1,7 @@
 import { SQL } from "bun";
 import { dropDatabase, ensureDatabase } from "./catalog.ts";
 import { ensureLoginRole } from "./ensure-role.ts";
+import { throwWorktreeInputError } from "./errors.ts";
 import {
   assertWorktreeObjectName,
   normalizeWorktreeKey,
@@ -12,13 +13,27 @@ function parseAdminUrl(adminUrl: string): { host: string; port: number } {
   try {
     parsed = new URL(adminUrl);
   } catch {
-    throw new Error(`invalid adminUrl: ${adminUrl}`);
+    throwWorktreeInputError(
+      "invalid_admin_url",
+      adminUrl,
+      `invalid adminUrl: ${adminUrl}`,
+    );
   }
   const host = parsed.hostname;
-  if (!host) throw new Error(`invalid adminUrl (missing host): ${adminUrl}`);
+  if (!host) {
+    throwWorktreeInputError(
+      "invalid_admin_url",
+      adminUrl,
+      `invalid adminUrl (missing host): ${adminUrl}`,
+    );
+  }
   const port = parsed.port ? Number(parsed.port) : 5432;
   if (!Number.isInteger(port) || port <= 0) {
-    throw new Error(`invalid adminUrl port: ${adminUrl}`);
+    throwWorktreeInputError(
+      "invalid_admin_url",
+      adminUrl,
+      `invalid adminUrl port: ${adminUrl}`,
+    );
   }
   return { host, port };
 }
@@ -29,7 +44,11 @@ function resolveObjectName(rawKey: string): {
 } {
   const worktreeKey = normalizeWorktreeKey(rawKey);
   if (!worktreeKey) {
-    throw new Error(`invalid worktreeKey (empty after normalize): ${rawKey}`);
+    throwWorktreeInputError(
+      "invalid_worktree_key",
+      rawKey,
+      `invalid worktreeKey (empty after normalize): ${rawKey}`,
+    );
   }
   const objectName = worktreeObjectName(worktreeKey);
   assertWorktreeObjectName(objectName);
@@ -93,14 +112,19 @@ export type DropWorktreeDbOptions = {
   worktreeKey: string;
 };
 
+export type DropWorktreeDbResult = {
+  worktreeKey: string;
+  objectName: string;
+};
+
 /**
  * Drop worktree DB + role. Touches only `sprout_wt_`-prefixed objects;
  * refuses anything else via assertWorktreeObjectName.
  */
 export async function dropWorktreeDb(
   options: DropWorktreeDbOptions,
-): Promise<void> {
-  const { objectName } = resolveObjectName(options.worktreeKey);
+): Promise<DropWorktreeDbResult> {
+  const { worktreeKey, objectName } = resolveObjectName(options.worktreeKey);
   // Defense in depth: never run DROP on a non-prefixed name.
   assertWorktreeObjectName(objectName);
 
@@ -108,6 +132,7 @@ export async function dropWorktreeDb(
   try {
     await dropDatabase(sql, objectName);
     await sql.unsafe(`DROP ROLE IF EXISTS ${objectName}`);
+    return { worktreeKey, objectName };
   } finally {
     await sql.close();
   }

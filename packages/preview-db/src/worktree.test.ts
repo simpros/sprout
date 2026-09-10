@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
+import { dockerAvailable, startTempPostgres } from "./postgres-it.ts";
 import {
   assertWorktreeObjectName,
   dropWorktreeDb,
   provisionWorktreeDb,
-} from "@sprout/preview-db";
-import { dockerAvailable, startTempPostgres } from "./postgres-it.ts";
+} from "./index.ts";
 
 const hasDocker = await dockerAvailable();
 
@@ -15,7 +15,7 @@ describe.skipIf(!hasDocker)("worktree-db provision/drop (postgres)", () => {
   let stop: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
-    const pg = await startTempPostgres(`sprout-worktree-db-${process.pid}`);
+    const pg = await startTempPostgres(`sprout-preview-db-wt-${process.pid}`);
     adminUrl = pg.adminUrl;
     hostPort = pg.hostPort;
     stop = pg.stop;
@@ -52,15 +52,19 @@ describe.skipIf(!hasDocker)("worktree-db provision/drop (postgres)", () => {
     await login2.close();
   });
 
-  test("drop removes db + role; refuse non-prefixed names", async () => {
-    const worktreeKey = "to-drop";
+  test("drop removes db + role and returns normalized identity", async () => {
+    const worktreeKey = "To Drop!!";
     await provisionWorktreeDb({
       adminUrl,
       worktreeKey,
       password: "drop-pass",
     });
 
-    await dropWorktreeDb({ adminUrl, worktreeKey });
+    const dropped = await dropWorktreeDb({ adminUrl, worktreeKey });
+    expect(dropped).toEqual({
+      worktreeKey: "to-drop",
+      objectName: "sprout_wt_to_drop",
+    });
 
     const admin = new SQL(adminUrl);
     const dbs = await admin<{ n: number }[]>`

@@ -48,26 +48,15 @@ async function roleDdl(
   return stmt;
 }
 
-export type EnsureLoginRoleOptions = {
-  /**
-   * When false and the role already exists, leave its password alone.
-   * Default true (CREATE if missing, else ALTER) — gateway boot behavior.
-   */
-  syncExistingPassword?: boolean;
-};
-
 /**
  * Create or sync a LOGIN role password via the admin connection.
- * Same algorithm as gateway boot (#71): CREATE if missing, else ALTER
- * (unless `syncExistingPassword: false`).
+ * Same algorithm as gateway boot (#71): CREATE if missing, else ALTER.
  */
 export async function ensureLoginRole(
   sql: SQL,
   role: string,
   password: string,
-  options: EnsureLoginRoleOptions = {},
-): Promise<"created" | "synced" | "unchanged"> {
-  const syncExistingPassword = options.syncExistingPassword !== false;
+): Promise<"created" | "synced"> {
   assertSafeRole(role);
   try {
     const existing = await sql`
@@ -77,7 +66,6 @@ export async function ensureLoginRole(
       LIMIT 1
     `;
     if (existing.length > 0) {
-      if (!syncExistingPassword) return "unchanged";
       await sql.unsafe(await roleDdl(sql, role, password, "alter"));
       return "synced";
     }
@@ -87,7 +75,6 @@ export async function ensureLoginRole(
     } catch (err) {
       // Concurrent ensure: another caller created the role between SELECT and CREATE.
       if (!isDuplicateRole(err)) throw err;
-      if (!syncExistingPassword) return "unchanged";
       await sql.unsafe(await roleDdl(sql, role, password, "alter"));
       return "synced";
     }
