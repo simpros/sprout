@@ -1,4 +1,5 @@
 import type { PreviewSnapshot } from "@sprout/api-client";
+import { mergeAppEnv } from "../app-env.ts";
 import type { CliContext } from "../context.ts";
 import {
   fail,
@@ -76,24 +77,9 @@ export async function runDeploy(
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  // Yaml map first; --app-env overwrites duplicate keys (one entry per key).
-  const appEnvByKey = new Map(
-    Object.entries(yaml.value.preview.app_env ?? {}),
-  );
-  const invalidFlagEnv: string[] = [];
-  for (const entry of flags.value.appEnv) {
-    const eq = entry.indexOf("=");
-    if (eq <= 0) {
-      invalidFlagEnv.push(entry);
-      continue;
-    }
-    appEnvByKey.set(entry.slice(0, eq), entry.slice(eq + 1));
-  }
-  const appEnv = [
-    ...[...appEnvByKey].map(([key, value]) => `${key}=${value}`),
-    ...invalidFlagEnv,
-  ];
-  if (appEnv.length > 0) body.app_env = appEnv;
+  const appEnv = mergeAppEnv(yaml.value.preview.app_env, flags.value.appEnv);
+  if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);
+  if (appEnv.value) body.app_env = appEnv.value;
 
   const response = await ctx.client.v1.deploy.post(body);
   const result = readEden<PreviewSnapshot>(response);

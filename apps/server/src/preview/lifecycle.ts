@@ -75,7 +75,7 @@ export type ProvisionInput = {
   /** Present when deploy requested a seed image; env/args not persisted. */
   seed?: SeedImageSpec;
   /** Adopter KEY=VALUE for the app container; request-scoped, not persisted. */
-  appEnv?: string[];
+  appEnv: string[];
   /** Connection env name remap; request-scoped, not persisted. */
   connectionEnv?: PreviewEnvMap;
 };

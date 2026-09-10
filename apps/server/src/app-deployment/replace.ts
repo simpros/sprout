@@ -30,7 +30,7 @@ export type ReplacePreviewAppInput = {
   image: string;
   dbName: string;
   /** Adopter KEY=VALUE entries; colliding connection keys are stripped. */
-  appEnv?: string[];
+  appEnv: string[];
   /** Request-scoped connection env name remap; not persisted. */
   connectionEnv?: PreviewEnvMap;
 };
@@ -65,7 +65,7 @@ export async function replacePreviewApp(
     name,
     image: input.image,
     env: withGatewayConnectionEnv(
-      input.appEnv ?? [],
+      input.appEnv,
       pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
     ),
     labels: traefikLabels({

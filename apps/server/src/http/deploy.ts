@@ -114,16 +114,11 @@ export function resolveSeedRequest(
   };
 }
 
-/** Validate optional adopter app env (`KEY=VALUE`); empty → undefined. */
+/** Validate adopter app env (`KEY=VALUE`); empty list is allowed. */
 export function resolveAppEnvRequest(
   body: Pick<DeployBody, "app_env">,
-):
-  | { ok: true; value: string[] | undefined }
-  | { ok: false; error: string } {
+): { ok: true; value: string[] } | { ok: false; error: string } {
   const appEnv = body.app_env ?? [];
-  if (appEnv.length === 0) {
-    return { ok: true, value: undefined };
-  }
   const check = validateKvEnvEntries(appEnv, {
     max: MAX_APP_ENV,
     tooMany: "too_many_app_env",

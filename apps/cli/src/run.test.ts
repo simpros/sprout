@@ -384,6 +384,36 @@ preview:
     expect(captured[0]?.body).not.toHaveProperty("seed_env");
   });
 
+  test("deploy rejects invalid --app-env before calling the gateway", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({ ok: true, status: "running", preview_url: "x" });
+    });
+
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["deploy", "-i", "app:1", "--app-env", "NOTAKEY"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/9/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe("invalid --app-env: NOTAKEY");
+    expect(captured).toEqual([]);
+  });
+
   test("teardown is idempotent exit 0 when preview absent", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({

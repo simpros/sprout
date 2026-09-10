@@ -44,6 +44,7 @@ describe("replacePreviewApp", () => {
         hostname: "pr-42.myapp.preview.example.com",
         image: "ghcr.io/org/app:sha",
         dbName: "sprout_myapp_pr42",
+        appEnv: [],
       },
     );
 
@@ -86,6 +87,7 @@ describe("replacePreviewApp", () => {
         hostname: "pr-42.myapp.preview.example.com",
         image: "ghcr.io/org/app:sha",
         dbName: "prev_myapp_pr42",
+        appEnv: [],
         connectionEnv: {
           PGHOST: "DATABASE_HOST",
           PGUSER: "DATABASE_USER",
@@ -147,6 +149,7 @@ describe("replacePreviewApp", () => {
         hostname: "pr-7.example.com",
         image: "ghcr.io/org/app:noexpose",
         dbName: "sprout_myapp_pr7",
+        appEnv: [],
       },
     );
     expect(result.containerId).toBe("fake-1");
@@ -166,6 +169,7 @@ describe("replacePreviewApp", () => {
       prId: 3,
       hostname: "pr-3.widgets.example.com",
       dbName: "sprout_widgets_pr3",
+      appEnv: [] as string[],
     };
     await replacePreviewApp(
       { docker, ...baseDeps },
@@ -194,6 +198,7 @@ describe("bindPreviewOps", () => {
       hostname: "pr-1.example.com",
       image: "img:1",
       dbName: "sprout_myapp_pr1",
+      appEnv: [],
     });
     expect(containerId).toBe("fake-1");
     expect(docker.pulls).toEqual(["img:1"]);
@@ -223,6 +228,7 @@ describe("bindPreviewOps", () => {
       hostname: "pr-1.example.com",
       image: "img:1",
       dbName: "sprout_myapp_pr1",
+      appEnv: [],
     });
     expect(
       await app.waitHealthy(containerId, port, {
