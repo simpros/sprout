@@ -70,7 +70,7 @@ Durable runtime identity uses product `sprout*` names:
 |---|---|
 | Compose project / volumes | `sprout` / `sprout_*` |
 | Control-plane SQLite | `/data/sprout.db` (compose) / `sprout.db` (host) |
-| Bootstrap admin token file | `/data/admin-token` (compose) / `admin-token` (host); mode `0600` |
+| Bootstrap admin token file | `SPROUT_ADMIN_TOKEN_PATH` (`/data/admin-token` compose/image; `admin-token` host default); mode `0600` |
 | Traefik network | `sprout-traefik` |
 | Postgres network | `sprout-postgres` |
 | Preview Postgres roles | `sprout_admin` / `sprout_preview` |
@@ -80,9 +80,9 @@ Durable runtime identity uses product `sprout*` names:
 Upgrading from legacy `preview-buddy*` / `pb*` / `prev_*` defaults is a
 **wipe-and-redeploy**: tear down volumes, networks, and control-plane state,
 then bring the stack up again. There is no in-place migrator. Pin
-`SPROUT_TRAEFIK_NETWORK` / `SPROUT_POSTGRES_NETWORK` / `SPROUT_STATE_DB_PATH`
-(and role env vars) only when you intentionally use non-default names
-(external Traefik, Coolify, etc.).
+`SPROUT_TRAEFIK_NETWORK` / `SPROUT_POSTGRES_NETWORK` / `SPROUT_STATE_DB_PATH` /
+`SPROUT_ADMIN_TOKEN_PATH` (and role env vars) only when you intentionally use
+non-default names (external Traefik, Coolify, etc.).
 
 ## Architecture
 
@@ -224,6 +224,7 @@ Additional v0.1 variables:
 | `SPROUT_PG_PORT` | Port preview containers use for `PGPORT` (default `5432`) |
 | `SPROUT_ADMIN_TOKEN` | Bootstrap admin bearer token; auto-generated if omitted or blank — only a non-empty value pins the token |
 | `SPROUT_STATE_DB_PATH` | SQLite path (use a volume mount in production) |
+| `SPROUT_ADMIN_TOKEN_PATH` | Raw admin bearer file for in-container CLI fallback (compose/image default `/data/admin-token`) |
 
 Optional tuning (defaults in parentheses):
 
@@ -264,11 +265,14 @@ The gateway preview-db module grants that role ownership when it creates each
 
 ## Bootstrap admin token
 
-After first boot, the gateway persists the bootstrap admin bearer beside the
-control-plane DB (`/data/admin-token` when `SPROUT_STATE_DB_PATH=/data/sprout.db`,
-mode `0600`) for both pinned and auto-generated tokens. When
-`SPROUT_ADMIN_TOKEN` is unset or blank, the raw token is also printed once in
-gateway logs:
+On every boot where the raw bearer is known (pinned `SPROUT_ADMIN_TOKEN`, or
+first-time auto-generate), the gateway writes it to `SPROUT_ADMIN_TOKEN_PATH`
+(mode `0600`). Compose and the gateway image publish
+`SPROUT_ADMIN_TOKEN_PATH=/data/admin-token` so the embedded CLI does not guess
+from the SQLite path. Later boots with a hashed-only admin require that file to
+still be readable (missing/empty → boot fails). When `SPROUT_ADMIN_TOKEN` is
+unset or blank on first generate, the raw token is also printed once in gateway
+logs:
 
 ```bash
 docker compose --env-file compose.env logs gateway | grep -i admin
@@ -277,8 +281,9 @@ docker compose --env-file compose.env logs gateway | grep -i admin
 Create a **deploy token** for each adopting repo by exec'ing the CLI already
 in the gateway image (`SPROUT_URL` defaults to `http://127.0.0.1:7331`).
 Against that loopback URL the CLI resolves a bearer as:
-`SPROUT_TOKEN` → `SPROUT_ADMIN_TOKEN` → `/data/admin-token`, so bare
-`docker exec` works for pinned and auto-generated admin tokens:
+`SPROUT_TOKEN` → `SPROUT_ADMIN_TOKEN` → `SPROUT_ADMIN_TOKEN_PATH` (default
+`admin-token`; `/data/admin-token` in-container), so bare `docker exec` works
+for pinned and auto-generated admin tokens:
 
 ```bash
 # Primary path: CLI embedded in the gateway image (no SPROUT_TOKEN needed)

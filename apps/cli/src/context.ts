@@ -1,4 +1,3 @@
-import { dirname, join } from "node:path";
 import type { ApiClient } from "@sprout/api-client";
 import {
   normalizeGitRemoteUrl,
@@ -34,33 +33,26 @@ export function resolveGatewayUrl(
   return env.SPROUT_URL?.trim() || "http://127.0.0.1:7331";
 }
 
+/** Well-known default; compose/image set `SPROUT_ADMIN_TOKEN_PATH` explicitly. */
+const DEFAULT_ADMIN_TOKEN_PATH = "admin-token";
+
 /**
- * Path for the gateway-persisted bootstrap admin token (beside state DB).
- * Matches `apps/server` `resolveAdminTokenPath`.
+ * Path for the gateway-persisted bootstrap admin token.
+ * CLI does not derive this from the control-plane DB path — publish via
+ * `SPROUT_ADMIN_TOKEN_PATH` (compose/Dockerfile set `/data/admin-token`).
  */
 export function resolveAdminTokenPath(env: NodeJS.ProcessEnv): string {
-  const override = env.SPROUT_ADMIN_TOKEN_PATH?.trim();
-  if (override) return override;
-  const dbPath = env.SPROUT_STATE_DB_PATH?.trim() || "sprout.db";
-  return join(dirname(dbPath), "admin-token");
+  return env.SPROUT_ADMIN_TOKEN_PATH?.trim() || DEFAULT_ADMIN_TOKEN_PATH;
 }
 
-function isLocalGatewayHostname(hostname: string): boolean {
+/** Loopback hosts where admin env/file fallback is safe. */
+export function isLocalGatewayHostname(hostname: string): boolean {
   return (
     hostname === "127.0.0.1" ||
     hostname === "localhost" ||
     hostname === "::1" ||
     hostname === "[::1]"
   );
-}
-
-/** Loopback / default gateway — safe to fall back to admin env/file. */
-export function isLocalGatewayUrl(url: string): boolean {
-  try {
-    return isLocalGatewayHostname(new URL(url).hostname);
-  } catch {
-    return false;
-  }
 }
 
 export function fail(io: CliIo, message: string, code = 1): number {
@@ -72,7 +64,7 @@ export function fail(io: CliIo, message: string, code = 1): number {
  * Bearer for authed commands (full local-admin policy):
  * 1. `SPROUT_TOKEN` (explicit)
  * 2. on loopback only: `SPROUT_ADMIN_TOKEN`
- * 3. on loopback only: admin token file beside the state DB
+ * 3. on loopback only: admin token file (`SPROUT_ADMIN_TOKEN_PATH` or default)
  */
 export async function requireToken(deps: CliDeps): Promise<Result<string>> {
   const explicit = deps.env.SPROUT_TOKEN?.trim();

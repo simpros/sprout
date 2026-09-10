@@ -281,7 +281,7 @@ describe("ensureAdminToken", () => {
     await ensureAdminToken(testApp.db, "configured-admin");
 
     const generated = await ensureAdminToken(testApp.db);
-    expect(generated).toBeNull();
+    expect(generated).toEqual({ status: "existing" });
 
     const res = await testApp.app.handle(
       new Request("http://localhost/v1/admin/tokens", {
@@ -294,11 +294,12 @@ describe("ensureAdminToken", () => {
   test("auto-generates admin token when none configured", async () => {
     testDb = await createTestDb();
     const generated = await ensureAdminToken(testDb.db);
-    expect(generated).toBeString();
-    expect(generated!.startsWith("sprout_")).toBe(true);
+    expect(generated.status).toBe("generated");
+    if (generated.status !== "generated") throw new Error("expected generated");
+    expect(generated.raw.startsWith("sprout_")).toBe(true);
 
     const again = await ensureAdminToken(testDb.db);
-    expect(again).toBeNull();
+    expect(again).toEqual({ status: "existing" });
 
     const app = createRoutes({
       db: testDb.db,
@@ -307,7 +308,7 @@ describe("ensureAdminToken", () => {
     });
     const res = await app.handle(
       new Request("http://localhost/v1/admin/tokens", {
-        headers: bearer(generated!),
+        headers: bearer(generated.raw),
       }),
     );
     expect(res.status).toBe(200);
@@ -326,7 +327,7 @@ describe("ensureAdminToken", () => {
     expect(denied.status).toBe(401);
 
     const generated = await ensureAdminToken(testApp.db, token);
-    expect(generated).toBeNull();
+    expect(generated).toEqual({ status: "pinned", raw: token });
 
     const ok = await testApp.app.handle(
       new Request("http://localhost/v1/admin/tokens", {

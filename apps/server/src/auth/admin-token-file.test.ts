@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -26,14 +26,26 @@ describe("resolveAdminTokenPath", () => {
 });
 
 describe("persistAdminTokenFile", () => {
-  test("writes token with mode 0600", async () => {
+  test("creates token file with mode 0600 under permissive umask", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sprout-admin-token-"));
-    // Ensure restrictive umask does not hide chmod intent on the assertion.
-    await chmod(dir, 0o700);
     const path = join(dir, "admin-token");
-    await persistAdminTokenFile("sprout_secret", path);
-    expect((await readFile(path, "utf8")).trim()).toBe("sprout_secret");
-    const mode = (await stat(path)).mode & 0o777;
-    expect(mode).toBe(0o600);
+    const prevUmask = process.umask(0o000);
+    try {
+      await persistAdminTokenFile("sprout_secret", path);
+      expect((await readFile(path, "utf8")).trim()).toBe("sprout_secret");
+      const mode = (await stat(path)).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      process.umask(prevUmask);
+    }
+  });
+
+  test("overwrites an existing file atomically with mode 0600", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "sprout-admin-token-"));
+    const path = join(dir, "admin-token");
+    await Bun.write(path, "old\n");
+    await persistAdminTokenFile("new-secret", path);
+    expect((await readFile(path, "utf8")).trim()).toBe("new-secret");
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 });

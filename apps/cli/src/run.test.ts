@@ -548,7 +548,7 @@ preview:
       deps({
         env: {
           SPROUT_URL: baseUrl,
-          SPROUT_STATE_DB_PATH: "/data/sprout.db",
+          SPROUT_ADMIN_TOKEN_PATH: "/data/admin-token",
         },
         readTextFile: async (path) =>
           path === "/data/admin-token" ? "file-admin\n" : null,

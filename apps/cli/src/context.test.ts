@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   authedContext,
-  isLocalGatewayUrl,
+  isLocalGatewayHostname,
   requireToken,
   resolveAdminTokenPath,
   type CliDeps,
@@ -22,25 +22,35 @@ function deps(
   };
 }
 
-describe("isLocalGatewayUrl", () => {
+describe("isLocalGatewayHostname", () => {
   test("recognizes loopback hosts", () => {
-    expect(isLocalGatewayUrl("http://127.0.0.1:7331")).toBe(true);
-    expect(isLocalGatewayUrl("http://localhost:7331")).toBe(true);
-    expect(isLocalGatewayUrl("http://[::1]:7331")).toBe(true);
+    expect(isLocalGatewayHostname("127.0.0.1")).toBe(true);
+    expect(isLocalGatewayHostname("localhost")).toBe(true);
+    expect(isLocalGatewayHostname("::1")).toBe(true);
+    expect(isLocalGatewayHostname("[::1]")).toBe(true);
   });
 
   test("rejects remote hosts", () => {
-    expect(isLocalGatewayUrl("https://sprout.example")).toBe(false);
-    expect(isLocalGatewayUrl("http://192.168.1.10:7331")).toBe(false);
+    expect(isLocalGatewayHostname("sprout.example")).toBe(false);
+    expect(isLocalGatewayHostname("192.168.1.10")).toBe(false);
   });
 });
 
 describe("resolveAdminTokenPath", () => {
-  test("defaults beside state DB path", () => {
+  test("defaults to well-known admin-token path", () => {
     expect(resolveAdminTokenPath({})).toBe("admin-token");
+  });
+
+  test("uses SPROUT_ADMIN_TOKEN_PATH when set", () => {
+    expect(
+      resolveAdminTokenPath({ SPROUT_ADMIN_TOKEN_PATH: "/data/admin-token" }),
+    ).toBe("/data/admin-token");
+  });
+
+  test("does not derive from SPROUT_STATE_DB_PATH", () => {
     expect(
       resolveAdminTokenPath({ SPROUT_STATE_DB_PATH: "/data/sprout.db" }),
-    ).toBe("/data/admin-token");
+    ).toBe("admin-token");
   });
 });
 
@@ -78,7 +88,7 @@ describe("requireToken", () => {
     expect(
       await requireToken(
         deps(
-          { SPROUT_STATE_DB_PATH: "/data/sprout.db" },
+          { SPROUT_ADMIN_TOKEN_PATH: "/data/admin-token" },
           {
             readTextFile: async (path) =>
               path === "/data/admin-token" ? "file-admin\n" : null,

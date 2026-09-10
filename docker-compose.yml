@@ -93,6 +93,8 @@ services:
       # Blank/unset → loadConfig treats as undefined → auto-generate
       SPROUT_ADMIN_TOKEN: ${SPROUT_ADMIN_TOKEN:-}
       SPROUT_STATE_DB_PATH: ${SPROUT_STATE_DB_PATH:-/data/sprout.db}
+      # Published path for in-container CLI fallback (do not derive from DB path in CLI)
+      SPROUT_ADMIN_TOKEN_PATH: ${SPROUT_ADMIN_TOKEN_PATH:-/data/admin-token}
       SPROUT_PORT: "7331"
     healthcheck:
       test:
