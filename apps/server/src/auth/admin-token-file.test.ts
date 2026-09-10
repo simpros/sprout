@@ -8,20 +8,20 @@ import {
 } from "./admin-token-file.ts";
 
 describe("resolveAdminTokenPath", () => {
-  test("places admin-token beside the state DB", () => {
-    expect(resolveAdminTokenPath("/data/sprout.db")).toBe("/data/admin-token");
-    expect(resolveAdminTokenPath("sprout.db")).toBe("admin-token");
+  test("defaults to well-known admin-token path", () => {
+    expect(resolveAdminTokenPath({})).toBe("admin-token");
   });
 
-  test("SPROUT_ADMIN_TOKEN_PATH overrides", () => {
-    const prev = process.env.SPROUT_ADMIN_TOKEN_PATH;
-    process.env.SPROUT_ADMIN_TOKEN_PATH = "/custom/token";
-    try {
-      expect(resolveAdminTokenPath("/data/sprout.db")).toBe("/custom/token");
-    } finally {
-      if (prev === undefined) delete process.env.SPROUT_ADMIN_TOKEN_PATH;
-      else process.env.SPROUT_ADMIN_TOKEN_PATH = prev;
-    }
+  test("uses SPROUT_ADMIN_TOKEN_PATH when set", () => {
+    expect(
+      resolveAdminTokenPath({ SPROUT_ADMIN_TOKEN_PATH: "/data/admin-token" }),
+    ).toBe("/data/admin-token");
+  });
+
+  test("does not derive path from SPROUT_STATE_DB_PATH", () => {
+    expect(
+      resolveAdminTokenPath({ SPROUT_STATE_DB_PATH: "/var/lib/sprout/data.db" }),
+    ).toBe("admin-token");
   });
 });
 

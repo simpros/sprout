@@ -1,19 +1,19 @@
 import { randomBytes } from "node:crypto";
 import type { FileHandle } from "node:fs/promises";
 import { mkdir, open, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { resolveStateDbPath } from "../infrastructure/db/client.ts";
+import { dirname } from "node:path";
+
+/** Well-known default; compose/image set `SPROUT_ADMIN_TOKEN_PATH` explicitly. */
+const DEFAULT_ADMIN_TOKEN_PATH = "admin-token";
 
 /**
  * Path for the raw bootstrap admin token (owner-only file).
- * Prefer `SPROUT_ADMIN_TOKEN_PATH`; else beside the control-plane SQLite DB.
+ * Same contract as the CLI: override or well-known default (not derived from DB path).
  */
 export function resolveAdminTokenPath(
-  stateDbPath: string = resolveStateDbPath(),
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const override = process.env.SPROUT_ADMIN_TOKEN_PATH?.trim();
-  if (override) return override;
-  return join(dirname(stateDbPath), "admin-token");
+  return env.SPROUT_ADMIN_TOKEN_PATH?.trim() || DEFAULT_ADMIN_TOKEN_PATH;
 }
 
 /**

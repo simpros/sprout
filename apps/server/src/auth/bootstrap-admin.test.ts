@@ -62,7 +62,17 @@ describe("bootstrapAdminToken", () => {
     const path = await withTokenPath();
     await ensureAdminToken(testDb.db); // generate hash only; no file
     await expect(bootstrapAdminToken(testDb.db)).rejects.toThrow(
-      `Admin token exists in the control-plane DB but ${path} is missing or empty`,
+      `Admin token exists in the control-plane DB but ${path} is missing, empty, or does not match an active admin token`,
+    );
+  });
+
+  test("fails when token file does not match an active admin", async () => {
+    testDb = await createTestDb();
+    const path = await withTokenPath();
+    await bootstrapAdminToken(testDb.db, "pinned-admin");
+    await Bun.write(path, "not-the-token\n");
+    await expect(bootstrapAdminToken(testDb.db)).rejects.toThrow(
+      `Admin token exists in the control-plane DB but ${path} is missing, empty, or does not match an active admin token`,
     );
   });
 

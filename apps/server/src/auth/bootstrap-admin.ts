@@ -1,11 +1,9 @@
-import { constants } from "node:fs";
-import { access } from "node:fs/promises";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import {
   persistAdminTokenFile,
   resolveAdminTokenPath,
 } from "./admin-token-file.ts";
-import { ensureAdminToken } from "./store.ts";
+import { ensureAdminToken, findActive } from "./store.ts";
 
 /**
  * Boot seam: ensure an admin hash in SQLite, keep the raw bearer on disk for
@@ -31,12 +29,13 @@ export async function bootstrapAdminToken(
   // Hashed-only admin already in DB — raw must still be on disk for CLI fallback.
   const path = resolveAdminTokenPath();
   try {
-    await access(path, constants.R_OK);
     const text = (await Bun.file(path).text()).trim();
     if (!text) throw new Error("empty");
+    const auth = await findActive(db, text);
+    if (auth?.scope !== "admin") throw new Error("not-admin");
   } catch {
     throw new Error(
-      `Admin token exists in the control-plane DB but ${path} is missing or empty. Set SPROUT_ADMIN_TOKEN or restore the file.`,
+      `Admin token exists in the control-plane DB but ${path} is missing, empty, or does not match an active admin token. Set SPROUT_ADMIN_TOKEN or restore the file.`,
     );
   }
 }
