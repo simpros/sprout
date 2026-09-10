@@ -239,7 +239,7 @@ describe("POST /v1/deploy", () => {
     );
     expect(res.settleStatus).toBe(500);
     expect(res.body).toEqual({
-      error: "preview_app_deploy_failed",
+      error: "preview_app_pull_failed",
       detail: "registry blip",
     });
 
@@ -253,6 +253,32 @@ describe("POST /v1/deploy", () => {
     expect(row?.status).toBe("running");
     expect(row?.appImage).toBe(APP_IMAGE);
     expect(row?.containerId).toBe("fake-1");
+    expect(row?.lastError).toBe("preview_app_pull_failed");
+
+    // GET and list agree on phase; sticky error is a snapshot field, not a 500.
+    const statusRes = await testApp!.app.handle(
+      new Request(
+        `http://localhost/v1/preview?canonical_repo_id=${encodeURIComponent(REPO)}&pr_id=42`,
+        { headers: bearer(deployToken) },
+      ),
+    );
+    expect(statusRes.status).toBe(200);
+    expect(await statusRes.json()).toMatchObject({
+      status: "running",
+      last_error: "preview_app_pull_failed",
+      last_error_detail: "registry blip",
+      preview_url: "https://pr-42.myapp.preview.example.com",
+    });
+    const listRes = await testApp!.app.handle(
+      new Request("http://localhost/v1/previews", {
+        headers: bearer(testApp!.adminToken),
+      }),
+    );
+    expect(listRes.status).toBe(200);
+    const listed = (await listRes.json()) as {
+      previews: Array<{ pr_id: number; status: string }>;
+    };
+    expect(listed.previews.find((p) => p.pr_id === 42)?.status).toBe("running");
   });
 
   test("registry pull failure returns stable error + detail", async () => {
@@ -267,7 +293,7 @@ describe("POST /v1/deploy", () => {
     const res = await postDeploy(deployToken, deployBody());
     expect(res.settleStatus).toBe(500);
     expect(res.body).toEqual({
-      error: "preview_app_deploy_failed",
+      error: "preview_app_pull_failed",
       detail: "access forbidden",
     });
   });

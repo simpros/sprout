@@ -40,11 +40,33 @@ function pollIntervalMs(yaml: SproutYaml): number {
   );
 }
 
-function isRunning(data: PreviewSnapshot): data is PreviewSnapshot & {
+/** Ready only when running with a URL and no sticky last deploy error. */
+function isReady(data: PreviewSnapshot): data is PreviewSnapshot & {
   preview_url: string;
   status: "running";
 } {
-  return data.status === "running" && typeof data.preview_url === "string";
+  return (
+    data.status === "running" &&
+    typeof data.preview_url === "string" &&
+    data.last_error == null
+  );
+}
+
+/** Terminal failure from snapshot fields (GET returns 200 + last_error). */
+function deployFailureMessage(data: PreviewSnapshot): string | null {
+  if (data.last_error) {
+    if (
+      typeof data.last_error_detail === "string" &&
+      data.last_error_detail.trim() !== ""
+    ) {
+      return `${data.last_error}: ${data.last_error_detail.trim()}`;
+    }
+    return data.last_error;
+  }
+  if (data.status === "failed") {
+    return "preview_failed";
+  }
+  return null;
 }
 
 export async function runDeploy(
@@ -139,7 +161,10 @@ export async function runDeploy(
   if (!result.ok) return fail(ctx.deps.io, result.message);
 
   let data = result.data;
-  if (!isRunning(data)) {
+  const immediateFail = deployFailureMessage(data);
+  if (immediateFail) return fail(ctx.deps.io, immediateFail);
+
+  if (!isReady(data)) {
     const sleep =
       ctx.deps.sleep ??
       ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -156,7 +181,7 @@ export async function runDeploy(
       );
     }
 
-    while (!isRunning(data)) {
+    while (true) {
       if (now() >= deadline) {
         return fail(ctx.deps.io, "deploy_timeout");
       }
@@ -169,7 +194,9 @@ export async function runDeploy(
       const statusResult = readEden<PreviewSnapshot>(statusResponse);
       if (!statusResult.ok) return fail(ctx.deps.io, statusResult.message);
       data = statusResult.data;
-      if (isRunning(data)) break;
+      const failMsg = deployFailureMessage(data);
+      if (failMsg) return fail(ctx.deps.io, failMsg);
+      if (isReady(data)) break;
       await sleep(interval);
     }
   }

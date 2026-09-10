@@ -104,7 +104,10 @@ export async function runAsyncDeploy(
 
 /**
  * Deploy-token-readable preview status for CLI polling after POST /v1/deploy 202.
- * Reads the control-plane row only — no in-memory overlay.
+ * Returns the control-plane snapshot (including sticky last_error fields).
+ * Missing/removing stay Result failures; HTTP mapping for those lives at the
+ * route via mapResult. Deploy success/failure is decided by the CLI from the
+ * snapshot fields — not by inventing a terminal Result over last_error.
  */
 export async function readPreviewStatus(
   deps: Pick<LifecycleDeps, "db">,
@@ -125,26 +128,6 @@ export async function readPreviewStatus(
       ok: false,
       status: 409,
       error: "preview_teardown_in_progress",
-    };
-  }
-
-  if (row.lastError) {
-    const error = row.lastError;
-    return {
-      ok: false,
-      status: error === "seed_image_required_to_resume_seeding" ? 422 : 500,
-      error,
-      ...(row.lastErrorDetail != null
-        ? { detail: row.lastErrorDetail }
-        : {}),
-    };
-  }
-
-  if (status.value === "failed") {
-    return {
-      ok: false,
-      status: 500,
-      error: "preview_failed",
     };
   }
 

@@ -194,6 +194,46 @@ export async function postDeployAndSettle(
 
   const repo = String(body.canonical_repo_id);
   const prId = Number(body.pr_id);
+
+  /** Map snapshot sticky errors to settle shape tests assert (GET itself is 200). */
+  const settleFromSnapshot = (
+    pollBody: Record<string, unknown>,
+  ): {
+    acceptStatus: number;
+    settleStatus: number;
+    body: Record<string, unknown>;
+  } | null => {
+    const lastError =
+      typeof pollBody.last_error === "string" ? pollBody.last_error : null;
+    if (lastError) {
+      const settleStatus =
+        lastError === "seed_image_required_to_resume_seeding" ? 422 : 500;
+      const detail =
+        typeof pollBody.last_error_detail === "string"
+          ? pollBody.last_error_detail
+          : undefined;
+      return {
+        acceptStatus,
+        settleStatus,
+        body:
+          detail !== undefined
+            ? { error: lastError, detail }
+            : { error: lastError },
+      };
+    }
+    if (pollBody.status === "failed") {
+      return {
+        acceptStatus,
+        settleStatus: 500,
+        body: { error: "preview_failed" },
+      };
+    }
+    if (pollBody.status === "running") {
+      return { acceptStatus, settleStatus: 200, body: pollBody };
+    }
+    return null;
+  };
+
   for (let i = 0; i < 500; i++) {
     const poll = await app.app.handle(
       new Request(
@@ -202,10 +242,10 @@ export async function postDeployAndSettle(
       ),
     );
     const pollBody = asRecord(await poll.json());
-    if (poll.status === 200 && pollBody.status === "running") {
-      return { acceptStatus, settleStatus: 200, body: pollBody };
-    }
-    if (poll.status >= 400) {
+    if (poll.status === 200) {
+      const settled = settleFromSnapshot(pollBody);
+      if (settled) return settled;
+    } else if (poll.status >= 400) {
       return { acceptStatus, settleStatus: poll.status, body: pollBody };
     }
     await new Promise<void>((resolve) => setImmediate(resolve));

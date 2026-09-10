@@ -281,7 +281,16 @@ describe("sprout CLI command surface", () => {
           hostname: "pr-42.myapp.preview.example.com",
         });
       }
-      return Response.json({ error: "health_timeout" }, { status: 500 });
+      return Response.json({
+        ok: true,
+        status: "failed",
+        last_error: "health_timeout",
+        canonical_repo_id: "https://github.com/org/repo",
+        pr_id: 42,
+        slug: "myapp",
+        db_name: "sprout_myapp_pr42",
+        hostname: "pr-42.myapp.preview.example.com",
+      });
     });
 
     let now = 0;
@@ -304,7 +313,7 @@ describe("sprout CLI command surface", () => {
       }),
     );
     expect(code).toBe(1);
-    expect(stderr).toEqual(["500 health_timeout"]);
+    expect(stderr).toEqual(["health_timeout"]);
   });
 
   test("deploy prints HTTP status and body on failure", async () => {
