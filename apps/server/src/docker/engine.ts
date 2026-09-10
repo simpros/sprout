@@ -5,17 +5,15 @@ import type {
   PreviewDocker,
 } from "./port.ts";
 import {
-  encodeRegistryAuthHeader,
-  resolveRegistryAuth,
-  type RegistryCredential,
+  imageNameWithoutTagOrDigest,
+  xRegistryAuthHeader,
+  type RegistryPullAuth,
 } from "./registry-auth.ts";
 
 export type DockerEngineOptions = {
   socketPath?: string;
-  /** Per-host registry creds (from SPROUT_REGISTRY_AUTHS_JSON). */
-  registryAuths?: ReadonlyMap<string, RegistryCredential>;
-  /** Legacy global pair when image host is not in registryAuths. */
-  registryAuth?: RegistryCredential;
+  /** Boot-normalized registry pull auth (per-host map + optional fallback). */
+  registryPullAuth?: RegistryPullAuth;
   fetch?: (
     input: string | URL | Request,
     init?: RequestInit & { unix?: string },
@@ -34,19 +32,11 @@ type ImageInspect = {
 };
 
 function splitImageRef(image: string): { fromImage: string; tag: string } {
-  const at = image.lastIndexOf("@");
-  if (at !== -1) {
-    return { fromImage: image.slice(0, at), tag: image.slice(at + 1) };
+  const fromImage = imageNameWithoutTagOrDigest(image);
+  if (fromImage.length === image.length) {
+    return { fromImage, tag: "latest" };
   }
-  const lastColon = image.lastIndexOf(":");
-  const lastSlash = image.lastIndexOf("/");
-  if (lastColon > lastSlash) {
-    return {
-      fromImage: image.slice(0, lastColon),
-      tag: image.slice(lastColon + 1),
-    };
-  }
-  return { fromImage: image, tag: "latest" };
+  return { fromImage, tag: image.slice(fromImage.length + 1) };
 }
 
 function firstExposedPortFromInspect(inspect: ImageInspect): number | null {
@@ -95,8 +85,9 @@ export function createDockerEngineClient(
 ): PreviewDocker {
   const socketPath = options.socketPath ?? "/var/run/docker.sock";
   const fetchImpl = options.fetch ?? fetch;
-  const registryAuths = options.registryAuths ?? new Map();
-  const registryAuthFallback = options.registryAuth;
+  const registryPullAuth: RegistryPullAuth = options.registryPullAuth ?? {
+    byHost: new Map(),
+  };
 
   async function engine(
     path: string,
@@ -124,18 +115,7 @@ export function createDockerEngineClient(
       const { fromImage, tag } = splitImageRef(image);
       const qs = new URLSearchParams({ fromImage, tag });
       const headers: Record<string, string> = {};
-      const resolved = resolveRegistryAuth(
-        image,
-        registryAuths,
-        registryAuthFallback,
-      );
-      const registryAuthHeader = resolved
-        ? encodeRegistryAuthHeader({
-            username: resolved.credential.username,
-            password: resolved.credential.password,
-            serveraddress: resolved.serveraddress,
-          })
-        : undefined;
+      const registryAuthHeader = xRegistryAuthHeader(image, registryPullAuth);
       if (registryAuthHeader) {
         headers["X-Registry-Auth"] = registryAuthHeader;
       }

@@ -233,7 +233,10 @@ describe("createDockerEngineClient", () => {
   test("pullImage sends registry auth with serveraddress when configured", async () => {
     const seen: { auth: string | null } = { auth: null };
     const docker = createDockerEngineClient({
-      registryAuth: { username: "u", password: "p" },
+      registryPullAuth: {
+        byHost: new Map(),
+        fallback: { username: "u", password: "p" },
+      },
       fetch: async (_input, init) => {
         seen.auth = new Headers(init?.headers).get("X-Registry-Auth");
         return new Response("{}", { status: 200 });
@@ -263,10 +266,10 @@ describe("createDockerEngineClient", () => {
     expect(auth).toBeNull();
   });
 
-  test("pullImage omits X-Registry-Auth when username is empty", async () => {
+  test("pullImage omits X-Registry-Auth when store has no fallback", async () => {
     let auth: string | null = "unset";
     const docker = createDockerEngineClient({
-      registryAuth: { username: "", password: "" },
+      registryPullAuth: { byHost: new Map() },
       fetch: async (_input, init) => {
         auth = new Headers(init?.headers).get("X-Registry-Auth");
         return new Response("{}", { status: 200 });
@@ -276,20 +279,20 @@ describe("createDockerEngineClient", () => {
     expect(auth).toBeNull();
   });
 
-  test("pullImage selects per-host creds from registryAuths", async () => {
+  test("pullImage selects per-host creds from registryPullAuth", async () => {
     const seen: string[] = [];
     const docker = createDockerEngineClient({
-      registryAuths: new Map([
-        ["ghcr.io", { username: "gh", password: "gh-tok" }],
-        ["registry.gitlab.com", { username: "gl", password: "gl-tok" }],
-      ]),
-      registryAuth: { username: "global", password: "gpass" },
+      registryPullAuth: {
+        byHost: new Map([
+          ["ghcr.io", { username: "gh", password: "gh-tok" }],
+          ["registry.gitlab.com", { username: "gl", password: "gl-tok" }],
+        ]),
+        fallback: { username: "global", password: "gpass" },
+      },
       fetch: async (_input, init) => {
         const auth = new Headers(init?.headers).get("X-Registry-Auth");
         if (auth) {
-          seen.push(
-            Buffer.from(auth, "base64").toString("utf8"),
-          );
+          seen.push(Buffer.from(auth, "base64").toString("utf8"));
         } else {
           seen.push("anonymous");
         }
@@ -319,9 +322,11 @@ describe("createDockerEngineClient", () => {
   test("pullImage stays anonymous for unmatched host without fallback", async () => {
     let auth: string | null = "unset";
     const docker = createDockerEngineClient({
-      registryAuths: new Map([
-        ["ghcr.io", { username: "gh", password: "gh-tok" }],
-      ]),
+      registryPullAuth: {
+        byHost: new Map([
+          ["ghcr.io", { username: "gh", password: "gh-tok" }],
+        ]),
+      },
       fetch: async (_input, init) => {
         auth = new Headers(init?.headers).get("X-Registry-Auth");
         return new Response("{}", { status: 200 });

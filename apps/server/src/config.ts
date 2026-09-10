@@ -1,8 +1,4 @@
 import { GITHUB_HOSTS } from "./forge/kind.ts";
-import {
-  parseRegistryAuthsJson,
-  type RegistryCredential,
-} from "./docker/registry-auth.ts";
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -54,12 +50,14 @@ export type Config = {
   previewPgPassword: string;
   traefikNetwork: string;
   postgresNetwork: string;
-  /** Empty string = anonymous registry pull (legacy global fallback). */
-  registryUser: string;
-  /** Empty string = anonymous registry pull (legacy global fallback). */
-  registryPassword: string;
-  /** Per-host pull creds from SPROUT_REGISTRY_AUTHS_JSON. */
-  registryAuths: ReadonlyMap<string, RegistryCredential>;
+  /**
+   * Normalized registry pull auth: per-host map from SPROUT_REGISTRY_AUTHS_JSON
+   * plus optional legacy USER/PASSWORD fallback (only when user is non-empty).
+   */
+  registryPullAuth: {
+    byHost: ReadonlyMap<string, { username: string; password: string }>;
+    fallback?: { username: string; password: string };
+  };
   /** GitHub PAT for sweep open-PR listing. */
   githubToken: string;
   /** GitLab PAT for sweep open-MR listing. */
@@ -135,6 +133,64 @@ export function parseExtraGitlabHosts(raw: string): ReadonlySet<string> {
   return out;
 }
 
+/**
+ * Parse `SPROUT_REGISTRY_AUTHS_JSON`:
+ * `{"registry.example.com":{"username":"u","password":"p"},...}`.
+ * Empty / unset → empty map. Malformed → throw (fail fast at config load).
+ * Field names match Docker AuthConfig (`username`, not `user`).
+ */
+export function parseRegistryAuthsJson(
+  raw: string,
+): ReadonlyMap<string, { username: string; password: string }> {
+  const trimmed = raw.trim();
+  if (trimmed === "") return new Map();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error("Invalid SPROUT_REGISTRY_AUTHS_JSON: must be valid JSON");
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      "Invalid SPROUT_REGISTRY_AUTHS_JSON: expected a JSON object of host → {username, password}",
+    );
+  }
+
+  const out = new Map<string, { username: string; password: string }>();
+  for (const [hostRaw, entry] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
+    const host = hostRaw.trim().toLowerCase();
+    if (host === "") {
+      throw new Error(
+        "Invalid SPROUT_REGISTRY_AUTHS_JSON: registry host keys must be non-empty",
+      );
+    }
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(
+        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${host}": expected {username, password}`,
+      );
+    }
+    const row = entry as Record<string, unknown>;
+    const username =
+      typeof row.username === "string" ? row.username : null;
+    const password = typeof row.password === "string" ? row.password : null;
+    if (username === null || password === null) {
+      throw new Error(
+        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${host}": expected string fields username and password`,
+      );
+    }
+    if (username === "") {
+      throw new Error(
+        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${host}": username must be non-empty (omit the host for anonymous)`,
+      );
+    }
+    out.set(host, { username, password });
+  }
+  return out;
+}
+
 export function loadConfig(): Config {
   const missing = REQUIRED_ENV.filter((key) => {
     const raw = process.env[key];
@@ -155,9 +211,15 @@ export function loadConfig(): Config {
       "SPROUT_REGISTRY_PASSWORD is set but SPROUT_REGISTRY_USER is empty",
     );
   }
-  const registryAuths = parseRegistryAuthsJson(
+  const byHost = parseRegistryAuthsJson(
     optionalStringEnv("SPROUT_REGISTRY_AUTHS_JSON"),
   );
+  const registryPullAuth = {
+    byHost,
+    ...(registryUser !== ""
+      ? { fallback: { username: registryUser, password: registryPassword } }
+      : {}),
+  };
 
   return {
     previewPostgresUrl: requiredEnv("SPROUT_PREVIEW_POSTGRES_URL"),
@@ -171,9 +233,7 @@ export function loadConfig(): Config {
     previewPgPassword: requiredEnv("SPROUT_PG_PASSWORD"),
     traefikNetwork: requiredEnv("SPROUT_TRAEFIK_NETWORK"),
     postgresNetwork: requiredEnv("SPROUT_POSTGRES_NETWORK"),
-    registryUser,
-    registryPassword,
-    registryAuths,
+    registryPullAuth,
     githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
     gitlabToken: optionalStringEnv("SPROUT_GITLAB_TOKEN"),
     extraGitlabHosts: parseExtraGitlabHosts(
@@ -217,9 +277,10 @@ export function configSummary(config: Config): Record<string, string | number> {
     previewPgPassword: config.previewPgPassword === "" ? "[empty]" : "[set]",
     traefikNetwork: config.traefikNetwork,
     postgresNetwork: config.postgresNetwork,
-    registryUser: config.registryUser === "" ? "[anonymous]" : config.registryUser,
-    registryPassword: config.registryPassword === "" ? "[anonymous]" : "[set]",
-    registryAuths: config.registryAuths.size,
+    registryPullAuthHosts: config.registryPullAuth.byHost.size,
+    registryPullAuthFallback: config.registryPullAuth.fallback
+      ? "[set]"
+      : "[unset]",
     githubToken: config.githubToken === "" ? "[unset]" : "[set]",
     gitlabToken: config.gitlabToken === "" ? "[unset]" : "[set]",
     extraGitlabHosts: config.extraGitlabHosts.size,

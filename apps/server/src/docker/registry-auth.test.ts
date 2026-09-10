@@ -1,76 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   encodeRegistryAuthHeader,
-  parseRegistryAuthsJson,
   registryHostFromImageRef,
   registryServerAddress,
   resolveRegistryAuth,
+  xRegistryAuthHeader,
 } from "./registry-auth.ts";
-
-describe("parseRegistryAuthsJson", () => {
-  test("empty string yields empty map", () => {
-    expect(parseRegistryAuthsJson("")).toEqual(new Map());
-    expect(parseRegistryAuthsJson("  ")).toEqual(new Map());
-  });
-
-  test("parses per-host user/password map", () => {
-    const map = parseRegistryAuthsJson(
-      JSON.stringify({
-        "ghcr.io": { user: "gh", password: "gh-token" },
-        "registry.gitlab.com": { user: "gl", password: "gl-token" },
-      }),
-    );
-    expect(map.get("ghcr.io")).toEqual({
-      username: "gh",
-      password: "gh-token",
-    });
-    expect(map.get("registry.gitlab.com")).toEqual({
-      username: "gl",
-      password: "gl-token",
-    });
-  });
-
-  test("normalizes host keys to lowercase", () => {
-    const map = parseRegistryAuthsJson(
-      JSON.stringify({ "GHCR.IO": { user: "u", password: "p" } }),
-    );
-    expect(map.get("ghcr.io")).toEqual({ username: "u", password: "p" });
-  });
-
-  test("rejects invalid JSON", () => {
-    expect(() => parseRegistryAuthsJson("{")).toThrow(
-      "must be valid JSON",
-    );
-  });
-
-  test("rejects non-object root", () => {
-    expect(() => parseRegistryAuthsJson("[]")).toThrow("expected a JSON object");
-    expect(() => parseRegistryAuthsJson('"x"')).toThrow(
-      "expected a JSON object",
-    );
-  });
-
-  test("rejects entry missing user/password strings", () => {
-    expect(() =>
-      parseRegistryAuthsJson(
-        JSON.stringify({ "ghcr.io": { user: "u" } }),
-      ),
-    ).toThrow('entry for "ghcr.io"');
-    expect(() =>
-      parseRegistryAuthsJson(
-        JSON.stringify({ "ghcr.io": { password: "p" } }),
-      ),
-    ).toThrow('entry for "ghcr.io"');
-  });
-
-  test("rejects password without user", () => {
-    expect(() =>
-      parseRegistryAuthsJson(
-        JSON.stringify({ "ghcr.io": { user: "", password: "p" } }),
-      ),
-    ).toThrow("password is set but user is empty");
-  });
-});
 
 describe("registryHostFromImageRef", () => {
   test("extracts explicit registry hosts", () => {
@@ -94,61 +29,70 @@ describe("registryHostFromImageRef", () => {
 });
 
 describe("resolveRegistryAuth", () => {
-  const auths = new Map([
-    ["ghcr.io", { username: "gh", password: "gh-tok" }],
-    ["registry.gitlab.com", { username: "gl", password: "gl-tok" }],
-  ]);
+  const store = {
+    byHost: new Map([
+      ["ghcr.io", { username: "gh", password: "gh-tok" }],
+      ["registry.gitlab.com", { username: "gl", password: "gl-tok" }],
+    ]),
+  };
 
   test("looks up creds by image host", () => {
-    expect(resolveRegistryAuth("ghcr.io/org/app:t", auths)).toEqual({
-      credential: { username: "gh", password: "gh-tok" },
+    expect(resolveRegistryAuth("ghcr.io/org/app:t", store)).toEqual({
+      username: "gh",
+      password: "gh-tok",
       serveraddress: "ghcr.io",
     });
     expect(
-      resolveRegistryAuth("registry.gitlab.com/g/seed:t", auths),
+      resolveRegistryAuth("registry.gitlab.com/g/seed:t", store),
     ).toEqual({
-      credential: { username: "gl", password: "gl-tok" },
+      username: "gl",
+      password: "gl-tok",
       serveraddress: "registry.gitlab.com",
     });
   });
 
   test("anonymous when host has no match and no fallback", () => {
-    expect(resolveRegistryAuth("quay.io/org/app:t", auths)).toBeUndefined();
-    expect(resolveRegistryAuth("ubuntu:22.04", new Map())).toBeUndefined();
+    expect(resolveRegistryAuth("quay.io/org/app:t", store)).toBeUndefined();
+    expect(
+      resolveRegistryAuth("ubuntu:22.04", { byHost: new Map() }),
+    ).toBeUndefined();
   });
 
   test("falls back to global pair when host not in map", () => {
     expect(
-      resolveRegistryAuth("quay.io/org/app:t", auths, {
-        username: "global",
-        password: "gpass",
+      resolveRegistryAuth("quay.io/org/app:t", {
+        ...store,
+        fallback: { username: "global", password: "gpass" },
       }),
     ).toEqual({
-      credential: { username: "global", password: "gpass" },
+      username: "global",
+      password: "gpass",
       serveraddress: "quay.io",
     });
   });
 
   test("map entry wins over global fallback", () => {
     expect(
-      resolveRegistryAuth("ghcr.io/org/app:t", auths, {
-        username: "global",
-        password: "gpass",
+      resolveRegistryAuth("ghcr.io/org/app:t", {
+        ...store,
+        fallback: { username: "global", password: "gpass" },
       }),
     ).toEqual({
-      credential: { username: "gh", password: "gh-tok" },
+      username: "gh",
+      password: "gh-tok",
       serveraddress: "ghcr.io",
     });
   });
 
   test("uses Docker Hub serveraddress for docker.io", () => {
     expect(
-      resolveRegistryAuth("ubuntu:22.04", new Map(), {
-        username: "hub",
-        password: "tok",
+      resolveRegistryAuth("ubuntu:22.04", {
+        byHost: new Map(),
+        fallback: { username: "hub", password: "tok" },
       }),
     ).toEqual({
-      credential: { username: "hub", password: "tok" },
+      username: "hub",
+      password: "tok",
       serveraddress: registryServerAddress("docker.io"),
     });
   });
@@ -171,15 +115,25 @@ describe("encodeRegistryAuthHeader", () => {
       ).toString("base64"),
     );
   });
+});
 
-  test("omits header for empty username", () => {
+describe("xRegistryAuthHeader", () => {
+  test("returns undefined when store has no match", () => {
     expect(
+      xRegistryAuthHeader("quay.io/org/app:t", { byHost: new Map() }),
+    ).toBeUndefined();
+  });
+
+  test("encodes resolved AuthConfig", () => {
+    const header = xRegistryAuthHeader("ghcr.io/org/app:t", {
+      byHost: new Map([["ghcr.io", { username: "u", password: "p" }]]),
+    });
+    expect(header).toBe(
       encodeRegistryAuthHeader({
-        username: "",
-        password: "",
+        username: "u",
+        password: "p",
         serveraddress: "ghcr.io",
       }),
-    ).toBeUndefined();
-    expect(encodeRegistryAuthHeader(undefined)).toBeUndefined();
+    );
   });
 });

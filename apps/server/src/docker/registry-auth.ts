@@ -5,67 +5,37 @@ export type RegistryCredential = {
   password: string;
 };
 
+/**
+ * Boot-normalized pull auth: per-host map + optional legacy global fallback.
+ * Built at `loadConfig`; Engine looks up `byHost.get(host) ?? fallback`.
+ */
+export type RegistryPullAuth = {
+  byHost: ReadonlyMap<string, RegistryCredential>;
+  /** Only set when legacy SPROUT_REGISTRY_USER is non-empty. */
+  fallback?: RegistryCredential;
+};
+
+/** AuthConfig fields for Engine X-Registry-Auth. */
+export type RegistryAuthConfig = {
+  username: string;
+  password: string;
+  serveraddress: string;
+};
+
 /** Docker Hub's canonical AuthConfig serveraddress. */
 const DOCKER_HUB_SERVERADDRESS = "https://index.docker.io/v1/";
 
 /**
- * Parse `SPROUT_REGISTRY_AUTHS_JSON`:
- * `{"registry.example.com":{"user":"u","password":"p"},...}`.
- * Empty / unset → empty map. Malformed → throw (fail fast at config load).
+ * Strip tag or digest from an image ref (`ghcr.io/org/app:tag` → `ghcr.io/org/app`).
+ * Shared by host extraction and Engine `/images/create` query construction.
  */
-export function parseRegistryAuthsJson(
-  raw: string,
-): ReadonlyMap<string, RegistryCredential> {
-  const trimmed = raw.trim();
-  if (trimmed === "") return new Map();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    throw new Error("Invalid SPROUT_REGISTRY_AUTHS_JSON: must be valid JSON");
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(
-      "Invalid SPROUT_REGISTRY_AUTHS_JSON: expected a JSON object of host → {user, password}",
-    );
-  }
-
-  const out = new Map<string, RegistryCredential>();
-  for (const [hostRaw, entry] of Object.entries(
-    parsed as Record<string, unknown>,
-  )) {
-    const host = hostRaw.trim().toLowerCase();
-    if (host === "") {
-      throw new Error(
-        "Invalid SPROUT_REGISTRY_AUTHS_JSON: registry host keys must be non-empty",
-      );
-    }
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new Error(
-        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${host}": expected {user, password}`,
-      );
-    }
-    const row = entry as Record<string, unknown>;
-    const user = typeof row.user === "string" ? row.user : null;
-    const password = typeof row.password === "string" ? row.password : null;
-    if (user === null || password === null) {
-      throw new Error(
-        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${host}": expected string fields user and password`,
-      );
-    }
-    if (user === "" && password !== "") {
-      throw new Error(
-        `Invalid SPROUT_REGISTRY_AUTHS_JSON entry for "${host}": password is set but user is empty`,
-      );
-    }
-    if (user === "") {
-      // Explicit empty user = skip (anonymous for that host); ignore entry.
-      continue;
-    }
-    out.set(host, { username: user, password });
-  }
-  return out;
+export function imageNameWithoutTagOrDigest(image: string): string {
+  const at = image.lastIndexOf("@");
+  if (at !== -1) return image.slice(0, at);
+  const lastColon = image.lastIndexOf(":");
+  const lastSlash = image.lastIndexOf("/");
+  if (lastColon > lastSlash) return image.slice(0, lastColon);
+  return image;
 }
 
 /**
@@ -96,33 +66,25 @@ export function registryServerAddress(host: string): string {
 }
 
 /**
- * Resolve pull credentials for an image: per-host map first, then optional
- * legacy global pair. No match / empty user → undefined (anonymous pull).
+ * Resolve pull AuthConfig for an image: per-host map first, then optional
+ * legacy fallback. No match → undefined (anonymous pull).
  */
 export function resolveRegistryAuth(
   image: string,
-  auths: ReadonlyMap<string, RegistryCredential>,
-  fallback?: RegistryCredential,
-): { credential: RegistryCredential; serveraddress: string } | undefined {
+  store: RegistryPullAuth,
+): RegistryAuthConfig | undefined {
   const host = registryHostFromImageRef(image);
-  const fromMap = auths.get(host);
-  const credential =
-    fromMap ??
-    (fallback && fallback.username !== "" ? fallback : undefined);
+  const credential = store.byHost.get(host) ?? store.fallback;
   if (!credential) return undefined;
   return {
-    credential,
+    username: credential.username,
+    password: credential.password,
     serveraddress: registryServerAddress(host),
   };
 }
 
-/** Base64 AuthConfig for Engine `X-Registry-Auth`; empty user → omit. */
-export function encodeRegistryAuthHeader(
-  auth:
-    | { username: string; password: string; serveraddress: string }
-    | undefined,
-): string | undefined {
-  if (!auth || auth.username === "") return undefined;
+/** Base64 AuthConfig for Engine `X-Registry-Auth`. */
+export function encodeRegistryAuthHeader(auth: RegistryAuthConfig): string {
   return Buffer.from(
     JSON.stringify({
       username: auth.username,
@@ -132,11 +94,11 @@ export function encodeRegistryAuthHeader(
   ).toString("base64");
 }
 
-function imageNameWithoutTagOrDigest(image: string): string {
-  const at = image.lastIndexOf("@");
-  if (at !== -1) return image.slice(0, at);
-  const lastColon = image.lastIndexOf(":");
-  const lastSlash = image.lastIndexOf("/");
-  if (lastColon > lastSlash) return image.slice(0, lastColon);
-  return image;
+/** Resolve + encode in one step for Engine pull. */
+export function xRegistryAuthHeader(
+  image: string,
+  store: RegistryPullAuth,
+): string | undefined {
+  const auth = resolveRegistryAuth(image, store);
+  return auth ? encodeRegistryAuthHeader(auth) : undefined;
 }
