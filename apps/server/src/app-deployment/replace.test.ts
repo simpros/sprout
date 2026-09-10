@@ -102,7 +102,7 @@ describe("replacePreviewApp", () => {
     ]);
   });
 
-  test("prepends adopter appEnv; connection credentials last-wins", async () => {
+  test("strips colliding appEnv keys; gateway connection env wins", async () => {
     const docker = createFakeDockerClient({
       exposedPorts: { "ghcr.io/org/app:sha": 3000 },
     });
@@ -119,6 +119,7 @@ describe("replacePreviewApp", () => {
           "BETTER_AUTH_SECRET=sekrit",
           "DATABASE_HOST=attacker",
           "PGPASSWORD=stolen",
+          "PGHOST=leftover",
         ],
         connectionEnv: {
           PGHOST: "DATABASE_HOST",
@@ -128,8 +129,6 @@ describe("replacePreviewApp", () => {
 
     expect(docker.creates[0]!.env).toEqual([
       "BETTER_AUTH_SECRET=sekrit",
-      "DATABASE_HOST=attacker",
-      "PGPASSWORD=stolen",
       "DATABASE_HOST=postgres",
       "PGPORT=5432",
       "PGUSER=sprout_preview",

@@ -60,6 +60,22 @@ export type DeployBody = {
   app_env?: string[];
 };
 
+/** Cap + `KEY=VALUE` shape check shared by seed_env and app_env. */
+function validateKvEnvEntries(
+  entries: string[],
+  opts: { max: number; tooMany: string; invalid: string },
+): { ok: true } | { ok: false; error: string } {
+  if (entries.length > opts.max) {
+    return { ok: false, error: opts.tooMany };
+  }
+  for (const entry of entries) {
+    if (entry.indexOf("=") <= 0) {
+      return { ok: false, error: opts.invalid };
+    }
+  }
+  return { ok: true };
+}
+
 /** Validate optional seed fields; health is required when seed_image is set. */
 export function resolveSeedRequest(
   body: Pick<DeployBody, "seed_image" | "seed_env" | "seed_arg" | "health">,
@@ -79,18 +95,15 @@ export function resolveSeedRequest(
   if (!body.health) {
     return { ok: false, error: "health_required_for_seed" };
   }
-  if (seedEnv.length > MAX_SEED_ENV) {
-    return { ok: false, error: "too_many_seed_env" };
-  }
   if (seedArg.length > MAX_SEED_ARG) {
     return { ok: false, error: "too_many_seed_arg" };
   }
-  for (const entry of seedEnv) {
-    const eq = entry.indexOf("=");
-    if (eq <= 0) {
-      return { ok: false, error: "invalid_seed_env" };
-    }
-  }
+  const envCheck = validateKvEnvEntries(seedEnv, {
+    max: MAX_SEED_ENV,
+    tooMany: "too_many_seed_env",
+    invalid: "invalid_seed_env",
+  });
+  if (!envCheck.ok) return envCheck;
   return {
     ok: true,
     value: {
@@ -111,15 +124,12 @@ export function resolveAppEnvRequest(
   if (appEnv.length === 0) {
     return { ok: true, value: undefined };
   }
-  if (appEnv.length > MAX_APP_ENV) {
-    return { ok: false, error: "too_many_app_env" };
-  }
-  for (const entry of appEnv) {
-    const eq = entry.indexOf("=");
-    if (eq <= 0) {
-      return { ok: false, error: "invalid_app_env" };
-    }
-  }
+  const check = validateKvEnvEntries(appEnv, {
+    max: MAX_APP_ENV,
+    tooMany: "too_many_app_env",
+    invalid: "invalid_app_env",
+  });
+  if (!check.ok) return check;
   return { ok: true, value: appEnv };
 }
 

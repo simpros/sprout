@@ -377,9 +377,8 @@ preview:
     expect(captured[0]?.body).toMatchObject({
       app_env: [
         "BETTER_AUTH_URL=https://pr-static.example.com",
-        "SHARED=from-yaml",
-        "BETTER_AUTH_SECRET=sekrit",
         "SHARED=from-cli",
+        "BETTER_AUTH_SECRET=sekrit",
       ],
     });
     expect(captured[0]?.body).not.toHaveProperty("seed_env");

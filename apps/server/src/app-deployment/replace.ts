@@ -1,6 +1,10 @@
 import type { PreviewEnvMap } from "@sprout/preview-env";
 import { traefikLabels } from "./labels.ts";
-import { pgConnectionEnv, type AppDeployPg } from "./pg-env.ts";
+import {
+  pgConnectionEnv,
+  withGatewayConnectionEnv,
+  type AppDeployPg,
+} from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
 
@@ -25,7 +29,7 @@ export type ReplacePreviewAppInput = {
   hostname: string;
   image: string;
   dbName: string;
-  /** Adopter KEY=VALUE entries; gateway appends connection env after (last-wins). */
+  /** Adopter KEY=VALUE entries; colliding connection keys are stripped. */
   appEnv?: string[];
   /** Request-scoped connection env name remap; not persisted. */
   connectionEnv?: PreviewEnvMap;
@@ -44,8 +48,8 @@ export async function removePreviewApp(
  * Replace (or first-start) the preview app container for one PR.
  * Force-removes any prior container with the stable name, then creates+starts
  * with dual-network attach, Traefik labels, adopter app env, and connection env
- * (PG* names, optionally remapped via connectionEnv). Connection credentials
- * are appended after appEnv so adopters cannot override the five connection keys.
+ * (PG* names, optionally remapped via connectionEnv). Gateway connection keys
+ * replace colliding user app-env keys (PG* or remapped names), same policy as seed.
  * Resolves Traefik port from image EXPOSE (or previewPortDefault).
  * Caller must already have pulled the image (outside the preview lock).
  */
@@ -60,10 +64,10 @@ export async function replacePreviewApp(
   const { id } = await deps.docker.createAndStart({
     name,
     image: input.image,
-    env: [
-      ...(input.appEnv ?? []),
-      ...pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
-    ],
+    env: withGatewayConnectionEnv(
+      input.appEnv ?? [],
+      pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
+    ),
     labels: traefikLabels({
       routerName: name,
       hostname: input.hostname,

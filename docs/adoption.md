@@ -114,10 +114,9 @@ sprout deploy -i "$APP_IMAGE" \
 ```
 
 CLI merges yaml `app_env` first, then `--app-env` flags (duplicate keys:
-flags win). The gateway then appends connection credentials **last**, so
-adopter env can never override the five connection keys (canonical or
-remapped names). Seed `--seed-env` is unchanged and applies only to the
-seed container.
+flags win, one entry per key on the wire). Gateway connection keys replace
+colliding adopter keys (canonical PG* ∪ remapped names) — same policy as
+seed `--seed-env`. Seed env applies only to the seed container.
 
 ### Shell entrypoint (any runtime)
 

@@ -140,7 +140,7 @@ describe("POST /v1/deploy connection env remap", () => {
 });
 
 describe("POST /v1/deploy app_env", () => {
-  test("injects app_env before connection credentials (last-wins)", async () => {
+  test("injects app_env with colliding connection keys stripped", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(
       deployToken,
@@ -155,7 +155,6 @@ describe("POST /v1/deploy app_env", () => {
     expect(res.status).toBe(200);
     expect(fakeDocker!.creates[0]!.env).toEqual([
       "BETTER_AUTH_SECRET=sekrit",
-      "PGHOST=attacker",
       "APP_URL=https://pr-42.example.com",
       "PGHOST=postgres",
       "PGPORT=5432",

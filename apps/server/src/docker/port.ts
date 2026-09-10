@@ -9,7 +9,7 @@ export type CatalogContainer = {
 export type ContainerCreateSpec = {
   name: string;
   image: string;
-  /** `KEY=VALUE` entries — connection credentials last after optional adopter env. */
+  /** `KEY=VALUE` entries — gateway connection keys replace colliding user keys. */
   env: string[];
   labels: Record<string, string>;
   /** All networks attached via create-time EndpointsConfig. */

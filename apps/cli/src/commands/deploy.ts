@@ -76,12 +76,22 @@ export async function runDeploy(
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  // Yaml map first, then --app-env (CLI last-wins for duplicate keys).
+  // Yaml map first; --app-env overwrites duplicate keys (one entry per key).
+  const appEnvByKey = new Map(
+    Object.entries(yaml.value.preview.app_env ?? {}),
+  );
+  const invalidFlagEnv: string[] = [];
+  for (const entry of flags.value.appEnv) {
+    const eq = entry.indexOf("=");
+    if (eq <= 0) {
+      invalidFlagEnv.push(entry);
+      continue;
+    }
+    appEnvByKey.set(entry.slice(0, eq), entry.slice(eq + 1));
+  }
   const appEnv = [
-    ...Object.entries(yaml.value.preview.app_env ?? {}).map(
-      ([key, value]) => `${key}=${value}`,
-    ),
-    ...flags.value.appEnv,
+    ...[...appEnvByKey].map(([key, value]) => `${key}=${value}`),
+    ...invalidFlagEnv,
   ];
   if (appEnv.length > 0) body.app_env = appEnv;
 
