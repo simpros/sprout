@@ -67,7 +67,7 @@ describe.skipIf(!hasDocker)("ensurePreviewRole (postgres)", () => {
     await withNew.close();
   });
 
-  test("createDatabase ensures role before OWNER grant", async () => {
+  test("createDatabase ensures owner + restricted companion", async () => {
     const dbName = "sprout_ensure_pr1";
     const password = "owner-password";
     const db = createPostgresPreviewDb({
@@ -83,7 +83,23 @@ describe.skipIf(!hasDocker)("ensurePreviewRole (postgres)", () => {
     await preview`SELECT 1`;
     await preview.close();
 
+    const { role, password: appPassword } =
+      await db.ensureRestrictedRole(dbName);
+    expect(role).toBe("sprout_ensure_pr1_app");
+    const restricted = new SQL(
+      `postgres://${role}:${encodeURIComponent(appPassword)}@127.0.0.1:${hostPort}/${dbName}`,
+    );
+    await restricted`SELECT 1`;
+    await restricted.close();
+
     await db.dropDatabase(dbName);
+
+    const admin = new SQL(adminUrl);
+    const roles = await admin`
+      SELECT 1 AS ok FROM pg_catalog.pg_roles WHERE rolname = ${role}
+    `;
+    expect(roles).toHaveLength(0);
+    await admin.close();
   });
 
   test("memoized ensure does not re-ALTER on subsequent calls", async () => {

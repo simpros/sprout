@@ -5,6 +5,8 @@ export const CANONICAL_ENV_KEYS = [
   "PGUSER",
   "PGPASSWORD",
   "PGDATABASE",
+  "PGAPPUSER",
+  "PGAPPPASSWORD",
 ] as const;
 
 export type CanonicalEnvKey = (typeof CANONICAL_ENV_KEYS)[number];

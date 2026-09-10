@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import {
+  deriveRestrictedPassword,
+  restrictedRoleName,
+} from "@sprout/preview-db";
+import {
   createFakeDockerClient,
   type FakeDockerClient,
 } from "../docker/fake.ts";
@@ -21,6 +25,7 @@ import {
 } from "./test-helpers.ts";
 
 const OTHER_REPO = "https://github.com/org/other";
+const DB = "sprout_myapp_pr42";
 
 let testApp: TestApp | undefined;
 let fakePreviewDb: FakePreviewDb | undefined;
@@ -161,6 +166,8 @@ describe("POST /v1/deploy", () => {
         "PGUSER=sprout_preview",
         "PGPASSWORD=preview-secret",
         "PGDATABASE=sprout_myapp_pr42",
+        `PGAPPUSER=${restrictedRoleName(DB)}`,
+        `PGAPPPASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
       ],
       networkNames: ["sprout-traefik", "sprout-postgres"],
     });

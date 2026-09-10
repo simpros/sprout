@@ -78,6 +78,9 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
       // Unmapped canonical keys stay PG*; remapped keys must not dual-alias.
       expect(env.get("PGPORT")).toBe(expectedPort);
       expect(env.has("PGDATABASE")).toBe(true);
+      expect(env.has("PGAPPUSER")).toBe(true);
+      expect(env.has("PGAPPPASSWORD")).toBe(true);
+      expect(env.get("PGAPPUSER")).toMatch(/_app$/);
       expect(env.has("PGHOST")).toBe(false);
       expect(env.has("PGUSER")).toBe(false);
       expect(env.has("PGPASSWORD")).toBe(false);

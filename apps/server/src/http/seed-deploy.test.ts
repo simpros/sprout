@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import {
+  deriveRestrictedPassword,
+  restrictedRoleName,
+} from "@sprout/preview-db";
+import {
   createFakeDockerClient,
   type FakeDockerClient,
 } from "../docker/fake.ts";
@@ -21,6 +25,11 @@ import {
 } from "./test-helpers.ts";
 
 const SEED_IMAGE = "ghcr.io/org/myapp-seed:sha-abc";
+const DB = "sprout_myapp_pr42";
+const companion = [
+  `PGAPPUSER=${restrictedRoleName(DB)}`,
+  `PGAPPPASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
+];
 
 let testApp: TestApp | undefined;
 let fakePreviewDb: FakePreviewDb | undefined;
@@ -202,6 +211,7 @@ describe("POST /v1/deploy seed image", () => {
       "PGUSER=sprout_preview",
       "PGPASSWORD=preview-secret",
       "PGDATABASE=sprout_myapp_pr42",
+      ...companion,
     ]);
     expect(seedCreate.labels).toEqual({});
     // Entrypoint must remain unset so the image default runs.
@@ -250,6 +260,7 @@ describe("POST /v1/deploy seed image", () => {
       "DATABASE_USER=sprout_preview",
       "DATABASE_PASSWORD=preview-secret",
       "DATABASE_NAME=sprout_myapp_pr42",
+      ...companion,
     ];
     expect(fakeDocker!.creates[0]!.env).toEqual(expectedConnection);
     expect(fakeDocker!.creates[1]!.env).toEqual([

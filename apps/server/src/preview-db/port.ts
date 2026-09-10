@@ -15,6 +15,14 @@ export type PreviewDb = {
    * connection. Throws a clear error when the admin lacks CREATEROLE.
    */
   ensurePreviewRole(): Promise<void>;
+  /**
+   * Create or sync the per-DB restricted companion LOGIN (`<dbName>_app`),
+   * GRANT CONNECT + schema USAGE. Password is derived from the owner preview
+   * password (stable across restarts). Call after the database exists.
+   */
+  ensureRestrictedRole(
+    dbName: string,
+  ): Promise<{ role: string; password: string }>;
   /** Connectivity check (`SELECT 1`). Throws when unreachable. */
   ping(): Promise<void>;
 };

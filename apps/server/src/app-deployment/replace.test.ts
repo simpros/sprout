@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import {
+  deriveRestrictedPassword,
+  restrictedRoleName,
+} from "@sprout/preview-db";
 import { createFakeDockerClient } from "../docker/fake.ts";
 import { bindPreviewOps } from "./ops.ts";
 import { removePreviewApp, replacePreviewApp } from "./replace.ts";
@@ -16,6 +20,13 @@ const baseDeps = {
   },
   previewPortDefault: 8080,
 };
+
+function companionEnv(dbName: string) {
+  return [
+    `PGAPPUSER=${restrictedRoleName(dbName)}`,
+    `PGAPPPASSWORD=${deriveRestrictedPassword(baseDeps.pg.password, dbName)}`,
+  ];
+}
 
 const bindDeps = {
   ...baseDeps,
@@ -61,6 +72,7 @@ describe("replacePreviewApp", () => {
       "PGUSER=sprout_preview",
       "PGPASSWORD=sekrit",
       "PGDATABASE=sprout_myapp_pr42",
+      ...companionEnv("sprout_myapp_pr42"),
     ]);
     expect(created.networkNames).toEqual([
       "sprout-traefik",
@@ -101,6 +113,7 @@ describe("replacePreviewApp", () => {
       "DATABASE_USER=sprout_preview",
       "PGPASSWORD=sekrit",
       "PGDATABASE=prev_myapp_pr42",
+      ...companionEnv("prev_myapp_pr42"),
     ]);
   });
 
@@ -136,6 +149,7 @@ describe("replacePreviewApp", () => {
       "PGUSER=sprout_preview",
       "PGPASSWORD=sekrit",
       "PGDATABASE=sprout_myapp_pr42",
+      ...companionEnv("sprout_myapp_pr42"),
     ]);
   });
 

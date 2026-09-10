@@ -16,6 +16,10 @@ function stubPreviewDb(
     createDatabase: async () => {},
     dropDatabase: async () => {},
     ensurePreviewRole: async () => {},
+    ensureRestrictedRole: async (dbName) => ({
+      role: `${dbName}_app`,
+      password: "stub",
+    }),
     ping: async () => {},
     ...partial,
   };

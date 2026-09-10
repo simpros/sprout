@@ -254,6 +254,14 @@ async function attachAppContainer(
   input: ProvisionInput,
   refreshGeneration: boolean,
 ): Promise<Result<PreviewRow>> {
+  // Sync path skips createDatabase; still ensure companion role before inject.
+  try {
+    await deps.previewDb.ensureRestrictedRole(row.dbName);
+  } catch {
+    await markPreviewFailed(deps.db, row.canonicalRepoId, row.prId);
+    return { ok: false, status: 500, error: "preview_db_create_failed" };
+  }
+
   let containerId: string;
   let port: number;
   try {

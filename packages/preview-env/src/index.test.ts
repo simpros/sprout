@@ -19,6 +19,21 @@ describe("parsePreviewEnvMap", () => {
     });
   });
 
+  test("accepts PGAPPUSER / PGAPPPASSWORD remap", () => {
+    expect(
+      parsePreviewEnvMap({
+        PGAPPUSER: "APP_DATABASE_USER",
+        PGAPPPASSWORD: "APP_DATABASE_PASSWORD",
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        PGAPPUSER: "APP_DATABASE_USER",
+        PGAPPPASSWORD: "APP_DATABASE_PASSWORD",
+      },
+    });
+  });
+
   test("rejects unknown keys", () => {
     expect(parsePreviewEnvMap({ DATABASE_URL: "DATABASE_URL" })).toEqual({
       ok: false,

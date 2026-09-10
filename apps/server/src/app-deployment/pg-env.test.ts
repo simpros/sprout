@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  deriveRestrictedPassword,
+  restrictedRoleName,
+} from "@sprout/preview-db";
+import {
   pgConnectionEnv,
   withGatewayConnectionEnv,
   type AppDeployPg,
@@ -12,25 +16,33 @@ const pg: AppDeployPg = {
   password: "sekrit",
 };
 
+const dbName = "prev_myapp_pr42";
+const appUser = restrictedRoleName(dbName);
+const appPassword = deriveRestrictedPassword(pg.password, dbName);
+
 describe("pgConnectionEnv", () => {
-  test("absent remap emits exactly the five PG* names", () => {
-    expect(pgConnectionEnv(pg, "prev_myapp_pr42")).toEqual([
+  test("absent remap emits owner PG* plus companion PGAPP*", () => {
+    expect(pgConnectionEnv(pg, dbName)).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
       "PGUSER=pb_preview",
       "PGPASSWORD=sekrit",
       "PGDATABASE=prev_myapp_pr42",
+      `PGAPPUSER=${appUser}`,
+      `PGAPPPASSWORD=${appPassword}`,
     ]);
   });
 
   test("full remap replaces names (no dual alias)", () => {
     expect(
-      pgConnectionEnv(pg, "prev_myapp_pr42", {
+      pgConnectionEnv(pg, dbName, {
         PGHOST: "DATABASE_HOST",
         PGPORT: "DATABASE_PORT",
         PGUSER: "DATABASE_USER",
         PGPASSWORD: "DATABASE_PASSWORD",
         PGDATABASE: "DATABASE_NAME",
+        PGAPPUSER: "APP_DATABASE_USER",
+        PGAPPPASSWORD: "APP_DATABASE_PASSWORD",
       }),
     ).toEqual([
       "DATABASE_HOST=postgres",
@@ -38,12 +50,14 @@ describe("pgConnectionEnv", () => {
       "DATABASE_USER=pb_preview",
       "DATABASE_PASSWORD=sekrit",
       "DATABASE_NAME=prev_myapp_pr42",
+      `APP_DATABASE_USER=${appUser}`,
+      `APP_DATABASE_PASSWORD=${appPassword}`,
     ]);
   });
 
-  test("partial remap keeps unmapped keys as PG*", () => {
+  test("partial remap keeps unmapped keys as canonical", () => {
     expect(
-      pgConnectionEnv(pg, "prev_myapp_pr42", {
+      pgConnectionEnv(pg, dbName, {
         PGHOST: "DATABASE_HOST",
         PGUSER: "DATABASE_USER",
       }),
@@ -53,24 +67,28 @@ describe("pgConnectionEnv", () => {
       "DATABASE_USER=pb_preview",
       "PGPASSWORD=sekrit",
       "PGDATABASE=prev_myapp_pr42",
+      `PGAPPUSER=${appUser}`,
+      `PGAPPPASSWORD=${appPassword}`,
     ]);
   });
 
-  test("identity map still emits PG* names", () => {
+  test("identity map still emits canonical names", () => {
     expect(
-      pgConnectionEnv(pg, "prev_myapp_pr42", { PGHOST: "PGHOST" }),
+      pgConnectionEnv(pg, dbName, { PGHOST: "PGHOST" }),
     ).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
       "PGUSER=pb_preview",
       "PGPASSWORD=sekrit",
       "PGDATABASE=prev_myapp_pr42",
+      `PGAPPUSER=${appUser}`,
+      `PGAPPPASSWORD=${appPassword}`,
     ]);
   });
 });
 
 describe("withGatewayConnectionEnv", () => {
-  const gateway = pgConnectionEnv(pg, "prev_myapp_pr42");
+  const gateway = pgConnectionEnv(pg, dbName);
 
   test("strips colliding PG* and keeps non-colliding keys", () => {
     expect(
@@ -82,23 +100,25 @@ describe("withGatewayConnectionEnv", () => {
   });
 
   test("strips remapped target names under full remap", () => {
-    const remapped = pgConnectionEnv(pg, "prev_myapp_pr42", {
+    const remapped = pgConnectionEnv(pg, dbName, {
       PGHOST: "DATABASE_HOST",
       PGPORT: "DATABASE_PORT",
       PGUSER: "DATABASE_USER",
       PGPASSWORD: "DATABASE_PASSWORD",
       PGDATABASE: "DATABASE_NAME",
+      PGAPPUSER: "APP_DATABASE_USER",
+      PGAPPPASSWORD: "APP_DATABASE_PASSWORD",
     });
     expect(
       withGatewayConnectionEnv(
-        ["FIXTURE_SET=demo", "DATABASE_HOST=attacker"],
+        ["FIXTURE_SET=demo", "DATABASE_HOST=attacker", "APP_DATABASE_PASSWORD=x"],
         remapped,
       ),
     ).toEqual(["FIXTURE_SET=demo", ...remapped]);
   });
 
   test("partial remap strips remapped target and remapped-away PG*", () => {
-    const partial = pgConnectionEnv(pg, "prev_myapp_pr42", {
+    const partial = pgConnectionEnv(pg, dbName, {
       PGHOST: "DATABASE_HOST",
     });
     expect(
