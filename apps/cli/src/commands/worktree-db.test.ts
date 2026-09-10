@@ -32,25 +32,26 @@ function makeDeps(
 }
 
 describe("sprout worktree-db", () => {
-  test("provision twice rewrites env file cleanly", async () => {
+  test("provision twice rewrites env file and reuses password", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sprout-wt-"));
     const envPath = join(dir, ".env");
     const io = { stdout: [] as string[], stderr: [] as string[] };
     const deps = makeDeps(dir, io);
 
-    let provisionCalls = 0;
+    const passwords: (string | undefined)[] = [];
     const worktreeDeps: WorktreeDbDeps = {
-      provision: async ({ slug }) => {
-        provisionCalls += 1;
-        expect(slug).toBe("Agent Alpha!!");
+      provision: async ({ worktreeKey, password }) => {
+        expect(worktreeKey).toBe("Agent Alpha!!");
+        passwords.push(password);
+        const pass = password ?? `pass-${passwords.length}`;
         return {
-          slug: "agent-alpha",
+          worktreeKey: "agent-alpha",
           objectName: "sprout_wt_agent_alpha",
-          password: `pass-${provisionCalls}`,
+          password: pass,
           host: "127.0.0.1",
           port: 5432,
           databaseUrl:
-            `postgres://sprout_wt_agent_alpha:pass-${provisionCalls}` +
+            `postgres://sprout_wt_agent_alpha:${pass}` +
             `@127.0.0.1:5432/sprout_wt_agent_alpha`,
         };
       },
@@ -78,17 +79,19 @@ describe("sprout worktree-db", () => {
 
     const body = await Bun.file(envPath).text();
     expect(body).toContain("FOO=keep\n");
-    expect(body).toContain("PGPASSWORD=pass-2\n");
+    expect(body).toContain("PGPASSWORD=pass-1\n");
     expect(body).toContain("PGUSER=sprout_wt_agent_alpha\n");
-    expect(body).toContain("DATABASE_URL=postgres://sprout_wt_agent_alpha:pass-2@");
-    expect(provisionCalls).toBe(2);
+    expect(body).toContain(
+      "DATABASE_URL=postgres://sprout_wt_agent_alpha:pass-1@",
+    );
+    expect(passwords).toEqual([undefined, "pass-1"]);
     expect(io.stderr).toEqual([]);
   });
 
-  test("drop calls through with slug + admin-url", async () => {
+  test("drop calls through with worktreeKey + admin-url", async () => {
     const io = { stdout: [] as string[], stderr: [] as string[] };
     const deps = makeDeps(process.cwd(), io);
-    const dropped: { slug: string; adminUrl: string }[] = [];
+    const dropped: { worktreeKey: string; adminUrl: string }[] = [];
     const worktreeDeps: WorktreeDbDeps = {
       provision: async () => {
         throw new Error("provision unused");
@@ -115,7 +118,7 @@ describe("sprout worktree-db", () => {
     expect(code).toBe(0);
     expect(dropped).toEqual([
       {
-        slug: "agent-alpha",
+        worktreeKey: "agent-alpha",
         adminUrl: "postgres://postgres:x@127.0.0.1:5432/postgres",
       },
     ]);

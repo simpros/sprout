@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
+import {
+  assertWorktreeObjectName,
+  dropWorktreeDb,
+  provisionWorktreeDb,
+} from "@sprout/preview-db";
 import { dockerAvailable, startTempPostgres } from "./postgres-it.ts";
-import { dropWorktreeDb, provisionWorktreeDb } from "./worktree.ts";
-import { assertWorktreeObjectName } from "./worktree-names.ts";
 
 const hasDocker = await dockerAvailable();
 
@@ -23,13 +26,14 @@ describe.skipIf(!hasDocker)("worktree-db provision/drop (postgres)", () => {
   });
 
   test("provision twice is idempotent and authenticates", async () => {
-    const slug = "agent-alpha";
+    const worktreeKey = "agent-alpha";
     const first = await provisionWorktreeDb({
       adminUrl,
-      slug,
+      worktreeKey,
       password: "first-pass",
     });
     expect(first.objectName).toBe("sprout_wt_agent_alpha");
+    expect(first.worktreeKey).toBe("agent-alpha");
     expect(first.port).toBe(hostPort);
 
     const login1 = new SQL(first.databaseUrl);
@@ -38,8 +42,8 @@ describe.skipIf(!hasDocker)("worktree-db provision/drop (postgres)", () => {
 
     const second = await provisionWorktreeDb({
       adminUrl,
-      slug,
-      password: "second-pass",
+      worktreeKey,
+      password: "first-pass",
     });
     expect(second.objectName).toBe(first.objectName);
 
@@ -49,14 +53,14 @@ describe.skipIf(!hasDocker)("worktree-db provision/drop (postgres)", () => {
   });
 
   test("drop removes db + role; refuse non-prefixed names", async () => {
-    const slug = "to-drop";
+    const worktreeKey = "to-drop";
     await provisionWorktreeDb({
       adminUrl,
-      slug,
+      worktreeKey,
       password: "drop-pass",
     });
 
-    await dropWorktreeDb({ adminUrl, slug });
+    await dropWorktreeDb({ adminUrl, worktreeKey });
 
     const admin = new SQL(adminUrl);
     const dbs = await admin<{ n: number }[]>`

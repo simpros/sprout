@@ -2,30 +2,31 @@
 export const WORKTREE_OBJECT_PREFIX = "sprout_wt_";
 
 /** Shared with consumers: lowercase, non [a-z0-9-] → -, collapse, max 40. */
-const MAX_SLUG_LEN = 40;
+const MAX_KEY_LEN = 40;
 
 /** DB/role grammar after hyphen→underscore: sprout_wt_ + [a-z0-9_]+ */
 const WORKTREE_OBJECT_RE = /^sprout_wt_[a-z0-9_]+$/;
 
 /**
- * Normalize a worktree slug for consumers and object naming.
+ * Normalize a worktree key for consumers and object naming.
+ * Distinct from adopting-repo **slug** (`[a-z][a-z0-9]*` in CONTEXT.md).
  * Empty after normalize → null.
  */
-export function normalizeWorktreeSlug(raw: string): string | null {
-  let slug = raw
+export function normalizeWorktreeKey(raw: string): string | null {
+  let key = raw
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
-  if (slug.length > MAX_SLUG_LEN) {
-    slug = slug.slice(0, MAX_SLUG_LEN).replace(/-+$/g, "");
+  if (key.length > MAX_KEY_LEN) {
+    key = key.slice(0, MAX_KEY_LEN).replace(/-+$/g, "");
   }
-  return slug.length > 0 ? slug : null;
+  return key.length > 0 ? key : null;
 }
 
-/** `sprout_wt_<slug>` with hyphens folded to underscores (unquoted identifiers). */
-export function worktreeObjectName(slug: string): string {
-  return `${WORKTREE_OBJECT_PREFIX}${slug.replaceAll("-", "_")}`;
+/** `sprout_wt_<key>` with hyphens folded to underscores (unquoted identifiers). */
+export function worktreeObjectName(worktreeKey: string): string {
+  return `${WORKTREE_OBJECT_PREFIX}${worktreeKey.replaceAll("-", "_")}`;
 }
 
 export function isWorktreeObjectName(name: string): boolean {

@@ -1,4 +1,5 @@
 import type { SQL } from "bun";
+import { isDuplicateRole, isInsufficientPrivilege } from "./pg-errors.ts";
 
 /** Unquoted Postgres identifiers fold to lowercase — require lowercase roles. */
 export const SAFE_ROLE = /^[a-z_][a-z0-9_]*$/;
@@ -7,32 +8,6 @@ export function assertSafeRole(role: string): void {
   if (!SAFE_ROLE.test(role)) {
     throw new Error(`refusing unsafe preview role name: ${role}`);
   }
-}
-
-function pgErrorMatches(
-  err: unknown,
-  opts: { codes: string[]; messageRe?: RegExp },
-): boolean {
-  if (!err || typeof err !== "object") return false;
-  const code = "code" in err ? String(err.code) : "";
-  if (opts.codes.includes(code)) return true;
-  if (!opts.messageRe) return false;
-  const message = "message" in err ? String(err.message) : String(err);
-  return opts.messageRe.test(message);
-}
-
-export function isDuplicateRole(err: unknown): boolean {
-  return pgErrorMatches(err, {
-    codes: ["42710"],
-    messageRe: /already exists/i,
-  });
-}
-
-function isInsufficientPrivilege(err: unknown): boolean {
-  return pgErrorMatches(err, {
-    codes: ["42501"],
-    messageRe: /permission denied|must be superuser|must have createrole/i,
-  });
 }
 
 function roleEnsureError(role: string, err: unknown): Error {
@@ -73,15 +48,26 @@ async function roleDdl(
   return stmt;
 }
 
+export type EnsureLoginRoleOptions = {
+  /**
+   * When false and the role already exists, leave its password alone.
+   * Default true (CREATE if missing, else ALTER) — gateway boot behavior.
+   */
+  syncExistingPassword?: boolean;
+};
+
 /**
  * Create or sync a LOGIN role password via the admin connection.
- * Same algorithm as gateway boot (#71): CREATE if missing, else ALTER.
+ * Same algorithm as gateway boot (#71): CREATE if missing, else ALTER
+ * (unless `syncExistingPassword: false`).
  */
 export async function ensureLoginRole(
   sql: SQL,
   role: string,
   password: string,
-): Promise<void> {
+  options: EnsureLoginRoleOptions = {},
+): Promise<"created" | "synced" | "unchanged"> {
+  const syncExistingPassword = options.syncExistingPassword !== false;
   assertSafeRole(role);
   try {
     const existing = await sql`
@@ -91,15 +77,19 @@ export async function ensureLoginRole(
       LIMIT 1
     `;
     if (existing.length > 0) {
+      if (!syncExistingPassword) return "unchanged";
       await sql.unsafe(await roleDdl(sql, role, password, "alter"));
-      return;
+      return "synced";
     }
     try {
       await sql.unsafe(await roleDdl(sql, role, password, "create"));
+      return "created";
     } catch (err) {
       // Concurrent ensure: another caller created the role between SELECT and CREATE.
       if (!isDuplicateRole(err)) throw err;
+      if (!syncExistingPassword) return "unchanged";
       await sql.unsafe(await roleDdl(sql, role, password, "alter"));
+      return "synced";
     }
   } catch (err) {
     throw roleEnsureError(role, err);

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   mergeConnectionEnvFile,
   parseEnvRenames,
+  readEnvFileValue,
   resolveEnvKeyNames,
 } from "./env-file.ts";
 
@@ -43,7 +44,7 @@ describe("mergeConnectionEnvFile", () => {
 
   test("honors renames", () => {
     const names = resolveEnvKeyNames({
-      databaseUrl: "APP_DATABASE_URL",
+      DATABASE_URL: "APP_DATABASE_URL",
       PGHOST: "DATABASE_HOST",
     });
     const out = mergeConnectionEnvFile(null, values, names);
@@ -55,14 +56,26 @@ describe("mergeConnectionEnvFile", () => {
 });
 
 describe("parseEnvRenames", () => {
-  test("parses LOGICAL=NAME pairs", () => {
-    expect(parseEnvRenames(["databaseUrl=APP_URL", "PGHOST=HOST"])).toEqual({
+  test("parses LOGICAL=NAME pairs using canonical PG* + DATABASE_URL", () => {
+    expect(
+      parseEnvRenames(["DATABASE_URL=APP_URL", "PGHOST=HOST"]),
+    ).toEqual({
       ok: true,
-      value: { databaseUrl: "APP_URL", PGHOST: "HOST" },
+      value: { DATABASE_URL: "APP_URL", PGHOST: "HOST" },
     });
   });
 
-  test("rejects unknown logical keys", () => {
+  test("rejects unknown logical keys and camelCase leftovers", () => {
     expect(parseEnvRenames(["NOPE=X"]).ok).toBe(false);
+    expect(parseEnvRenames(["databaseUrl=X"]).ok).toBe(false);
+  });
+});
+
+describe("readEnvFileValue", () => {
+  test("reads first matching key", () => {
+    expect(readEnvFileValue("PGPASSWORD=secret\nFOO=1\n", "PGPASSWORD")).toBe(
+      "secret",
+    );
+    expect(readEnvFileValue(null, "PGPASSWORD")).toBeUndefined();
   });
 });

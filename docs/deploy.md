@@ -273,17 +273,20 @@ sprout worktree-db drop --slug <name> --admin-url "$ADMIN_DSN"
 ```
 
 - **Admin DSN** must allow `CREATEROLE` (or be superuser) — same bar as
-  `SPROUT_PREVIEW_POSTGRES_URL`. Role ensure reuses the gateway `#71` algorithm
-  (`CREATE` if missing, else `ALTER … PASSWORD`).
-- Objects are named `sprout_wt_<slug>` (hyphens in the slug become underscores).
-  `drop` refuses any name outside the `sprout_wt_` prefix.
-- Slug rule (shared with consumers): lowercase, `[^a-z0-9-]` → `-`, collapse
-  runs, max 40 characters.
+  `SPROUT_PREVIEW_POSTGRES_URL`. Role ensure reuses the shared
+  `@sprout/preview-db` `#71` algorithm (`CREATE` if missing, else
+  `ALTER … PASSWORD`).
+- Objects are named `sprout_wt_<key>` (hyphens in the worktree key become
+  underscores). `drop` refuses any name outside the `sprout_wt_` prefix.
+- Worktree key rule (CLI `--slug`; distinct from adopting-repo **slug**):
+  lowercase, `[^a-z0-9-]` → `-`, collapse runs, max 40 characters.
 - `provision` is idempotent: a second run re-ensures the role/DB and rewrites
-  connection vars in `--env-file` (creates the file if missing). Defaults write
-  `DATABASE_URL` plus `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` /
-  `PGDATABASE`; rename with `--rename LOGICAL=NAME` (logical keys:
-  `databaseUrl`, `PGHOST`, …).
+  connection vars in `--env-file` (creates the file if missing; atomic
+  temp+rename). When `PGPASSWORD` is already present in the env file, that
+  password is reused so live connections are not rotated. Defaults write
+  `DATABASE_URL` plus canonical `PGHOST` / `PGPORT` / `PGUSER` /
+  `PGPASSWORD` / `PGDATABASE` (ADR-0007); rename with
+  `--rename LOGICAL=NAME` (logical keys: `DATABASE_URL`, `PGHOST`, …).
 
 ## Bootstrap admin token
 

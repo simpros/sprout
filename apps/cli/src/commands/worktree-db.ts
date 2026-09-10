@@ -1,17 +1,20 @@
+import { rename } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   dropWorktreeDb,
   provisionWorktreeDb,
   type WorktreeConnection,
-} from "@sprout/server/preview-db/worktree";
+} from "@sprout/preview-db";
 import type { CliDeps } from "../context.ts";
 import { fail } from "../context.ts";
-import { parseFlags } from "../flags.ts";
 import {
   mergeConnectionEnvFile,
   parseEnvRenames,
+  readEnvFileValue,
   resolveEnvKeyNames,
   type ConnectionEnvValues,
 } from "../worktree-db/env-file.ts";
+import { parseWorktreeDbFlags } from "../worktree-db/flags.ts";
 
 export type WorktreeDbDeps = {
   provision: typeof provisionWorktreeDb;
@@ -19,12 +22,23 @@ export type WorktreeDbDeps = {
   writeTextFile: (path: string, contents: string) => Promise<void>;
 };
 
+/** Write via temp file + rename so a crash mid-write does not truncate the target. */
+export async function writeTextFileAtomic(
+  path: string,
+  contents: string,
+): Promise<void> {
+  const tmp = join(
+    dirname(path),
+    `.sprout-env-${process.pid}-${Date.now()}.tmp`,
+  );
+  await Bun.write(tmp, contents);
+  await rename(tmp, path);
+}
+
 const defaultWorktreeDeps: WorktreeDbDeps = {
   provision: provisionWorktreeDb,
   drop: dropWorktreeDb,
-  writeTextFile: async (path, contents) => {
-    await Bun.write(path, contents);
-  },
+  writeTextFile: writeTextFileAtomic,
 };
 
 function connectionValues(conn: WorktreeConnection): ConnectionEnvValues {
@@ -36,6 +50,13 @@ function connectionValues(conn: WorktreeConnection): ConnectionEnvValues {
     password: conn.password,
     database: conn.objectName,
   };
+}
+
+function mapLibraryError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message
+    .replace(/\badminUrl\b/g, "--admin-url")
+    .replace(/\bworktreeKey\b/g, "--slug");
 }
 
 export async function runWorktreeDb(
@@ -61,7 +82,7 @@ async function runProvision(
   deps: CliDeps,
   worktreeDeps: WorktreeDbDeps,
 ): Promise<number> {
-  const flags = parseFlags(tokens, [
+  const flags = parseWorktreeDbFlags(tokens, [
     "--slug",
     "--env-file",
     "--admin-url",
@@ -89,14 +110,23 @@ async function runProvision(
   if (!renames.ok) return fail(deps.io, renames.error);
   const names = resolveEnvKeyNames(renames.value);
 
+  const existing = await deps.readTextFile(envFile);
+  // Reuse stored password so re-provision does not rotate live credentials.
+  const existingPassword = readEnvFileValue(existing, names.PGPASSWORD);
+
   let conn: WorktreeConnection;
   try {
-    conn = await worktreeDeps.provision({ adminUrl, slug });
+    conn = await worktreeDeps.provision({
+      adminUrl,
+      worktreeKey: slug,
+      ...(existingPassword !== undefined
+        ? { password: existingPassword }
+        : {}),
+    });
   } catch (err) {
-    return fail(deps.io, err instanceof Error ? err.message : String(err));
+    return fail(deps.io, mapLibraryError(err));
   }
 
-  const existing = await deps.readTextFile(envFile);
   const body = mergeConnectionEnvFile(existing, connectionValues(conn), names);
   try {
     await worktreeDeps.writeTextFile(envFile, body);
@@ -108,7 +138,7 @@ async function runProvision(
     JSON.stringify(
       {
         ok: true,
-        slug: conn.slug,
+        slug: conn.worktreeKey,
         object_name: conn.objectName,
         env_file: envFile,
       },
@@ -124,7 +154,7 @@ async function runDrop(
   deps: CliDeps,
   worktreeDeps: WorktreeDbDeps,
 ): Promise<number> {
-  const flags = parseFlags(tokens, ["--slug", "--admin-url"]);
+  const flags = parseWorktreeDbFlags(tokens, ["--slug", "--admin-url"]);
   if (!flags.ok) return fail(deps.io, flags.error);
   if (flags.value.rest.length > 0) {
     return fail(
@@ -143,9 +173,9 @@ async function runDrop(
   }
 
   try {
-    await worktreeDeps.drop({ adminUrl, slug });
+    await worktreeDeps.drop({ adminUrl, worktreeKey: slug });
   } catch (err) {
-    return fail(deps.io, err instanceof Error ? err.message : String(err));
+    return fail(deps.io, mapLibraryError(err));
   }
 
   deps.io.stdout(JSON.stringify({ ok: true, slug }, null, 2));
