@@ -228,6 +228,129 @@ Coolify-managed Traefik already watches the Docker socket; sprout
 preview containers appear alongside Coolify apps as long as they share the
 Traefik network.
 
+### Wildcard preview certificate (DNS-01)
+
+Per-preview Let's Encrypt certs hit the **50 certificates / registered domain /
+week** rate limit under fleet growth or ACME-store wipes. One wildcard on the
+preview domain (`*.previews.example.com`) removes per-deploy issuance: Traefik
+serves the stored cert for every preview host without ordering a new one.
+
+sprout still emits optional `tls.certresolver` labels (#102). With a valid
+wildcard already in that resolver's ACME store, those labels are effectively
+no-ops for matching hosts — Traefik reuses the store hit instead of creating a
+new LE order.
+
+Ready-to-apply fragments (placeholders only):
+[`deploy/traefik/`](../deploy/traefik/).
+
+#### Prerequisites (secrets / access — not in this repo)
+
+You need these before executing the runbook; this PR does **not** include them:
+
+| Need | Why |
+|---|---|
+| DNS provider API credentials for the preview zone | Traefik `dnsChallenge` must create/delete `_acme-challenge` TXT records |
+| Write access to Traefik **static** config (or managed-proxy UI equivalent) | Add a `dnsChallenge` certificates resolver + durable ACME storage path |
+| Ability to inject provider env vars into the Traefik process | Provider plugins read tokens from the environment (names are provider-specific) |
+| Durable volume (or equivalent) for ACME storage | Cert + account must survive Traefik restarts/upgrades |
+
+Do **not** invent provider field names here — look up Traefik's docs for your
+DNS provider and fill the placeholders in
+`deploy/traefik/certificates-resolver.dns.yml`.
+
+#### Runbook
+
+1. **Identify the DNS provider** for the preview domain (the zone that serves
+   `*.previews.example.com`). Create API credentials with permission to manage
+   TXT records for ACME. Record the Traefik provider name and required env vars
+   from Traefik's DNS Providers list — leave them as placeholders until you
+   apply config on the host.
+
+2. **Add a `dnsChallenge` certificates resolver** alongside any existing
+   HTTP-01 resolver. Persist ACME storage on a volume (verify it already is —
+   a wipe is what turns rate limits into an outage). Merge
+   `deploy/traefik/certificates-resolver.dns.yml` (or equivalent CLI flags /
+   Coolify proxy settings):
+
+   ```yaml
+   # Conceptual — see deploy/traefik/certificates-resolver.dns.yml
+   certificatesResolvers:
+     letsencrypt-dns:
+       acme:
+         email: "<ACME_EMAIL>"
+         storage: "<ACME_STORAGE_PATH>"   # must be on a durable volume
+         dnsChallenge:
+           provider: "<DNS_PROVIDER>"
+   ```
+
+   Inject `<DNS_PROVIDER_ENV_*>` into the Traefik container/process. Keep the
+   existing HTTP-01 resolver for non-preview hosts if you still need it.
+
+3. **Issue the wildcard once** with a temporary router, then remove it. The
+   cert stays in the ACME store:
+
+   ```bash
+   export PREVIEW_DOMAIN=previews.example.com          # your preview base domain
+   export TRAEFIK_NETWORK=traefik                      # shared Docker network
+   export CERTRESOLVER_NAME=letsencrypt-dns            # must match step 2
+   export HTTPS_ENTRYPOINT=https                       # match your Traefik
+
+   docker compose -f deploy/traefik/wildcard-bootstrap.compose.yml up -d
+   # Wait until Traefik logs show successful ACME obtain for
+   # *.${PREVIEW_DOMAIN} (and the apex SAN). Then:
+   docker compose -f deploy/traefik/wildcard-bootstrap.compose.yml down
+   ```
+
+   The bootstrap compose attaches `tls.domains[0].main=*.${PREVIEW_DOMAIN}` so
+   Traefik requests a wildcard (DNS-01), not a single-host cert for
+   `bootstrap.*`.
+
+4. **Point sprout at the same resolver** (if you use certresolver labels):
+
+   ```bash
+   # compose.env / gateway env — names must match Traefik
+   SPROUT_TRAEFIK_ENTRYPOINTS=https
+   SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt-dns
+   ```
+
+   Deploy a preview. Traefik should terminate TLS with the stored wildcard;
+   **no new LE order** for that hostname.
+
+5. **Monitor renewal.** Let's Encrypt wildcards renew before expiry (~30 days
+   out). Confirm Traefik still has DNS credentials and that ACME storage is
+   writable. Optionally dry-run against the staging CA (`caServer` in the
+   fragment) on a non-prod Traefik first.
+
+#### Managed Traefik notes (Coolify and similar)
+
+sprout does not configure Coolify's proxy. On a managed Traefik:
+
+- Find where that product exposes **certificates resolvers** / ACME storage
+  (static config, UI, or generated compose). You need a `dnsChallenge`
+  resolver there — Docker labels alone cannot add one.
+- Ensure the proxy's ACME JSON (or equivalent) is on **persistent storage**,
+  not an ephemeral container filesystem.
+- Provider credentials belong in the **proxy** environment, not in sprout
+  gateway env.
+- Gateway knobs stay the same: `SPROUT_TRAEFIK_ENTRYPOINTS` +
+  `SPROUT_TRAEFIK_CERTRESOLVER` must match the managed proxy's entrypoint and
+  the new DNS resolver name. If the managed proxy only exposes a single
+  HTTP-01 resolver today, you still need static-config access to add DNS-01
+  (or accept per-host issuance and rate limits).
+
+#### Verification (zero LE orders per deploy)
+
+After the wildcard is in the store:
+
+| Check | How |
+|---|---|
+| Wildcard present in ACME store | Inspect `<ACME_STORAGE_PATH>` (or Traefik API / dashboard certificates) for `*.previews.example.com` (and apex SAN if requested). |
+| ACME survives restart | Restart Traefik; confirm the same store file/volume still lists the wildcard; HTTPS to an existing preview host still presents that cert. |
+| New preview → **zero new LE orders** | Note LE account order count or Traefik ACME log cursor. `sprout deploy` a fresh PR host. Confirm logs show **no** `Obtain` / new order for that FQDN; `openssl s_client` (or browser) shows the wildcard cert (`CN`/`SAN` includes `*.previews.example.com`). |
+| Rate-limit safety | Optional: temporarily revoke network to the DNS API and deploy again — TLS should still work from the store (renewal would fail later; issuance on deploy must not be required). |
+
+Acceptance from [#105](https://github.com/simpros/sprout/issues/105): new preview deploys order zero LE certificates (store hit); ACME storage survives Traefik restarts/upgrades; renewal observed or staging dry-run verified.
+
 ## Gateway environment
 
 Required today (gateway fails fast if missing):
@@ -412,5 +535,6 @@ below.
 
 - [Adoption guide](adoption.md) — `.sprout.yaml`, CI workflows, app entrypoint
 - `examples/adopting-repo/` — copy-paste adopting-repo files
+- [`deploy/traefik/`](../deploy/traefik/) — wildcard DNS-01 resolver fragment + one-shot bootstrap compose
 - [`CONTEXT.md`](../CONTEXT.md) — domain vocabulary
 - [Spec #12](https://github.com/simpros/sprout/issues/12) — normative v0.1 specification

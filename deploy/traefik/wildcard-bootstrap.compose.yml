@@ -1,0 +1,45 @@
+# One-shot wildcard issuance helper.
+#
+# After the DNS-01 resolver exists and ACME storage is on a durable volume,
+# bring this up once so Traefik orders `*.PREVIEW_DOMAIN` (and the apex SAN).
+# When the cert is in the ACME store, remove this stack — the cert remains.
+#
+# Placeholders (export or put in an env file; never commit real values):
+#   PREVIEW_DOMAIN          e.g. previews.example.com
+#   TRAEFIK_NETWORK         Docker network shared with Traefik (e.g. traefik)
+#   CERTRESOLVER_NAME       must match the dnsChallenge resolver (e.g. letsencrypt-dns)
+#   HTTPS_ENTRYPOINT        Traefik HTTPS entrypoint name (e.g. https / websecure)
+#
+# Usage:
+#   export PREVIEW_DOMAIN=previews.example.com
+#   export TRAEFIK_NETWORK=traefik
+#   export CERTRESOLVER_NAME=letsencrypt-dns
+#   export HTTPS_ENTRYPOINT=https
+#   docker compose -f deploy/traefik/wildcard-bootstrap.compose.yml up -d
+#   # watch Traefik ACME logs until the wildcard cert is present, then:
+#   docker compose -f deploy/traefik/wildcard-bootstrap.compose.yml down
+#
+# The whoami service is disposable; only its Traefik labels matter.
+
+name: sprout-wildcard-bootstrap
+
+services:
+  wildcard-bootstrap:
+    image: traefik/whoami:v1.11
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.sprout-wildcard-bootstrap.rule=Host(`bootstrap.${PREVIEW_DOMAIN}`)
+      - traefik.http.routers.sprout-wildcard-bootstrap.entrypoints=${HTTPS_ENTRYPOINT}
+      - traefik.http.routers.sprout-wildcard-bootstrap.tls=true
+      - traefik.http.routers.sprout-wildcard-bootstrap.tls.certresolver=${CERTRESOLVER_NAME}
+      # Force DNS-01 wildcard (Host rule alone would only cover bootstrap.*)
+      - traefik.http.routers.sprout-wildcard-bootstrap.tls.domains[0].main=*.${PREVIEW_DOMAIN}
+      - traefik.http.routers.sprout-wildcard-bootstrap.tls.domains[0].sans=${PREVIEW_DOMAIN}
+      - traefik.http.services.sprout-wildcard-bootstrap.loadbalancer.server.port=80
+
+networks:
+  traefik:
+    name: ${TRAEFIK_NETWORK}
+    external: true

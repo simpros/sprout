@@ -1,0 +1,32 @@
+# Traefik static-config fragment: DNS-01 ACME resolver for wildcard preview certs.
+# Merge into the Traefik that fronts preview hosts (file provider, CLI flags, or
+# Coolify / other managed-proxy equivalent). Do NOT commit real credentials.
+#
+# Placeholders:
+#   <ACME_EMAIL>              — Let's Encrypt contact email
+#   <ACME_STORAGE_PATH>       — durable path inside Traefik (e.g. /data/acme.json)
+#   <DNS_PROVIDER>            — Traefik dnsChallenge provider name for your DNS
+#                               (see Traefik "DNS Providers" docs; e.g. cloudflare,
+#                               route53, digitalocean — pick yours, do not guess)
+#   <DNS_PROVIDER_ENV_*>      — provider-specific env vars Traefik expects
+#                               (API token / keys). Inject via Traefik container
+#                               env or a secrets store — never hard-code here.
+#
+# Keep any existing HTTP-01 resolver (e.g. "letsencrypt") for non-wildcard hosts.
+# This fragment adds a second resolver used only for the preview wildcard.
+
+certificatesResolvers:
+  # Name must match SPROUT_TRAEFIK_CERTRESOLVER (or the resolver you point
+  # gateway TLS labels / the bootstrap router at).
+  letsencrypt-dns:
+    acme:
+      email: "<ACME_EMAIL>"
+      storage: "<ACME_STORAGE_PATH>"
+      # Optional: caServer for staging while testing issuance:
+      # caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
+      dnsChallenge:
+        provider: "<DNS_PROVIDER>"
+        # delayBeforeCheck: 0   # raise if your DNS provider is slow to propagate
+        # resolvers:
+        #   - "1.1.1.1:53"
+        #   - "8.8.8.8:53"
