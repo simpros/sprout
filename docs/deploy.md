@@ -150,8 +150,13 @@ overlay instead of forking the reference file:
    `SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt` on Coolify. Leave both unset for
    HTTP-only Traefik (bundled compose / local). Empty entrypoints keeps TLS off
    even if certresolver is set.
-3. Ensure those networks exist (`docker network create …` if needed).
-4. Bring up **only the gateway** against external networks:
+3. For an SSO gate on preview hosts (Traefik forwardAuth), set both
+   `SPROUT_TRAEFIK_MIDDLEWARES` (a single name, e.g. `voidauth`) and
+   `SPROUT_FORWARDAUTH_ADDRESS` (a URL Traefik can reach). The gateway emits
+   the middleware **definition** and the router **attachment** as Docker
+   labels — no Traefik static/file config. Leave both empty for open previews.
+4. Ensure those networks exist (`docker network create …` if needed).
+5. Bring up **only the gateway** against external networks:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.external.yml \
@@ -196,6 +201,28 @@ Traefik's default/builtin cert. Entrypoint and certresolver names are **not**
 Coolify-specific — set them to match your Traefik (e.g. Coolify often uses
 `https` + `letsencrypt`; stock Traefik quickstarts often use `websecure` + a
 custom resolver name).
+
+When forwardAuth is enabled (both `SPROUT_TRAEFIK_MIDDLEWARES` and
+`SPROUT_FORWARDAUTH_ADDRESS` non-empty), also:
+
+- `traefik.http.routers.<name>.middlewares=<SPROUT_TRAEFIK_MIDDLEWARES>`
+- `traefik.http.middlewares.<mw>.forwardauth.address=<SPROUT_FORWARDAUTH_ADDRESS>`
+- `traefik.http.middlewares.<mw>.forwardauth.trustForwardHeader=true`
+- `traefik.http.middlewares.<mw>.forwardauth.authResponseHeaders=Remote-User,Remote-Email,Remote-Groups`
+
+(`<mw>` is the single middleware name from `SPROUT_TRAEFIK_MIDDLEWARES`.)
+
+ForwardAuth is opt-in and Coolify-safe: Coolify's Traefik uses the Docker
+provider only, so sprout must emit **both** the middleware definition and the
+router attachment on preview containers (no Traefik file/static config).
+Both env vars must be set together (or both empty); setting only one fails at
+gateway boot. `SPROUT_TRAEFIK_MIDDLEWARES` is one name (commas rejected).
+
+**VoidAuth / SSO setup:** add the preview domain (e.g. `*.internal.example.com`)
+in the VoidAuth UI, then point `SPROUT_FORWARDAUTH_ADDRESS` at the forward-auth
+endpoint (e.g. `https://auth.example.com/api/authz/forward-auth`). That URL
+must be reachable from Traefik (not only from browsers). Unauthenticated
+visits redirect to login; authenticated visits reach the preview app.
 
 Coolify-managed Traefik already watches the Docker socket; sprout
 preview containers appear alongside Coolify apps as long as they share the
@@ -257,11 +284,18 @@ Optional tuning (defaults in parentheses):
 | `SPROUT_SEED_TIMEOUT` | `180` |
 | `SPROUT_TRAEFIK_ENTRYPOINTS` | _(empty — TLS off, HTTP labels only)_ |
 | `SPROUT_TRAEFIK_CERTRESOLVER` | _(empty — omit; only used when entrypoints set)_ |
+| `SPROUT_TRAEFIK_MIDDLEWARES` | _(empty — no middleware attachment; single name when set)_ |
+| `SPROUT_FORWARDAUTH_ADDRESS` | _(empty — no forwardAuth definition; required with middleware name)_ |
 
 For HTTPS behind an external Traefik, set entrypoints (and optionally
 certresolver) to that proxy's names. Example Coolify-shaped values (operator
 choice, not sprout defaults): `SPROUT_TRAEFIK_ENTRYPOINTS=https` and
 `SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt`.
+
+For SSO via Traefik forwardAuth (e.g. VoidAuth), set both
+`SPROUT_TRAEFIK_MIDDLEWARES=voidauth` and
+`SPROUT_FORWARDAUTH_ADDRESS=https://auth.example.com/api/authz/forward-auth`.
+The address must be Traefik-reachable.
 
 See `.env.example` (host gateway / `bun run dev`) and `compose.env.example`
 (compose stack). Keep `POSTGRES_*` and `SPROUT_PREVIEW_POSTGRES_URL` in sync in

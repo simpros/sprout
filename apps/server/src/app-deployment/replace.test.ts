@@ -114,6 +114,41 @@ describe("replacePreviewApp", () => {
     });
   });
 
+  test("passes Traefik forwardAuth policy into labels", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "ghcr.io/org/app:sha": 3000 },
+    });
+
+    await replacePreviewApp(
+      {
+        docker,
+        ...baseDeps,
+        traefikForwardAuth: {
+          middleware: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
+      },
+      {
+        slug: "myapp",
+        prId: 42,
+        hostname: "pr-42.myapp.preview.example.com",
+        image: "ghcr.io/org/app:sha",
+        dbName: "sprout_myapp_pr42",
+        appEnv: [],
+      },
+    );
+
+    expect(docker.creates[0]!.labels).toMatchObject({
+      "traefik.http.routers.sprout-myapp-pr-42.middlewares": "voidauth",
+      "traefik.http.middlewares.voidauth.forwardauth.address":
+        "https://auth.example.com/api/authz/forward-auth",
+      "traefik.http.middlewares.voidauth.forwardauth.trustForwardHeader":
+        "true",
+      "traefik.http.middlewares.voidauth.forwardauth.authResponseHeaders":
+        "Remote-User,Remote-Email,Remote-Groups",
+    });
+  });
+
   test("applies connection env remap on create (replace, not alias)", async () => {
     const docker = createFakeDockerClient({
       exposedPorts: { "ghcr.io/org/app:sha": 3000 },
