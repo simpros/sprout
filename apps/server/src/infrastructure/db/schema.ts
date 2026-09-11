@@ -26,6 +26,12 @@ export const previews = sqliteTable(
     lastError: text("last_error"),
     /** Short sticky diagnostic (e.g. exit=7, timeout) — not log blobs. */
     lastErrorDetail: text("last_error_detail"),
+    /**
+     * Accept dispatcher key for sticky `failed` rows.
+     * `seed_incomplete` → seed-resume; `post_healthy` → provisioning retry.
+     * Cleared with last_error on accept / success.
+     */
+    failureFamily: text("failure_family"),
     /** Captured one-shot seed stdout/stderr for GET …/logs (cleared on success/remint). */
     seedLog: text("seed_log"),
   },

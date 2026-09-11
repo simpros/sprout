@@ -169,6 +169,30 @@ describe("runSweepPass", () => {
     expect(logs).toContain("deleted (sweep:orphan-container)");
   });
 
+  test("dedupes multi-container catalog to one orphan-container per preview", async () => {
+    setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
+    const { ports, deletions, logs } = memoryPorts({
+      previews: [],
+      containers: [
+        { slug: "widgets", prId: 55 },
+        { slug: "widgets", prId: 55 },
+        { slug: "widgets", prId: 55 },
+      ],
+    });
+
+    await runSweepPass(ports);
+    expect(deletions).toEqual([
+      {
+        reason: "sweep:orphan-container",
+        prId: 55,
+        slug: "widgets",
+      },
+    ]);
+    expect(logs.filter((l) => l.includes("sweep:orphan-container"))).toHaveLength(
+      1,
+    );
+  });
+
   test("emits separate orphan-db and orphan-container for the same slug:prId", async () => {
     setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
     const { ports, deletions, logs } = memoryPorts({

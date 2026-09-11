@@ -24,6 +24,7 @@ export async function markPreviewFailed(
       containerId: null,
       lastError: error,
       lastErrorDetail: detail ?? null,
+      failureFamily: null,
       updatedAt: utcIsoNow(),
     })
     .where(
@@ -31,8 +32,12 @@ export async function markPreviewFailed(
     );
 }
 
+export type StickyFailureFamily = "seed_incomplete" | "post_healthy";
+
 export type StickyPreviewFailure = {
   error: string;
+  /** Accept plan key — seed-resume vs provisioning retry. */
+  family: StickyFailureFamily;
   detail?: string | null;
   /** Captured seed container stdout/stderr; omit to leave seed_log unchanged. */
   seedLog?: string | null;
@@ -40,8 +45,8 @@ export type StickyPreviewFailure = {
 
 /**
  * Post-healthy sticky failure (seed / companion sync): keep containerId so the
- * routable app stays reclaimable. Seed-domain errors are the only accept keys
- * for seed-resume; companion fail retries via provisioning.
+ * routable app stays reclaimable. Accept plans from {@link StickyFailureFamily},
+ * not lastError string membership.
  */
 export async function markStickyPreviewFailed(
   db: StateDb,
@@ -55,6 +60,7 @@ export async function markStickyPreviewFailed(
       status: "failed",
       lastError: failure.error,
       lastErrorDetail: failure.detail ?? null,
+      failureFamily: failure.family,
       ...(failure.seedLog !== undefined
         ? { seedLog: failure.seedLog === "" ? null : failure.seedLog }
         : {}),

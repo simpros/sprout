@@ -102,6 +102,7 @@ async function runSeedPhase(
         row.prId,
         {
           error: "seed_failed",
+          family: "seed_incomplete",
           detail: seedFailureDetail(seedResult),
           seedLog: seedResult.logs,
         },
@@ -118,6 +119,7 @@ async function runSeedPhase(
         seededAt,
         lastError: null,
         lastErrorDetail: null,
+        failureFamily: null,
         seedLog: null,
         updatedAt: seededAt,
       },
@@ -128,6 +130,7 @@ async function runSeedPhase(
     console.warn("seed:failed", err);
     await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
       error: "seed_failed",
+      family: "seed_incomplete",
       detail: null,
       seedLog: "",
     });
@@ -160,6 +163,7 @@ export async function promoteAfterHealthy(
       status: "running",
       lastError: null,
       lastErrorDetail: null,
+      failureFamily: null,
       seedLog: null,
       updatedAt: utcIsoNow(),
     },
@@ -200,6 +204,7 @@ export async function resumeIncompleteSeed(
     // Keep containerId so the healthy app stays reclaimable for a seeded retry.
     await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
       error: "seed_image_required_to_resume_seeding",
+      family: "seed_incomplete",
       detail: null,
     });
     return {

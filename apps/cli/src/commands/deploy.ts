@@ -55,6 +55,7 @@ export async function runDeploy(
     "--app-env-file",
     "--service",
     "--reseed",
+    "--clear-services",
     "--repo",
   ]);
   if (!flags.ok) return fail(ctx.deps.io, flags.error);
@@ -64,6 +65,12 @@ export async function runDeploy(
   }
   if (flags.value.reseed && !flags.value.seedImage) {
     return fail(ctx.deps.io, "--reseed requires -s <seed-image>");
+  }
+  if (flags.value.clearServices && flags.value.service.length > 0) {
+    return fail(
+      ctx.deps.io,
+      "--clear-services cannot be combined with --service",
+    );
   }
   if (flags.value.rest.length > 0) {
     return fail(
@@ -117,20 +124,24 @@ export async function runDeploy(
   if (flags.value.reseed) body.reseed = true;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  const services = mergeServices(
-    yaml.value.preview.services,
-    flags.value.service,
-  );
-  if (!services.ok) return fail(ctx.deps.io, services.error);
-  if (services.value) {
-    body.services = services.value.map((svc) => {
-      const entry: DeployService = { name: svc.name, image: svc.image };
-      if (svc.hostname) {
-        entry.hostname = substituteHostname(svc.hostname, identity.value.prId);
-      }
-      if (svc.path) entry.path = svc.path;
-      return entry;
-    });
+  if (flags.value.clearServices) {
+    body.services = [];
+  } else {
+    const services = mergeServices(
+      yaml.value.preview.services,
+      flags.value.service,
+    );
+    if (!services.ok) return fail(ctx.deps.io, services.error);
+    if (services.value) {
+      body.services = services.value.map((svc) => {
+        const entry: DeployService = { name: svc.name, image: svc.image };
+        if (svc.hostname) {
+          entry.hostname = substituteHostname(svc.hostname, identity.value.prId);
+        }
+        if (svc.path) entry.path = svc.path;
+        return entry;
+      });
+    }
   }
 
   const dotenvFiles: DotenvFile[] = [];

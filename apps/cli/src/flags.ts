@@ -10,6 +10,7 @@ type FlagBag = {
   service: string[];
   yes: boolean;
   reseed: boolean;
+  clearServices: boolean;
   repo?: string;
   slug?: string;
   scope?: string;
@@ -86,6 +87,7 @@ const FLAG_DEFS = [
   { flag: "--service", field: "service", kind: "repeat" },
   { flag: "--yes", field: "yes", kind: "boolean" },
   { flag: "--reseed", field: "reseed", kind: "boolean" },
+  { flag: "--clear-services", field: "clearServices", kind: "boolean" },
   { flag: "--repo", field: "repo", kind: "string" },
   { flag: "--slug", field: "slug", kind: "string" },
   { flag: "--scope", field: "scope", kind: "string" },
@@ -107,6 +109,7 @@ export function parseFlags(
     service: [],
     yes: false,
     reseed: false,
+    clearServices: false,
     rest: [],
   };
   return parseArgv(FLAG_DEFS, tokens, allowed, emptyBag);

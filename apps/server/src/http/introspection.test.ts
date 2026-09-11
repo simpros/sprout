@@ -3,7 +3,7 @@ import {
   createFakePreviewDb,
   type FakePreviewDb,
 } from "../preview-db/fake.ts";
-import { previewContainerName } from "../preview/naming.ts";
+import { previewContainerName, previewServiceContainerName } from "../preview/naming.ts";
 import type { FakeDockerClient } from "../docker/fake.ts";
 import {
   bearer,
@@ -36,6 +36,25 @@ function seedOrphanContainer(slug: string, prId: number, id = "orphan") {
     spec: {
       name,
       image: "orphan:latest",
+      env: [],
+      labels: {},
+      networkNames: [],
+    },
+  });
+}
+
+function seedOrphanService(
+  slug: string,
+  prId: number,
+  serviceName: string,
+  id: string,
+) {
+  const name = previewServiceContainerName(slug, prId, serviceName);
+  fakeDocker().running.set(name, {
+    id,
+    spec: {
+      name,
+      image: "svc:latest",
       env: [],
       labels: {},
       networkNames: [],
@@ -139,6 +158,28 @@ describe("GET /v1/doctor", () => {
         },
       ],
     });
+  });
+
+  test("dedupes app + service containers to one orphan-container", async () => {
+    await setup();
+    seedOrphanContainer("myapp", 77, "c-app");
+    seedOrphanService("myapp", 77, "api", "c-api");
+    seedOrphanService("myapp", 77, "worker", "c-worker");
+
+    const res = await testApp!.app.handle(
+      new Request("http://localhost/v1/doctor", {
+        headers: bearer(testApp!.adminToken),
+      }),
+    );
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.orphans).toEqual([
+      {
+        kind: "orphan-container",
+        slug: "myapp",
+        pr_id: 77,
+      },
+    ]);
   });
 
   test("returns API error shape when postgres ping fails", async () => {

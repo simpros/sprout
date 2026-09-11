@@ -42,12 +42,6 @@ export {
   markStickyPreviewFailed,
 } from "./mark-failed.ts";
 
-/** lastError values that mean seed-incomplete (retry → seed-resume). */
-const SEED_RESUME_ERRORS = new Set([
-  "seed_failed",
-  "seed_image_required_to_resume_seeding",
-]);
-
 export function toDisplayStatus(status: PreviewStatus): DisplayPreviewStatus {
   switch (status) {
     case "starting":
@@ -110,6 +104,7 @@ export async function getPreviewRow(
 const clearLastError = {
   lastError: null,
   lastErrorDetail: null,
+  failureFamily: null,
   seedLog: null,
 } as const;
 
@@ -138,6 +133,7 @@ async function persistPullFailure(
         status: "running",
         lastError: error,
         lastErrorDetail: detail ?? null,
+        failureFamily: null,
         updatedAt: utcIsoNow(),
       })
       .where(
@@ -153,6 +149,7 @@ async function persistPullFailure(
       containerId: null,
       lastError: error,
       lastErrorDetail: detail ?? null,
+      failureFamily: null,
       updatedAt: utcIsoNow(),
     })
     .where(
@@ -242,8 +239,8 @@ function requireDbIdentity(
 /**
  * Shared accept plan for identity-matched rows that may seed without replace.
  * - seeding + same app → seeding (resume incomplete seed)
- * - failed + same app + seed-domain lastError → seeding
- * - failed + companion (or other) sticky fail → provisioning (replace→sync)
+ * - failed + same app + failureFamily seed_incomplete → seeding
+ * - failed + post_healthy (or other) sticky fail → provisioning (replace→sync)
  * - running/starting + reseed + same app → seeding (seed-only reseed)
  * - else → provisioning (replace path)
  * seeded_at clears after healthy attach or on seed-phase entry.
@@ -258,11 +255,7 @@ function planAcceptBringUp(
     return sameApp ? "seeding" : "provisioning";
   }
   if (status === "failed") {
-    if (
-      sameApp &&
-      row.lastError != null &&
-      SEED_RESUME_ERRORS.has(row.lastError)
-    ) {
+    if (sameApp && row.failureFamily === "seed_incomplete") {
       return "seeding";
     }
     return "provisioning";

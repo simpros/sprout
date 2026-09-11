@@ -165,6 +165,7 @@ describe("POST /v1/deploy services", () => {
       );
     expect(row?.status).toBe("failed");
     expect(row?.lastError).toBe("preview_service_deploy_failed");
+    expect(row?.failureFamily).toBe("post_healthy");
     expect(row?.containerId).toBe("fake-1");
     expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
     expect(fakeDocker!.running.has("sprout-myapp-pr-42-svc-api")).toBe(false);

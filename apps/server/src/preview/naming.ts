@@ -1,3 +1,5 @@
+import type { CatalogContainer } from "../docker/port.ts";
+
 /** App container: sprout-<slug>-pr-<id> (no suffix). */
 const PREVIEW_APP_CONTAINER_RE = /^sprout-([a-zA-Z0-9]+)-pr-(\d+)$/;
 /** Service container: sprout-<slug>-pr-<id>-svc-<name>. */
@@ -44,4 +46,13 @@ export function parsePreviewContainerName(
   const app = PREVIEW_APP_CONTAINER_RE.exec(name);
   if (!app) return null;
   return { slug: app[1]!, prId: Number(app[2]), kind: "app" };
+}
+
+/** Build a catalog row from a parsed preview container name. */
+export function toCatalogContainer(
+  containerId: string,
+  containerName: string,
+  parsed: NonNullable<ReturnType<typeof parsePreviewContainerName>>,
+): CatalogContainer {
+  return { ...parsed, containerId, containerName };
 }

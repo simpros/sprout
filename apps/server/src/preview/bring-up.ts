@@ -24,6 +24,7 @@ import type {
 const clearLastError = {
   lastError: null,
   lastErrorDetail: null,
+  failureFamily: null,
   seedLog: null,
 } as const;
 
@@ -77,6 +78,7 @@ async function failCompanionSync(
 ): Promise<Result<never>> {
   await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
     error: "preview_service_deploy_failed",
+    family: "post_healthy",
   });
   return {
     ok: false,
