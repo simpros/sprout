@@ -106,17 +106,32 @@ describe("loadConfig", () => {
     );
     expect(config.seedTimeout).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_SEED_TIMEOUT);
     expect(config.port).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_PORT);
-    expect(config.traefikEntrypoints).toBe("");
-    expect(config.traefikCertResolver).toBe("");
+    expect(config.traefikTls).toBeUndefined();
   });
 
-  test("loads Traefik entrypoints and certresolver when set", () => {
+  test("loads Traefik TLS policy when entrypoints are set", () => {
     setRequiredEnv();
     process.env.SPROUT_TRAEFIK_ENTRYPOINTS = "https";
     process.env.SPROUT_TRAEFIK_CERTRESOLVER = "letsencrypt";
     const config = loadConfig();
-    expect(config.traefikEntrypoints).toBe("https");
-    expect(config.traefikCertResolver).toBe("letsencrypt");
+    expect(config.traefikTls).toEqual({
+      entrypoints: "https",
+      certResolver: "letsencrypt",
+    });
+  });
+
+  test("ignores certresolver when entrypoints are empty", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_CERTRESOLVER = "letsencrypt";
+    const config = loadConfig();
+    expect(config.traefikTls).toBeUndefined();
+  });
+
+  test("omits certResolver when only entrypoints are set", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_ENTRYPOINTS = "https";
+    const config = loadConfig();
+    expect(config.traefikTls).toEqual({ entrypoints: "https" });
   });
 
   test("parses SPROUT_FORGE_HOSTS", () => {
@@ -230,8 +245,6 @@ describe("loadConfig", () => {
       previewPortDefault: 8080,
       seedTimeout: 180,
       port: 7331,
-      traefikEntrypoints: "",
-      traefikCertResolver: "",
     });
     expect(summary.githubToken).toBe("[unset]");
     expect(summary.gitlabToken).toBe("[unset]");
@@ -260,8 +273,7 @@ describe("loadConfig", () => {
       previewPortDefault: 8080,
       seedTimeout: 180,
       port: 7331,
-      traefikEntrypoints: "https",
-      traefikCertResolver: "letsencrypt",
+      traefikTls: { entrypoints: "https", certResolver: "letsencrypt" },
     });
 
     expect(String(summary.previewPostgresUrl)).not.toContain("sekrit");
@@ -271,8 +283,7 @@ describe("loadConfig", () => {
     expect(summary.githubToken).toBe("[set]");
     expect(summary.gitlabToken).toBe("[set]");
     expect(summary.extraGitlabHosts).toBe(1);
-    expect(summary.traefikEntrypoints).toBe("https");
-    expect(summary.traefikCertResolver).toBe("letsencrypt");
+    expect(summary.traefikTls).toBe("https (certresolver=letsencrypt)");
   });
 
   test("configSummary marks anonymous registry auth", () => {
@@ -293,12 +304,9 @@ describe("loadConfig", () => {
       previewPortDefault: 8080,
       seedTimeout: 180,
       port: 7331,
-      traefikEntrypoints: "",
-      traefikCertResolver: "",
     });
     expect(summary.registryPullAuthHosts).toBe(0);
     expect(summary.registryPullAuthFallback).toBe("[unset]");
-    expect(summary.traefikEntrypoints).toBe("[unset]");
-    expect(summary.traefikCertResolver).toBe("[unset]");
+    expect(summary.traefikTls).toBe("[unset]");
   });
 });

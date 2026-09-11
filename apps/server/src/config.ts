@@ -1,8 +1,11 @@
+import type { TraefikTls } from "./app-deployment/labels.ts";
 import { GITHUB_HOSTS } from "./forge/kind.ts";
 import {
   buildRegistryPullAuth,
   type RegistryPullAuth,
 } from "./registry-auth.ts";
+
+export type { TraefikTls };
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -75,15 +78,11 @@ export type Config = {
   seedTimeout: number;
   port: number;
   /**
-   * Traefik entrypoint names for preview routers (comma-separated).
-   * Empty = omit entrypoints label.
+   * Router TLS policy for preview Traefik labels.
+   * Absent = HTTP (no tls/entrypoints/certresolver). Set when
+   * SPROUT_TRAEFIK_ENTRYPOINTS is non-empty.
    */
-  traefikEntrypoints: string;
-  /**
-   * Traefik certresolver name for preview routers.
-   * Empty = omit certresolver (plain tls=true / default cert).
-   */
-  traefikCertResolver: string;
+  traefikTls?: TraefikTls;
 };
 
 function parsePositiveInt(
@@ -110,6 +109,19 @@ function requiredEnv(key: (typeof REQUIRED_ENV)[number]): string {
 /** Trimmed env value; missing or blank → "". */
 function optionalStringEnv(key: (typeof OPTIONAL_STRING_ENV)[number]): string {
   return process.env[key]?.trim() ?? "";
+}
+
+/**
+ * Build router TLS policy from env. Entrypoints empty → off (HTTP labels).
+ * Certresolver alone (without entrypoints) is ignored.
+ */
+function parseTraefikTls(): TraefikTls | undefined {
+  const entrypoints = optionalStringEnv("SPROUT_TRAEFIK_ENTRYPOINTS");
+  if (entrypoints === "") return undefined;
+  const certResolver = optionalStringEnv("SPROUT_TRAEFIK_CERTRESOLVER");
+  return certResolver === ""
+    ? { entrypoints }
+    : { entrypoints, certResolver };
 }
 
 /**
@@ -210,8 +222,7 @@ export function loadConfig(): Config {
       process.env.SPROUT_PORT,
       OPTIONAL_ENV_DEFAULTS.SPROUT_PORT,
     ),
-    traefikEntrypoints: optionalStringEnv("SPROUT_TRAEFIK_ENTRYPOINTS"),
-    traefikCertResolver: optionalStringEnv("SPROUT_TRAEFIK_CERTRESOLVER"),
+    traefikTls: parseTraefikTls(),
   };
 }
 
@@ -236,13 +247,14 @@ export function configSummary(config: Config): Record<string, string | number> {
     previewPortDefault: config.previewPortDefault,
     seedTimeout: config.seedTimeout,
     port: config.port,
-    traefikEntrypoints:
-      config.traefikEntrypoints === "" ? "[unset]" : config.traefikEntrypoints,
-    traefikCertResolver:
-      config.traefikCertResolver === ""
-        ? "[unset]"
-        : config.traefikCertResolver,
+    traefikTls: formatTraefikTlsSummary(config.traefikTls),
   };
+}
+
+function formatTraefikTlsSummary(tls: TraefikTls | undefined): string {
+  if (!tls) return "[unset]";
+  if (tls.certResolver === undefined) return tls.entrypoints;
+  return `${tls.entrypoints} (certresolver=${tls.certResolver})`;
 }
 
 function redactUrl(url: string): string {

@@ -1,5 +1,5 @@
 import type { PreviewEnvMap } from "@sprout/preview-env";
-import { traefikLabels } from "./labels.ts";
+import { traefikLabels, type TraefikTls } from "./labels.ts";
 import {
   pgConnectionEnv,
   withGatewayConnectionEnv,
@@ -9,6 +9,7 @@ import type { PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
 
 export type { AppDeployPg };
+export type { TraefikTls };
 
 export type AppDeployNetworks = {
   traefik: string;
@@ -21,10 +22,8 @@ export type ReplacePreviewAppDeps = {
   pg: AppDeployPg;
   networks: AppDeployNetworks;
   previewPortDefault: number;
-  /** Traefik entrypoint names; empty = omit label. */
-  traefikEntrypoints?: string;
-  /** Traefik certresolver name; empty = plain tls=true. */
-  traefikCertResolver?: string;
+  /** Router TLS policy; absent = HTTP-only labels (no tls/entrypoints). */
+  traefikTls?: TraefikTls;
 };
 
 export type ReplacePreviewAppInput = {
@@ -76,8 +75,7 @@ export async function replacePreviewApp(
       routerName: name,
       hostname: input.hostname,
       port,
-      entrypoints: deps.traefikEntrypoints,
-      certResolver: deps.traefikCertResolver,
+      tls: deps.traefikTls,
     }),
     networkNames: [deps.networks.traefik, deps.networks.postgres],
   });

@@ -82,12 +82,11 @@ describe("replacePreviewApp", () => {
       "traefik.enable": "true",
       "traefik.http.routers.sprout-myapp-pr-42.rule":
         "Host(`pr-42.myapp.preview.example.com`)",
-      "traefik.http.routers.sprout-myapp-pr-42.tls": "true",
       "traefik.http.services.sprout-myapp-pr-42.loadbalancer.server.port": "3000",
     });
   });
 
-  test("passes Traefik entrypoints and certresolver into labels", async () => {
+  test("passes Traefik TLS policy into labels", async () => {
     const docker = createFakeDockerClient({
       exposedPorts: { "ghcr.io/org/app:sha": 3000 },
     });
@@ -96,8 +95,7 @@ describe("replacePreviewApp", () => {
       {
         docker,
         ...baseDeps,
-        traefikEntrypoints: "websecure",
-        traefikCertResolver: "myresolver",
+        traefikTls: { entrypoints: "websecure", certResolver: "myresolver" },
       },
       {
         slug: "myapp",

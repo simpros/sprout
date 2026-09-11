@@ -40,8 +40,7 @@ const app = bindPreviewOps({
     postgres: config.postgresNetwork,
   },
   previewPortDefault: config.previewPortDefault,
-  traefikEntrypoints: config.traefikEntrypoints,
-  traefikCertResolver: config.traefikCertResolver,
+  traefikTls: config.traefikTls,
   seedTimeoutMs: config.seedTimeout * 1000,
 });
 
