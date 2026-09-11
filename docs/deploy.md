@@ -260,8 +260,9 @@ You need these before executing the runbook; this PR does **not** include them:
 | Durable volume (or equivalent) for ACME storage | Cert + account must survive Traefik restarts/upgrades |
 
 Do **not** invent provider field names here — look up Traefik's docs for your
-DNS provider. For the coexistence branch only, fill placeholders in
-`deploy/traefik/certificates-resolver.dns.yml`.
+DNS provider. Fill placeholders in
+[`deploy/traefik/certificates-resolver.dns.yml`](../deploy/traefik/certificates-resolver.dns.yml)
+for the resolver body used in step 2.
 
 #### Choose a path
 
@@ -270,27 +271,60 @@ DNS provider. For the coexistence branch only, fill placeholders in
 | **Default (simple)** | Traefik's job for this zone is preview TLS, or DNS API creds already cover every host Traefik terminates | Keep existing name (e.g. `letsencrypt`) |
 | **Coexistence (optional)** | You must leave Coolify / other apps on HTTP-01 | Point sprout at the new DNS-01 name (e.g. `letsencrypt-dns`) |
 
-#### Runbook — default (one DNS-01 resolver)
+#### Runbook
 
 1. **Identify the DNS provider** for the preview domain (the zone that serves
    `*.previews.example.com`). Create API credentials with permission to manage
    TXT records for ACME. Record the Traefik provider name and required env vars
    from Traefik's DNS Providers list.
 
-2. **Convert the existing resolver to `dnsChallenge`.** In Traefik static
-   config (or Coolify proxy settings), change the current resolver (often
-   `letsencrypt`) from `httpChallenge` → `dnsChallenge`. Keep the **same
-   resolver name** and the **same** durable `storage` path. Inject
-   `<DNS_PROVIDER_ENV_*>` into the Traefik process. No second resolver, no
-   second `acme.json`, no rename dance.
+2. **Resolver setup** — pick one branch from the table above:
+
+   - **Default — convert in place.** In Traefik static config (or Coolify proxy
+     settings), replace the existing resolver's `httpChallenge` block with the
+     `dnsChallenge` shape from
+     [`deploy/traefik/certificates-resolver.dns.yml`](../deploy/traefik/certificates-resolver.dns.yml)
+     (same key, often `letsencrypt`; keep the **same** durable `storage` path).
+     Converting replaces the challenge type for **every** consumer of that
+     resolver name — if any other app must stay on HTTP-01, stop and use
+     coexistence instead. Inject `<DNS_PROVIDER_ENV_*>` into the Traefik
+     process. No second resolver, no second `acme.json`, no rename dance.
+
+   - **Coexistence — add a second resolver.** Traefik requires one storage file
+     per certificates resolver — reusing the HTTP-01 path (e.g. `/data/acme.json`)
+     causes init conflicts or a corrupted store. Copy the fragment body under a
+     **new** key (e.g. `letsencrypt-dns:`), set `storage` to a distinct path
+     (e.g. `/data/acme-dns.json`), and leave the HTTP-01 resolver untouched.
+     Paste **under** your existing `certificatesResolvers:` map (do not overwrite
+     the whole static ACME document). Merged shape:
+
+     ```yaml
+     certificatesResolvers:
+       letsencrypt:                    # existing HTTP-01 — leave as-is
+         acme:
+           email: "<ACME_EMAIL>"
+           storage: "/data/acme.json"  # HTTP-01 store
+           httpChallenge:
+             entryPoint: http
+       letsencrypt-dns:                # fragment body under a new key
+         acme:
+           email: "<ACME_EMAIL>"
+           storage: "/data/acme-dns.json"  # MUST differ from HTTP-01
+           dnsChallenge:
+             provider: "<DNS_PROVIDER>"
+     ```
+
+     Inject `<DNS_PROVIDER_ENV_*>` into the Traefik container/process.
 
 3. **Issue the wildcard once** with a temporary router, then remove it. The
-   cert stays in the ACME store:
+   cert stays in the ACME store. Set `CERTRESOLVER_NAME` to the DNS-01
+   resolver from step 2 (`letsencrypt` on default; `letsencrypt-dns` on
+   coexistence). Compose fails closed if required env is unset:
 
    ```bash
    export PREVIEW_DOMAIN=previews.example.com          # your preview base domain
    export TRAEFIK_NETWORK=traefik                      # shared Docker network
-   export CERTRESOLVER_NAME=letsencrypt                # same name as step 2
+   export CERTRESOLVER_NAME=letsencrypt                # match step 2 resolver
    export HTTPS_ENTRYPOINT=https                       # match your Traefik
 
    docker compose -f deploy/traefik/wildcard-bootstrap.compose.yml up -d
@@ -303,70 +337,26 @@ DNS provider. For the coexistence branch only, fill placeholders in
    Traefik requests a wildcard (DNS-01), not a single-host cert for
    `bootstrap.*`.
 
-4. **Keep sprout on that resolver** (Coolify quickstart unchanged):
+4. **Point sprout at that resolver** (names must match Traefik). Default keeps
+   Coolify quickstart unchanged; coexistence points at the new name:
 
    ```bash
-   # compose.env / gateway env — names must match Traefik
+   # compose.env / gateway env
    SPROUT_TRAEFIK_ENTRYPOINTS=https
-   SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt
+   SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt       # or letsencrypt-dns on coexistence
    ```
 
    Deploy a preview. Traefik should terminate TLS with the stored wildcard;
    **no new LE order** for that hostname (store hit / `No ACME certificate
-   generation required` in Traefik ACME logs).
+   generation required` in Traefik ACME logs). Other Coolify apps can keep
+   using `letsencrypt` (HTTP-01) on the coexistence path; preview hosts must
+   use the resolver that holds `*.PREVIEW_DOMAIN`.
 
 5. **Monitor renewal.** Let's Encrypt wildcards renew before expiry (~30 days
    out). Confirm Traefik still has DNS credentials and that ACME storage is
-   writable. Optionally dry-run against the staging CA (`caServer`) on a
+   writable (the DNS-01 resolver's path — coexistence: the distinct second
+   file). Optionally dry-run against the staging CA (`caServer`) on a
    non-prod Traefik first.
-
-#### Runbook — coexistence (second resolver; optional)
-
-Only if you must leave Coolify / other apps on HTTP-01:
-
-1. Same DNS provider prep as the default path.
-
-2. **Add a second resolver** with a **distinct** storage file. Traefik
-   requires one storage file per certificates resolver — reusing the HTTP-01
-   path (e.g. `/data/acme.json`) causes init conflicts or a corrupted store.
-   Paste the `letsencrypt-dns:` block from
-   [`deploy/traefik/certificates-resolver.dns.yml`](../deploy/traefik/certificates-resolver.dns.yml)
-   **under** your existing `certificatesResolvers:` map (do not overwrite the
-   whole static ACME document). Merged shape:
-
-   ```yaml
-   certificatesResolvers:
-     letsencrypt:                    # existing HTTP-01 — leave as-is
-       acme:
-         email: "<ACME_EMAIL>"
-         storage: "/data/acme.json"  # HTTP-01 store
-         httpChallenge:
-           entryPoint: http
-     letsencrypt-dns:                # pasted from the fragment
-       acme:
-         email: "<ACME_EMAIL>"
-         storage: "/data/acme-dns.json"  # MUST differ from HTTP-01
-         dnsChallenge:
-           provider: "<DNS_PROVIDER>"
-   ```
-
-   Inject `<DNS_PROVIDER_ENV_*>` into the Traefik container/process.
-
-3. **Bootstrap** as in the default path, but set
-   `CERTRESOLVER_NAME=letsencrypt-dns` (must match the new resolver).
-
-4. **Point sprout at the DNS resolver:**
-
-   ```bash
-   SPROUT_TRAEFIK_ENTRYPOINTS=https
-   SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt-dns
-   ```
-
-   Other Coolify apps can keep using `letsencrypt` (HTTP-01). Preview hosts
-   must use the resolver that holds `*.PREVIEW_DOMAIN`.
-
-5. **Monitor renewal** as in the default path (DNS creds + writable
-   `<ACME_DNS_STORAGE_PATH>`).
 
 #### Managed Traefik notes (Coolify and similar)
 
