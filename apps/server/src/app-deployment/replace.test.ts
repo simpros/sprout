@@ -5,7 +5,8 @@ import {
 } from "@sprout/preview-db";
 import { createFakeDockerClient } from "../docker/fake.ts";
 import { bindPreviewOps } from "./ops.ts";
-import { removePreviewApp, replacePreviewApp } from "./replace.ts";
+import { removePreviewFleet } from "./preview-containers.ts";
+import { replacePreviewApp } from "./replace.ts";
 
 const baseDeps = {
   pg: {
@@ -33,10 +34,10 @@ const bindDeps = {
   seedTimeoutMs: 180_000,
 };
 
-describe("removePreviewApp", () => {
+describe("removePreviewFleet", () => {
   test("removes the stable preview container name", async () => {
     const docker = createFakeDockerClient();
-    await removePreviewApp(docker, "myapp", 42);
+    await removePreviewFleet(docker, "myapp", 42);
     expect(docker.removed).toEqual(["sprout-myapp-pr-42"]);
   });
 });

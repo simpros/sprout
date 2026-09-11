@@ -1,0 +1,1 @@
+ALTER TABLE `previews` ADD `bring_up_plan` text;

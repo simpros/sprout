@@ -1,0 +1,1 @@
+ALTER TABLE `previews` ADD `failure_family` text;

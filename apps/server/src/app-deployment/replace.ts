@@ -1,19 +1,16 @@
 import type { PreviewEnvMap } from "@sprout/preview-env";
-import {
-  traefikLabels,
-  type TraefikForwardAuth,
-  type TraefikTls,
-} from "./labels.ts";
-import {
-  pgConnectionEnv,
-  withGatewayConnectionEnv,
-  type AppDeployPg,
-} from "./pg-env.ts";
+import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
+import type { AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
-import { previewContainerName } from "../preview/naming.ts";
+import {
+  materializePreviewWorkload,
+  previewContainerName,
+  removePreviewFleet,
+} from "./preview-containers.ts";
 
 export type { AppDeployPg };
 export type { TraefikForwardAuth, TraefikTls };
+export { removePreviewFleet };
 
 export type AppDeployNetworks = {
   traefik: string;
@@ -44,47 +41,32 @@ export type ReplacePreviewAppInput = {
   connectionEnv?: PreviewEnvMap;
 };
 
-/** Force-remove the preview app container for one PR (idempotent via Engine). */
-export async function removePreviewApp(
-  docker: PreviewDocker,
-  slug: string,
-  prId: number,
-): Promise<void> {
-  await docker.removeByName(previewContainerName(slug, prId));
-}
-
 /**
  * Replace (or first-start) the preview app container for one PR.
- * Force-removes any prior container with the stable name, then creates+starts
- * with dual-network attach, Traefik labels, adopter app env, and connection env
- * (PG* names, optionally remapped via connectionEnv). Gateway connection keys
- * replace colliding user app-env keys (PG* or remapped names), same policy as seed.
- * Resolves Traefik port from image EXPOSE (or previewPortDefault).
- * Caller must already have pulled the image (outside the preview lock).
+ * Force-removes any prior container with the stable name, then materializes
+ * with Traefik routing. Caller must already have pulled the image.
+ * App-only remove: companion sync runs after promote/seed in bring-up.
  */
 export async function replacePreviewApp(
   deps: ReplacePreviewAppDeps,
   input: ReplacePreviewAppInput,
 ): Promise<{ containerId: string; port: number }> {
-  const exposed = await deps.docker.firstExposedPort(input.image);
-  const port = exposed ?? deps.previewPortDefault;
   const name = previewContainerName(input.slug, input.prId);
-  await removePreviewApp(deps.docker, input.slug, input.prId);
-  const { id } = await deps.docker.createAndStart({
+  await deps.docker.removeByName(name);
+  return materializePreviewWorkload(deps.docker, {
     name,
     image: input.image,
-    env: withGatewayConnectionEnv(
-      input.appEnv,
-      pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
-    ),
-    labels: traefikLabels({
-      routerName: name,
+    userEnv: input.appEnv,
+    routing: {
+      kind: "routed",
       hostname: input.hostname,
-      port,
       tls: deps.traefikTls,
       forwardAuth: deps.traefikForwardAuth,
-    }),
-    networkNames: [deps.networks.traefik, deps.networks.postgres],
+    },
+    networks: deps.networks,
+    pg: deps.pg,
+    dbName: input.dbName,
+    connectionEnv: input.connectionEnv,
+    previewPortDefault: deps.previewPortDefault,
   });
-  return { containerId: id, port };
 }

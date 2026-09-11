@@ -297,4 +297,64 @@ health:
       error: "preview.hostname is required",
     });
   });
+
+  test("parses preview.services", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  services:
+    - name: api
+      hostname: "api-pr-{pr_id}.example.com"
+    - name: worker
+      path: /internal
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          services: [
+            {
+              name: "api",
+              hostname: "api-pr-{pr_id}.example.com",
+            },
+            { name: "worker", path: "/internal" },
+          ],
+        },
+      },
+    });
+  });
+
+  test("rejects invalid preview.services entries", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  services:
+    - name: API
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.services[0].name is invalid",
+    });
+  });
+
+  test("rejects empty preview.services list", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  services: []
+`),
+    ).toEqual({
+      ok: false,
+      error:
+        "preview.services: empty list; omit the key to leave companions, or pass --clear-services",
+    });
+  });
 });

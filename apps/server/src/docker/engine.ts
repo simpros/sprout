@@ -1,4 +1,7 @@
-import { parsePreviewContainerName } from "../preview/naming.ts";
+import {
+  parsePreviewContainerName,
+  toCatalogContainer,
+} from "../preview/naming.ts";
 import type {
   CatalogContainer,
   ContainerCreateSpec,
@@ -318,12 +321,7 @@ export function createDockerEngineClient(
           const name = rawName.replace(/^\//, "");
           const parsed = parsePreviewContainerName(name);
           if (!parsed) continue;
-          out.push({
-            containerId: row.Id,
-            containerName: name,
-            slug: parsed.slug,
-            prId: parsed.prId,
-          });
+          out.push(toCatalogContainer(row.Id, name, parsed));
           break;
         }
       }

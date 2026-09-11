@@ -107,8 +107,12 @@ export function planOrphans(
       dbName: db.dbName,
     });
   }
+  // Catalog may list app + N service containers per preview; one orphan per fleet.
+  const seenOrphanContainers = new Set<string>();
   for (const container of containers) {
-    if (previewKeys.has(`${container.slug}:${container.prId}`)) continue;
+    const key = `${container.slug}:${container.prId}`;
+    if (previewKeys.has(key) || seenOrphanContainers.has(key)) continue;
+    seenOrphanContainers.add(key);
     out.push({
       reason: "sweep:orphan-container",
       slug: container.slug,

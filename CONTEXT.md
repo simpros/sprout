@@ -27,9 +27,17 @@ _Avoid_: Provider, deploy backend, PaaS adapter
 
 **Preview**:
 The complete temporary environment for one pull request: its preview database
-and, when configured, its preview app container. One PR has at most one
-preview per adopting repo.
+and, when configured, its preview app container plus optional companion
+**service** containers that share the same preview database. One PR has at
+most one preview per adopting repo.
 _Avoid_: Review app, staging environment
+
+**Service** (preview):
+A long-lived companion container for one preview (e.g. worker, secondary API),
+started with `--service name=image`. Joins the Traefik and Postgres networks,
+receives the same connection env (`PGDATABASE`) as the app, and is removed on
+teardown. Health gating covers the app only.
+_Avoid_: Sidecar, dependency container, compose service (prefer "service")
 
 **Preview database**:
 The logical Postgres database that belongs to exactly one preview, named
@@ -72,7 +80,8 @@ _Avoid_: Client repo, tenant repo
 
 **.sprout.yaml**:
 The config-as-code file in an adopting repo: slug, preview hostname template,
-and optional health-check settings.
+optional health-check settings, and optional companion service routing
+metadata.
 _Avoid_: previewdb.yml, pb config
 
 **Seed image**:

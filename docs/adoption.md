@@ -55,11 +55,14 @@ health:
 - `health` — HTTP poll the gateway runs against the app container IP on the
   Postgres network. Required when using `-s`; gates the after-healthy seed hook
   (see below).
+- `preview.services` — optional list of companion services (name + optional
+  `hostname` / `path` / static `image`). Images are usually supplied with
+  repeatable `--service name=image` on deploy (see Multi-image previews).
 
 ## App image: migrate at startup
 
-By default the gateway injects these connection variables into preview app
-and seed containers:
+By default the gateway injects these connection variables into preview app,
+service, and seed containers:
 
 ```
 PGHOST  PGPORT  PGUSER  PGPASSWORD  PGDATABASE
@@ -290,6 +293,72 @@ seed image and redeploy.
   the app up; resume with `-s` (no `--reseed` required) matches first-seed
   failure semantics. Tear down (or purge) only if you need a fresh database,
   not merely fresh fixtures.
+
+## Multi-image previews (app + services)
+
+Full-stack previews often need more than one long-lived container sharing the
+same preview database (API + worker, web + secondary service, etc.). Pass
+repeatable `--service name=image` alongside `-i`:
+
+```bash
+sprout deploy -i "$APP_IMAGE" \
+  --service api=ghcr.io/org/api:${SHA} \
+  --service worker=ghcr.io/org/worker:${SHA}
+```
+
+Each service:
+
+1. Joins the **Traefik** and **Postgres** networks (same as the app).
+2. Receives the **same connection env** as the app (`PGDATABASE` and companions,
+   including any `preview.env` remap).
+3. Is force-removed on **teardown** (and on replace) with the app.
+
+The health gate still covers **only the app**. After the app passes
+`health.expect`, seed runs (when configured), then companion services start.
+There is no per-service health poll in this release.
+
+### Routing (optional)
+
+Without routing metadata, a service is internal-only (reachable on the Docker
+networks, no Traefik router). To expose a service, declare it under
+`preview.services` in `.sprout.yaml`:
+
+```yaml
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  services:
+    - name: api
+      # hostname suffix — distinct Host() rule
+      hostname: "api-pr-{pr_id}.myapp.preview.example.com"
+    - name: admin
+      # path on the app hostname
+      path: /admin
+    - name: worker
+      # no hostname/path → not Traefik-routed
+```
+
+```bash
+sprout deploy -i "$APP_IMAGE" \
+  --service api="$API_IMAGE" \
+  --service admin="$ADMIN_IMAGE" \
+  --service worker="$WORKER_IMAGE"
+```
+
+- `hostname` — `Host(\`…\`)` (supports `{pr_id}` like the app hostname).
+- `path` — `PathPrefix(\`…\`)`; combined with `Host` via `&&`. Path-only uses
+  the app hostname.
+- Static `image` in yaml is allowed for pinned images; `--service` overlays
+  the image for that name. Every service needs an image after merge.
+
+Pass `--service` when companions should be created or refreshed. Omitting
+`--service` (and yaml services) leaves existing companions in place. Pass
+`--clear-services` to remove all companions (`services: []` on the API).
+`--clear-services` cannot be combined with `--service`. An empty
+`preview.services: []` in `.sprout.yaml` is rejected — omit the key to leave,
+or use `--clear-services` to clear. Seed-only reseed (`--reseed` with unchanged
+app image/hostname) can refresh companions without replacing the app when
+`--service` is passed.
 
 ## Debugging
 

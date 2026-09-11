@@ -1,9 +1,20 @@
-export type CatalogContainer = {
-  containerId: string;
-  containerName: string;
-  slug: string;
-  prId: number;
-};
+/** Cataloged preview workload — mirrors parsePreviewContainerName discriminant. */
+export type CatalogContainer =
+  | {
+      containerId: string;
+      containerName: string;
+      slug: string;
+      prId: number;
+      kind: "app";
+    }
+  | {
+      containerId: string;
+      containerName: string;
+      slug: string;
+      prId: number;
+      kind: "service";
+      serviceName: string;
+    };
 
 /** Spec for creating a preview (or other) container via the Docker engine. */
 export type ContainerCreateSpec = {

@@ -26,21 +26,37 @@ export type TraefikForwardAuth = {
 const FORWARDAUTH_RESPONSE_HEADERS =
   "Remote-User,Remote-Email,Remote-Groups";
 
-/** Traefik Docker-provider labels for a preview app container. */
+/** Build Traefik router rule: Host, optional PathPrefix. */
+export function traefikRouterRule(input: {
+  hostname: string;
+  /** Path prefix (e.g. `/api`); combined with Host via `&&`. */
+  pathPrefix?: string;
+}): string {
+  const host = `Host(\`${input.hostname}\`)`;
+  if (!input.pathPrefix) return host;
+  return `${host} && PathPrefix(\`${input.pathPrefix}\`)`;
+}
+
+/** Traefik Docker-provider labels for a preview app or service container. */
 export function traefikLabels(input: {
   /** Stable router/service name (typically the container name). */
   routerName: string;
   hostname: string;
   port: number;
+  /** Optional PathPrefix; combined with Host. */
+  pathPrefix?: string;
   /** When set, emit tls + entrypoints (+ optional certresolver). */
   tls?: TraefikTls;
   /** When set, emit middleware attachment + forwardAuth definition. */
   forwardAuth?: TraefikForwardAuth;
 }): Record<string, string> {
-  const { routerName, hostname, port, tls, forwardAuth } = input;
+  const { routerName, hostname, port, pathPrefix, tls, forwardAuth } = input;
   const labels: Record<string, string> = {
     "traefik.enable": "true",
-    [`traefik.http.routers.${routerName}.rule`]: `Host(\`${hostname}\`)`,
+    [`traefik.http.routers.${routerName}.rule`]: traefikRouterRule({
+      hostname,
+      pathPrefix,
+    }),
     [`traefik.http.services.${routerName}.loadbalancer.server.port`]: String(
       port,
     ),

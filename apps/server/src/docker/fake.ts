@@ -1,4 +1,7 @@
-import { parsePreviewContainerName } from "../preview/naming.ts";
+import {
+  parsePreviewContainerName,
+  toCatalogContainer,
+} from "../preview/naming.ts";
 import type {
   CatalogContainer,
   ContainerCreateSpec,
@@ -103,12 +106,7 @@ export function createFakeDockerClient(
       for (const [name, { id }] of running) {
         const parsed = parsePreviewContainerName(name);
         if (!parsed) continue;
-        out.push({
-          containerId: id,
-          containerName: name,
-          slug: parsed.slug,
-          prId: parsed.prId,
-        });
+        out.push(toCatalogContainer(id, name, parsed));
       }
       return out;
     },

@@ -450,11 +450,11 @@ preview:
     );
     expect(code).toBe(0);
     expect(captured[0]?.body).toMatchObject({
-      app_env: [
+      app_env: expect.arrayContaining([
         "BETTER_AUTH_URL=https://pr-static.example.com",
-        "SHARED=from-cli",
         "BETTER_AUTH_SECRET=sekrit",
-      ],
+        "SHARED=from-cli",
+      ]),
     });
     expect(captured[0]?.body).not.toHaveProperty("seed_env");
   });
