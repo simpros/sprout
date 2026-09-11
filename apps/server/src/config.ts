@@ -91,7 +91,8 @@ export type Config = {
   /**
    * ForwardAuth middleware policy for preview Traefik labels.
    * Absent = no middleware attachment/definition. Set when both
-   * SPROUT_TRAEFIK_MIDDLEWARES and SPROUT_FORWARDAUTH_ADDRESS are non-empty.
+   * SPROUT_TRAEFIK_MIDDLEWARES (one name) and SPROUT_FORWARDAUTH_ADDRESS
+   * are non-empty.
    */
   traefikForwardAuth?: TraefikForwardAuth;
 };
@@ -137,20 +138,26 @@ function parseTraefikTls(): TraefikTls | undefined {
 
 /**
  * Build forwardAuth middleware policy from env.
- * Both middlewares and address empty → off (today's labels).
+ * Both middleware name and address empty → off (today's labels).
  * Exactly one set → fail fast (never attach without a definition, and never
- * define without attachment).
+ * define without attachment). Env name stays plural for collision control with
+ * Coolify; value is a single Traefik middleware name (no commas).
  */
 function parseTraefikForwardAuth(): TraefikForwardAuth | undefined {
-  const middlewares = optionalStringEnv("SPROUT_TRAEFIK_MIDDLEWARES");
+  const middleware = optionalStringEnv("SPROUT_TRAEFIK_MIDDLEWARES");
   const address = optionalStringEnv("SPROUT_FORWARDAUTH_ADDRESS");
-  if (middlewares === "" && address === "") return undefined;
-  if (middlewares === "" || address === "") {
+  if (middleware === "" && address === "") return undefined;
+  if (middleware === "" || address === "") {
     throw new Error(
       "SPROUT_TRAEFIK_MIDDLEWARES and SPROUT_FORWARDAUTH_ADDRESS must both be set (or both empty)",
     );
   }
-  return { middlewares, address };
+  if (middleware.includes(",")) {
+    throw new Error(
+      "SPROUT_TRAEFIK_MIDDLEWARES must be a single Traefik middleware name (no commas)",
+    );
+  }
+  return { middleware, address };
 }
 
 /**
@@ -294,7 +301,7 @@ function formatTraefikForwardAuthSummary(
   policy: TraefikForwardAuth | undefined,
 ): string {
   if (!policy) return "[unset]";
-  return `${policy.middlewares} → ${policy.address}`;
+  return `${policy.middleware} → ${policy.address}`;
 }
 
 function redactUrl(url: string): string {

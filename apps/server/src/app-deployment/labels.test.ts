@@ -65,7 +65,7 @@ describe("traefikLabels", () => {
         hostname: "pr-1.example.com",
         port: 8080,
         forwardAuth: {
-          middlewares: "voidauth",
+          middleware: "voidauth",
           address: "https://auth.example.com/api/authz/forward-auth",
         },
       }),
@@ -78,27 +78,6 @@ describe("traefikLabels", () => {
       "traefik.http.middlewares.voidauth.forwardauth.authResponseHeaders":
         "Remote-User,Remote-Email,Remote-Groups",
     });
-  });
-
-  test("defines forwardAuth for each middleware name in the list", () => {
-    const labels = traefikLabels({
-      routerName: "sprout-app-pr-1",
-      hostname: "pr-1.example.com",
-      port: 8080,
-      forwardAuth: {
-        middlewares: "voidauth,extra",
-        address: "https://auth.example.com/forward",
-      },
-    });
-    expect(labels["traefik.http.routers.sprout-app-pr-1.middlewares"]).toBe(
-      "voidauth,extra",
-    );
-    expect(
-      labels["traefik.http.middlewares.voidauth.forwardauth.address"],
-    ).toBe("https://auth.example.com/forward");
-    expect(labels["traefik.http.middlewares.extra.forwardauth.address"]).toBe(
-      "https://auth.example.com/forward",
-    );
   });
 
   test("omits middleware labels when forwardAuth is unset", () => {

@@ -124,7 +124,7 @@ describe("replacePreviewApp", () => {
         docker,
         ...baseDeps,
         traefikForwardAuth: {
-          middlewares: "voidauth",
+          middleware: "voidauth",
           address: "https://auth.example.com/api/authz/forward-auth",
         },
       },

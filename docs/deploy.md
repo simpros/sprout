@@ -151,7 +151,7 @@ overlay instead of forking the reference file:
    HTTP-only Traefik (bundled compose / local). Empty entrypoints keeps TLS off
    even if certresolver is set.
 3. For an SSO gate on preview hosts (Traefik forwardAuth), set both
-   `SPROUT_TRAEFIK_MIDDLEWARES` (e.g. `voidauth`) and
+   `SPROUT_TRAEFIK_MIDDLEWARES` (a single name, e.g. `voidauth`) and
    `SPROUT_FORWARDAUTH_ADDRESS` (a URL Traefik can reach). The gateway emits
    the middleware **definition** and the router **attachment** as Docker
    labels — no Traefik static/file config. Leave both empty for open previews.
@@ -206,16 +206,17 @@ When forwardAuth is enabled (both `SPROUT_TRAEFIK_MIDDLEWARES` and
 `SPROUT_FORWARDAUTH_ADDRESS` non-empty), also:
 
 - `traefik.http.routers.<name>.middlewares=<SPROUT_TRAEFIK_MIDDLEWARES>`
-- For each middleware name in that list:
-  - `traefik.http.middlewares.<mw>.forwardauth.address=<SPROUT_FORWARDAUTH_ADDRESS>`
-  - `traefik.http.middlewares.<mw>.forwardauth.trustForwardHeader=true`
-  - `traefik.http.middlewares.<mw>.forwardauth.authResponseHeaders=Remote-User,Remote-Email,Remote-Groups`
+- `traefik.http.middlewares.<mw>.forwardauth.address=<SPROUT_FORWARDAUTH_ADDRESS>`
+- `traefik.http.middlewares.<mw>.forwardauth.trustForwardHeader=true`
+- `traefik.http.middlewares.<mw>.forwardauth.authResponseHeaders=Remote-User,Remote-Email,Remote-Groups`
+
+(`<mw>` is the single middleware name from `SPROUT_TRAEFIK_MIDDLEWARES`.)
 
 ForwardAuth is opt-in and Coolify-safe: Coolify's Traefik uses the Docker
 provider only, so sprout must emit **both** the middleware definition and the
 router attachment on preview containers (no Traefik file/static config).
 Both env vars must be set together (or both empty); setting only one fails at
-gateway boot.
+gateway boot. `SPROUT_TRAEFIK_MIDDLEWARES` is one name (commas rejected).
 
 **VoidAuth / SSO setup:** add the preview domain (e.g. `*.internal.example.com`)
 in the VoidAuth UI, then point `SPROUT_FORWARDAUTH_ADDRESS` at the forward-auth
@@ -283,8 +284,8 @@ Optional tuning (defaults in parentheses):
 | `SPROUT_SEED_TIMEOUT` | `180` |
 | `SPROUT_TRAEFIK_ENTRYPOINTS` | _(empty — TLS off, HTTP labels only)_ |
 | `SPROUT_TRAEFIK_CERTRESOLVER` | _(empty — omit; only used when entrypoints set)_ |
-| `SPROUT_TRAEFIK_MIDDLEWARES` | _(empty — no middleware attachment)_ |
-| `SPROUT_FORWARDAUTH_ADDRESS` | _(empty — no forwardAuth definition; required with middlewares)_ |
+| `SPROUT_TRAEFIK_MIDDLEWARES` | _(empty — no middleware attachment; single name when set)_ |
+| `SPROUT_FORWARDAUTH_ADDRESS` | _(empty — no forwardAuth definition; required with middleware name)_ |
 
 For HTTPS behind an external Traefik, set entrypoints (and optionally
 certresolver) to that proxy's names. Example Coolify-shaped values (operator

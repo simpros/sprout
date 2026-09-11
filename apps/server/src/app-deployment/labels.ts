@@ -13,12 +13,12 @@ export type TraefikTls = {
 /**
  * ForwardAuth middleware policy for Traefik Docker labels.
  * Absent/undefined = no middleware attachment or definition labels.
- * Present = router middlewares + forwardAuth definition for each name
+ * Present = one router middleware attachment + matching forwardAuth definition
  * (Coolify docker-provider only — no Traefik file/static config).
  */
 export type TraefikForwardAuth = {
-  /** Comma-separated middleware names attached to the router (e.g. `voidauth`). */
-  middlewares: string;
+  /** Single Traefik middleware name attached to the router (e.g. `voidauth`). */
+  middleware: string;
   /** ForwardAuth URL Traefik must reach (operator SSO, e.g. VoidAuth). */
   address: string;
 };
@@ -34,7 +34,7 @@ export function traefikLabels(input: {
   port: number;
   /** When set, emit tls + entrypoints (+ optional certresolver). */
   tls?: TraefikTls;
-  /** When set, emit middleware attachment + forwardAuth definitions. */
+  /** When set, emit middleware attachment + forwardAuth definition. */
   forwardAuth?: TraefikForwardAuth;
 }): Record<string, string> {
   const { routerName, hostname, port, tls, forwardAuth } = input;
@@ -54,20 +54,16 @@ export function traefikLabels(input: {
     }
   }
   if (forwardAuth) {
-    labels[`traefik.http.routers.${routerName}.middlewares`] =
-      forwardAuth.middlewares;
-    for (const name of forwardAuth.middlewares.split(",")) {
-      const mw = name.trim();
-      if (mw === "") continue;
-      labels[`traefik.http.middlewares.${mw}.forwardauth.address`] =
-        forwardAuth.address;
-      labels[
-        `traefik.http.middlewares.${mw}.forwardauth.trustForwardHeader`
-      ] = "true";
-      labels[
-        `traefik.http.middlewares.${mw}.forwardauth.authResponseHeaders`
-      ] = FORWARDAUTH_RESPONSE_HEADERS;
-    }
+    const { middleware, address } = forwardAuth;
+    labels[`traefik.http.routers.${routerName}.middlewares`] = middleware;
+    labels[`traefik.http.middlewares.${middleware}.forwardauth.address`] =
+      address;
+    labels[
+      `traefik.http.middlewares.${middleware}.forwardauth.trustForwardHeader`
+    ] = "true";
+    labels[
+      `traefik.http.middlewares.${middleware}.forwardauth.authResponseHeaders`
+    ] = FORWARDAUTH_RESPONSE_HEADERS;
   }
   return labels;
 }

@@ -137,19 +137,19 @@ describe("loadConfig", () => {
     expect(config.traefikTls).toEqual({ entrypoints: "https" });
   });
 
-  test("loads Traefik forwardAuth policy when both middlewares and address are set", () => {
+  test("loads Traefik forwardAuth policy when both middleware name and address are set", () => {
     setRequiredEnv();
     process.env.SPROUT_TRAEFIK_MIDDLEWARES = "voidauth";
     process.env.SPROUT_FORWARDAUTH_ADDRESS =
       "https://auth.example.com/api/authz/forward-auth";
     const config = loadConfig();
     expect(config.traefikForwardAuth).toEqual({
-      middlewares: "voidauth",
+      middleware: "voidauth",
       address: "https://auth.example.com/api/authz/forward-auth",
     });
   });
 
-  test("fails when only middlewares is set", () => {
+  test("fails when only middleware name is set", () => {
     setRequiredEnv();
     process.env.SPROUT_TRAEFIK_MIDDLEWARES = "voidauth";
     expect(() => loadConfig()).toThrow(
@@ -163,6 +163,26 @@ describe("loadConfig", () => {
       "https://auth.example.com/api/authz/forward-auth";
     expect(() => loadConfig()).toThrow(
       "SPROUT_TRAEFIK_MIDDLEWARES and SPROUT_FORWARDAUTH_ADDRESS must both be set",
+    );
+  });
+
+  test("rejects comma-separated middleware names", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_MIDDLEWARES = "voidauth,extra";
+    process.env.SPROUT_FORWARDAUTH_ADDRESS =
+      "https://auth.example.com/api/authz/forward-auth";
+    expect(() => loadConfig()).toThrow(
+      "SPROUT_TRAEFIK_MIDDLEWARES must be a single Traefik middleware name (no commas)",
+    );
+  });
+
+  test("rejects trailing-comma middleware name", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_MIDDLEWARES = "voidauth,";
+    process.env.SPROUT_FORWARDAUTH_ADDRESS =
+      "https://auth.example.com/api/authz/forward-auth";
+    expect(() => loadConfig()).toThrow(
+      "SPROUT_TRAEFIK_MIDDLEWARES must be a single Traefik middleware name (no commas)",
     );
   });
 
@@ -307,7 +327,7 @@ describe("loadConfig", () => {
       port: 7331,
       traefikTls: { entrypoints: "https", certResolver: "letsencrypt" },
       traefikForwardAuth: {
-        middlewares: "voidauth",
+        middleware: "voidauth",
         address: "https://auth.example.com/forward",
       },
     });
