@@ -12,6 +12,11 @@ import {
 } from "./admin-tokens.ts";
 import { deploy, deployBody, getPreview, previewQuery, teardown, teardownBody } from "./deploy.ts";
 import { doctor, drop, dropBody, listPreviews } from "./introspection.ts";
+import {
+  getPreviewLogs,
+  previewLogsParams,
+  previewLogsQuery,
+} from "./preview-logs.ts";
 
 export type RouteDeps = {
   db: StateDb;
@@ -51,6 +56,10 @@ export function createRoutes(deps: RouteDeps) {
         )
         .get("/previews", listPreviews(deps.db), {
           beforeHandle: requireAdmin,
+        })
+        .get("/previews/:id/logs", getPreviewLogs(lifecycle), {
+          params: previewLogsParams,
+          query: previewLogsQuery,
         })
         .get("/doctor", doctor(lifecycle), {
           beforeHandle: requireAdmin,

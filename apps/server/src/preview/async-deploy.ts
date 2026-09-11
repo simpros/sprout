@@ -9,6 +9,7 @@ import {
   provisionPreview,
   withPreviewLock,
   type LifecycleDeps,
+  type PreviewRow,
   type PreviewSnapshot,
   type ProvisionInput,
 } from "./lifecycle.ts";
@@ -111,19 +112,11 @@ export async function runAsyncDeploy(
 }
 
 /**
- * Deploy-token-readable preview status for CLI polling after POST /v1/deploy 202.
- * Returns the control-plane snapshot (including sticky last_error fields).
- * Missing/removing stay Result failures; HTTP mapping for those lives at the
- * route via mapResult. Deploy success/failure is decided by the CLI from the
- * snapshot fields — not by inventing a terminal Result over last_error.
+ * missing / removed → 404; removing → 409; else the control-plane row.
  */
-export async function readPreviewStatus(
-  deps: Pick<LifecycleDeps, "db">,
-  repo: string,
-  prId: number,
-): Promise<Result<PreviewSnapshot>> {
-  const row = await getPreviewRow(deps.db, repo, prId);
-
+export function gateReadablePreviewRow(
+  row: PreviewRow | null,
+): Result<PreviewRow> {
   if (!row || row.status === "removed") {
     return { ok: false, status: 404, error: "preview_not_found" };
   }
@@ -139,5 +132,24 @@ export async function readPreviewStatus(
     };
   }
 
-  return { ok: true, value: previewSnapshotFromRow(row) };
+  return { ok: true, value: row };
+}
+
+/**
+ * Deploy-token-readable preview status for CLI polling after POST /v1/deploy 202.
+ * Returns the control-plane snapshot (including sticky last_error fields).
+ * Missing/removing stay Result failures; HTTP mapping for those lives at the
+ * route via mapResult. Deploy success/failure is decided by the CLI from the
+ * snapshot fields — not by inventing a terminal Result over last_error.
+ */
+export async function readPreviewStatus(
+  deps: Pick<LifecycleDeps, "db">,
+  repo: string,
+  prId: number,
+): Promise<Result<PreviewSnapshot>> {
+  const gated = gateReadablePreviewRow(
+    await getPreviewRow(deps.db, repo, prId),
+  );
+  if (!gated.ok) return gated;
+  return { ok: true, value: previewSnapshotFromRow(gated.value) };
 }

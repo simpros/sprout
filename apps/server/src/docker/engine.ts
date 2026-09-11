@@ -50,6 +50,32 @@ function firstExposedPortFromInspect(inspect: ImageInspect): number | null {
 }
 
 /**
+ * Docker multiplexed log stream: 8-byte header (stream type + big-endian size)
+ * then payload. Preview containers are created without Tty, so Engine always
+ * multiplexes stdout/stderr — always demux (no raw/TTY fallback).
+ */
+function demuxDockerLogs(bytes: Uint8Array): string {
+  const decoder = new TextDecoder();
+  if (bytes.length === 0) return "";
+
+  const chunks: string[] = [];
+  let offset = 0;
+  while (offset + 8 <= bytes.length) {
+    const size =
+      ((bytes[offset + 4]! << 24) |
+        (bytes[offset + 5]! << 16) |
+        (bytes[offset + 6]! << 8) |
+        bytes[offset + 7]!) >>>
+      0;
+    offset += 8;
+    if (offset + size > bytes.length) break;
+    chunks.push(decoder.decode(bytes.subarray(offset, offset + size)));
+    offset += size;
+  }
+  return chunks.join("");
+}
+
+/**
  * Engine `/images/create` often returns HTTP 200 and encodes failure as
  * `{"error":...}` / `errorDetail` lines in the NDJSON progress body.
  */
@@ -254,6 +280,28 @@ export function createDockerEngineClient(
       return ip === "" ? null : ip;
     },
 
+    async containerLogs(nameOrId, options) {
+      const qs = new URLSearchParams({
+        stdout: "1",
+        stderr: "1",
+        timestamps: "0",
+        follow: "0",
+        tail: String(options.tail),
+      });
+      const res = await engine(
+        `/containers/${encodeURIComponent(nameOrId)}/logs?${qs}`,
+        { method: "GET" },
+      );
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(
+          `Docker logs ${nameOrId} failed: ${res.status} ${body}`,
+        );
+      }
+      return demuxDockerLogs(new Uint8Array(await res.arrayBuffer()));
+    },
+
     async listPreviewContainers() {
       const filters = encodeURIComponent(JSON.stringify({ name: ["sprout-"] }));
       const res = await engine(`/containers/json?all=true&filters=${filters}`, {
@@ -284,4 +332,4 @@ export function createDockerEngineClient(
   };
 }
 
-export { assertPullStreamOk, firstExposedPortFromInspect, splitImageRef };
+export { assertPullStreamOk, demuxDockerLogs, firstExposedPortFromInspect, splitImageRef };

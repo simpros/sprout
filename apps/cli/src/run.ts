@@ -5,6 +5,7 @@ import { runDoctor } from "./commands/doctor.ts";
 import { runDrop } from "./commands/drop.ts";
 import { runHealth } from "./commands/health.ts";
 import { runList } from "./commands/list.ts";
+import { runLogs } from "./commands/logs.ts";
 import { runTeardown } from "./commands/teardown.ts";
 import { runWorktreeDb } from "./commands/worktree-db.ts";
 import {
@@ -33,6 +34,7 @@ const COMMANDS: Record<string, Command> = {
   list: { needsToken: true, run: runList },
   doctor: { needsToken: true, run: runDoctor },
   drop: { needsToken: true, run: runDrop },
+  logs: { needsToken: true, run: runLogs },
   admin: { needsToken: true, run: runAdmin },
   "worktree-db": {
     needsToken: false,
@@ -48,7 +50,7 @@ export async function runCli(
   if (!name) {
     return fail(
       deps.io,
-      "usage: sprout <health|deploy|teardown|list|doctor|drop|admin|worktree-db> …",
+      "usage: sprout <health|deploy|teardown|list|doctor|drop|logs|admin|worktree-db> …",
     );
   }
 

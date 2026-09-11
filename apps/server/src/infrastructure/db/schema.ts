@@ -24,7 +24,10 @@ export const previews = sqliteTable(
     seededAt: text("seeded_at"),
     /** Terminal async provision failure for GET /v1/preview polling. */
     lastError: text("last_error"),
+    /** Short sticky diagnostic (e.g. exit=7, timeout) — not log blobs. */
     lastErrorDetail: text("last_error_detail"),
+    /** Captured one-shot seed stdout/stderr for GET …/logs (cleared on success/remint). */
+    seedLog: text("seed_log"),
   },
   (table) => [
     primaryKey({ columns: [table.canonicalRepoId, table.prId] }),

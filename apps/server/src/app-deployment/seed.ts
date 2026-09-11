@@ -22,11 +22,14 @@ export type SeedImageInput = SeedImageSpec & {
   connectionEnv?: PreviewEnvMap;
 };
 
+/** Lines captured before the one-shot seed container is removed. */
+const SEED_LOG_TAIL = 10_000;
+
 /** Mirrors ContainerWaitResult discrimination; exitCode null = Docker ops failure. */
 export type SeedImageResult =
   | { ok: true }
-  | { ok: false; timedOut: true }
-  | { ok: false; timedOut: false; exitCode: number | null };
+  | { ok: false; timedOut: true; logs: string }
+  | { ok: false; timedOut: false; exitCode: number | null; logs: string };
 
 export type RunSeedImageDeps = {
   docker: PreviewDocker;
@@ -35,12 +38,24 @@ export type RunSeedImageDeps = {
   seedTimeoutMs: number;
 };
 
+async function captureSeedLogs(
+  docker: PreviewDocker,
+  name: string,
+): Promise<string> {
+  try {
+    return (await docker.containerLogs(name, { tail: SEED_LOG_TAIL })) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Run the adopter seed image once on the Postgres network only.
  * Gateway connection keys replace colliding user `--seed-env` keys
  * (PG* or remapped names) so adopters cannot retarget the DB.
  * Never sets Entrypoint — image default entrypoint owns seed logic.
  * Docker ops errors are absorbed into SeedImageResult (never throw mid-phase).
+ * Failure logs are always captured while the container still exists, then removed.
  */
 export async function runSeedImage(
   deps: RunSeedImageDeps,
@@ -53,35 +68,48 @@ export async function runSeedImage(
     // Spec: log key count only — never values (may contain secrets).
     console.log("seed:env", input.env.length);
 
-    try {
-      const { id } = await deps.docker.createAndStart({
-        name,
-        image: input.image,
-        env: withGatewayConnectionEnv(
-          input.env,
-          pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
-        ),
-        labels: {},
-        networkNames: [deps.networks.postgres],
-        ...(input.args.length > 0 ? { cmd: input.args } : {}),
-      });
+    const { id } = await deps.docker.createAndStart({
+      name,
+      image: input.image,
+      env: withGatewayConnectionEnv(
+        input.env,
+        pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
+      ),
+      labels: {},
+      networkNames: [deps.networks.postgres],
+      ...(input.args.length > 0 ? { cmd: input.args } : {}),
+    });
 
+    let outcome: SeedImageResult;
+    try {
       const wait = await deps.docker.waitForExit(id, deps.seedTimeoutMs);
-      if (wait.timedOut) {
-        return { ok: false, timedOut: true };
+      if (!wait.timedOut && wait.exitCode === 0) {
+        outcome = { ok: true };
+      } else {
+        const logs = await captureSeedLogs(deps.docker, name);
+        outcome = wait.timedOut
+          ? { ok: false, timedOut: true, logs }
+          : { ok: false, timedOut: false, exitCode: wait.exitCode, logs };
       }
-      if (wait.exitCode !== 0) {
-        return { ok: false, timedOut: false, exitCode: wait.exitCode };
-      }
-      return { ok: true };
-    } finally {
-      try {
-        await deps.docker.removeByName(name);
-      } catch {
-        console.warn(`seed image remove failed for ${name}`);
-      }
+    } catch {
+      // waitForExit threw (Engine error / missing StatusCode): capture before remove.
+      const logs = await captureSeedLogs(deps.docker, name);
+      outcome = { ok: false, timedOut: false, exitCode: null, logs };
     }
+
+    try {
+      await deps.docker.removeByName(name);
+    } catch {
+      console.warn(`seed image remove failed for ${name}`);
+    }
+    return outcome;
   } catch {
-    return { ok: false, timedOut: false, exitCode: null };
+    // create never started (or pre-create remove failed): nothing to capture.
+    try {
+      await deps.docker.removeByName(name);
+    } catch {
+      /* best-effort scrub */
+    }
+    return { ok: false, timedOut: false, exitCode: null, logs: "" };
   }
 }

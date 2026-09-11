@@ -17,7 +17,17 @@ import {
   type SeedImageInput,
   type SeedImageResult,
 } from "./seed.ts";
-import type { CatalogContainer } from "../docker/port.ts";
+import type { CatalogContainer, PreviewDocker } from "../docker/port.ts";
+import {
+  previewContainerName,
+  seedImageRunName,
+} from "../preview/naming.ts";
+
+/** Live container log text; null = container missing (Docker 404). */
+export type LiveContainerLogs = {
+  app: string | null;
+  seed: string | null;
+};
 
 /** Bound deploy ops for lifecycle/sweep — no PGHOST / network config at callers. */
 export type PreviewAppOps = {
@@ -36,6 +46,15 @@ export type PreviewAppOps = {
   remove: (slug: string, prId: number) => Promise<void>;
   /** Catalog of running sprout-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
+  /**
+   * Live app + seed container text in parallel.
+   * Missing container → null (caller merges with stored seed_log).
+   */
+  liveLogs: (input: {
+    slug: string;
+    prId: number;
+    tail: number;
+  }) => Promise<LiveContainerLogs>;
 };
 
 export type BindPreviewOpsDeps = ReplacePreviewAppDeps & {
@@ -46,6 +65,24 @@ export type BindPreviewOpsDeps = ReplacePreviewAppDeps & {
   /** Test seam — defaults to Date.now / setTimeout. */
   healthClock?: HealthClock;
 };
+
+/** Parallel Docker log pulls for app + seed container names. */
+export async function fetchLiveContainerLogs(
+  docker: PreviewDocker,
+  input: { slug: string; prId: number; tail: number },
+): Promise<LiveContainerLogs> {
+  const [app, seed] = await Promise.all([
+    docker.containerLogs(
+      previewContainerName(input.slug, input.prId),
+      { tail: input.tail },
+    ),
+    docker.containerLogs(
+      seedImageRunName(input.slug, input.prId),
+      { tail: input.tail },
+    ),
+  ]);
+  return { app, seed };
+}
 
 /** Compose replace/health + seed at the composition root (not in replace.ts). */
 export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
@@ -78,5 +115,6 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
       ),
     remove: (slug, prId) => removePreviewApp(deps.docker, slug, prId),
     list: () => deps.docker.listPreviewContainers(),
+    liveLogs: (input) => fetchLiveContainerLogs(deps.docker, input),
   };
 }

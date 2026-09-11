@@ -13,11 +13,10 @@ import {
 } from "../preview/lifecycle.ts";
 import {
   acceptAsyncDeploy,
-  readPreviewStatus,
   runAsyncDeploy,
 } from "../preview/async-deploy.ts";
-import type { Result } from "../preview/result.ts";
 import { validatePrId, validatePreviewIdentity } from "../preview-db/names.ts";
+import { mapResult, requireReadablePreview, resolveRepo } from "./result-map.ts";
 
 export type { LifecycleDeps };
 
@@ -157,29 +156,6 @@ export type PreviewQuery = {
   pr_id: string;
 };
 
-function resolveRepo(
-  auth: AuthContext,
-  requested: string,
-): Result<string> {
-  if (auth.scope === "deploy" && auth.canonicalRepoId !== requested) {
-    return { ok: false, status: 403, error: "forbidden" };
-  }
-  return { ok: true, value: requested };
-}
-
-function mapResult<T>(
-  result: Result<T>,
-  set: { status?: number | string },
-): T | { error: string; detail?: string } {
-  if (!result.ok) {
-    set.status = result.status;
-    return result.detail !== undefined
-      ? { error: result.error, detail: result.detail }
-      : { error: result.error };
-  }
-  return result.value;
-}
-
 export function deploy(deps: LifecycleDeps) {
   return async ({
     body,
@@ -262,19 +238,15 @@ export function getPreview(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    if (!auth) {
-      set.status = 401;
-      return { error: "unauthorized" };
-    }
-    const repo = resolveRepo(auth, query.canonical_repo_id);
-    if (!repo.ok) return mapResult(repo, set);
-    const prId = Number(query.pr_id);
-    const prErr = validatePrId(prId);
-    if (prErr) {
-      set.status = 422;
-      return { error: prErr };
-    }
-    return mapResult(await readPreviewStatus(deps, repo.value, prId), set);
+    return mapResult(
+      await requireReadablePreview(
+        deps,
+        auth,
+        query.canonical_repo_id,
+        query.pr_id,
+      ),
+      set,
+    );
   };
 }
 

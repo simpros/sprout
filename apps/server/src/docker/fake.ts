@@ -17,6 +17,8 @@ export type FakeDockerClient = PreviewDocker & {
   ips: Map<string, Map<string, string>>;
   /** container name → wait outcome (default exit 0). */
   waitResults: Map<string, { exitCode: number } | "timeout">;
+  /** container name → full log text (cleared on remove). */
+  logs: Map<string, string>;
 };
 
 export function createFakeDockerClient(
@@ -36,6 +38,7 @@ export function createFakeDockerClient(
   const waitResults = new Map<string, { exitCode: number } | "timeout">(
     Object.entries(options.waitResults ?? {}),
   );
+  const logs = new Map<string, string>();
   let nextId = 1;
   let nextIp = 1;
 
@@ -47,6 +50,7 @@ export function createFakeDockerClient(
     running,
     ips,
     waitResults,
+    logs,
     async pullImage(image) {
       pulls.push(image);
     },
@@ -58,6 +62,7 @@ export function createFakeDockerClient(
       const prior = running.get(name);
       if (prior) ips.delete(prior.id);
       running.delete(name);
+      logs.delete(name);
     },
     async createAndStart(spec) {
       creates.push(spec);
@@ -81,6 +86,17 @@ export function createFakeDockerClient(
     },
     async containerIpOnNetwork(containerId, networkName) {
       return ips.get(containerId)?.get(networkName) ?? null;
+    },
+    async containerLogs(nameOrId, options) {
+      const byName = running.get(nameOrId);
+      const name = byName
+        ? nameOrId
+        : [...running.entries()].find(([, v]) => v.id === nameOrId)?.[0];
+      if (!name) return null;
+      const text = logs.get(name) ?? "";
+      if (options.tail <= 0) return "";
+      const lines = text === "" ? [] : text.replace(/\n$/, "").split("\n");
+      return lines.slice(-options.tail).join("\n") + (lines.length > 0 ? "\n" : "");
     },
     async listPreviewContainers() {
       const out: CatalogContainer[] = [];

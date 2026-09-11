@@ -291,6 +291,30 @@ seed image and redeploy.
   failure semantics. Tear down (or purge) only if you need a fresh database,
   not merely fresh fixtures.
 
+## Debugging
+
+When a preview is red, pull container logs through the gateway (no Docker
+socket on the CI runner or laptop):
+
+```bash
+export SPROUT_URL=https://sprout.example.com
+export SPROUT_TOKEN=<deploy-token>   # or admin token locally
+sprout logs <pr_id> --tail 200
+# optional when not in CI / not at a git remote:
+# sprout logs <pr_id> --tail 200 --repo "https://github.com/org/repo"
+```
+
+Repo resolution matches `deploy` / `drop`: `--repo`, else `GITHUB_REPOSITORY` /
+`CI_PROJECT_URL`, else `git remote get-url origin`. The deploy token is scoped
+to one canonical repo — it cannot read another repo's previews.
+
+Output is live app container logs, then seed logs when available. While the
+seed container is still running, `sprout logs` reads it live; after a failed
+seed the gateway has already captured stdout/stderr into `seed_log` (before
+remove) so the seed section still shows why seeding died. Status polling keeps
+a short `last_error_detail` (`exit=7`, `timeout`) — not the log blob.
+Successful seeds do not keep seed output.
+
 ## CI workflow (GitHub Actions)
 
 Symmetric triggers — no forge webhooks on the gateway:
