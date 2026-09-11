@@ -79,6 +79,8 @@ export type ProvisionInput = {
   appEnv: string[];
   /** Connection env name remap; request-scoped, not persisted. */
   connectionEnv?: PreviewEnvMap;
+  /** Force after-healthy seed even when seeded_at is set; request-scoped. */
+  reseed?: boolean;
 };
 
 export type TeardownInput = {
@@ -437,7 +439,11 @@ async function attachAppContainer(
 
 /** Project request-scoped seed/remap fields only at the seed-phase boundary. */
 function deployEphemerals(input: ProvisionInput) {
-  return { seed: input.seed, connectionEnv: input.connectionEnv };
+  return {
+    seed: input.seed,
+    connectionEnv: input.connectionEnv,
+    reseed: input.reseed,
+  };
 }
 
 /** Attach (replace+health) then promote (running or seed phase). */
@@ -578,6 +584,11 @@ export async function claimDeployIntent(
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
+      // Reseed with live same-image app: seed-only (no Traefik replace).
+      if (input.reseed && canResumeSeed(row, input)) {
+        const next = await patchAccept(deps, row, { status: "seeding" });
+        return { ok: true, value: previewSnapshotFromRow(next) };
+      }
       const next = await patchAccept(deps, row, { status: "provisioning" });
       return { ok: true, value: previewSnapshotFromRow(next) };
     }

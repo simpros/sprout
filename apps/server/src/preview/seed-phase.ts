@@ -23,6 +23,8 @@ export type SeedPhaseDeps = {
 export type DeployEphemerals = {
   seed?: SeedImageSpec;
   connectionEnv?: PreviewEnvMap;
+  /** Force seed even when seeded_at is set. */
+  reseed?: boolean;
 };
 
 /** Running snapshot returned by seed/promote closers (matches PreviewSnapshot). */
@@ -79,10 +81,12 @@ async function runSeedPhase(
   ephemerals: DeployEphemerals & { seed: SeedImageSpec },
 ): Promise<Result<SeedPhaseSnapshot>> {
   const { seed, connectionEnv } = ephemerals;
+  // Clear seeded_at on entry so a failed reseed matches first-seed failure
+  // (null seeded_at) and resume can re-run without another --reseed.
   await updatePreviewRow(
     deps.db,
     row,
-    { status: "seeding", updatedAt: utcIsoNow() },
+    { status: "seeding", seededAt: null, updatedAt: utcIsoNow() },
     "preview_row_missing_on_seeding",
   );
 
@@ -137,10 +141,12 @@ export async function promoteAfterHealthy(
   starting: PreviewRow,
   ephemerals: DeployEphemerals = {},
 ): Promise<Result<SeedPhaseSnapshot>> {
-  const { seed } = ephemerals;
+  const { seed, reseed } = ephemerals;
   const shouldSeed =
     seed !== undefined &&
-    (starting.seededAt === null || starting.seededAt === undefined);
+    (reseed === true ||
+      starting.seededAt === null ||
+      starting.seededAt === undefined);
 
   if (shouldSeed && seed) {
     return runSeedPhase(deps, starting, { ...ephemerals, seed });

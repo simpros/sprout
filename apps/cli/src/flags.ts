@@ -8,6 +8,7 @@ type FlagBag = {
   appEnv: string[];
   appEnvFile: string[];
   yes: boolean;
+  reseed: boolean;
   repo?: string;
   slug?: string;
   scope?: string;
@@ -81,6 +82,7 @@ const FLAG_DEFS = [
   { flag: "--app-env", field: "appEnv", kind: "repeat", allowDash: true },
   { flag: "--app-env-file", field: "appEnvFile", kind: "repeat" },
   { flag: "--yes", field: "yes", kind: "boolean" },
+  { flag: "--reseed", field: "reseed", kind: "boolean" },
   { flag: "--repo", field: "repo", kind: "string" },
   { flag: "--slug", field: "slug", kind: "string" },
   { flag: "--scope", field: "scope", kind: "string" },
@@ -99,6 +101,7 @@ export function parseFlags(
     appEnv: [],
     appEnvFile: [],
     yes: false,
+    reseed: false,
     rest: [],
   };
   return parseArgv(FLAG_DEFS, tokens, allowed, emptyBag);

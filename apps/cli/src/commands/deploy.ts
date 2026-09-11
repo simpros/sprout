@@ -52,12 +52,16 @@ export async function runDeploy(
     "--seed-arg",
     "--app-env",
     "--app-env-file",
+    "--reseed",
     "--repo",
   ]);
   if (!flags.ok) return fail(ctx.deps.io, flags.error);
 
   if (!flags.value.image) {
     return fail(ctx.deps.io, "deploy requires -i <image>");
+  }
+  if (flags.value.reseed && !flags.value.seedImage) {
+    return fail(ctx.deps.io, "--reseed requires -s <seed-image>");
   }
   if (flags.value.rest.length > 0) {
     return fail(
@@ -91,6 +95,7 @@ export async function runDeploy(
     seed_arg?: string[];
     app_env?: string[];
     env?: PreviewEnvMap;
+    reseed?: boolean;
   } = {
     canonical_repo_id: identity.value.repo,
     pr_id: identity.value.prId,
@@ -106,6 +111,7 @@ export async function runDeploy(
   if (flags.value.seedImage) body.seed_image = flags.value.seedImage;
   if (flags.value.seedEnv.length > 0) body.seed_env = flags.value.seedEnv;
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
+  if (flags.value.reseed) body.reseed = true;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
   const dotenvFiles: DotenvFile[] = [];

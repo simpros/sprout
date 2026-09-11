@@ -44,6 +44,7 @@ export const deployBody = t.Object({
   seed_env: t.Optional(t.Array(t.String())),
   seed_arg: t.Optional(t.Array(t.String())),
   app_env: t.Optional(t.Array(t.String())),
+  reseed: t.Optional(t.Boolean()),
 });
 
 /** Identity is (canonical_repo_id, pr_id); slug is not part of teardown. */
@@ -69,6 +70,7 @@ export type DeployBody = {
   seed_env?: string[];
   seed_arg?: string[];
   app_env?: string[];
+  reseed?: boolean;
 };
 
 /** Cap + `KEY=VALUE` shape check shared by seed_env and app_env. */
@@ -89,7 +91,10 @@ function validateKvEnvEntries(
 
 /** Validate optional seed fields; health is required when seed_image is set. */
 export function resolveSeedRequest(
-  body: Pick<DeployBody, "seed_image" | "seed_env" | "seed_arg" | "health">,
+  body: Pick<
+    DeployBody,
+    "seed_image" | "seed_env" | "seed_arg" | "health" | "reseed"
+  >,
 ):
   | { ok: true; value: SeedImageSpec | undefined }
   | { ok: false; error: string } {
@@ -98,6 +103,9 @@ export function resolveSeedRequest(
   const seedArg = body.seed_arg ?? [];
 
   if (!seedImage) {
+    if (body.reseed) {
+      return { ok: false, error: "seed_image_required_for_reseed" };
+    }
     if (seedEnv.length > 0 || seedArg.length > 0) {
       return { ok: false, error: "seed_image_required_for_seed_options" };
     }
@@ -229,6 +237,7 @@ export function deploy(deps: LifecycleDeps) {
       seed: seed.value,
       appEnv: appEnv.value,
       connectionEnv: connectionEnv.value,
+      reseed: body.reseed === true,
     };
 
     // 202 before pull/health/seed so Cloudflare (~100s) cannot kill the POST.

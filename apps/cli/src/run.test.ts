@@ -351,6 +351,59 @@ preview:
     });
   });
 
+  test("deploy forwards --reseed and requires -s", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-7.example.com",
+      });
+    });
+
+    const cwdHealth = await withWorkspace(HEALTH_YAML);
+    const missingSeed = await runCli(
+      ["deploy", "-i", "app:1", "--reseed"],
+      deps({
+        cwd: cwdHealth,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/7/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(missingSeed).toBe(1);
+    expect(stderr[0]).toContain("--reseed requires -s");
+    expect(captured).toEqual([]);
+
+    const code = await runCli(
+      ["deploy", "-i", "app:1", "-s", "seed:1", "--reseed"],
+      deps({
+        cwd: cwdHealth,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/7/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      seed_image: "seed:1",
+      reseed: true,
+    });
+  });
+
   test("deploy forwards --app-env and preview.app_env (yaml then flags)", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({

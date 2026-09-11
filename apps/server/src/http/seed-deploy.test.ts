@@ -298,6 +298,170 @@ describe("POST /v1/deploy seed image", () => {
     ]);
   });
 
+  test("reseed runs seed again when seeded_at set without app replace", async () => {
+    const { deployToken } = await setup();
+    const first = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+      }),
+    );
+    expect(first.settleStatus).toBe(200);
+    const [seeded] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(seeded?.seededAt).toMatch(/Z$/);
+    const appCreatesAfterFirst = fakeDocker!.creates.filter(
+      (c) => c.name === "sprout-myapp-pr-42",
+    ).length;
+
+    const second = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+        reseed: true,
+      }),
+    );
+    expect(second.settleStatus).toBe(200);
+    expect(second.body.status).toBe("running");
+    // Same image/hostname: seed-only — no second app create.
+    expect(
+      fakeDocker!.creates.filter((c) => c.name === "sprout-myapp-pr-42"),
+    ).toHaveLength(appCreatesAfterFirst);
+    expect(
+      fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
+    ).toHaveLength(2);
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row?.seededAt).toMatch(/Z$/);
+    expect(row?.containerId).toBe(seeded?.containerId);
+  });
+
+  test("reseed without seed_image is rejected", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({ reseed: true, health: healthBlock() }),
+    );
+    expect(res.settleStatus).toBe(422);
+    expect(res.body).toEqual({ error: "seed_image_required_for_reseed" });
+  });
+
+  test("failed reseed keeps app, clears seeded_at, resume works", async () => {
+    fakePreviewDb = createFakePreviewDb();
+    fakeDocker = createFakeDockerClient({
+      exposedPorts: { [APP_IMAGE]: 3000 },
+    });
+    testApp = await createTestApp({
+      previewDb: fakePreviewDb,
+      docker: fakeDocker,
+    });
+    const { body } = await postDeployToken(testApp, {
+      canonical_repo_id: REPO,
+      slug: "myapp",
+    });
+    const deployToken = body.token as string;
+
+    const first = await postDeploy(
+      deployToken,
+      deployBody({ seed_image: SEED_IMAGE, health: healthBlock() }),
+    );
+    expect(first.settleStatus).toBe(200);
+
+    fakeDocker.waitResults.set("sprout-myapp-pr-42-seed", { exitCode: 3 });
+    const failed = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+        reseed: true,
+      }),
+    );
+    expect(failed.outcome).toBe("failed");
+    expect(failed.body).toMatchObject({
+      status: "failed",
+      last_error: "seed_failed",
+    });
+
+    const [failedRow] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(failedRow?.seededAt).toBeNull();
+    expect(failedRow?.containerId).toBe("fake-1");
+    expect(fakeDocker.running.has("sprout-myapp-pr-42")).toBe(true);
+
+    fakeDocker.waitResults.set("sprout-myapp-pr-42-seed", { exitCode: 0 });
+    const resume = await postDeploy(
+      deployToken,
+      deployBody({ seed_image: SEED_IMAGE, health: healthBlock() }),
+    );
+    expect(resume.settleStatus).toBe(200);
+    expect(resume.body.status).toBe("running");
+    expect(
+      fakeDocker.creates.filter((c) => c.name === "sprout-myapp-pr-42"),
+    ).toHaveLength(1);
+    expect(
+      fakeDocker.creates.filter((c) => c.name.endsWith("-seed")),
+    ).toHaveLength(3);
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row?.seededAt).toMatch(/Z$/);
+  });
+
+  test("reseed with app image change replaces container then seeds", async () => {
+    const { deployToken } = await setup();
+    const first = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+      }),
+    );
+    expect(first.settleStatus).toBe(200);
+
+    const NEW_APP = "ghcr.io/org/myapp:sha-new";
+    fakeDocker!.exposedPorts.set(NEW_APP, 3000);
+    const second = await postDeploy(
+      deployToken,
+      deployBody({
+        app_image: NEW_APP,
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+        reseed: true,
+      }),
+    );
+    expect(second.settleStatus).toBe(200);
+    expect(second.body.status).toBe("running");
+    expect(
+      fakeDocker!.creates.filter((c) => c.name === "sprout-myapp-pr-42"),
+    ).toHaveLength(2);
+    expect(
+      fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
+    ).toHaveLength(2);
+  });
+
   test("seed Docker ops failure marks failed and keeps app container", async () => {
     const { deployToken } = await setup();
     const original = fakeDocker!.createAndStart.bind(fakeDocker);
