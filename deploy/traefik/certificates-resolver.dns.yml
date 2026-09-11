@@ -1,0 +1,41 @@
+# Traefik static-config snippet: DNS-01 ACME for wildcard preview certs.
+# Paste under your existing `certificatesResolvers:` map — do NOT replace
+# Coolify/other managed static ACME config wholesale.
+#
+# Placeholders:
+#   <ACME_EMAIL>            — Let's Encrypt contact email
+#   <ACME_STORAGE_PATH>     — durable ACME JSON path for THIS resolver
+#                             Default (convert): keep the path you already use
+#                             (e.g. /data/acme.json).
+#                             Coexistence (second resolver): MUST be a different
+#                             file from the HTTP-01 resolver
+#                             (e.g. /data/acme-dns.json) — Traefik allows one
+#                             storage file per certificates resolver.
+#   <DNS_PROVIDER>          — Traefik dnsChallenge provider name for your DNS
+#                             (see Traefik "DNS Providers" docs; e.g. cloudflare,
+#                             route53, digitalocean — pick yours, do not guess)
+#   <DNS_PROVIDER_ENV_*>    — provider-specific env vars Traefik expects
+#                             (API token / keys). Inject via Traefik container
+#                             env or a secrets store — never hard-code here.
+#
+# Default — convert in place: replace the existing resolver's `httpChallenge`
+# block with this `dnsChallenge` shape (same key, same storage). Converting
+# replaces the challenge type for EVERY consumer of that resolver name — if any
+# other app must stay on HTTP-01, stop and use coexistence instead.
+#
+# Coexistence — copy this body under a NEW key (e.g. `letsencrypt-dns:`), set
+# storage to a distinct path, leave the HTTP-01 resolver untouched. See
+# docs/deploy.md § Wildcard for the merged example.
+
+  letsencrypt:
+    acme:
+      email: "<ACME_EMAIL>"
+      storage: "<ACME_STORAGE_PATH>"
+      # Optional: caServer for staging while testing issuance:
+      # caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
+      dnsChallenge:
+        provider: "<DNS_PROVIDER>"
+        # delayBeforeCheck: 0   # raise if your DNS provider is slow to propagate
+        # resolvers:
+        #   - "1.1.1.1:53"
+        #   - "8.8.8.8:53"
