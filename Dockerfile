@@ -1,5 +1,5 @@
 FROM oven/bun:1.4.0
-ARG SPROUT_VERSION=0.4.2
+ARG SPROUT_VERSION=0.5.0
 LABEL org.opencontainers.image.title="sprout"
 LABEL org.opencontainers.image.description="CI-driven preview gateway (preview-db + app-deployment)"
 LABEL org.opencontainers.image.version="${SPROUT_VERSION}"
