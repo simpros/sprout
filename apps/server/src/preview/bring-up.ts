@@ -114,11 +114,42 @@ async function syncPreviewServices(
   }
 }
 
+/** Single closer: write `running` only after promote/seed + companion sync. */
+async function closeRunning(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+): Promise<Result<PreviewSnapshot>> {
+  const now = utcIsoNow();
+  const updated = await updatePreviewRow(
+    deps.db,
+    row,
+    {
+      status: "running",
+      ...clearLastError,
+      updatedAt: now,
+    },
+    "preview_row_missing_on_running",
+  );
+  return {
+    ok: true,
+    value: {
+      ok: true,
+      canonical_repo_id: updated.canonicalRepoId,
+      pr_id: updated.prId,
+      slug: updated.slug,
+      db_name: updated.dbName,
+      hostname: updated.hostname,
+      status: "running",
+      preview_url: `https://${updated.hostname}`,
+    },
+  };
+}
+
 /**
- * After a successful promote/seed snapshot, sync companions then return it.
- * Single post-seed fleet step shared by replace and seed-resume paths.
+ * After successful promote/seed, sync companions then close to `running`.
+ * Shared by replace, seed-resume, and companion-only retry paths.
  */
-async function promoteThenSync(
+async function syncThenCloseRunning(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: ProvisionInput,
@@ -127,7 +158,7 @@ async function promoteThenSync(
   if (!promoted.ok) return promoted;
   const synced = await syncPreviewServices(deps, row, input);
   if (!synced.ok) return synced;
-  return { ok: true, value: promoted.value };
+  return closeRunning(deps, row);
 }
 
 /** Project request-scoped seed/remap fields only at the seed-phase boundary. */
@@ -227,7 +258,7 @@ async function attachThenPromote(
     starting,
     deployEphemerals(input),
   );
-  return promoteThenSync(deps, starting, input, promoted);
+  return syncThenCloseRunning(deps, starting, input, promoted);
 }
 
 /**
@@ -302,7 +333,8 @@ export async function pullImagesOutsideLock(
 /**
  * Post-accept bring-up under the preview lock (caller holds lock).
  * Status after claim is the plan: seed-resume / seed-only reseed is `seeding`;
- * everything else is `provisioning` → ensure → attach → promote → sync.
+ * `post_healthy` + same app → sync companions only (keep healthy app);
+ * everything else is `provisioning` → ensure → attach → promote → sync → running.
  */
 export async function completeBringUp(
   deps: LifecycleDeps,
@@ -316,7 +348,17 @@ export async function completeBringUp(
       row,
       deployEphemerals(input),
     );
-    return promoteThenSync(deps, row, input, seeded);
+    return syncThenCloseRunning(deps, row, input, seeded);
+  }
+  // Companion sticky retry: accept kept failureFamily through claim.
+  if (
+    status === "provisioning" &&
+    row.failureFamily === "post_healthy" &&
+    canSeedWithoutAppReplace(row, input)
+  ) {
+    const synced = await syncPreviewServices(deps, row, input);
+    if (!synced.ok) return synced;
+    return closeRunning(deps, row);
   }
   return ensureThenAttach(deps, row, input);
 }

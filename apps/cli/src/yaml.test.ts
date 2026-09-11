@@ -342,4 +342,19 @@ preview:
       error: "preview.services[0].name is invalid",
     });
   });
+
+  test("rejects empty preview.services list", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  services: []
+`),
+    ).toEqual({
+      ok: false,
+      error:
+        "preview.services: empty list; omit the key to leave companions, or pass --clear-services",
+    });
+  });
 });

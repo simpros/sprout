@@ -170,8 +170,10 @@ describe("POST /v1/deploy services", () => {
     expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
     expect(fakeDocker!.running.has("sprout-myapp-pr-42-svc-api")).toBe(false);
 
-    // Retry without -s must replace→sync, not seed-resume (no seed_image_required).
+    // Retry same app+services: sync-only (keep containerId), not seed-resume
+    // and not full app replace.
     fakeDocker!.createAndStart = orig;
+    const createsBeforeRetry = fakeDocker!.creates.length;
     const retry = await postDeploy(
       deployToken,
       deployBody({
@@ -186,6 +188,19 @@ describe("POST /v1/deploy services", () => {
     );
     expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
     expect(fakeDocker!.running.has("sprout-myapp-pr-42-svc-api")).toBe(true);
+
+    const [after] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      );
+    expect(after?.containerId).toBe("fake-1");
+    expect(after?.failureFamily).toBeNull();
+    // Sync-only: one service create, no second app container.
+    expect(
+      fakeDocker!.creates.slice(createsBeforeRetry).map((c) => c.name),
+    ).toEqual(["sprout-myapp-pr-42-svc-api"]);
   });
 
   test("seed runs before companion services on first deploy", async () => {

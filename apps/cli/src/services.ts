@@ -2,6 +2,9 @@ import type { Result } from "./result.ts";
 import { SERVICE_NAME_RE } from "./service-name.ts";
 import type { SproutYamlService } from "./yaml.ts";
 
+/** Mirror server MAX_SERVICES — fail before POST. */
+export const MAX_SERVICES = 8;
+
 export type DeployService = {
   name: string;
   image: string;
@@ -63,6 +66,9 @@ export function mergeServices(
   }
 
   if (byName.size === 0) return { ok: true, value: undefined };
+  if (byName.size > MAX_SERVICES) {
+    return { ok: false, error: `at most ${MAX_SERVICES} services` };
+  }
 
   const out: DeployService[] = [];
   for (const svc of byName.values()) {

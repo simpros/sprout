@@ -187,6 +187,8 @@ async function writeProvisioningIntent(
  * Same-identity accept patch: clear sticky errors and set the in-flight plan
  * status. Optional remint advances TTL generation (stuck provisioning only).
  * Does not touch seeded_at — that clears after healthy attach or on seed entry.
+ * Preserves failureFamily so bring-up can select post_healthy sync-only vs
+ * full replace; cleared on successful closeRunning / attach.
  */
 async function patchAccept(
   deps: LifecycleDeps,
@@ -204,7 +206,9 @@ async function patchAccept(
     {
       status: fields.status,
       ...(fields.hostname != null ? { hostname: fields.hostname } : {}),
-      ...clearLastError,
+      lastError: null,
+      lastErrorDetail: null,
+      seedLog: null,
       ...(fields.remint ? { createdAt: now } : {}),
       updatedAt: now,
     },
@@ -240,10 +244,12 @@ function requireDbIdentity(
  * Shared accept plan for identity-matched rows that may seed without replace.
  * - seeding + same app → seeding (resume incomplete seed)
  * - failed + same app + failureFamily seed_incomplete → seeding
- * - failed + post_healthy (or other) sticky fail → provisioning (replace→sync)
+ * - failed + post_healthy (or other) sticky fail → provisioning
+ *   (bring-up: post_healthy + sameApp → sync-only; else replace→sync)
  * - running/starting + reseed + same app → seeding (seed-only reseed)
  * - else → provisioning (replace path)
  * seeded_at clears after healthy attach or on seed-phase entry.
+ * failureFamily survives patchAccept for bring-up to consume.
  */
 function planAcceptBringUp(
   row: PreviewRow,
@@ -367,10 +373,11 @@ export async function claimDeployIntent(
  * everything else is `provisioning`. Do not re-enter seed on a live same-image
  * row — that still has containerId/appImage and would wrongly match
  * canSeedWithoutAppReplace without the seeding-only guard (`failed` is
- * terminal after accept).
+ * terminal after accept). `post_healthy` failureFamily survives claim so
+ * bring-up can sync companions without replacing the healthy app.
  *
- * Bring-up pipeline (see bring-up.ts): attach → promote/seed → sync companions
- * (or seed-resume → sync).
+ * Bring-up pipeline (see bring-up.ts): attach → promote/seed → sync → running
+ * (or seed-resume → sync → running; or post_healthy sync-only → running).
  */
 async function completeProvisionUnlocked(
   deps: LifecycleDeps,

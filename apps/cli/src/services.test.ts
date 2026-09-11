@@ -56,4 +56,15 @@ describe("mergeServices", () => {
       error: "service api requires an image (--service api=<image>)",
     });
   });
+
+  test("rejects more than MAX_SERVICES", () => {
+    const flags = Array.from(
+      { length: 9 },
+      (_, i) => `svc${i}=img:${i}`,
+    );
+    expect(mergeServices(undefined, flags)).toEqual({
+      ok: false,
+      error: "at most 8 services",
+    });
+  });
 });

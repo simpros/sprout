@@ -26,7 +26,10 @@ export type DeployEphemerals = {
   connectionEnv?: PreviewEnvMap;
 };
 
-/** Running snapshot returned by seed/promote closers (matches PreviewSnapshot). */
+/**
+ * Promote/seed succeeded but the row is not yet `running`.
+ * Fleet sync may still follow; bring-up owns the single write to `running`.
+ */
 export type SeedPhaseSnapshot = {
   ok: true;
   canonical_repo_id: string;
@@ -34,11 +37,11 @@ export type SeedPhaseSnapshot = {
   slug: string;
   db_name: string;
   hostname: string;
-  status: "running";
-  preview_url: string;
+  status: "starting" | "seeding";
 };
 
-function toRunningSnapshot(row: PreviewRow): SeedPhaseSnapshot {
+function toPromotedSnapshot(row: PreviewRow): SeedPhaseSnapshot {
+  const status = row.status === "seeding" ? "seeding" : "starting";
   return {
     ok: true,
     canonical_repo_id: row.canonicalRepoId,
@@ -46,8 +49,7 @@ function toRunningSnapshot(row: PreviewRow): SeedPhaseSnapshot {
     slug: row.slug,
     db_name: row.dbName,
     hostname: row.hostname,
-    status: "running",
-    preview_url: `https://${row.hostname}`,
+    status,
   };
 }
 
@@ -61,8 +63,10 @@ function seedFailureDetail(
 }
 
 /**
- * Seed phase ownership: enter seeding → run → running+seededAt | failed(keep container).
- * Any post-enter throw still markStickyPreviewFailed so the row cannot tombstone as seeding.
+ * Seed phase ownership: enter seeding → run → seededAt (still seeding) |
+ * failed(keep container). Bring-up closes to `running` after companion sync.
+ * Any post-enter throw still markStickyPreviewFailed so the row cannot
+ * tombstone as seeding.
  */
 async function runSeedPhase(
   deps: SeedPhaseDeps,
@@ -115,7 +119,8 @@ async function runSeedPhase(
       deps.db,
       row,
       {
-        status: "running",
+        // Stay seeding until bring-up syncs companions and closes to running.
+        status: "seeding",
         seededAt,
         lastError: null,
         lastErrorDetail: null,
@@ -123,9 +128,9 @@ async function runSeedPhase(
         seedLog: null,
         updatedAt: seededAt,
       },
-      "preview_row_missing_on_seeded_running",
+      "preview_row_missing_on_seeded",
     );
-    return { ok: true, value: toRunningSnapshot(updated) };
+    return { ok: true, value: toPromotedSnapshot(updated) };
   } catch (err) {
     console.warn("seed:failed", err);
     await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
@@ -139,7 +144,8 @@ async function runSeedPhase(
 }
 
 /**
- * After-healthy hook entry: no seed → running; else run seed phase.
+ * After-healthy hook entry: no seed → stay starting; else run seed phase.
+ * Does not write `running` — bring-up owns that after companion sync.
  * Seed image is the only after-healthy hook impl in v0.1.
  */
 export async function promoteAfterHealthy(
@@ -156,20 +162,8 @@ export async function promoteAfterHealthy(
     return runSeedPhase(deps, starting, { ...ephemerals, seed });
   }
 
-  const updated = await updatePreviewRow(
-    deps.db,
-    starting,
-    {
-      status: "running",
-      lastError: null,
-      lastErrorDetail: null,
-      failureFamily: null,
-      seedLog: null,
-      updatedAt: utcIsoNow(),
-    },
-    "preview_row_missing_on_running",
-  );
-  return { ok: true, value: toRunningSnapshot(updated) };
+  // Attach already left status=starting with errors cleared; no DB write.
+  return { ok: true, value: toPromotedSnapshot(starting) };
 }
 
 /**
@@ -193,7 +187,7 @@ export function canSeedWithoutAppReplace(
 
 /**
  * Resume seed-incomplete row without replace. Requires seed_image — otherwise
- * a synchronize without -s would silently mark running with seededAt null.
+ * a synchronize without -s would silently close to running with seededAt null.
  */
 export async function resumeIncompleteSeed(
   deps: SeedPhaseDeps,

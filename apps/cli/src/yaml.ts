@@ -116,7 +116,7 @@ function parseAppEnv(
   return { ok: true, value: out };
 }
 
-/** Absent or empty list → undefined. */
+/** Absent → undefined (leave). Empty list is rejected — use --clear-services. */
 function parseServices(
   raw: unknown,
 ): Result<SproutYamlService[] | undefined> {
@@ -124,7 +124,13 @@ function parseServices(
   if (!Array.isArray(raw)) {
     return { ok: false, error: "preview.services must be a list" };
   }
-  if (raw.length === 0) return { ok: true, value: undefined };
+  if (raw.length === 0) {
+    return {
+      ok: false,
+      error:
+        "preview.services: empty list; omit the key to leave companions, or pass --clear-services",
+    };
+  }
 
   const seen = new Set<string>();
   const out: SproutYamlService[] = [];

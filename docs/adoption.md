@@ -354,9 +354,11 @@ sprout deploy -i "$APP_IMAGE" \
 Pass `--service` when companions should be created or refreshed. Omitting
 `--service` (and yaml services) leaves existing companions in place. Pass
 `--clear-services` to remove all companions (`services: []` on the API).
-`--clear-services` cannot be combined with `--service`. Seed-only reseed
-(`--reseed` with unchanged app image/hostname) can refresh companions without
-replacing the app when `--service` is passed.
+`--clear-services` cannot be combined with `--service`. An empty
+`preview.services: []` in `.sprout.yaml` is rejected — omit the key to leave,
+or use `--clear-services` to clear. Seed-only reseed (`--reseed` with unchanged
+app image/hostname) can refresh companions without replacing the app when
+`--service` is passed.
 
 ## Debugging
 
