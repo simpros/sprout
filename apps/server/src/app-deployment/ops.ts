@@ -18,6 +18,10 @@ import {
   type SeedImageResult,
 } from "./seed.ts";
 import type { CatalogContainer } from "../docker/port.ts";
+import {
+  previewContainerName,
+  seedImageRunName,
+} from "../preview/naming.ts";
 
 /** Bound deploy ops for lifecycle/sweep — no PGHOST / network config at callers. */
 export type PreviewAppOps = {
@@ -36,6 +40,15 @@ export type PreviewAppOps = {
   remove: (slug: string, prId: number) => Promise<void>;
   /** Catalog of running sprout-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
+  /**
+   * App + seed container logs by preview identity. Missing containers yield
+   * empty strings (seed is usually gone after the one-shot finishes).
+   */
+  logs: (
+    slug: string,
+    prId: number,
+    options: { tail: number },
+  ) => Promise<{ app: string; seed: string }>;
 };
 
 export type BindPreviewOpsDeps = ReplacePreviewAppDeps & {
@@ -78,5 +91,12 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
       ),
     remove: (slug, prId) => removePreviewApp(deps.docker, slug, prId),
     list: () => deps.docker.listPreviewContainers(),
+    logs: async (slug, prId, options) => {
+      const [app, seed] = await Promise.all([
+        deps.docker.containerLogs(previewContainerName(slug, prId), options),
+        deps.docker.containerLogs(seedImageRunName(slug, prId), options),
+      ]);
+      return { app: app ?? "", seed: seed ?? "" };
+    },
   };
 }

@@ -159,6 +159,9 @@ function resolveRepo(
   return { ok: true, value: requested };
 }
 
+/** Deploy-token repo gate shared by lifecycle HTTP handlers. */
+export { resolveRepo };
+
 function mapResult<T>(
   result: Result<T>,
   set: { status?: number | string },

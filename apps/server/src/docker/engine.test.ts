@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   assertPullStreamOk,
   createDockerEngineClient,
+  demuxDockerLogs,
   firstExposedPortFromInspect,
   splitImageRef,
 } from "./engine.ts";
@@ -433,5 +434,52 @@ describe("createDockerEngineClient", () => {
     expect(
       await docker.containerIpOnNetwork("cid-9", "sprout-postgres"),
     ).toBe("172.20.0.4");
+  });
+
+  test("containerLogs fetches stdout+stderr with tail and demuxes frames", async () => {
+    const name = previewContainerName("widgets", 7);
+    const calls: string[] = [];
+    const frame = new Uint8Array(8 + 5);
+    frame[0] = 1;
+    frame[7] = 5;
+    frame.set(new TextEncoder().encode("hello"), 8);
+    const docker = createDockerEngineClient({
+      fetch: async (input) => {
+        calls.push(String(input));
+        return new Response(frame, { status: 200 });
+      },
+    });
+    expect(await docker.containerLogs(name, { tail: 50 })).toBe("hello");
+    expect(calls).toEqual([
+      `http://localhost/containers/${encodeURIComponent(name)}/logs?stdout=1&stderr=1&timestamps=0&follow=0&tail=50`,
+    ]);
+  });
+
+  test("containerLogs returns null on 404", async () => {
+    const docker = createDockerEngineClient({
+      fetch: async () => new Response("no such container", { status: 404 }),
+    });
+    expect(await docker.containerLogs("missing", { tail: 10 })).toBeNull();
+  });
+});
+
+describe("demuxDockerLogs", () => {
+  test("joins multiplexed stdout frames", () => {
+    const a = new TextEncoder().encode("foo");
+    const b = new TextEncoder().encode("bar");
+    const buf = new Uint8Array(8 + a.length + 8 + b.length);
+    buf[0] = 1;
+    buf[7] = a.length;
+    buf.set(a, 8);
+    buf[8 + a.length] = 2;
+    buf[8 + a.length + 7] = b.length;
+    buf.set(b, 16 + a.length);
+    expect(demuxDockerLogs(buf)).toBe("foobar");
+  });
+
+  test("returns raw text when not multiplexed", () => {
+    expect(demuxDockerLogs(new TextEncoder().encode("plain\n"))).toBe(
+      "plain\n",
+    );
   });
 });

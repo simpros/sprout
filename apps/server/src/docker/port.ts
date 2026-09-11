@@ -53,5 +53,13 @@ export type PreviewDocker = {
     containerId: string,
     networkName: string,
   ): Promise<string | null>;
+  /**
+   * Container stdout+stderr as text, or null when the container is missing (404).
+   * `tail` is the Docker `tail` query (last N lines).
+   */
+  containerLogs(
+    nameOrId: string,
+    options: { tail: number },
+  ): Promise<string | null>;
   listPreviewContainers(): Promise<CatalogContainer[]>;
 };
