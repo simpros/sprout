@@ -23,9 +23,10 @@ import {
   seedImageRunName,
 } from "../preview/naming.ts";
 
-export type PreviewLogsBundle = {
-  app: string;
-  seed: string;
+/** Live container log text; null = container missing (Docker 404). */
+export type LiveContainerLogs = {
+  app: string | null;
+  seed: string | null;
 };
 
 /** Bound deploy ops for lifecycle/sweep — no PGHOST / network config at callers. */
@@ -46,15 +47,14 @@ export type PreviewAppOps = {
   /** Catalog of running sprout-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
   /**
-   * Live app logs + seed text (live seed container if present, else stored).
-   * Missing containers → "".
+   * Live app + seed container text in parallel.
+   * Missing container → null (caller merges with stored seed_log).
    */
-  logs: (input: {
+  liveLogs: (input: {
     slug: string;
     prId: number;
     tail: number;
-    storedSeedLog: string | null;
-  }) => Promise<PreviewLogsBundle>;
+  }) => Promise<LiveContainerLogs>;
 };
 
 export type BindPreviewOpsDeps = ReplacePreviewAppDeps & {
@@ -66,38 +66,21 @@ export type BindPreviewOpsDeps = ReplacePreviewAppDeps & {
   healthClock?: HealthClock;
 };
 
-async function containerLogText(
+/** Parallel Docker log pulls for app + seed container names. */
+export async function fetchLiveContainerLogs(
   docker: PreviewDocker,
-  name: string,
-  tail: number,
-): Promise<string> {
-  return (await docker.containerLogs(name, { tail })) ?? "";
-}
-
-/**
- * Resolve seed text: prefer a still-running seed container, else stored capture.
- */
-export async function resolvePreviewLogs(
-  docker: PreviewDocker,
-  input: {
-    slug: string;
-    prId: number;
-    tail: number;
-    storedSeedLog: string | null;
-  },
-): Promise<PreviewLogsBundle> {
-  const app = await containerLogText(
-    docker,
-    previewContainerName(input.slug, input.prId),
-    input.tail,
-  );
-  const liveSeed = await containerLogText(
-    docker,
-    seedImageRunName(input.slug, input.prId),
-    input.tail,
-  );
-  const seed =
-    liveSeed !== "" ? liveSeed : (input.storedSeedLog ?? "");
+  input: { slug: string; prId: number; tail: number },
+): Promise<LiveContainerLogs> {
+  const [app, seed] = await Promise.all([
+    docker.containerLogs(
+      previewContainerName(input.slug, input.prId),
+      { tail: input.tail },
+    ),
+    docker.containerLogs(
+      seedImageRunName(input.slug, input.prId),
+      { tail: input.tail },
+    ),
+  ]);
   return { app, seed };
 }
 
@@ -132,6 +115,6 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
       ),
     remove: (slug, prId) => removePreviewApp(deps.docker, slug, prId),
     list: () => deps.docker.listPreviewContainers(),
-    logs: (input) => resolvePreviewLogs(deps.docker, input),
+    liveLogs: (input) => fetchLiveContainerLogs(deps.docker, input),
   };
 }

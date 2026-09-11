@@ -3,7 +3,7 @@ import type { AuthContext } from "../auth/middleware.ts";
 import type { LifecycleDeps } from "../preview/lifecycle.ts";
 import { readPreviewLogs } from "../preview/preview-logs.ts";
 import type { Result } from "../preview/result.ts";
-import { mapResult, requireReadablePreview } from "./result-map.ts";
+import { mapResult, requireReadablePreviewRow } from "./result-map.ts";
 
 /** Default / max Docker `tail` lines for GET …/logs. */
 export const DEFAULT_LOG_TAIL = 100;
@@ -64,7 +64,7 @@ export function getPreviewLogs(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }): Promise<PreviewLogsSnapshot | { error: string; detail?: string }> => {
-    const preview = await requireReadablePreview(
+    const preview = await requireReadablePreviewRow(
       deps,
       auth,
       query.canonical_repo_id,
@@ -75,19 +75,16 @@ export function getPreviewLogs(deps: LifecycleDeps) {
     const tail = parseTail(query.tail);
     if (!tail.ok) return mapResult(tail, set);
 
-    const { app, seed } = await readPreviewLogs(
-      deps,
-      {
-        canonicalRepoId: preview.value.canonical_repo_id,
-        slug: preview.value.slug,
-        prId: preview.value.pr_id,
-      },
-      tail.value,
-    );
+    const { app, seed } = await readPreviewLogs(deps, {
+      slug: preview.value.slug,
+      prId: preview.value.prId,
+      tail: tail.value,
+      storedSeedLog: preview.value.seedLog,
+    });
     return {
       ok: true,
-      canonical_repo_id: preview.value.canonical_repo_id,
-      pr_id: preview.value.pr_id,
+      canonical_repo_id: preview.value.canonicalRepoId,
+      pr_id: preview.value.prId,
       tail: tail.value,
       app,
       seed,

@@ -1,35 +1,51 @@
-import { and, eq } from "drizzle-orm";
-import type { PreviewAppOps, PreviewLogsBundle } from "../app-deployment/ops.ts";
-import type { StateDb } from "../infrastructure/db/client.ts";
-import { previews } from "../infrastructure/db/schema.ts";
+import type {
+  LiveContainerLogs,
+  PreviewAppOps,
+} from "../app-deployment/ops.ts";
+
+export type PreviewLogsBundle = {
+  app: string;
+  seed: string;
+};
 
 /**
- * Load stored seed text + live containers; owns the seed resolution policy
- * so HTTP handlers do not branch on last_error / seed_log.
+ * Prefer live seed container whenever it exists (including empty output).
+ * Fall back to stored seed_log only when the container is missing (null).
+ */
+export function mergeSeedText(
+  liveSeed: string | null,
+  storedSeedLog: string | null,
+): string {
+  return liveSeed !== null ? liveSeed : (storedSeedLog ?? "");
+}
+
+export function mergePreviewLogs(
+  live: LiveContainerLogs,
+  storedSeedLog: string | null,
+): PreviewLogsBundle {
+  return {
+    app: live.app ?? "",
+    seed: mergeSeedText(live.seed, storedSeedLog),
+  };
+}
+
+/**
+ * Live containers + stored seed_log; owns the seed resolution policy so HTTP
+ * does not re-query or branch on persistence shape.
  */
 export async function readPreviewLogs(
-  deps: {
-    db: StateDb;
-    app: Pick<PreviewAppOps, "logs">;
+  deps: { app: Pick<PreviewAppOps, "liveLogs"> },
+  input: {
+    slug: string;
+    prId: number;
+    tail: number;
+    storedSeedLog: string | null;
   },
-  identity: { canonicalRepoId: string; slug: string; prId: number },
-  tail: number,
 ): Promise<PreviewLogsBundle> {
-  const [row] = await deps.db
-    .select({ seedLog: previews.seedLog })
-    .from(previews)
-    .where(
-      and(
-        eq(previews.canonicalRepoId, identity.canonicalRepoId),
-        eq(previews.prId, identity.prId),
-      ),
-    )
-    .limit(1);
-
-  return deps.app.logs({
-    slug: identity.slug,
-    prId: identity.prId,
-    tail,
-    storedSeedLog: row?.seedLog ?? null,
+  const live = await deps.app.liveLogs({
+    slug: input.slug,
+    prId: input.prId,
+    tail: input.tail,
   });
+  return mergePreviewLogs(live, input.storedSeedLog);
 }

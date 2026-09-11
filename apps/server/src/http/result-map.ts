@@ -1,6 +1,12 @@
 import type { AuthContext } from "../auth/middleware.ts";
-import { readPreviewStatus } from "../preview/async-deploy.ts";
-import type { LifecycleDeps, PreviewSnapshot } from "../preview/lifecycle.ts";
+import { gateReadablePreviewRow } from "../preview/async-deploy.ts";
+import {
+  getPreviewRow,
+  previewSnapshotFromRow,
+  type LifecycleDeps,
+  type PreviewRow,
+  type PreviewSnapshot,
+} from "../preview/lifecycle.ts";
 import type { Result } from "../preview/result.ts";
 import { validatePrId } from "../preview-db/names.ts";
 
@@ -16,15 +22,15 @@ export function resolveRepo(
 }
 
 /**
- * Auth → repo scope → pr_id → readable preview row.
- * Shared by GET /v1/preview and GET /v1/previews/:id/logs.
+ * Auth → repo scope → pr_id → readable preview row (includes seed_log).
+ * Shared by GET /v1/preview (mapped to snapshot) and GET …/logs.
  */
-export async function requireReadablePreview(
+export async function requireReadablePreviewRow(
   deps: Pick<LifecycleDeps, "db">,
   auth: AuthContext | null,
   repoId: string,
   prRaw: string | number,
-): Promise<Result<PreviewSnapshot>> {
+): Promise<Result<PreviewRow>> {
   if (!auth) {
     return { ok: false, status: 401, error: "unauthorized" };
   }
@@ -35,7 +41,20 @@ export async function requireReadablePreview(
   if (prErr) {
     return { ok: false, status: 422, error: prErr };
   }
-  return readPreviewStatus(deps, repo.value, prId);
+  const row = await getPreviewRow(deps.db, repo.value, prId);
+  return gateReadablePreviewRow(row);
+}
+
+/** Auth → readable preview as the public status snapshot. */
+export async function requireReadablePreview(
+  deps: Pick<LifecycleDeps, "db">,
+  auth: AuthContext | null,
+  repoId: string,
+  prRaw: string | number,
+): Promise<Result<PreviewSnapshot>> {
+  const row = await requireReadablePreviewRow(deps, auth, repoId, prRaw);
+  if (!row.ok) return row;
+  return { ok: true, value: previewSnapshotFromRow(row.value) };
 }
 
 /** Map a domain `Result` onto Elysia's `set.status` + error body. */

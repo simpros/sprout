@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createFakeDockerClient } from "../docker/fake.ts";
-import { resolvePreviewLogs } from "./ops.ts";
+import { fetchLiveContainerLogs } from "./ops.ts";
 
-describe("resolvePreviewLogs", () => {
-  test("prefers live seed container over stored seed log", async () => {
+describe("fetchLiveContainerLogs", () => {
+  test("returns live app and seed text in parallel", async () => {
     const docker = createFakeDockerClient();
     await docker.createAndStart({
       name: "sprout-app-pr-1",
@@ -22,17 +22,16 @@ describe("resolvePreviewLogs", () => {
     docker.logs.set("sprout-app-pr-1", "app live\n");
     docker.logs.set("sprout-app-pr-1-seed", "seed live\n");
 
-    const bundle = await resolvePreviewLogs(docker, {
+    const live = await fetchLiveContainerLogs(docker, {
       slug: "app",
       prId: 1,
       tail: 100,
-      storedSeedLog: "seed stored\n",
     });
 
-    expect(bundle).toEqual({ app: "app live\n", seed: "seed live\n" });
+    expect(live).toEqual({ app: "app live\n", seed: "seed live\n" });
   });
 
-  test("falls back to stored seed log when seed container is gone", async () => {
+  test("returns null for missing containers", async () => {
     const docker = createFakeDockerClient();
     await docker.createAndStart({
       name: "sprout-app-pr-1",
@@ -43,13 +42,12 @@ describe("resolvePreviewLogs", () => {
     });
     docker.logs.set("sprout-app-pr-1", "app live\n");
 
-    const bundle = await resolvePreviewLogs(docker, {
+    const live = await fetchLiveContainerLogs(docker, {
       slug: "app",
       prId: 1,
       tail: 100,
-      storedSeedLog: "seed stored\n",
     });
 
-    expect(bundle).toEqual({ app: "app live\n", seed: "seed stored\n" });
+    expect(live).toEqual({ app: "app live\n", seed: null });
   });
 });
