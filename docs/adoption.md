@@ -239,14 +239,23 @@ shows a minimal seed image: install deps, copy seed script, entrypoint runs
 2. Gateway polls `health.path` on the Postgres-network container IP until
    `health.expect` (default 200) or `health.timeout`.
 3. **After healthy:** if `-s` / `seed_image` was provided and this PR has never
-   seeded successfully (`seeded_at` unset), the gateway runs the seed image
-   once with the same connection-env remap as the app, plus `--seed-env` /
-   `--seed-arg`.
+   seeded successfully (`seeded_at` unset), the gateway runs the seed image once
+   with the same connection-env remap as the app, plus `--seed-env` /
+   `--seed-arg`. `--reseed` clears `seeded_at` after a healthy attach (replace)
+   or on seed-phase entry (seed-only), so the same after-healthy gate re-runs.
 4. Preview status becomes `running` with `seeded_at` set.
 
 On later synchronize deploys, seeding is skipped when `seeded_at` is already
 set (pass `-s` only when you intend to seed or resume). Clients may omit `-s`
-on sync to avoid an unused seed-image pull.
+on sync to avoid an unused seed-image pull. To force a re-seed against the
+**existing** database without tearing down, pass `--reseed` with `-s`:
+
+```bash
+sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" --reseed
+```
+
+Same image + hostname: seed-only (no app container replace). Image or hostname
+change still replaces the app, then runs seed after healthy.
 
 ### Timeout
 
@@ -275,10 +284,12 @@ seed image and redeploy.
   replace). Without `seed_image`, resume returns `422`
   `seed_image_required_to_resume_seeding`.
 - **Image or hostname change:** full attach + health, then after-healthy seed
-  again if `seeded_at` is still unset.
-- **Successful seed:** `seeded_at` set — synchronize does not re-seed. There is
-  no separate "force re-seed" flag in v0.1; tear down the preview (or purge)
-  if you need a fresh seed.
+  again if `seeded_at` is still unset (or `--reseed` was passed).
+- **Successful seed:** `seeded_at` set — synchronize does not re-seed unless
+  you pass `--reseed` with `-s`. A failed reseed clears `seeded_at` and keeps
+  the app up; resume with `-s` (no `--reseed` required) matches first-seed
+  failure semantics. Tear down (or purge) only if you need a fresh database,
+  not merely fresh fixtures.
 
 ## CI workflow (GitHub Actions)
 

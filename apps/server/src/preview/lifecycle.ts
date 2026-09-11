@@ -14,7 +14,7 @@ import {
   type PreviewRow,
 } from "./row.ts";
 import {
-  canResumeSeed,
+  canSeedWithoutAppReplace,
   promoteAfterHealthy,
   resumeIncompleteSeed,
 } from "./seed-phase.ts";
@@ -79,6 +79,12 @@ export type ProvisionInput = {
   appEnv: string[];
   /** Connection env name remap; request-scoped, not persisted. */
   connectionEnv?: PreviewEnvMap;
+  /**
+   * Lifecycle-only: seed-only accept plan when same-app, and clear seeded_at
+   * after healthy attach (replace path). Seed-only path clears inside
+   * runSeedPhase. Never forwarded into DeployEphemerals.
+   */
+  reseed?: boolean;
 };
 
 export type TeardownInput = {
@@ -320,6 +326,7 @@ async function writeProvisioningIntent(
 /**
  * Same-identity accept patch: clear sticky errors and set the in-flight plan
  * status. Optional remint advances TTL generation (stuck provisioning only).
+ * Does not touch seeded_at — that clears after healthy attach or on seed entry.
  */
 async function patchAccept(
   deps: LifecycleDeps,
@@ -437,7 +444,10 @@ async function attachAppContainer(
 
 /** Project request-scoped seed/remap fields only at the seed-phase boundary. */
 function deployEphemerals(input: ProvisionInput) {
-  return { seed: input.seed, connectionEnv: input.connectionEnv };
+  return {
+    seed: input.seed,
+    connectionEnv: input.connectionEnv,
+  };
 }
 
 /** Attach (replace+health) then promote (running or seed phase). */
@@ -448,7 +458,18 @@ async function attachThenPromote(
 ): Promise<Result<PreviewSnapshot>> {
   const attached = await attachAppContainer(deps, row, input);
   if (!attached.ok) return attached;
-  return promoteAfterHealthy(deps, attached.value, deployEphemerals(input));
+  let starting = attached.value;
+  // Clear after healthy attach so pull/health failure cannot erase a prior
+  // successful seed marker. Promote stays dumb on seeded_at.
+  if (input.reseed === true && starting.seededAt != null) {
+    starting = await updatePreviewRow(
+      deps.db,
+      starting,
+      { seededAt: null, updatedAt: utcIsoNow() },
+      "preview_row_missing_on_reseed_clear",
+    );
+  }
+  return promoteAfterHealthy(deps, starting, deployEphemerals(input));
 }
 
 /**
@@ -495,6 +516,25 @@ function requireDbIdentity(
     };
   }
   return { ok: true, value: true };
+}
+
+/**
+ * Shared accept plan for identity-matched rows that may seed without replace.
+ * - failed/seeding + same app → seeding (resume incomplete seed)
+ * - running/starting + reseed + same app → seeding (seed-only reseed)
+ * - else → provisioning (replace path)
+ * Status only — seeded_at clears after healthy attach or on seed-phase entry.
+ */
+function planAcceptBringUp(
+  row: PreviewRow,
+  input: ProvisionInput,
+  status: "failed" | "seeding" | "running" | "starting",
+): "seeding" | "provisioning" {
+  const sameApp = canSeedWithoutAppReplace(row, input);
+  if (status === "failed" || status === "seeding") {
+    return sameApp ? "seeding" : "provisioning";
+  }
+  return input.reseed === true && sameApp ? "seeding" : "provisioning";
 }
 
 /**
@@ -550,11 +590,9 @@ export async function claimDeployIntent(
       if (dbIdentityMatches(row, input, requestedDbName)) {
         // Seed-resume accept writes in-flight `seeding` so `failed` stays
         // terminal-only for CLI pollers (keep containerId/appImage).
-        if (canResumeSeed(row, input)) {
-          const next = await patchAccept(deps, row, { status: "seeding" });
-          return { ok: true, value: previewSnapshotFromRow(next) };
-        }
-        const next = await patchAccept(deps, row, { status: "provisioning" });
+        const next = await patchAccept(deps, row, {
+          status: planAcceptBringUp(row, input, "failed"),
+        });
         return { ok: true, value: previewSnapshotFromRow(next) };
       }
       const intent = await writeProvisioningIntent(
@@ -567,18 +605,18 @@ export async function claimDeployIntent(
     case "seeding": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      if (canResumeSeed(row, input)) {
-        const next = await patchAccept(deps, row, { status: "seeding" });
-        return { ok: true, value: previewSnapshotFromRow(next) };
-      }
-      const next = await patchAccept(deps, row, { status: "provisioning" });
+      const next = await patchAccept(deps, row, {
+        status: planAcceptBringUp(row, input, "seeding"),
+      });
       return { ok: true, value: previewSnapshotFromRow(next) };
     }
     case "running":
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(deps, row, { status: "provisioning" });
+      const next = await patchAccept(deps, row, {
+        status: planAcceptBringUp(row, input, status.value),
+      });
       return { ok: true, value: previewSnapshotFromRow(next) };
     }
     case "provisioning": {
@@ -599,10 +637,11 @@ export async function claimDeployIntent(
  * {@link claimDeployIntent} already wrote/cleared the intent row. Never remints
  * createdAt — accept owns generation.
  *
- * Status after claim is the plan: seed-resume is `seeding`; everything else is
- * `provisioning`. Do not re-enter seed on a live same-image row — that still has
- * containerId/appImage and would wrongly match canResumeSeed without the
- * seeding-only guard (`failed` is terminal after accept).
+ * Status after claim is the plan: seed-resume / seed-only reseed is `seeding`;
+ * everything else is `provisioning`. Do not re-enter seed on a live same-image
+ * row — that still has containerId/appImage and would wrongly match
+ * canSeedWithoutAppReplace without the seeding-only guard (`failed` is
+ * terminal after accept).
  */
 async function completeProvisionUnlocked(
   deps: LifecycleDeps,
@@ -626,7 +665,7 @@ async function completeProvisionUnlocked(
   if (status.value === "removed") {
     return { ok: false, status: 404, error: "preview_not_found" };
   }
-  if (status.value === "seeding" && canResumeSeed(row, input)) {
+  if (status.value === "seeding" && canSeedWithoutAppReplace(row, input)) {
     return resumeIncompleteSeed(deps, row, deployEphemerals(input));
   }
   return ensureThenAttach(deps, row, input);

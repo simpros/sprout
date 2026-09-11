@@ -19,6 +19,8 @@ export type SeedPhaseDeps = {
 /**
  * Request-scoped deploy fields that are not persisted on the preview row.
  * seed and connectionEnv are siblings — do not hitch connectionEnv onto SeedImageSpec.
+ * Whether to seed is answered by seeded_at on the row (lifecycle clears it
+ * after healthy attach for replace+reseed; runSeedPhase clears on entry).
  */
 export type DeployEphemerals = {
   seed?: SeedImageSpec;
@@ -79,10 +81,12 @@ async function runSeedPhase(
   ephemerals: DeployEphemerals & { seed: SeedImageSpec },
 ): Promise<Result<SeedPhaseSnapshot>> {
   const { seed, connectionEnv } = ephemerals;
+  // Clear seeded_at on entry so a failed reseed matches first-seed failure
+  // (null seeded_at) and resume can re-run without another --reseed.
   await updatePreviewRow(
     deps.db,
     row,
-    { status: "seeding", updatedAt: utcIsoNow() },
+    { status: "seeding", seededAt: null, updatedAt: utcIsoNow() },
     "preview_row_missing_on_seeding",
   );
 
@@ -138,9 +142,9 @@ export async function promoteAfterHealthy(
   ephemerals: DeployEphemerals = {},
 ): Promise<Result<SeedPhaseSnapshot>> {
   const { seed } = ephemerals;
-  const shouldSeed =
-    seed !== undefined &&
-    (starting.seededAt === null || starting.seededAt === undefined);
+  // Lifecycle clears seeded_at before promote for replace+reseed; this gate
+  // stays dumb on row state.
+  const shouldSeed = seed !== undefined && starting.seededAt == null;
 
   if (shouldSeed && seed) {
     return runSeedPhase(deps, starting, { ...ephemerals, seed });
@@ -161,10 +165,10 @@ export async function promoteAfterHealthy(
 }
 
 /**
- * Live app with seed not done: same image+hostname+container means resume
- * seed only (no Traefik replace). Used for crash-mid-seed and seed-failed.
+ * Live same-app structural check: container + matching image+hostname.
+ * Compose with status / reseed at accept — does not mean "seed not done."
  */
-export function canResumeSeed(
+export function canSeedWithoutAppReplace(
   row: PreviewRow,
   input: { appImage: string; hostname: string },
 ): boolean {
