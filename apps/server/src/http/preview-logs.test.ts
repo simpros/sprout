@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import {
-  previewContainerName,
-  seedImageRunName,
-} from "../preview/naming.ts";
+  createFakeDockerClient,
+  type FakeDockerClient,
+} from "../docker/fake.ts";
+import { previewContainerName } from "../preview/naming.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import {
   bearer,
@@ -11,11 +12,13 @@ import {
   deployBody,
   postDeployAndSettle,
   postDeployToken,
+  TEST_APP_IMAGE,
   type TestApp,
 } from "./test-helpers.ts";
 import { DEFAULT_LOG_TAIL, MAX_LOG_TAIL } from "./preview-logs.ts";
 
 const OTHER_REPO = "https://github.com/org/other";
+const SEED_IMAGE = "ghcr.io/org/seed:test";
 
 describe("GET /v1/previews/:id/logs", () => {
   let testApp: TestApp;
@@ -24,13 +27,22 @@ describe("GET /v1/previews/:id/logs", () => {
     await testApp?.cleanup();
   });
 
-  async function setup() {
-    testApp = await createTestApp();
+  async function setup(opts?: {
+    waitResults?: Record<string, { exitCode: number } | "timeout">;
+  }) {
+    const docker = createFakeDockerClient({
+      exposedPorts: { [TEST_APP_IMAGE]: 3000 },
+      waitResults: opts?.waitResults,
+    });
+    testApp = await createTestApp({ docker });
     const { body } = await postDeployToken(testApp, {
       canonical_repo_id: "https://github.com/org/repo",
       slug: "myapp",
     });
-    return { deployToken: body.token as string };
+    return {
+      deployToken: body.token as string,
+      docker: testApp.docker as FakeDockerClient,
+    };
   }
 
   async function getLogs(
@@ -50,8 +62,8 @@ describe("GET /v1/previews/:id/logs", () => {
     return { status: res.status, body: await res.json() };
   }
 
-  test("returns app and seed logs for a deploy-token-scoped preview", async () => {
-    const { deployToken } = await setup();
+  test("returns live app logs and empty seed after a successful deploy", async () => {
+    const { deployToken, docker } = await setup();
     const settled = await postDeployAndSettle(
       testApp,
       deployToken,
@@ -59,18 +71,7 @@ describe("GET /v1/previews/:id/logs", () => {
     );
     expect(settled.outcome).toBe("ready");
 
-    const docker = testApp.docker as import("../docker/fake.ts").FakeDockerClient;
-    const appName = previewContainerName("myapp", 42);
-    docker.logs.set(appName, "app line 1\napp line 2\n");
-    // Seed container is removed after deploy; leave one around to prove both paths.
-    await docker.createAndStart({
-      name: seedImageRunName("myapp", 42),
-      image: "seed:test",
-      env: [],
-      labels: {},
-      networkNames: ["sprout-postgres"],
-    });
-    docker.logs.set(seedImageRunName("myapp", 42), "seed boom\n");
+    docker.logs.set(previewContainerName("myapp", 42), "app line 1\napp line 2\n");
 
     const res = await getLogs(deployToken, 42, { tail: "50" });
     expect(res.status).toBe(200);
@@ -80,14 +81,59 @@ describe("GET /v1/previews/:id/logs", () => {
       pr_id: 42,
       tail: 50,
       app: "app line 1\napp line 2\n",
-      seed: "seed boom\n",
+      seed: "",
     });
   });
 
-  test("defaults tail and returns empty seed when seed container is gone", async () => {
-    const { deployToken } = await setup();
+  test("returns stored seed logs after seed_failed", async () => {
+    const { deployToken, docker } = await setup({
+      waitResults: { "sprout-myapp-pr-42-seed": { exitCode: 7 } },
+    });
+    const originalCreate = docker.createAndStart.bind(docker);
+    docker.createAndStart = async (spec) => {
+      const created = await originalCreate(spec);
+      if (spec.name.endsWith("-seed")) {
+        docker.logs.set(spec.name, "seed boom\nseed line 2\n");
+      }
+      return created;
+    };
+
+    const settled = await postDeployAndSettle(
+      testApp,
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: {
+          path: "/health",
+          interval: "1s",
+          timeout: "5s",
+          expect: 200,
+        },
+      }),
+    );
+    expect(settled.outcome).toBe("failed");
+    expect(settled.body).toMatchObject({
+      last_error: "seed_failed",
+      last_error_detail: "seed boom\nseed line 2\n",
+    });
+
+    docker.logs.set(previewContainerName("myapp", 42), "still-running-app\n");
+
+    const res = await getLogs(deployToken, 42, { tail: "50" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      ok: true,
+      canonical_repo_id: "https://github.com/org/repo",
+      pr_id: 42,
+      tail: 50,
+      app: "still-running-app\n",
+      seed: "seed boom\nseed line 2\n",
+    });
+  });
+
+  test("defaults tail and returns empty seed when no seed failure", async () => {
+    const { deployToken, docker } = await setup();
     await postDeployAndSettle(testApp, deployToken, deployBody());
-    const docker = testApp.docker as import("../docker/fake.ts").FakeDockerClient;
     docker.logs.set(previewContainerName("myapp", 42), "only-app\n");
 
     const res = await getLogs(deployToken, 42);

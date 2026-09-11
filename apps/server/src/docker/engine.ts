@@ -51,22 +51,12 @@ function firstExposedPortFromInspect(inspect: ImageInspect): number | null {
 
 /**
  * Docker multiplexed log stream: 8-byte header (stream type + big-endian size)
- * then payload. TTY containers omit headers — fall back to raw UTF-8.
+ * then payload. Preview containers are created without Tty, so Engine always
+ * multiplexes stdout/stderr — always demux (no raw/TTY fallback).
  */
 function demuxDockerLogs(bytes: Uint8Array): string {
   const decoder = new TextDecoder();
   if (bytes.length === 0) return "";
-
-  const looksMultiplexed =
-    bytes.length >= 8 &&
-    (bytes[0] === 0 || bytes[0] === 1 || bytes[0] === 2) &&
-    bytes[1] === 0 &&
-    bytes[2] === 0 &&
-    bytes[3] === 0;
-
-  if (!looksMultiplexed) {
-    return decoder.decode(bytes);
-  }
 
   const chunks: string[] = [];
   let offset = 0;

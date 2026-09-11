@@ -22,11 +22,14 @@ export type SeedImageInput = SeedImageSpec & {
   connectionEnv?: PreviewEnvMap;
 };
 
+/** Lines captured before the one-shot seed container is removed. */
+const SEED_LOG_TAIL = 10_000;
+
 /** Mirrors ContainerWaitResult discrimination; exitCode null = Docker ops failure. */
 export type SeedImageResult =
   | { ok: true }
-  | { ok: false; timedOut: true }
-  | { ok: false; timedOut: false; exitCode: number | null };
+  | { ok: false; timedOut: true; logs: string }
+  | { ok: false; timedOut: false; exitCode: number | null; logs: string };
 
 export type RunSeedImageDeps = {
   docker: PreviewDocker;
@@ -35,12 +38,24 @@ export type RunSeedImageDeps = {
   seedTimeoutMs: number;
 };
 
+async function captureSeedLogs(
+  docker: PreviewDocker,
+  name: string,
+): Promise<string> {
+  try {
+    return (await docker.containerLogs(name, { tail: SEED_LOG_TAIL })) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Run the adopter seed image once on the Postgres network only.
  * Gateway connection keys replace colliding user `--seed-env` keys
  * (PG* or remapped names) so adopters cannot retarget the DB.
  * Never sets Entrypoint — image default entrypoint owns seed logic.
  * Docker ops errors are absorbed into SeedImageResult (never throw mid-phase).
+ * On failure, stdout/stderr are captured before remove so GET …/logs can show them.
  */
 export async function runSeedImage(
   deps: RunSeedImageDeps,
@@ -67,11 +82,12 @@ export async function runSeedImage(
       });
 
       const wait = await deps.docker.waitForExit(id, deps.seedTimeoutMs);
+      const logs = await captureSeedLogs(deps.docker, name);
       if (wait.timedOut) {
-        return { ok: false, timedOut: true };
+        return { ok: false, timedOut: true, logs };
       }
       if (wait.exitCode !== 0) {
-        return { ok: false, timedOut: false, exitCode: wait.exitCode };
+        return { ok: false, timedOut: false, exitCode: wait.exitCode, logs };
       }
       return { ok: true };
     } finally {
@@ -82,6 +98,6 @@ export async function runSeedImage(
       }
     }
   } catch {
-    return { ok: false, timedOut: false, exitCode: null };
+    return { ok: false, timedOut: false, exitCode: null, logs: "" };
   }
 }

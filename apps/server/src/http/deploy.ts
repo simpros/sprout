@@ -13,11 +13,10 @@ import {
 } from "../preview/lifecycle.ts";
 import {
   acceptAsyncDeploy,
-  readPreviewStatus,
   runAsyncDeploy,
 } from "../preview/async-deploy.ts";
 import { validatePrId, validatePreviewIdentity } from "../preview-db/names.ts";
-import { mapResult, resolveRepo } from "./result-map.ts";
+import { mapResult, requireReadablePreview, resolveRepo } from "./result-map.ts";
 
 export type { LifecycleDeps };
 
@@ -230,19 +229,15 @@ export function getPreview(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    if (!auth) {
-      set.status = 401;
-      return { error: "unauthorized" };
-    }
-    const repo = resolveRepo(auth, query.canonical_repo_id);
-    if (!repo.ok) return mapResult(repo, set);
-    const prId = Number(query.pr_id);
-    const prErr = validatePrId(prId);
-    if (prErr) {
-      set.status = 422;
-      return { error: prErr };
-    }
-    return mapResult(await readPreviewStatus(deps, repo.value, prId), set);
+    return mapResult(
+      await requireReadablePreview(
+        deps,
+        auth,
+        query.canonical_repo_id,
+        query.pr_id,
+      ),
+      set,
+    );
   };
 }
 

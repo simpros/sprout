@@ -55,13 +55,15 @@ async function markSeedFailed(
   db: StateDb,
   repo: string,
   prId: number,
+  /** Captured seed container stdout/stderr (empty → null). */
+  logs: string,
 ): Promise<void> {
   await db
     .update(previews)
     .set({
       status: "failed",
       lastError: "seed_failed",
-      lastErrorDetail: null,
+      lastErrorDetail: logs === "" ? null : logs,
       updatedAt: utcIsoNow(),
     })
     .where(
@@ -103,7 +105,12 @@ async function runSeedPhase(
       } else {
         console.warn("seed:failed", seedResult.exitCode);
       }
-      await markSeedFailed(deps.db, row.canonicalRepoId, row.prId);
+      await markSeedFailed(
+        deps.db,
+        row.canonicalRepoId,
+        row.prId,
+        seedResult.logs,
+      );
       return { ok: false, status: 500, error: "seed_failed" };
     }
 
@@ -123,7 +130,7 @@ async function runSeedPhase(
     return { ok: true, value: toRunningSnapshot(updated) };
   } catch (err) {
     console.warn("seed:failed", err);
-    await markSeedFailed(deps.db, row.canonicalRepoId, row.prId);
+    await markSeedFailed(deps.db, row.canonicalRepoId, row.prId, "");
     return { ok: false, status: 500, error: "seed_failed" };
   }
 }

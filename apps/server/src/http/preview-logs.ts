@@ -1,10 +1,8 @@
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
-import { readPreviewStatus } from "../preview/async-deploy.ts";
 import type { LifecycleDeps } from "../preview/lifecycle.ts";
 import type { Result } from "../preview/result.ts";
-import { validatePrId } from "../preview-db/names.ts";
-import { mapResult, resolveRepo } from "./result-map.ts";
+import { mapResult, requireReadablePreview } from "./result-map.ts";
 
 /** Default / max Docker `tail` lines for GET …/logs. */
 export const DEFAULT_LOG_TAIL = 100;
@@ -51,8 +49,7 @@ function parseTail(raw: string | undefined): Result<number> {
 
 /**
  * GET /v1/previews/:id/logs — `:id` is pr_id; repo from query.
- * Reads app + seed container logs (no redaction); seed is often empty after
- * the one-shot seed container is removed.
+ * Live app container logs + seed text stored on seed_failed (`last_error_detail`).
  */
 export function getPreviewLogs(deps: LifecycleDeps) {
   return async ({
@@ -66,37 +63,31 @@ export function getPreviewLogs(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }): Promise<PreviewLogsSnapshot | { error: string; detail?: string }> => {
-    if (!auth) {
-      set.status = 401;
-      return { error: "unauthorized" };
-    }
-    const repo = resolveRepo(auth, query.canonical_repo_id);
-    if (!repo.ok) return mapResult(repo, set);
-
-    const prId = Number(params.id);
-    const prErr = validatePrId(prId);
-    if (prErr) {
-      set.status = 422;
-      return { error: prErr };
-    }
+    const preview = await requireReadablePreview(
+      deps,
+      auth,
+      query.canonical_repo_id,
+      params.id,
+    );
+    if (!preview.ok) return mapResult(preview, set);
 
     const tail = parseTail(query.tail);
     if (!tail.ok) return mapResult(tail, set);
 
-    // Same readable-preview gate as GET /v1/preview (404 missing/removed, 409 removing).
-    const preview = await readPreviewStatus(deps, repo.value, prId);
-    if (!preview.ok) return mapResult(preview, set);
-
-    const logs = await deps.app.logs(preview.value.slug, prId, {
+    const app = await deps.app.logs(preview.value.slug, preview.value.pr_id, {
       tail: tail.value,
     });
+    const seed =
+      preview.value.last_error === "seed_failed"
+        ? (preview.value.last_error_detail ?? "")
+        : "";
     return {
       ok: true,
-      canonical_repo_id: repo.value,
-      pr_id: prId,
+      canonical_repo_id: preview.value.canonical_repo_id,
+      pr_id: preview.value.pr_id,
       tail: tail.value,
-      app: logs.app,
-      seed: logs.seed,
+      app,
+      seed,
     };
   };
 }

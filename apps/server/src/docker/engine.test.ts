@@ -477,9 +477,7 @@ describe("demuxDockerLogs", () => {
     expect(demuxDockerLogs(buf)).toBe("foobar");
   });
 
-  test("returns raw text when not multiplexed", () => {
-    expect(demuxDockerLogs(new TextEncoder().encode("plain\n"))).toBe(
-      "plain\n",
-    );
+  test("returns empty when payload is too short for a frame", () => {
+    expect(demuxDockerLogs(new TextEncoder().encode("plain\n"))).toBe("");
   });
 });
