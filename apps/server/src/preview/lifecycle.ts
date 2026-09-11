@@ -80,8 +80,9 @@ export type ProvisionInput = {
   /** Connection env name remap; request-scoped, not persisted. */
   connectionEnv?: PreviewEnvMap;
   /**
-   * Accept-only: clear seeded_at so promoteAfterHealthy seeds again.
-   * Not forwarded into DeployEphemerals — durable row state answers "should seed?"
+   * Lifecycle-only: seed-only accept plan when same-app, and clear seeded_at
+   * after healthy attach (replace path). Seed-only path clears inside
+   * runSeedPhase. Never forwarded into DeployEphemerals.
    */
   reseed?: boolean;
 };
@@ -325,7 +326,7 @@ async function writeProvisioningIntent(
 /**
  * Same-identity accept patch: clear sticky errors and set the in-flight plan
  * status. Optional remint advances TTL generation (stuck provisioning only).
- * clearSeededAt rewrites the durable "should seed?" answer at accept.
+ * Does not touch seeded_at — that clears after healthy attach or on seed entry.
  */
 async function patchAccept(
   deps: LifecycleDeps,
@@ -334,7 +335,6 @@ async function patchAccept(
     status: "provisioning" | "seeding";
     remint?: boolean;
     hostname?: string;
-    clearSeededAt?: boolean;
   },
 ): Promise<PreviewRow> {
   const now = utcIsoNow();
@@ -344,7 +344,6 @@ async function patchAccept(
     {
       status: fields.status,
       ...(fields.hostname != null ? { hostname: fields.hostname } : {}),
-      ...(fields.clearSeededAt ? { seededAt: null } : {}),
       ...clearLastError,
       ...(fields.remint ? { createdAt: now } : {}),
       updatedAt: now,
@@ -459,7 +458,18 @@ async function attachThenPromote(
 ): Promise<Result<PreviewSnapshot>> {
   const attached = await attachAppContainer(deps, row, input);
   if (!attached.ok) return attached;
-  return promoteAfterHealthy(deps, attached.value, deployEphemerals(input));
+  let starting = attached.value;
+  // Clear after healthy attach so pull/health failure cannot erase a prior
+  // successful seed marker. Promote stays dumb on seeded_at.
+  if (input.reseed === true && starting.seededAt != null) {
+    starting = await updatePreviewRow(
+      deps.db,
+      starting,
+      { seededAt: null, updatedAt: utcIsoNow() },
+      "preview_row_missing_on_reseed_clear",
+    );
+  }
+  return promoteAfterHealthy(deps, starting, deployEphemerals(input));
 }
 
 /**
@@ -508,37 +518,23 @@ function requireDbIdentity(
   return { ok: true, value: true };
 }
 
-type AcceptBringUpPlan = {
-  status: "seeding" | "provisioning";
-  clearSeededAt: boolean;
-};
-
 /**
  * Shared accept plan for identity-matched rows that may seed without replace.
  * - failed/seeding + same app → seeding (resume incomplete seed)
  * - running/starting + reseed + same app → seeding (seed-only reseed)
  * - else → provisioning (replace path)
- * Reseed always clears seeded_at at accept so promoteAfterHealthy stays dumb.
+ * Status only — seeded_at clears after healthy attach or on seed-phase entry.
  */
 function planAcceptBringUp(
   row: PreviewRow,
   input: ProvisionInput,
   status: "failed" | "seeding" | "running" | "starting",
-): AcceptBringUpPlan {
+): "seeding" | "provisioning" {
   const sameApp = canSeedWithoutAppReplace(row, input);
-  const clearSeededAt = input.reseed === true;
-
   if (status === "failed" || status === "seeding") {
-    return {
-      status: sameApp ? "seeding" : "provisioning",
-      clearSeededAt,
-    };
+    return sameApp ? "seeding" : "provisioning";
   }
-
-  if (clearSeededAt && sameApp) {
-    return { status: "seeding", clearSeededAt: true };
-  }
-  return { status: "provisioning", clearSeededAt };
+  return input.reseed === true && sameApp ? "seeding" : "provisioning";
 }
 
 /**
@@ -594,8 +590,9 @@ export async function claimDeployIntent(
       if (dbIdentityMatches(row, input, requestedDbName)) {
         // Seed-resume accept writes in-flight `seeding` so `failed` stays
         // terminal-only for CLI pollers (keep containerId/appImage).
-        const plan = planAcceptBringUp(row, input, "failed");
-        const next = await patchAccept(deps, row, plan);
+        const next = await patchAccept(deps, row, {
+          status: planAcceptBringUp(row, input, "failed"),
+        });
         return { ok: true, value: previewSnapshotFromRow(next) };
       }
       const intent = await writeProvisioningIntent(
@@ -608,16 +605,18 @@ export async function claimDeployIntent(
     case "seeding": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const plan = planAcceptBringUp(row, input, "seeding");
-      const next = await patchAccept(deps, row, plan);
+      const next = await patchAccept(deps, row, {
+        status: planAcceptBringUp(row, input, "seeding"),
+      });
       return { ok: true, value: previewSnapshotFromRow(next) };
     }
     case "running":
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const plan = planAcceptBringUp(row, input, status.value);
-      const next = await patchAccept(deps, row, plan);
+      const next = await patchAccept(deps, row, {
+        status: planAcceptBringUp(row, input, status.value),
+      });
       return { ok: true, value: previewSnapshotFromRow(next) };
     }
     case "provisioning": {
@@ -627,7 +626,6 @@ export async function claimDeployIntent(
         status: "provisioning",
         remint: true,
         hostname: input.hostname,
-        clearSeededAt: input.reseed === true,
       });
       return { ok: true, value: previewSnapshotFromRow(next) };
     }

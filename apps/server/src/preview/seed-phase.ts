@@ -19,7 +19,8 @@ export type SeedPhaseDeps = {
 /**
  * Request-scoped deploy fields that are not persisted on the preview row.
  * seed and connectionEnv are siblings — do not hitch connectionEnv onto SeedImageSpec.
- * Whether to seed is answered by seeded_at on the row (accept clears it for --reseed).
+ * Whether to seed is answered by seeded_at on the row (lifecycle clears it
+ * after healthy attach for replace+reseed; runSeedPhase clears on entry).
  */
 export type DeployEphemerals = {
   seed?: SeedImageSpec;
@@ -141,7 +142,8 @@ export async function promoteAfterHealthy(
   ephemerals: DeployEphemerals = {},
 ): Promise<Result<SeedPhaseSnapshot>> {
   const { seed } = ephemerals;
-  // Accept clears seeded_at for --reseed; this gate stays dumb on row state.
+  // Lifecycle clears seeded_at before promote for replace+reseed; this gate
+  // stays dumb on row state.
   const shouldSeed = seed !== undefined && starting.seededAt == null;
 
   if (shouldSeed && seed) {

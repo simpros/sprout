@@ -462,6 +462,60 @@ describe("POST /v1/deploy seed image", () => {
     ).toHaveLength(2);
   });
 
+  test("reseed pull failure keeps seeded_at and restores running", async () => {
+    const { deployToken } = await setup();
+    const first = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+      }),
+    );
+    expect(first.settleStatus).toBe(200);
+    const [seeded] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(seeded?.seededAt).toMatch(/Z$/);
+
+    fakeDocker!.pullImage = async (image: string) => {
+      if (image === SEED_IMAGE) {
+        throw new Error("seed registry blip");
+      }
+    };
+    const failed = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+        reseed: true,
+      }),
+    );
+    expect(failed.outcome).toBe("failed");
+    expect(failed.body).toMatchObject({
+      status: "running",
+      last_error: "preview_seed_pull_failed",
+      last_error_detail: "seed registry blip",
+    });
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row?.status).toBe("running");
+    expect(row?.seededAt).toBe(seeded?.seededAt);
+    expect(row?.containerId).toBe(seeded?.containerId);
+    expect(
+      fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
+    ).toHaveLength(1);
+  });
+
   test("seed Docker ops failure marks failed and keeps app container", async () => {
     const { deployToken } = await setup();
     const original = fakeDocker!.createAndStart.bind(fakeDocker);

@@ -239,9 +239,10 @@ shows a minimal seed image: install deps, copy seed script, entrypoint runs
 2. Gateway polls `health.path` on the Postgres-network container IP until
    `health.expect` (default 200) or `health.timeout`.
 3. **After healthy:** if `-s` / `seed_image` was provided and this PR has never
-   seeded successfully (`seeded_at` unset), **or** `--reseed` was passed, the
-   gateway runs the seed image once with the same connection-env remap as the
-   app, plus `--seed-env` / `--seed-arg`.
+   seeded successfully (`seeded_at` unset), the gateway runs the seed image once
+   with the same connection-env remap as the app, plus `--seed-env` /
+   `--seed-arg`. `--reseed` clears `seeded_at` after a healthy attach (replace)
+   or on seed-phase entry (seed-only), so the same after-healthy gate re-runs.
 4. Preview status becomes `running` with `seeded_at` set.
 
 On later synchronize deploys, seeding is skipped when `seeded_at` is already
