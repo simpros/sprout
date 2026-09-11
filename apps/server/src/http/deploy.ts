@@ -16,8 +16,8 @@ import {
   readPreviewStatus,
   runAsyncDeploy,
 } from "../preview/async-deploy.ts";
-import type { Result } from "../preview/result.ts";
 import { validatePrId, validatePreviewIdentity } from "../preview-db/names.ts";
+import { mapResult, resolveRepo } from "./result-map.ts";
 
 export type { LifecycleDeps };
 
@@ -148,30 +148,6 @@ export type PreviewQuery = {
   canonical_repo_id: string;
   pr_id: string;
 };
-
-/** Deploy-token repo gate shared by lifecycle HTTP handlers. */
-export function resolveRepo(
-  auth: AuthContext,
-  requested: string,
-): Result<string> {
-  if (auth.scope === "deploy" && auth.canonicalRepoId !== requested) {
-    return { ok: false, status: 403, error: "forbidden" };
-  }
-  return { ok: true, value: requested };
-}
-
-function mapResult<T>(
-  result: Result<T>,
-  set: { status?: number | string },
-): T | { error: string; detail?: string } {
-  if (!result.ok) {
-    set.status = result.status;
-    return result.detail !== undefined
-      ? { error: result.error, detail: result.detail }
-      : { error: result.error };
-  }
-  return result.value;
-}
 
 export function deploy(deps: LifecycleDeps) {
   return async ({

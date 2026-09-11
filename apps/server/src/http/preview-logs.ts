@@ -1,21 +1,19 @@
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
-import {
-  getPreviewRow,
-  type LifecycleDeps,
-} from "../preview/lifecycle.ts";
+import { readPreviewStatus } from "../preview/async-deploy.ts";
+import type { LifecycleDeps } from "../preview/lifecycle.ts";
 import type { Result } from "../preview/result.ts";
 import { validatePrId } from "../preview-db/names.ts";
-import { resolveRepo } from "./deploy.ts";
+import { mapResult, resolveRepo } from "./result-map.ts";
 
 /** Default / max Docker `tail` lines for GET …/logs. */
 export const DEFAULT_LOG_TAIL = 100;
 export const MAX_LOG_TAIL = 10_000;
 
+/** Snapshot-only: no `follow` until SSE streaming ships. */
 export const previewLogsQuery = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   tail: t.Optional(t.String()),
-  follow: t.Optional(t.String()),
 });
 
 export const previewLogsParams = t.Object({
@@ -25,7 +23,6 @@ export const previewLogsParams = t.Object({
 export type PreviewLogsQuery = {
   canonical_repo_id: string;
   tail?: string;
-  follow?: string;
 };
 
 export type PreviewLogsParams = {
@@ -41,19 +38,6 @@ export type PreviewLogsSnapshot = {
   seed: string;
 };
 
-function mapResult<T>(
-  result: Result<T>,
-  set: { status?: number | string },
-): T | { error: string; detail?: string } {
-  if (!result.ok) {
-    set.status = result.status;
-    return result.detail !== undefined
-      ? { error: result.error, detail: result.detail }
-      : { error: result.error };
-  }
-  return result.value;
-}
-
 function parseTail(raw: string | undefined): Result<number> {
   if (raw === undefined || raw.trim() === "") {
     return { ok: true, value: DEFAULT_LOG_TAIL };
@@ -63,16 +47,6 @@ function parseTail(raw: string | undefined): Result<number> {
     return { ok: false, status: 422, error: "invalid_tail" };
   }
   return { ok: true, value: Math.min(n, MAX_LOG_TAIL) };
-}
-
-function parseFollow(raw: string | undefined): Result<false> {
-  if (raw === undefined || raw === "" || raw === "false" || raw === "0") {
-    return { ok: true, value: false };
-  }
-  if (raw === "true" || raw === "1") {
-    return { ok: false, status: 501, error: "follow_not_supported" };
-  }
-  return { ok: false, status: 422, error: "invalid_follow" };
 }
 
 /**
@@ -106,18 +80,16 @@ export function getPreviewLogs(deps: LifecycleDeps) {
       return { error: prErr };
     }
 
-    const follow = parseFollow(query.follow);
-    if (!follow.ok) return mapResult(follow, set);
     const tail = parseTail(query.tail);
     if (!tail.ok) return mapResult(tail, set);
 
-    const row = await getPreviewRow(deps.db, repo.value, prId);
-    if (!row || row.status === "removed") {
-      set.status = 404;
-      return { error: "preview_not_found" };
-    }
+    // Same readable-preview gate as GET /v1/preview (404 missing/removed, 409 removing).
+    const preview = await readPreviewStatus(deps, repo.value, prId);
+    if (!preview.ok) return mapResult(preview, set);
 
-    const logs = await deps.app.logs(row.slug, prId, { tail: tail.value });
+    const logs = await deps.app.logs(preview.value.slug, prId, {
+      tail: tail.value,
+    });
     return {
       ok: true,
       canonical_repo_id: repo.value,

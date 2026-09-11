@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { and, eq } from "drizzle-orm";
 import {
   previewContainerName,
   seedImageRunName,
 } from "../preview/naming.ts";
+import { previews } from "../infrastructure/db/schema.ts";
 import {
   bearer,
   createTestApp,
@@ -119,6 +121,23 @@ describe("GET /v1/previews/:id/logs", () => {
     expect(res.body).toEqual({ error: "preview_not_found" });
   });
 
+  test("removing preview returns 409 like GET /v1/preview", async () => {
+    const { deployToken } = await setup();
+    await postDeployAndSettle(testApp, deployToken, deployBody());
+    await testApp.db
+      .update(previews)
+      .set({ status: "removing" })
+      .where(
+        and(
+          eq(previews.canonicalRepoId, "https://github.com/org/repo"),
+          eq(previews.prId, 42),
+        ),
+      );
+    const res = await getLogs(deployToken, 42);
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: "preview_teardown_in_progress" });
+  });
+
   test("caps oversized tail", async () => {
     const { deployToken } = await setup();
     await postDeployAndSettle(testApp, deployToken, deployBody());
@@ -127,14 +146,6 @@ describe("GET /v1/previews/:id/logs", () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.tail).toBe(MAX_LOG_TAIL);
-  });
-
-  test("follow=true is not supported yet", async () => {
-    const { deployToken } = await setup();
-    await postDeployAndSettle(testApp, deployToken, deployBody());
-    const res = await getLogs(deployToken, 42, { follow: "true" });
-    expect(res.status).toBe(501);
-    expect(res.body).toEqual({ error: "follow_not_supported" });
   });
 
   test("unauthenticated request is 401", async () => {
