@@ -13,10 +13,19 @@ const PREVIEW_DB_NAME_RE = /^sprout_([a-z][a-z0-9]*)_pr([1-9][0-9]*)$/;
 /** Max preview DB name length so `<dbName>_app` fits {@link PG_IDENT_MAX}. */
 export const PREVIEW_DB_NAME_MAX = PG_IDENT_MAX - "_app".length;
 
-export type IdentifierError = "invalid_slug" | "invalid_pr_id";
+export type IdentifierError =
+  | "invalid_slug"
+  | "invalid_pr_id"
+  | "invalid_service_name";
 
 export function validateSlug(slug: string): IdentifierError | null {
   if (!SLUG_RE.test(slug)) return "invalid_slug";
+  return null;
+}
+
+/** Same grammar as slug — used for preview service names. */
+export function validateServiceName(name: string): IdentifierError | null {
+  if (!SLUG_RE.test(name)) return "invalid_service_name";
   return null;
 }
 

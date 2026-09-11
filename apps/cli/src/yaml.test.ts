@@ -297,4 +297,49 @@ health:
       error: "preview.hostname is required",
     });
   });
+
+  test("parses preview.services", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  services:
+    - name: api
+      hostname: "api-pr-{pr_id}.example.com"
+    - name: worker
+      path: /internal
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          services: [
+            {
+              name: "api",
+              hostname: "api-pr-{pr_id}.example.com",
+            },
+            { name: "worker", path: "/internal" },
+          ],
+        },
+      },
+    });
+  });
+
+  test("rejects invalid preview.services entries", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  services:
+    - name: API
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.services[0].name is invalid",
+    });
+  });
 });

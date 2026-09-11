@@ -13,6 +13,11 @@ import {
   type ReplacePreviewAppInput,
 } from "./replace.ts";
 import {
+  replacePreviewServices,
+  type PreviewServiceSpec,
+  type ReplacePreviewServicesInput,
+} from "./services.ts";
+import {
   runSeedImage,
   type SeedImageInput,
   type SeedImageResult,
@@ -22,6 +27,8 @@ import {
   previewContainerName,
   seedImageRunName,
 } from "../preview/naming.ts";
+
+export type { PreviewServiceSpec };
 
 /** Live container log text; null = container missing (Docker 404). */
 export type LiveContainerLogs = {
@@ -35,6 +42,11 @@ export type PreviewAppOps = {
   replace: (
     input: ReplacePreviewAppInput,
   ) => Promise<{ containerId: string; port: number }>;
+  /**
+   * Replace long-lived service containers after the app is healthy.
+   * Caller must already have pulled images. Empty list clears prior services.
+   */
+  replaceServices: (input: ReplacePreviewServicesInput) => Promise<void>;
   /** Poll postgres-network IP until HealthSpec expects success or timeout. */
   waitHealthy: (
     containerId: string,
@@ -43,6 +55,7 @@ export type PreviewAppOps = {
   ) => Promise<"ok" | "timeout">;
   /** One-shot seed image on Postgres network; caller already pulled the image. */
   runSeed: (input: SeedImageInput) => Promise<SeedImageResult>;
+  /** Remove app + all service containers for one PR. */
   remove: (slug: string, prId: number) => Promise<void>;
   /** Catalog of running sprout-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
@@ -90,6 +103,7 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
   return {
     pullImage: (image) => deps.docker.pullImage(image),
     replace: (input) => replacePreviewApp(deps, input),
+    replaceServices: (input) => replacePreviewServices(deps, input),
     waitHealthy: (containerId, port, health) =>
       pollHealth(
         probe,

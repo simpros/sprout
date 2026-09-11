@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   parsePreviewContainerName,
   previewContainerName,
+  previewServiceContainerName,
   seedImageRunName,
 } from "./naming.ts";
 
@@ -11,6 +12,17 @@ describe("parsePreviewContainerName", () => {
     expect(parsePreviewContainerName("sprout-widgets-pr-7")).toEqual({
       slug: "widgets",
       prId: 7,
+    });
+  });
+
+  test("catalogs service containers with -svc-<name>", () => {
+    expect(previewServiceContainerName("widgets", 7, "api")).toBe(
+      "sprout-widgets-pr-7-svc-api",
+    );
+    expect(parsePreviewContainerName("sprout-widgets-pr-7-svc-api")).toEqual({
+      slug: "widgets",
+      prId: 7,
+      serviceName: "api",
     });
   });
 

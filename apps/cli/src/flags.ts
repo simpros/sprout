@@ -7,6 +7,7 @@ type FlagBag = {
   seedArg: string[];
   appEnv: string[];
   appEnvFile: string[];
+  service: string[];
   yes: boolean;
   reseed: boolean;
   repo?: string;
@@ -82,6 +83,7 @@ const FLAG_DEFS = [
   { flag: "--seed-arg", field: "seedArg", kind: "repeat", allowDash: true },
   { flag: "--app-env", field: "appEnv", kind: "repeat", allowDash: true },
   { flag: "--app-env-file", field: "appEnvFile", kind: "repeat" },
+  { flag: "--service", field: "service", kind: "repeat" },
   { flag: "--yes", field: "yes", kind: "boolean" },
   { flag: "--reseed", field: "reseed", kind: "boolean" },
   { flag: "--repo", field: "repo", kind: "string" },
@@ -102,6 +104,7 @@ export function parseFlags(
     seedArg: [],
     appEnv: [],
     appEnvFile: [],
+    service: [],
     yes: false,
     reseed: false,
     rest: [],

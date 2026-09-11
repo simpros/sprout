@@ -11,9 +11,11 @@ import {
 } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
+import { removePreviewContainers } from "./services.ts";
 
 export type { AppDeployPg };
 export type { TraefikForwardAuth, TraefikTls };
+export { removePreviewContainers };
 
 export type AppDeployNetworks = {
   traefik: string;
@@ -44,13 +46,16 @@ export type ReplacePreviewAppInput = {
   connectionEnv?: PreviewEnvMap;
 };
 
-/** Force-remove the preview app container for one PR (idempotent via Engine). */
+/**
+ * Force-remove the preview app and all service containers for one PR
+ * (idempotent via Engine). Cataloged `-svc-*` names are cleared with the app.
+ */
 export async function removePreviewApp(
   docker: PreviewDocker,
   slug: string,
   prId: number,
 ): Promise<void> {
-  await docker.removeByName(previewContainerName(slug, prId));
+  await removePreviewContainers(docker, slug, prId);
 }
 
 /**
@@ -69,7 +74,9 @@ export async function replacePreviewApp(
   const exposed = await deps.docker.firstExposedPort(input.image);
   const port = exposed ?? deps.previewPortDefault;
   const name = previewContainerName(input.slug, input.prId);
-  await removePreviewApp(deps.docker, input.slug, input.prId);
+  // App-only remove here: services are replaced after health in lifecycle.
+  // Full teardown still uses removePreviewApp (app + services).
+  await deps.docker.removeByName(name);
   const { id } = await deps.docker.createAndStart({
     name,
     image: input.image,

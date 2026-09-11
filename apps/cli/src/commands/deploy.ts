@@ -9,6 +9,7 @@ import {
 } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
+import { mergeServices } from "../services.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
 
@@ -52,6 +53,7 @@ export async function runDeploy(
     "--seed-arg",
     "--app-env",
     "--app-env-file",
+    "--service",
     "--reseed",
     "--repo",
   ]);
@@ -94,6 +96,12 @@ export async function runDeploy(
     seed_env?: string[];
     seed_arg?: string[];
     app_env?: string[];
+    services?: Array<{
+      name: string;
+      image: string;
+      hostname?: string;
+      path?: string;
+    }>;
     env?: PreviewEnvMap;
     reseed?: boolean;
   } = {
@@ -113,6 +121,27 @@ export async function runDeploy(
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (flags.value.reseed) body.reseed = true;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
+
+  const services = mergeServices(
+    yaml.value.preview.services,
+    flags.value.service,
+  );
+  if (!services.ok) return fail(ctx.deps.io, services.error);
+  if (services.value) {
+    body.services = services.value.map((svc) => {
+      const entry: {
+        name: string;
+        image: string;
+        hostname?: string;
+        path?: string;
+      } = { name: svc.name, image: svc.image };
+      if (svc.hostname) {
+        entry.hostname = substituteHostname(svc.hostname, identity.value.prId);
+      }
+      if (svc.path) entry.path = svc.path;
+      return entry;
+    });
+  }
 
   const dotenvFiles: DotenvFile[] = [];
   for (const filePath of flags.value.appEnvFile) {

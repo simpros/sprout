@@ -13,6 +13,16 @@ export type SproutHealth = {
   expect: number;
 };
 
+export type SproutYamlService = {
+  name: string;
+  /** Optional static image; usually supplied via `--service name=image`. */
+  image?: string;
+  /** Optional Host(); supports `{pr_id}` like preview.hostname. */
+  hostname?: string;
+  /** Optional PathPrefix (e.g. `/api`). */
+  path?: string;
+};
+
 export type SproutYaml = {
   slug: string;
   preview: {
@@ -20,13 +30,17 @@ export type SproutYaml = {
     env?: PreviewEnvMap;
     /** Static adopter env for the app container (secrets via --app-env / --app-env-file). */
     app_env?: Record<string, string>;
+    /** Optional companion services (images usually via `--service`). */
+    services?: SproutYamlService[];
   };
   health?: SproutHealth;
 };
 
 const TOP_KEYS = new Set(["slug", "preview", "health"]);
-const PREVIEW_KEYS = new Set(["hostname", "env", "app_env"]);
+const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
+const SERVICE_KEYS = new Set(["name", "image", "hostname", "path"]);
+const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -102,6 +116,61 @@ function parseAppEnv(
   return { ok: true, value: out };
 }
 
+/** Absent or empty list → undefined. */
+function parseServices(
+  raw: unknown,
+): Result<SproutYamlService[] | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (!Array.isArray(raw)) {
+    return { ok: false, error: "preview.services must be a list" };
+  }
+  if (raw.length === 0) return { ok: true, value: undefined };
+
+  const seen = new Set<string>();
+  const out: SproutYamlService[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const entry = raw[i];
+    const path = `preview.services[${i}]`;
+    if (!isPlainObject(entry)) {
+      return { ok: false, error: `${path} must be a mapping` };
+    }
+    for (const key of Object.keys(entry)) {
+      if (!SERVICE_KEYS.has(key)) return unknownKey(`${path}.${key}`);
+    }
+    const name = requireString(entry.name, `${path}.name`);
+    if (!name.ok) return name;
+    if (!SERVICE_NAME_RE.test(name.value)) {
+      return { ok: false, error: `${path}.name is invalid` };
+    }
+    if (seen.has(name.value)) {
+      return { ok: false, error: `preview.services: duplicate name: ${name.value}` };
+    }
+    seen.add(name.value);
+
+    const service: SproutYamlService = { name: name.value };
+    if (entry.image !== undefined) {
+      const image = requireString(entry.image, `${path}.image`);
+      if (!image.ok) return image;
+      service.image = image.value;
+    }
+    if (entry.hostname !== undefined) {
+      const hostname = requireString(entry.hostname, `${path}.hostname`);
+      if (!hostname.ok) return hostname;
+      service.hostname = hostname.value;
+    }
+    if (entry.path !== undefined) {
+      const pathVal = requireString(entry.path, `${path}.path`);
+      if (!pathVal.ok) return pathVal;
+      if (!pathVal.value.startsWith("/")) {
+        return { ok: false, error: `${path}.path must start with /` };
+      }
+      service.path = pathVal.value;
+    }
+    out.push(service);
+  }
+  return { ok: true, value: out };
+}
+
 export function parseSproutYaml(raw: string): Result<SproutYaml> {
   let parsed: unknown;
   try {
@@ -139,12 +208,16 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const appEnv = parseAppEnv(parsed.preview.app_env);
   if (!appEnv.ok) return appEnv;
 
+  const services = parseServices(parsed.preview.services);
+  if (!services.ok) return services;
+
   const value: SproutYaml = {
     slug: slug.value,
     preview: { hostname: hostname.value },
   };
   if (env.value) value.preview.env = env.value;
   if (appEnv.value) value.preview.app_env = appEnv.value;
+  if (services.value) value.preview.services = services.value;
 
   if (parsed.health !== undefined) {
     if (!isPlainObject(parsed.health)) {

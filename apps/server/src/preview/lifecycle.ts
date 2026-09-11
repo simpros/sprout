@@ -1,7 +1,10 @@
 import type { PreviewEnvMap } from "@sprout/preview-env";
 import { and, eq, ne } from "drizzle-orm";
 import type { HealthSpec } from "../app-deployment/health.ts";
-import type { PreviewAppOps } from "../app-deployment/ops.ts";
+import type {
+  PreviewAppOps,
+  PreviewServiceSpec,
+} from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import { extractPullDetail } from "../docker/pull-failure.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
@@ -77,6 +80,8 @@ export type ProvisionInput = {
   seed?: SeedImageSpec;
   /** Adopter KEY=VALUE for the app container; request-scoped, not persisted. */
   appEnv: string[];
+  /** Extra long-lived service containers; request-scoped, not persisted. */
+  services: PreviewServiceSpec[];
   /** Connection env name remap; request-scoped, not persisted. */
   connectionEnv?: PreviewEnvMap;
   /**
@@ -440,6 +445,34 @@ async function attachAppContainer(
     return { ok: false, status: 500, error: "health_timeout" };
   }
 
+  // Services after app health: gate covers the app only; services are
+  // best-effort companions sharing PGDATABASE (no per-service health).
+  try {
+    await deps.app.replaceServices({
+      slug: row.slug,
+      prId: row.prId,
+      appHostname: input.hostname,
+      dbName: row.dbName,
+      services: input.services,
+      connectionEnv: input.connectionEnv,
+    });
+  } catch {
+    try {
+      await deps.app.remove(row.slug, row.prId);
+    } catch {
+      console.warn(
+        `preview container remove failed for ${row.slug} pr=${row.prId} after service deploy failure`,
+      );
+    }
+    await markPreviewFailed(
+      deps.db,
+      row.canonicalRepoId,
+      row.prId,
+      "preview_service_deploy_failed",
+    );
+    return { ok: false, status: 500, error: "preview_service_deploy_failed" };
+  }
+
   return { ok: true, value: starting };
 }
 
@@ -782,25 +815,33 @@ async function pullImageOrFail(
   }
 }
 
-/** Pull app (+ optional seed) outside the preview lock. */
+/** Pull app (+ optional seed + services) outside the preview lock. */
 async function pullImagesOutsideLock(
   deps: LifecycleDeps,
   input: ProvisionInput,
 ): Promise<Result<true>> {
+  const pulls: Promise<Result<true>>[] = [
+    pullImageOrFail(deps.app, input.appImage, "preview_app_pull_failed"),
+  ];
   if (input.seed) {
-    const [appPull, seedPull] = await Promise.all([
-      pullImageOrFail(deps.app, input.appImage, "preview_app_pull_failed"),
+    pulls.push(
       pullImageOrFail(deps.app, input.seed.image, "preview_seed_pull_failed"),
-    ]);
-    if (!appPull.ok) return appPull;
-    if (!seedPull.ok) return seedPull;
-    return { ok: true, value: true };
+    );
   }
-  return pullImageOrFail(
-    deps.app,
-    input.appImage,
-    "preview_app_pull_failed",
-  );
+  for (const service of input.services) {
+    pulls.push(
+      pullImageOrFail(
+        deps.app,
+        service.image,
+        "preview_service_pull_failed",
+      ),
+    );
+  }
+  const results = await Promise.all(pulls);
+  for (const result of results) {
+    if (!result.ok) return result;
+  }
+  return { ok: true, value: true };
 }
 
 /**

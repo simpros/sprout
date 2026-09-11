@@ -93,4 +93,17 @@ describe("traefikLabels", () => {
       Object.keys(labels).some((k) => k.includes(".middlewares.")),
     ).toBe(false);
   });
+
+  test("combines Host and PathPrefix when pathPrefix is set", () => {
+    expect(
+      traefikLabels({
+        routerName: "sprout-myapp-pr-42-svc-admin",
+        hostname: "pr-42.myapp.preview.example.com",
+        port: 3000,
+        pathPrefix: "/admin",
+      })[`traefik.http.routers.sprout-myapp-pr-42-svc-admin.rule`],
+    ).toBe(
+      "Host(`pr-42.myapp.preview.example.com`) && PathPrefix(`/admin`)",
+    );
+  });
 });

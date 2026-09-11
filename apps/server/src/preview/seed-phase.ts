@@ -191,12 +191,18 @@ export async function promoteAfterHealthy(
  */
 export function canSeedWithoutAppReplace(
   row: PreviewRow,
-  input: { appImage: string; hostname: string },
+  input: {
+    appImage: string;
+    hostname: string;
+    /** Non-empty services force app replace so companions stay in sync. */
+    services?: readonly unknown[];
+  },
 ): boolean {
   return (
     row.containerId != null &&
     row.appImage === input.appImage &&
-    row.hostname === input.hostname
+    row.hostname === input.hostname &&
+    (input.services?.length ?? 0) === 0
   );
 }
 
