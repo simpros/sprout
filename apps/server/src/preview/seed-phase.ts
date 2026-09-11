@@ -19,12 +19,11 @@ export type SeedPhaseDeps = {
 /**
  * Request-scoped deploy fields that are not persisted on the preview row.
  * seed and connectionEnv are siblings — do not hitch connectionEnv onto SeedImageSpec.
+ * Whether to seed is answered by seeded_at on the row (accept clears it for --reseed).
  */
 export type DeployEphemerals = {
   seed?: SeedImageSpec;
   connectionEnv?: PreviewEnvMap;
-  /** Force seed even when seeded_at is set. */
-  reseed?: boolean;
 };
 
 /** Running snapshot returned by seed/promote closers (matches PreviewSnapshot). */
@@ -141,12 +140,9 @@ export async function promoteAfterHealthy(
   starting: PreviewRow,
   ephemerals: DeployEphemerals = {},
 ): Promise<Result<SeedPhaseSnapshot>> {
-  const { seed, reseed } = ephemerals;
-  const shouldSeed =
-    seed !== undefined &&
-    (reseed === true ||
-      starting.seededAt === null ||
-      starting.seededAt === undefined);
+  const { seed } = ephemerals;
+  // Accept clears seeded_at for --reseed; this gate stays dumb on row state.
+  const shouldSeed = seed !== undefined && starting.seededAt == null;
 
   if (shouldSeed && seed) {
     return runSeedPhase(deps, starting, { ...ephemerals, seed });
@@ -167,10 +163,10 @@ export async function promoteAfterHealthy(
 }
 
 /**
- * Live app with seed not done: same image+hostname+container means resume
- * seed only (no Traefik replace). Used for crash-mid-seed and seed-failed.
+ * Live same-app structural check: container + matching image+hostname.
+ * Compose with status / reseed at accept — does not mean "seed not done."
  */
-export function canResumeSeed(
+export function canSeedWithoutAppReplace(
   row: PreviewRow,
   input: { appImage: string; hostname: string },
 ): boolean {
