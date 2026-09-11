@@ -86,6 +86,34 @@ describe("replacePreviewApp", () => {
     });
   });
 
+  test("passes Traefik TLS policy into labels", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "ghcr.io/org/app:sha": 3000 },
+    });
+
+    await replacePreviewApp(
+      {
+        docker,
+        ...baseDeps,
+        traefikTls: { entrypoints: "websecure", certResolver: "myresolver" },
+      },
+      {
+        slug: "myapp",
+        prId: 42,
+        hostname: "pr-42.myapp.preview.example.com",
+        image: "ghcr.io/org/app:sha",
+        dbName: "sprout_myapp_pr42",
+        appEnv: [],
+      },
+    );
+
+    expect(docker.creates[0]!.labels).toMatchObject({
+      "traefik.http.routers.sprout-myapp-pr-42.tls": "true",
+      "traefik.http.routers.sprout-myapp-pr-42.entrypoints": "websecure",
+      "traefik.http.routers.sprout-myapp-pr-42.tls.certresolver": "myresolver",
+    });
+  });
+
   test("applies connection env remap on create (replace, not alias)", async () => {
     const docker = createFakeDockerClient({
       exposedPorts: { "ghcr.io/org/app:sha": 3000 },

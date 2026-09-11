@@ -145,8 +145,13 @@ overlay instead of forking the reference file:
 
 1. Set `SPROUT_TRAEFIK_NETWORK` / `SPROUT_POSTGRES_NETWORK` in `compose.env` to the
    existing network names (Coolify often uses `traefik`).
-2. Ensure those networks exist (`docker network create …` if needed).
-3. Bring up **only the gateway** against external networks:
+2. For HTTPS routers, set Traefik TLS knobs to match that proxy — e.g.
+   `SPROUT_TRAEFIK_ENTRYPOINTS=https` and optionally
+   `SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt` on Coolify. Leave both unset for
+   HTTP-only Traefik (bundled compose / local). Empty entrypoints keeps TLS off
+   even if certresolver is set.
+3. Ensure those networks exist (`docker network create …` if needed).
+4. Bring up **only the gateway** against external networks:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.external.yml \
@@ -177,6 +182,20 @@ Label conventions the gateway applies (v0.1):
 - `traefik.enable=true`
 - `traefik.http.routers.<name>.rule=Host(\`<hostname>\`)`
 - `traefik.http.services.<name>.loadbalancer.server.port=<port>`
+
+When TLS is enabled (`SPROUT_TRAEFIK_ENTRYPOINTS` non-empty), also:
+
+- `traefik.http.routers.<name>.tls=true`
+- `traefik.http.routers.<name>.entrypoints=<SPROUT_TRAEFIK_ENTRYPOINTS>`
+- `traefik.http.routers.<name>.tls.certresolver=<SPROUT_TRAEFIK_CERTRESOLVER>`
+  (only when certresolver is set)
+
+TLS is opt-in: unset/blank entrypoints → HTTP labels only (works with the
+bundled Traefik `web` entrypoint). Entrypoints without certresolver uses
+Traefik's default/builtin cert. Entrypoint and certresolver names are **not**
+Coolify-specific — set them to match your Traefik (e.g. Coolify often uses
+`https` + `letsencrypt`; stock Traefik quickstarts often use `websecure` + a
+custom resolver name).
 
 Coolify-managed Traefik already watches the Docker socket; sprout
 preview containers appear alongside Coolify apps as long as they share the
@@ -236,6 +255,13 @@ Optional tuning (defaults in parentheses):
 | `SPROUT_SWEEP_MINUTES` | `30` |
 | `SPROUT_PREVIEW_PORT_DEFAULT` | `8080` |
 | `SPROUT_SEED_TIMEOUT` | `180` |
+| `SPROUT_TRAEFIK_ENTRYPOINTS` | _(empty — TLS off, HTTP labels only)_ |
+| `SPROUT_TRAEFIK_CERTRESOLVER` | _(empty — omit; only used when entrypoints set)_ |
+
+For HTTPS behind an external Traefik, set entrypoints (and optionally
+certresolver) to that proxy's names. Example Coolify-shaped values (operator
+choice, not sprout defaults): `SPROUT_TRAEFIK_ENTRYPOINTS=https` and
+`SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt`.
 
 See `.env.example` (host gateway / `bun run dev`) and `compose.env.example`
 (compose stack). Keep `POSTGRES_*` and `SPROUT_PREVIEW_POSTGRES_URL` in sync in

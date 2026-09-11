@@ -1,8 +1,11 @@
+import type { TraefikTls } from "./app-deployment/labels.ts";
 import { GITHUB_HOSTS } from "./forge/kind.ts";
 import {
   buildRegistryPullAuth,
   type RegistryPullAuth,
 } from "./registry-auth.ts";
+
+export type { TraefikTls };
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -30,6 +33,8 @@ export const OPTIONAL_STRING_ENV = [
   "SPROUT_GITHUB_TOKEN",
   "SPROUT_GITLAB_TOKEN",
   "SPROUT_FORGE_HOSTS",
+  "SPROUT_TRAEFIK_ENTRYPOINTS",
+  "SPROUT_TRAEFIK_CERTRESOLVER",
 ] as const;
 
 /**
@@ -72,6 +77,12 @@ export type Config = {
   previewPortDefault: number;
   seedTimeout: number;
   port: number;
+  /**
+   * Router TLS policy for preview Traefik labels.
+   * Absent = HTTP (no tls/entrypoints/certresolver). Set when
+   * SPROUT_TRAEFIK_ENTRYPOINTS is non-empty.
+   */
+  traefikTls?: TraefikTls;
 };
 
 function parsePositiveInt(
@@ -98,6 +109,19 @@ function requiredEnv(key: (typeof REQUIRED_ENV)[number]): string {
 /** Trimmed env value; missing or blank → "". */
 function optionalStringEnv(key: (typeof OPTIONAL_STRING_ENV)[number]): string {
   return process.env[key]?.trim() ?? "";
+}
+
+/**
+ * Build router TLS policy from env. Entrypoints empty → off (HTTP labels).
+ * Certresolver alone (without entrypoints) is ignored.
+ */
+function parseTraefikTls(): TraefikTls | undefined {
+  const entrypoints = optionalStringEnv("SPROUT_TRAEFIK_ENTRYPOINTS");
+  if (entrypoints === "") return undefined;
+  const certResolver = optionalStringEnv("SPROUT_TRAEFIK_CERTRESOLVER");
+  return certResolver === ""
+    ? { entrypoints }
+    : { entrypoints, certResolver };
 }
 
 /**
@@ -198,6 +222,7 @@ export function loadConfig(): Config {
       process.env.SPROUT_PORT,
       OPTIONAL_ENV_DEFAULTS.SPROUT_PORT,
     ),
+    traefikTls: parseTraefikTls(),
   };
 }
 
@@ -222,7 +247,14 @@ export function configSummary(config: Config): Record<string, string | number> {
     previewPortDefault: config.previewPortDefault,
     seedTimeout: config.seedTimeout,
     port: config.port,
+    traefikTls: formatTraefikTlsSummary(config.traefikTls),
   };
+}
+
+function formatTraefikTlsSummary(tls: TraefikTls | undefined): string {
+  if (!tls) return "[unset]";
+  if (tls.certResolver === undefined) return tls.entrypoints;
+  return `${tls.entrypoints} (certresolver=${tls.certResolver})`;
 }
 
 function redactUrl(url: string): string {

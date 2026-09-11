@@ -40,6 +40,9 @@ function clearGatewayEnv(): void {
   for (const key of Object.keys(OPTIONAL_ENV_DEFAULTS)) {
     delete process.env[key];
   }
+  delete process.env.SPROUT_ADMIN_TOKEN;
+  delete process.env.SPROUT_TRAEFIK_ENTRYPOINTS;
+  delete process.env.SPROUT_TRAEFIK_CERTRESOLVER;
 }
 
 afterEach(() => {
@@ -103,6 +106,32 @@ describe("loadConfig", () => {
     );
     expect(config.seedTimeout).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_SEED_TIMEOUT);
     expect(config.port).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_PORT);
+    expect(config.traefikTls).toBeUndefined();
+  });
+
+  test("loads Traefik TLS policy when entrypoints are set", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_ENTRYPOINTS = "https";
+    process.env.SPROUT_TRAEFIK_CERTRESOLVER = "letsencrypt";
+    const config = loadConfig();
+    expect(config.traefikTls).toEqual({
+      entrypoints: "https",
+      certResolver: "letsencrypt",
+    });
+  });
+
+  test("ignores certresolver when entrypoints are empty", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_CERTRESOLVER = "letsencrypt";
+    const config = loadConfig();
+    expect(config.traefikTls).toBeUndefined();
+  });
+
+  test("omits certResolver when only entrypoints are set", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_ENTRYPOINTS = "https";
+    const config = loadConfig();
+    expect(config.traefikTls).toEqual({ entrypoints: "https" });
   });
 
   test("parses SPROUT_FORGE_HOSTS", () => {
@@ -244,6 +273,7 @@ describe("loadConfig", () => {
       previewPortDefault: 8080,
       seedTimeout: 180,
       port: 7331,
+      traefikTls: { entrypoints: "https", certResolver: "letsencrypt" },
     });
 
     expect(String(summary.previewPostgresUrl)).not.toContain("sekrit");
@@ -253,6 +283,7 @@ describe("loadConfig", () => {
     expect(summary.githubToken).toBe("[set]");
     expect(summary.gitlabToken).toBe("[set]");
     expect(summary.extraGitlabHosts).toBe(1);
+    expect(summary.traefikTls).toBe("https (certresolver=letsencrypt)");
   });
 
   test("configSummary marks anonymous registry auth", () => {
@@ -276,5 +307,6 @@ describe("loadConfig", () => {
     });
     expect(summary.registryPullAuthHosts).toBe(0);
     expect(summary.registryPullAuthFallback).toBe("[unset]");
+    expect(summary.traefikTls).toBe("[unset]");
   });
 });
