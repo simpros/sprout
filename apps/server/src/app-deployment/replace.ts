@@ -21,6 +21,10 @@ export type ReplacePreviewAppDeps = {
   pg: AppDeployPg;
   networks: AppDeployNetworks;
   previewPortDefault: number;
+  /** Traefik entrypoint names; empty = omit label. */
+  traefikEntrypoints?: string;
+  /** Traefik certresolver name; empty = plain tls=true. */
+  traefikCertResolver?: string;
 };
 
 export type ReplacePreviewAppInput = {
@@ -72,6 +76,8 @@ export async function replacePreviewApp(
       routerName: name,
       hostname: input.hostname,
       port,
+      entrypoints: deps.traefikEntrypoints,
+      certResolver: deps.traefikCertResolver,
     }),
     networkNames: [deps.networks.traefik, deps.networks.postgres],
   });

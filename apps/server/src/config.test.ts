@@ -40,6 +40,9 @@ function clearGatewayEnv(): void {
   for (const key of Object.keys(OPTIONAL_ENV_DEFAULTS)) {
     delete process.env[key];
   }
+  delete process.env.SPROUT_ADMIN_TOKEN;
+  delete process.env.SPROUT_TRAEFIK_ENTRYPOINTS;
+  delete process.env.SPROUT_TRAEFIK_CERTRESOLVER;
 }
 
 afterEach(() => {
@@ -103,6 +106,17 @@ describe("loadConfig", () => {
     );
     expect(config.seedTimeout).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_SEED_TIMEOUT);
     expect(config.port).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_PORT);
+    expect(config.traefikEntrypoints).toBe("");
+    expect(config.traefikCertResolver).toBe("");
+  });
+
+  test("loads Traefik entrypoints and certresolver when set", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_ENTRYPOINTS = "https";
+    process.env.SPROUT_TRAEFIK_CERTRESOLVER = "letsencrypt";
+    const config = loadConfig();
+    expect(config.traefikEntrypoints).toBe("https");
+    expect(config.traefikCertResolver).toBe("letsencrypt");
   });
 
   test("parses SPROUT_FORGE_HOSTS", () => {
@@ -216,6 +230,8 @@ describe("loadConfig", () => {
       previewPortDefault: 8080,
       seedTimeout: 180,
       port: 7331,
+      traefikEntrypoints: "",
+      traefikCertResolver: "",
     });
     expect(summary.githubToken).toBe("[unset]");
     expect(summary.gitlabToken).toBe("[unset]");
@@ -244,6 +260,8 @@ describe("loadConfig", () => {
       previewPortDefault: 8080,
       seedTimeout: 180,
       port: 7331,
+      traefikEntrypoints: "https",
+      traefikCertResolver: "letsencrypt",
     });
 
     expect(String(summary.previewPostgresUrl)).not.toContain("sekrit");
@@ -253,6 +271,8 @@ describe("loadConfig", () => {
     expect(summary.githubToken).toBe("[set]");
     expect(summary.gitlabToken).toBe("[set]");
     expect(summary.extraGitlabHosts).toBe(1);
+    expect(summary.traefikEntrypoints).toBe("https");
+    expect(summary.traefikCertResolver).toBe("letsencrypt");
   });
 
   test("configSummary marks anonymous registry auth", () => {
@@ -273,8 +293,12 @@ describe("loadConfig", () => {
       previewPortDefault: 8080,
       seedTimeout: 180,
       port: 7331,
+      traefikEntrypoints: "",
+      traefikCertResolver: "",
     });
     expect(summary.registryPullAuthHosts).toBe(0);
     expect(summary.registryPullAuthFallback).toBe("[unset]");
+    expect(summary.traefikEntrypoints).toBe("[unset]");
+    expect(summary.traefikCertResolver).toBe("[unset]");
   });
 });

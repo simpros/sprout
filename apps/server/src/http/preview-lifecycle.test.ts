@@ -166,6 +166,7 @@ describe("POST /v1/deploy", () => {
       "traefik.enable": "true",
       "traefik.http.routers.sprout-myapp-pr-42.rule":
         "Host(`pr-42.myapp.preview.example.com`)",
+      "traefik.http.routers.sprout-myapp-pr-42.tls": "true",
       "traefik.http.services.sprout-myapp-pr-42.loadbalancer.server.port": "3000",
     });
   });

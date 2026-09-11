@@ -30,6 +30,8 @@ export const OPTIONAL_STRING_ENV = [
   "SPROUT_GITHUB_TOKEN",
   "SPROUT_GITLAB_TOKEN",
   "SPROUT_FORGE_HOSTS",
+  "SPROUT_TRAEFIK_ENTRYPOINTS",
+  "SPROUT_TRAEFIK_CERTRESOLVER",
 ] as const;
 
 /**
@@ -72,6 +74,16 @@ export type Config = {
   previewPortDefault: number;
   seedTimeout: number;
   port: number;
+  /**
+   * Traefik entrypoint names for preview routers (comma-separated).
+   * Empty = omit entrypoints label.
+   */
+  traefikEntrypoints: string;
+  /**
+   * Traefik certresolver name for preview routers.
+   * Empty = omit certresolver (plain tls=true / default cert).
+   */
+  traefikCertResolver: string;
 };
 
 function parsePositiveInt(
@@ -198,6 +210,8 @@ export function loadConfig(): Config {
       process.env.SPROUT_PORT,
       OPTIONAL_ENV_DEFAULTS.SPROUT_PORT,
     ),
+    traefikEntrypoints: optionalStringEnv("SPROUT_TRAEFIK_ENTRYPOINTS"),
+    traefikCertResolver: optionalStringEnv("SPROUT_TRAEFIK_CERTRESOLVER"),
   };
 }
 
@@ -222,6 +236,12 @@ export function configSummary(config: Config): Record<string, string | number> {
     previewPortDefault: config.previewPortDefault,
     seedTimeout: config.seedTimeout,
     port: config.port,
+    traefikEntrypoints:
+      config.traefikEntrypoints === "" ? "[unset]" : config.traefikEntrypoints,
+    traefikCertResolver:
+      config.traefikCertResolver === ""
+        ? "[unset]"
+        : config.traefikCertResolver,
   };
 }
 
