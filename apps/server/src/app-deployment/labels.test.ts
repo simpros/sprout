@@ -57,4 +57,61 @@ describe("traefikLabels", () => {
       "websecure",
     );
   });
+
+  test("emits middleware attachment and forwardAuth definition when set", () => {
+    expect(
+      traefikLabels({
+        routerName: "sprout-app-pr-1",
+        hostname: "pr-1.example.com",
+        port: 8080,
+        forwardAuth: {
+          middlewares: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
+      }),
+    ).toMatchObject({
+      "traefik.http.routers.sprout-app-pr-1.middlewares": "voidauth",
+      "traefik.http.middlewares.voidauth.forwardauth.address":
+        "https://auth.example.com/api/authz/forward-auth",
+      "traefik.http.middlewares.voidauth.forwardauth.trustForwardHeader":
+        "true",
+      "traefik.http.middlewares.voidauth.forwardauth.authResponseHeaders":
+        "Remote-User,Remote-Email,Remote-Groups",
+    });
+  });
+
+  test("defines forwardAuth for each middleware name in the list", () => {
+    const labels = traefikLabels({
+      routerName: "sprout-app-pr-1",
+      hostname: "pr-1.example.com",
+      port: 8080,
+      forwardAuth: {
+        middlewares: "voidauth,extra",
+        address: "https://auth.example.com/forward",
+      },
+    });
+    expect(labels["traefik.http.routers.sprout-app-pr-1.middlewares"]).toBe(
+      "voidauth,extra",
+    );
+    expect(
+      labels["traefik.http.middlewares.voidauth.forwardauth.address"],
+    ).toBe("https://auth.example.com/forward");
+    expect(labels["traefik.http.middlewares.extra.forwardauth.address"]).toBe(
+      "https://auth.example.com/forward",
+    );
+  });
+
+  test("omits middleware labels when forwardAuth is unset", () => {
+    const labels = traefikLabels({
+      routerName: "sprout-app-pr-1",
+      hostname: "pr-1.example.com",
+      port: 8080,
+    });
+    expect(labels).not.toHaveProperty(
+      "traefik.http.routers.sprout-app-pr-1.middlewares",
+    );
+    expect(
+      Object.keys(labels).some((k) => k.includes(".middlewares.")),
+    ).toBe(false);
+  });
 });

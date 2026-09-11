@@ -1,11 +1,14 @@
-import type { TraefikTls } from "./app-deployment/labels.ts";
+import type {
+  TraefikForwardAuth,
+  TraefikTls,
+} from "./app-deployment/labels.ts";
 import { GITHUB_HOSTS } from "./forge/kind.ts";
 import {
   buildRegistryPullAuth,
   type RegistryPullAuth,
 } from "./registry-auth.ts";
 
-export type { TraefikTls };
+export type { TraefikForwardAuth, TraefikTls };
 
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
@@ -35,6 +38,8 @@ export const OPTIONAL_STRING_ENV = [
   "SPROUT_FORGE_HOSTS",
   "SPROUT_TRAEFIK_ENTRYPOINTS",
   "SPROUT_TRAEFIK_CERTRESOLVER",
+  "SPROUT_TRAEFIK_MIDDLEWARES",
+  "SPROUT_FORWARDAUTH_ADDRESS",
 ] as const;
 
 /**
@@ -83,6 +88,12 @@ export type Config = {
    * SPROUT_TRAEFIK_ENTRYPOINTS is non-empty.
    */
   traefikTls?: TraefikTls;
+  /**
+   * ForwardAuth middleware policy for preview Traefik labels.
+   * Absent = no middleware attachment/definition. Set when both
+   * SPROUT_TRAEFIK_MIDDLEWARES and SPROUT_FORWARDAUTH_ADDRESS are non-empty.
+   */
+  traefikForwardAuth?: TraefikForwardAuth;
 };
 
 function parsePositiveInt(
@@ -122,6 +133,24 @@ function parseTraefikTls(): TraefikTls | undefined {
   return certResolver === ""
     ? { entrypoints }
     : { entrypoints, certResolver };
+}
+
+/**
+ * Build forwardAuth middleware policy from env.
+ * Both middlewares and address empty → off (today's labels).
+ * Exactly one set → fail fast (never attach without a definition, and never
+ * define without attachment).
+ */
+function parseTraefikForwardAuth(): TraefikForwardAuth | undefined {
+  const middlewares = optionalStringEnv("SPROUT_TRAEFIK_MIDDLEWARES");
+  const address = optionalStringEnv("SPROUT_FORWARDAUTH_ADDRESS");
+  if (middlewares === "" && address === "") return undefined;
+  if (middlewares === "" || address === "") {
+    throw new Error(
+      "SPROUT_TRAEFIK_MIDDLEWARES and SPROUT_FORWARDAUTH_ADDRESS must both be set (or both empty)",
+    );
+  }
+  return { middlewares, address };
 }
 
 /**
@@ -223,6 +252,7 @@ export function loadConfig(): Config {
       OPTIONAL_ENV_DEFAULTS.SPROUT_PORT,
     ),
     traefikTls: parseTraefikTls(),
+    traefikForwardAuth: parseTraefikForwardAuth(),
   };
 }
 
@@ -248,6 +278,9 @@ export function configSummary(config: Config): Record<string, string | number> {
     seedTimeout: config.seedTimeout,
     port: config.port,
     traefikTls: formatTraefikTlsSummary(config.traefikTls),
+    traefikForwardAuth: formatTraefikForwardAuthSummary(
+      config.traefikForwardAuth,
+    ),
   };
 }
 
@@ -255,6 +288,13 @@ function formatTraefikTlsSummary(tls: TraefikTls | undefined): string {
   if (!tls) return "[unset]";
   if (tls.certResolver === undefined) return tls.entrypoints;
   return `${tls.entrypoints} (certresolver=${tls.certResolver})`;
+}
+
+function formatTraefikForwardAuthSummary(
+  policy: TraefikForwardAuth | undefined,
+): string {
+  if (!policy) return "[unset]";
+  return `${policy.middlewares} → ${policy.address}`;
 }
 
 function redactUrl(url: string): string {

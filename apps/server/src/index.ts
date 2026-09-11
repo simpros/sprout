@@ -41,6 +41,7 @@ const app = bindPreviewOps({
   },
   previewPortDefault: config.previewPortDefault,
   traefikTls: config.traefikTls,
+  traefikForwardAuth: config.traefikForwardAuth,
   seedTimeoutMs: config.seedTimeout * 1000,
 });
 

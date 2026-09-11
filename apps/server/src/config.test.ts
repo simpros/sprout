@@ -43,6 +43,8 @@ function clearGatewayEnv(): void {
   delete process.env.SPROUT_ADMIN_TOKEN;
   delete process.env.SPROUT_TRAEFIK_ENTRYPOINTS;
   delete process.env.SPROUT_TRAEFIK_CERTRESOLVER;
+  delete process.env.SPROUT_TRAEFIK_MIDDLEWARES;
+  delete process.env.SPROUT_FORWARDAUTH_ADDRESS;
 }
 
 afterEach(() => {
@@ -107,6 +109,7 @@ describe("loadConfig", () => {
     expect(config.seedTimeout).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_SEED_TIMEOUT);
     expect(config.port).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_PORT);
     expect(config.traefikTls).toBeUndefined();
+    expect(config.traefikForwardAuth).toBeUndefined();
   });
 
   test("loads Traefik TLS policy when entrypoints are set", () => {
@@ -132,6 +135,35 @@ describe("loadConfig", () => {
     process.env.SPROUT_TRAEFIK_ENTRYPOINTS = "https";
     const config = loadConfig();
     expect(config.traefikTls).toEqual({ entrypoints: "https" });
+  });
+
+  test("loads Traefik forwardAuth policy when both middlewares and address are set", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_MIDDLEWARES = "voidauth";
+    process.env.SPROUT_FORWARDAUTH_ADDRESS =
+      "https://auth.example.com/api/authz/forward-auth";
+    const config = loadConfig();
+    expect(config.traefikForwardAuth).toEqual({
+      middlewares: "voidauth",
+      address: "https://auth.example.com/api/authz/forward-auth",
+    });
+  });
+
+  test("fails when only middlewares is set", () => {
+    setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_MIDDLEWARES = "voidauth";
+    expect(() => loadConfig()).toThrow(
+      "SPROUT_TRAEFIK_MIDDLEWARES and SPROUT_FORWARDAUTH_ADDRESS must both be set",
+    );
+  });
+
+  test("fails when only forwardAuth address is set", () => {
+    setRequiredEnv();
+    process.env.SPROUT_FORWARDAUTH_ADDRESS =
+      "https://auth.example.com/api/authz/forward-auth";
+    expect(() => loadConfig()).toThrow(
+      "SPROUT_TRAEFIK_MIDDLEWARES and SPROUT_FORWARDAUTH_ADDRESS must both be set",
+    );
   });
 
   test("parses SPROUT_FORGE_HOSTS", () => {
@@ -274,6 +306,10 @@ describe("loadConfig", () => {
       seedTimeout: 180,
       port: 7331,
       traefikTls: { entrypoints: "https", certResolver: "letsencrypt" },
+      traefikForwardAuth: {
+        middlewares: "voidauth",
+        address: "https://auth.example.com/forward",
+      },
     });
 
     expect(String(summary.previewPostgresUrl)).not.toContain("sekrit");
@@ -284,6 +320,9 @@ describe("loadConfig", () => {
     expect(summary.gitlabToken).toBe("[set]");
     expect(summary.extraGitlabHosts).toBe(1);
     expect(summary.traefikTls).toBe("https (certresolver=letsencrypt)");
+    expect(summary.traefikForwardAuth).toBe(
+      "voidauth → https://auth.example.com/forward",
+    );
   });
 
   test("configSummary marks anonymous registry auth", () => {
@@ -308,5 +347,6 @@ describe("loadConfig", () => {
     expect(summary.registryPullAuthHosts).toBe(0);
     expect(summary.registryPullAuthFallback).toBe("[unset]");
     expect(summary.traefikTls).toBe("[unset]");
+    expect(summary.traefikForwardAuth).toBe("[unset]");
   });
 });
