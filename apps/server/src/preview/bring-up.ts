@@ -6,7 +6,6 @@ import {
   canSeedWithoutAppReplace,
   promoteAfterHealthy,
   resumeIncompleteSeed,
-  type SeedPhaseSnapshot,
 } from "./seed-phase.ts";
 import type { Result } from "./result.ts";
 import {
@@ -15,9 +14,9 @@ import {
   type PreviewRow,
 } from "./row.ts";
 import type {
+  BringUpPlan,
   LifecycleDeps,
   PreviewSnapshot,
-  PreviewStatus,
   ProvisionInput,
 } from "./types.ts";
 
@@ -27,6 +26,17 @@ const clearLastError = {
   failureFamily: null,
   seedLog: null,
 } as const;
+
+function parseBringUpPlan(raw: string | null): BringUpPlan {
+  switch (raw) {
+    case "seed_resume":
+    case "sync_close":
+    case "full_replace":
+      return raw;
+    default:
+      return "full_replace";
+  }
+}
 
 /** CREATE under dbName lock only. Callers decide failed vs leave-provisioning. */
 async function ensureDatabase(
@@ -125,6 +135,7 @@ async function closeRunning(
     row,
     {
       status: "running",
+      bringUpPlan: null,
       ...clearLastError,
       updatedAt: now,
     },
@@ -146,16 +157,30 @@ async function closeRunning(
 }
 
 /**
- * After successful promote/seed, sync companions then close to `running`.
- * Shared by replace, seed-resume, and companion-only retry paths.
+ * Sync companions then close to `running`.
+ * Shared by replace, seed-resume, crash-recovery, and companion-only retry.
  */
 async function syncThenCloseRunning(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: ProvisionInput,
-  promoted: Result<SeedPhaseSnapshot>,
 ): Promise<Result<PreviewSnapshot>> {
-  if (!promoted.ok) return promoted;
+  // post_healthy sticky retry must re-state the fleet — omit must not
+  // clear sticky failure into false `running` with an empty/stale fleet.
+  if (
+    row.failureFamily === "post_healthy" &&
+    input.services === undefined
+  ) {
+    await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
+      error: "services_required_after_companion_failure",
+      family: "post_healthy",
+    });
+    return {
+      ok: false,
+      status: 422,
+      error: "services_required_after_companion_failure",
+    };
+  }
   const synced = await syncPreviewServices(deps, row, input);
   if (!synced.ok) return synced;
   return closeRunning(deps, row);
@@ -233,7 +258,7 @@ async function attachAppContainer(
 
 /**
  * One bring-up pipeline for replace path:
- * attach (app → healthy) → promote/seed → sync companions.
+ * attach (app → healthy) → promote/seed → sync companions → running.
  */
 async function attachThenPromote(
   deps: LifecycleDeps,
@@ -258,7 +283,8 @@ async function attachThenPromote(
     starting,
     deployEphemerals(input),
   );
-  return syncThenCloseRunning(deps, starting, input, promoted);
+  if (!promoted.ok) return promoted;
+  return syncThenCloseRunning(deps, starting, input);
 }
 
 /**
@@ -332,33 +358,30 @@ export async function pullImagesOutsideLock(
 
 /**
  * Post-accept bring-up under the preview lock (caller holds lock).
- * Status after claim is the plan: seed-resume / seed-only reseed is `seeding`;
- * `post_healthy` + same app → sync companions only (keep healthy app);
- * everything else is `provisioning` → ensure → attach → promote → sync → running.
+ * Consumes `bringUpPlan` written at accept (advanced to `sync_close` after
+ * promote/seed). Do not re-parse status / failureFamily here.
  */
 export async function completeBringUp(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: ProvisionInput,
-  status: PreviewStatus,
 ): Promise<Result<PreviewSnapshot>> {
-  if (status === "seeding" && canSeedWithoutAppReplace(row, input)) {
-    const seeded = await resumeIncompleteSeed(
-      deps,
-      row,
-      deployEphemerals(input),
-    );
-    return syncThenCloseRunning(deps, row, input, seeded);
+  switch (parseBringUpPlan(row.bringUpPlan)) {
+    case "seed_resume": {
+      if (!canSeedWithoutAppReplace(row, input)) {
+        return ensureThenAttach(deps, row, input);
+      }
+      const seeded = await resumeIncompleteSeed(
+        deps,
+        row,
+        deployEphemerals(input),
+      );
+      if (!seeded.ok) return seeded;
+      return syncThenCloseRunning(deps, row, input);
+    }
+    case "sync_close":
+      return syncThenCloseRunning(deps, row, input);
+    case "full_replace":
+      return ensureThenAttach(deps, row, input);
   }
-  // Companion sticky retry: accept kept failureFamily through claim.
-  if (
-    status === "provisioning" &&
-    row.failureFamily === "post_healthy" &&
-    canSeedWithoutAppReplace(row, input)
-  ) {
-    const synced = await syncPreviewServices(deps, row, input);
-    if (!synced.ok) return synced;
-    return closeRunning(deps, row);
-  }
-  return ensureThenAttach(deps, row, input);
 }

@@ -27,11 +27,18 @@ export const previews = sqliteTable(
     /** Short sticky diagnostic (e.g. exit=7, timeout) — not log blobs. */
     lastErrorDetail: text("last_error_detail"),
     /**
-     * Accept dispatcher key for sticky `failed` rows.
-     * `seed_incomplete` → seed-resume; `post_healthy` → provisioning retry.
-     * Cleared with last_error on accept / success.
+     * Sticky `failed` classification. Survives accept until success/replace.
+     * Used with {@link bringUpPlan}: `seed_incomplete` → seed_resume;
+     * `post_healthy` → sync_close when services are explicit.
      */
     failureFamily: text("failure_family"),
+    /**
+     * Durable bring-up plan written at accept (and advanced to `sync_close`
+     * after promote/seed). Bring-up consumes this blindly — do not re-parse
+     * status/`failureFamily` for the recovery path.
+     * `seed_resume` | `sync_close` | `full_replace`; cleared on `running`.
+     */
+    bringUpPlan: text("bring_up_plan"),
     /** Captured one-shot seed stdout/stderr for GET …/logs (cleared on success/remint). */
     seedLog: text("seed_log"),
   },

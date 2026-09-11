@@ -21,6 +21,13 @@ export type PreviewStatus =
   | "removing"
   | "removed";
 
+/**
+ * Durable bring-up plan on the preview row (accept writes; bring-up consumes).
+ * Advanced to `sync_close` after promote/seed so crash mid-fleet cannot
+ * re-seed or full-replace a healthy app.
+ */
+export type BringUpPlan = "seed_resume" | "sync_close" | "full_replace";
+
 /** Coarse status for list/doctor display (starting/seeding → provisioning). */
 export type DisplayPreviewStatus =
   | "provisioning"

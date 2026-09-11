@@ -13,6 +13,7 @@ import {
 import { canSeedWithoutAppReplace } from "./seed-phase.ts";
 import type { Result } from "./result.ts";
 import type {
+  BringUpPlan,
   DisplayPreviewStatus,
   LifecycleDeps,
   PreviewSnapshot,
@@ -26,6 +27,7 @@ import type {
 
 export type { PreviewRow };
 export type {
+  BringUpPlan,
   DisplayPreviewStatus,
   LifecycleDeps,
   PreviewSnapshot,
@@ -108,6 +110,11 @@ const clearLastError = {
   seedLog: null,
 } as const;
 
+type AcceptBringUp = {
+  status: "provisioning" | "seeding";
+  plan: BringUpPlan;
+};
+
 /**
  * Registry pull failed before replace. Must run under {@link withPreviewLock}.
  * No-ops if teardown already won (`removing` / `removed` / missing). If a
@@ -134,6 +141,7 @@ async function persistPullFailure(
         lastError: error,
         lastErrorDetail: detail ?? null,
         failureFamily: null,
+        bringUpPlan: null,
         updatedAt: utcIsoNow(),
       })
       .where(
@@ -150,6 +158,7 @@ async function persistPullFailure(
       lastError: error,
       lastErrorDetail: detail ?? null,
       failureFamily: null,
+      bringUpPlan: null,
       updatedAt: utcIsoNow(),
     })
     .where(
@@ -171,6 +180,7 @@ async function writeProvisioningIntent(
       dbName,
       hostname: input.hostname,
       status: "provisioning",
+      bringUpPlan: "full_replace",
       appImage: null,
       containerId: null,
       seededAt: null,
@@ -184,17 +194,18 @@ async function writeProvisioningIntent(
 }
 
 /**
- * Same-identity accept patch: clear sticky errors and set the in-flight plan
- * status. Optional remint advances TTL generation (stuck provisioning only).
- * Does not touch seeded_at — that clears after healthy attach or on seed entry.
- * Preserves failureFamily so bring-up can select post_healthy sync-only vs
- * full replace; cleared on successful closeRunning / attach.
+ * Same-identity accept patch: clear sticky errors, write durable bringUpPlan,
+ * and set the in-flight status. Optional remint advances TTL generation
+ * (stuck provisioning only). Does not touch seeded_at — that clears after
+ * healthy attach or on seed entry. Preserves failureFamily through claim
+ * (survives until closeRunning / attach / sticky re-mark).
  */
 async function patchAccept(
   deps: LifecycleDeps,
   row: PreviewRow,
   fields: {
     status: "provisioning" | "seeding";
+    plan: BringUpPlan;
     remint?: boolean;
     hostname?: string;
   },
@@ -205,6 +216,7 @@ async function patchAccept(
     row,
     {
       status: fields.status,
+      bringUpPlan: fields.plan,
       ...(fields.hostname != null ? { hostname: fields.hostname } : {}),
       lastError: null,
       lastErrorDetail: null,
@@ -241,32 +253,56 @@ function requireDbIdentity(
 }
 
 /**
- * Shared accept plan for identity-matched rows that may seed without replace.
- * - seeding + same app → seeding (resume incomplete seed)
- * - failed + same app + failureFamily seed_incomplete → seeding
- * - failed + post_healthy (or other) sticky fail → provisioning
- *   (bring-up: post_healthy + sameApp → sync-only; else replace→sync)
- * - running/starting + reseed + same app → seeding (seed-only reseed)
- * - else → provisioning (replace path)
- * seeded_at clears after healthy attach or on seed-phase entry.
- * failureFamily survives patchAccept for bring-up to consume.
+ * Write the bring-up plan once at accept. Bring-up consumes `bringUpPlan`
+ * blindly — do not re-derive from status/`failureFamily` there.
+ *
+ * - Durable `sync_close` (promote/seed already done) + same app → sync_close
+ * - seeding + seededAt (seed done, plan missing) + same app → sync_close
+ * - seeding + same app (seed incomplete) → seed_resume
+ * - failed + seed_incomplete + same app → seed_resume
+ * - failed + post_healthy + same app → sync_close (bring-up requires services)
+ * - running/starting + reseed + same app → seed_resume
+ * - else → full_replace
+ *
+ * Bare `starting` without `bringUpPlan=sync_close` is mid-health (or older
+ * crash); keep full_replace — promote writes sync_close only after healthy.
  */
 function planAcceptBringUp(
   row: PreviewRow,
   input: ProvisionInput,
   status: "failed" | "seeding" | "running" | "starting",
-): "seeding" | "provisioning" {
+): AcceptBringUp {
   const sameApp = canSeedWithoutAppReplace(row, input);
+
+  // Crash recovery: promote/seed already advanced the plan (or left seededAt
+  // set before the column existed).
+  if (sameApp) {
+    if (row.bringUpPlan === "sync_close") {
+      return { status: "provisioning", plan: "sync_close" };
+    }
+    if (status === "seeding" && row.seededAt != null) {
+      return { status: "provisioning", plan: "sync_close" };
+    }
+  }
+
   if (status === "seeding") {
-    return sameApp ? "seeding" : "provisioning";
+    return sameApp
+      ? { status: "seeding", plan: "seed_resume" }
+      : { status: "provisioning", plan: "full_replace" };
   }
   if (status === "failed") {
     if (sameApp && row.failureFamily === "seed_incomplete") {
-      return "seeding";
+      return { status: "seeding", plan: "seed_resume" };
     }
-    return "provisioning";
+    if (sameApp && row.failureFamily === "post_healthy") {
+      return { status: "provisioning", plan: "sync_close" };
+    }
+    return { status: "provisioning", plan: "full_replace" };
   }
-  return input.reseed === true && sameApp ? "seeding" : "provisioning";
+  if (input.reseed === true && sameApp) {
+    return { status: "seeding", plan: "seed_resume" };
+  }
+  return { status: "provisioning", plan: "full_replace" };
 }
 
 /**
@@ -292,6 +328,7 @@ export async function claimDeployIntent(
         dbName: requestedDbName,
         hostname: input.hostname,
         status: "provisioning",
+        bringUpPlan: "full_replace",
       })
       .returning();
     if (!inserted) {
@@ -322,9 +359,8 @@ export async function claimDeployIntent(
       if (dbIdentityMatches(row, input, requestedDbName)) {
         // Seed-resume accept writes in-flight `seeding` so `failed` stays
         // terminal-only for CLI pollers (keep containerId/appImage).
-        const next = await patchAccept(deps, row, {
-          status: planAcceptBringUp(row, input, "failed"),
-        });
+        const planned = planAcceptBringUp(row, input, "failed");
+        const next = await patchAccept(deps, row, planned);
         return { ok: true, value: previewSnapshotFromRow(next) };
       }
       const intent = await writeProvisioningIntent(
@@ -337,18 +373,22 @@ export async function claimDeployIntent(
     case "seeding": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(deps, row, {
-        status: planAcceptBringUp(row, input, "seeding"),
-      });
+      const next = await patchAccept(
+        deps,
+        row,
+        planAcceptBringUp(row, input, "seeding"),
+      );
       return { ok: true, value: previewSnapshotFromRow(next) };
     }
     case "running":
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(deps, row, {
-        status: planAcceptBringUp(row, input, status.value),
-      });
+      const next = await patchAccept(
+        deps,
+        row,
+        planAcceptBringUp(row, input, status.value),
+      );
       return { ok: true, value: previewSnapshotFromRow(next) };
     }
     case "provisioning": {
@@ -356,6 +396,7 @@ export async function claimDeployIntent(
       if (!identity.ok) return identity;
       const next = await patchAccept(deps, row, {
         status: "provisioning",
+        plan: "full_replace",
         remint: true,
         hostname: input.hostname,
       });
@@ -366,18 +407,12 @@ export async function claimDeployIntent(
 
 /**
  * Post-accept bring-up under the preview lock. Assumes
- * {@link claimDeployIntent} already wrote/cleared the intent row. Never remints
- * createdAt — accept owns generation.
+ * {@link claimDeployIntent} already wrote the intent row + durable
+ * `bringUpPlan`. Never remints createdAt — accept owns generation.
  *
- * Status after claim is the plan: seed-resume / seed-only reseed is `seeding`;
- * everything else is `provisioning`. Do not re-enter seed on a live same-image
- * row — that still has containerId/appImage and would wrongly match
- * canSeedWithoutAppReplace without the seeding-only guard (`failed` is
- * terminal after accept). `post_healthy` failureFamily survives claim so
- * bring-up can sync companions without replacing the healthy app.
- *
- * Bring-up pipeline (see bring-up.ts): attach → promote/seed → sync → running
- * (or seed-resume → sync → running; or post_healthy sync-only → running).
+ * Bring-up consumes `bringUpPlan` only (see bring-up.ts):
+ * seed_resume → seed → sync → running; sync_close → sync → running;
+ * full_replace → ensure → attach → promote → sync → running.
  */
 async function completeProvisionUnlocked(
   deps: LifecycleDeps,
@@ -401,7 +436,7 @@ async function completeProvisionUnlocked(
   if (status.value === "removed") {
     return { ok: false, status: 404, error: "preview_not_found" };
   }
-  return completeBringUp(deps, row, input, status.value);
+  return completeBringUp(deps, row, input);
 }
 
 /** Soft-remove (sweep/teardown) vs hard-delete SQLite row (admin drop). */

@@ -26,33 +26,6 @@ export type DeployEphemerals = {
   connectionEnv?: PreviewEnvMap;
 };
 
-/**
- * Promote/seed succeeded but the row is not yet `running`.
- * Fleet sync may still follow; bring-up owns the single write to `running`.
- */
-export type SeedPhaseSnapshot = {
-  ok: true;
-  canonical_repo_id: string;
-  pr_id: number;
-  slug: string;
-  db_name: string;
-  hostname: string;
-  status: "starting" | "seeding";
-};
-
-function toPromotedSnapshot(row: PreviewRow): SeedPhaseSnapshot {
-  const status = row.status === "seeding" ? "seeding" : "starting";
-  return {
-    ok: true,
-    canonical_repo_id: row.canonicalRepoId,
-    pr_id: row.prId,
-    slug: row.slug,
-    db_name: row.dbName,
-    hostname: row.hostname,
-    status,
-  };
-}
-
 /** Short sticky detail for status/CLI — never the seed log blob. */
 function seedFailureDetail(
   result: Extract<SeedImageResult, { ok: false }>,
@@ -63,8 +36,8 @@ function seedFailureDetail(
 }
 
 /**
- * Seed phase ownership: enter seeding → run → seededAt (still seeding) |
- * failed(keep container). Bring-up closes to `running` after companion sync.
+ * Seed phase ownership: enter seeding → run → seededAt + bringUpPlan=sync_close |
+ * failed(keep container). Bring-up syncs companions then closes to `running`.
  * Any post-enter throw still markStickyPreviewFailed so the row cannot
  * tombstone as seeding.
  */
@@ -72,7 +45,7 @@ async function runSeedPhase(
   deps: SeedPhaseDeps,
   row: PreviewRow,
   ephemerals: DeployEphemerals & { seed: SeedImageSpec },
-): Promise<Result<SeedPhaseSnapshot>> {
+): Promise<Result<true>> {
   const { seed, connectionEnv } = ephemerals;
   // Clear seeded_at on entry so a failed reseed matches first-seed failure
   // (null seeded_at) and resume can re-run without another --reseed.
@@ -115,13 +88,15 @@ async function runSeedPhase(
     }
 
     const seededAt = utcIsoNow();
-    const updated = await updatePreviewRow(
+    await updatePreviewRow(
       deps.db,
       row,
       {
         // Stay seeding until bring-up syncs companions and closes to running.
         status: "seeding",
         seededAt,
+        // Durable: only fleet close remains — crash recovery must not re-seed.
+        bringUpPlan: "sync_close",
         lastError: null,
         lastErrorDetail: null,
         failureFamily: null,
@@ -130,7 +105,7 @@ async function runSeedPhase(
       },
       "preview_row_missing_on_seeded",
     );
-    return { ok: true, value: toPromotedSnapshot(updated) };
+    return { ok: true, value: true };
   } catch (err) {
     console.warn("seed:failed", err);
     await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
@@ -144,7 +119,7 @@ async function runSeedPhase(
 }
 
 /**
- * After-healthy hook entry: no seed → stay starting; else run seed phase.
+ * After-healthy hook entry: no seed → mark sync_close; else run seed phase.
  * Does not write `running` — bring-up owns that after companion sync.
  * Seed image is the only after-healthy hook impl in v0.1.
  */
@@ -152,7 +127,7 @@ export async function promoteAfterHealthy(
   deps: SeedPhaseDeps,
   starting: PreviewRow,
   ephemerals: DeployEphemerals = {},
-): Promise<Result<SeedPhaseSnapshot>> {
+): Promise<Result<true>> {
   const { seed } = ephemerals;
   // Lifecycle clears seeded_at before promote for replace+reseed; this gate
   // stays dumb on row state.
@@ -162,8 +137,14 @@ export async function promoteAfterHealthy(
     return runSeedPhase(deps, starting, { ...ephemerals, seed });
   }
 
-  // Attach already left status=starting with errors cleared; no DB write.
-  return { ok: true, value: toPromotedSnapshot(starting) };
+  // Durable: attach is healthy; only fleet close remains.
+  await updatePreviewRow(
+    deps.db,
+    starting,
+    { bringUpPlan: "sync_close", updatedAt: utcIsoNow() },
+    "preview_row_missing_on_promote",
+  );
+  return { ok: true, value: true };
 }
 
 /**
@@ -193,7 +174,7 @@ export async function resumeIncompleteSeed(
   deps: SeedPhaseDeps,
   row: PreviewRow,
   ephemerals: DeployEphemerals,
-): Promise<Result<SeedPhaseSnapshot>> {
+): Promise<Result<true>> {
   if (!ephemerals.seed) {
     // Keep containerId so the healthy app stays reclaimable for a seeded retry.
     await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
