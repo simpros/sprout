@@ -147,9 +147,12 @@ overlay instead of forking the reference file:
    existing network names (Coolify often uses `traefik`).
 2. For HTTPS routers, set Traefik TLS knobs to match that proxy — e.g.
    `SPROUT_TRAEFIK_ENTRYPOINTS=https` and optionally
-   `SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt` on Coolify. Leave both unset for
-   HTTP-only Traefik (bundled compose / local). Empty entrypoints keeps TLS off
-   even if certresolver is set.
+   `SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt` on Coolify (HTTP-01 is fine for
+   small fleets). If you need a single wildcard / DNS-01 for rate limits or
+   fleet growth, follow [Wildcard preview certificate (DNS-01)](#wildcard-preview-certificate-dns-01)
+   — often you keep the name `letsencrypt` after converting that resolver.
+   Leave both unset for HTTP-only Traefik (bundled compose / local). Empty
+   entrypoints keeps TLS off even if certresolver is set.
 3. For an SSO gate on preview hosts (Traefik forwardAuth), set both
    `SPROUT_TRAEFIK_MIDDLEWARES` (a single name, e.g. `voidauth`) and
    `SPROUT_FORWARDAUTH_ADDRESS` (a URL Traefik can reach). The gateway emits
@@ -235,10 +238,12 @@ week** rate limit under fleet growth or ACME-store wipes. One wildcard on the
 preview domain (`*.previews.example.com`) removes per-deploy issuance: Traefik
 serves the stored cert for every preview host without ordering a new one.
 
-sprout still emits optional `tls.certresolver` labels (#102). With a valid
-wildcard already in that resolver's ACME store, those labels are effectively
-no-ops for matching hosts — Traefik reuses the store hit instead of creating a
-new LE order.
+sprout still emits optional `tls.certresolver` labels (#102). Traefik resolves
+via that named resolver and must find a covering cert in **that** resolver's
+store. With `*.PREVIEW_DOMAIN` already there, Traefik should log a store hit /
+`No ACME certificate generation required` for the preview FQDN — not a new LE
+order. Wrong resolver name → per-host orders resume (the rate-limit failure
+mode).
 
 Ready-to-apply fragments (placeholders only):
 [`deploy/traefik/`](../deploy/traefik/).
@@ -250,41 +255,34 @@ You need these before executing the runbook; this PR does **not** include them:
 | Need | Why |
 |---|---|
 | DNS provider API credentials for the preview zone | Traefik `dnsChallenge` must create/delete `_acme-challenge` TXT records |
-| Write access to Traefik **static** config (or managed-proxy UI equivalent) | Add a `dnsChallenge` certificates resolver + durable ACME storage path |
+| Write access to Traefik **static** config (or managed-proxy UI equivalent) | Convert or add a `dnsChallenge` certificates resolver + durable ACME storage |
 | Ability to inject provider env vars into the Traefik process | Provider plugins read tokens from the environment (names are provider-specific) |
 | Durable volume (or equivalent) for ACME storage | Cert + account must survive Traefik restarts/upgrades |
 
 Do **not** invent provider field names here — look up Traefik's docs for your
-DNS provider and fill the placeholders in
+DNS provider. For the coexistence branch only, fill placeholders in
 `deploy/traefik/certificates-resolver.dns.yml`.
 
-#### Runbook
+#### Choose a path
+
+| Path | When | Gateway certresolver |
+|---|---|---|
+| **Default (simple)** | Traefik's job for this zone is preview TLS, or DNS API creds already cover every host Traefik terminates | Keep existing name (e.g. `letsencrypt`) |
+| **Coexistence (optional)** | You must leave Coolify / other apps on HTTP-01 | Point sprout at the new DNS-01 name (e.g. `letsencrypt-dns`) |
+
+#### Runbook — default (one DNS-01 resolver)
 
 1. **Identify the DNS provider** for the preview domain (the zone that serves
    `*.previews.example.com`). Create API credentials with permission to manage
    TXT records for ACME. Record the Traefik provider name and required env vars
-   from Traefik's DNS Providers list — leave them as placeholders until you
-   apply config on the host.
+   from Traefik's DNS Providers list.
 
-2. **Add a `dnsChallenge` certificates resolver** alongside any existing
-   HTTP-01 resolver. Persist ACME storage on a volume (verify it already is —
-   a wipe is what turns rate limits into an outage). Merge
-   `deploy/traefik/certificates-resolver.dns.yml` (or equivalent CLI flags /
-   Coolify proxy settings):
-
-   ```yaml
-   # Conceptual — see deploy/traefik/certificates-resolver.dns.yml
-   certificatesResolvers:
-     letsencrypt-dns:
-       acme:
-         email: "<ACME_EMAIL>"
-         storage: "<ACME_STORAGE_PATH>"   # must be on a durable volume
-         dnsChallenge:
-           provider: "<DNS_PROVIDER>"
-   ```
-
-   Inject `<DNS_PROVIDER_ENV_*>` into the Traefik container/process. Keep the
-   existing HTTP-01 resolver for non-preview hosts if you still need it.
+2. **Convert the existing resolver to `dnsChallenge`.** In Traefik static
+   config (or Coolify proxy settings), change the current resolver (often
+   `letsencrypt`) from `httpChallenge` → `dnsChallenge`. Keep the **same
+   resolver name** and the **same** durable `storage` path. Inject
+   `<DNS_PROVIDER_ENV_*>` into the Traefik process. No second resolver, no
+   second `acme.json`, no rename dance.
 
 3. **Issue the wildcard once** with a temporary router, then remove it. The
    cert stays in the ACME store:
@@ -292,7 +290,7 @@ DNS provider and fill the placeholders in
    ```bash
    export PREVIEW_DOMAIN=previews.example.com          # your preview base domain
    export TRAEFIK_NETWORK=traefik                      # shared Docker network
-   export CERTRESOLVER_NAME=letsencrypt-dns            # must match step 2
+   export CERTRESOLVER_NAME=letsencrypt                # same name as step 2
    export HTTPS_ENTRYPOINT=https                       # match your Traefik
 
    docker compose -f deploy/traefik/wildcard-bootstrap.compose.yml up -d
@@ -305,21 +303,70 @@ DNS provider and fill the placeholders in
    Traefik requests a wildcard (DNS-01), not a single-host cert for
    `bootstrap.*`.
 
-4. **Point sprout at the same resolver** (if you use certresolver labels):
+4. **Keep sprout on that resolver** (Coolify quickstart unchanged):
 
    ```bash
    # compose.env / gateway env — names must match Traefik
    SPROUT_TRAEFIK_ENTRYPOINTS=https
-   SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt-dns
+   SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt
    ```
 
    Deploy a preview. Traefik should terminate TLS with the stored wildcard;
-   **no new LE order** for that hostname.
+   **no new LE order** for that hostname (store hit / `No ACME certificate
+   generation required` in Traefik ACME logs).
 
 5. **Monitor renewal.** Let's Encrypt wildcards renew before expiry (~30 days
    out). Confirm Traefik still has DNS credentials and that ACME storage is
-   writable. Optionally dry-run against the staging CA (`caServer` in the
-   fragment) on a non-prod Traefik first.
+   writable. Optionally dry-run against the staging CA (`caServer`) on a
+   non-prod Traefik first.
+
+#### Runbook — coexistence (second resolver; optional)
+
+Only if you must leave Coolify / other apps on HTTP-01:
+
+1. Same DNS provider prep as the default path.
+
+2. **Add a second resolver** with a **distinct** storage file. Traefik
+   requires one storage file per certificates resolver — reusing the HTTP-01
+   path (e.g. `/data/acme.json`) causes init conflicts or a corrupted store.
+   Paste the `letsencrypt-dns:` block from
+   [`deploy/traefik/certificates-resolver.dns.yml`](../deploy/traefik/certificates-resolver.dns.yml)
+   **under** your existing `certificatesResolvers:` map (do not overwrite the
+   whole static ACME document). Merged shape:
+
+   ```yaml
+   certificatesResolvers:
+     letsencrypt:                    # existing HTTP-01 — leave as-is
+       acme:
+         email: "<ACME_EMAIL>"
+         storage: "/data/acme.json"  # HTTP-01 store
+         httpChallenge:
+           entryPoint: http
+     letsencrypt-dns:                # pasted from the fragment
+       acme:
+         email: "<ACME_EMAIL>"
+         storage: "/data/acme-dns.json"  # MUST differ from HTTP-01
+         dnsChallenge:
+           provider: "<DNS_PROVIDER>"
+   ```
+
+   Inject `<DNS_PROVIDER_ENV_*>` into the Traefik container/process.
+
+3. **Bootstrap** as in the default path, but set
+   `CERTRESOLVER_NAME=letsencrypt-dns` (must match the new resolver).
+
+4. **Point sprout at the DNS resolver:**
+
+   ```bash
+   SPROUT_TRAEFIK_ENTRYPOINTS=https
+   SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt-dns
+   ```
+
+   Other Coolify apps can keep using `letsencrypt` (HTTP-01). Preview hosts
+   must use the resolver that holds `*.PREVIEW_DOMAIN`.
+
+5. **Monitor renewal** as in the default path (DNS creds + writable
+   `<ACME_DNS_STORAGE_PATH>`).
 
 #### Managed Traefik notes (Coolify and similar)
 
@@ -328,15 +375,17 @@ sprout does not configure Coolify's proxy. On a managed Traefik:
 - Find where that product exposes **certificates resolvers** / ACME storage
   (static config, UI, or generated compose). You need a `dnsChallenge`
   resolver there — Docker labels alone cannot add one.
-- Ensure the proxy's ACME JSON (or equivalent) is on **persistent storage**,
-  not an ephemeral container filesystem.
+- Prefer converting the existing resolver when this Traefik only terminates
+  hosts your DNS creds cover; use the coexistence branch only when HTTP-01
+  must remain for other apps.
+- Ensure every ACME JSON path is on **persistent storage**, not an ephemeral
+  container filesystem. Dual resolvers need **two** durable files.
 - Provider credentials belong in the **proxy** environment, not in sprout
   gateway env.
 - Gateway knobs stay the same: `SPROUT_TRAEFIK_ENTRYPOINTS` +
   `SPROUT_TRAEFIK_CERTRESOLVER` must match the managed proxy's entrypoint and
-  the new DNS resolver name. If the managed proxy only exposes a single
-  HTTP-01 resolver today, you still need static-config access to add DNS-01
-  (or accept per-host issuance and rate limits).
+  the resolver that holds the wildcard. If the managed proxy cannot add or
+  convert to DNS-01, you keep per-host issuance and rate limits.
 
 #### Verification (zero LE orders per deploy)
 
@@ -344,9 +393,9 @@ After the wildcard is in the store:
 
 | Check | How |
 |---|---|
-| Wildcard present in ACME store | Inspect `<ACME_STORAGE_PATH>` (or Traefik API / dashboard certificates) for `*.previews.example.com` (and apex SAN if requested). |
+| Wildcard present in ACME store | Inspect the DNS-01 resolver's storage path (or Traefik API / dashboard certificates) for `*.previews.example.com` (and apex SAN if requested). |
 | ACME survives restart | Restart Traefik; confirm the same store file/volume still lists the wildcard; HTTPS to an existing preview host still presents that cert. |
-| New preview → **zero new LE orders** | Note LE account order count or Traefik ACME log cursor. `sprout deploy` a fresh PR host. Confirm logs show **no** `Obtain` / new order for that FQDN; `openssl s_client` (or browser) shows the wildcard cert (`CN`/`SAN` includes `*.previews.example.com`). |
+| New preview → **zero new LE orders** | Note LE account order count or Traefik ACME log cursor. `sprout deploy` a fresh PR host. Confirm logs show a store hit / `No ACME certificate generation required` for that FQDN against the resolver that holds the wildcard — **no** `Obtain` / new order; `openssl s_client` (or browser) shows the wildcard cert (`CN`/`SAN` includes `*.previews.example.com`). |
 | Rate-limit safety | Optional: temporarily revoke network to the DNS API and deploy again — TLS should still work from the store (renewal would fail later; issuance on deploy must not be required). |
 
 Acceptance from [#105](https://github.com/simpros/sprout/issues/105): new preview deploys order zero LE certificates (store hit); ACME storage survives Traefik restarts/upgrades; renewal observed or staging dry-run verified.
@@ -413,7 +462,9 @@ Optional tuning (defaults in parentheses):
 For HTTPS behind an external Traefik, set entrypoints (and optionally
 certresolver) to that proxy's names. Example Coolify-shaped values (operator
 choice, not sprout defaults): `SPROUT_TRAEFIK_ENTRYPOINTS=https` and
-`SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt`.
+`SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt` (HTTP-01, or the same name after a
+DNS-01 convert — see [Wildcard preview certificate (DNS-01)](#wildcard-preview-certificate-dns-01);
+use `letsencrypt-dns` only on the coexistence path).
 
 For SSO via Traefik forwardAuth (e.g. VoidAuth), set both
 `SPROUT_TRAEFIK_MIDDLEWARES=voidauth` and

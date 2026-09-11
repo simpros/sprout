@@ -7,13 +7,15 @@
 # Placeholders (export or put in an env file; never commit real values):
 #   PREVIEW_DOMAIN          e.g. previews.example.com
 #   TRAEFIK_NETWORK         Docker network shared with Traefik (e.g. traefik)
-#   CERTRESOLVER_NAME       must match the dnsChallenge resolver (e.g. letsencrypt-dns)
+#   CERTRESOLVER_NAME       must match the dnsChallenge resolver that will hold
+#                           the wildcard (default path: letsencrypt; coexistence:
+#                           letsencrypt-dns)
 #   HTTPS_ENTRYPOINT        Traefik HTTPS entrypoint name (e.g. https / websecure)
 #
-# Usage:
+# Usage (default — same name as converted resolver):
 #   export PREVIEW_DOMAIN=previews.example.com
 #   export TRAEFIK_NETWORK=traefik
-#   export CERTRESOLVER_NAME=letsencrypt-dns
+#   export CERTRESOLVER_NAME=letsencrypt
 #   export HTTPS_ENTRYPOINT=https
 #   docker compose -f deploy/traefik/wildcard-bootstrap.compose.yml up -d
 #   # watch Traefik ACME logs until the wildcard cert is present, then:

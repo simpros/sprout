@@ -1,27 +1,31 @@
-# Traefik static-config fragment: DNS-01 ACME resolver for wildcard preview certs.
-# Merge into the Traefik that fronts preview hosts (file provider, CLI flags, or
-# Coolify / other managed-proxy equivalent). Do NOT commit real credentials.
+# Traefik static-config snippet: DNS-01 ACME for wildcard preview certs.
+# Paste under your existing `certificatesResolvers:` map — do NOT replace
+# Coolify/other managed static ACME config wholesale (that deletes HTTP-01).
 #
 # Placeholders:
-#   <ACME_EMAIL>              — Let's Encrypt contact email
-#   <ACME_STORAGE_PATH>       — durable path inside Traefik (e.g. /data/acme.json)
-#   <DNS_PROVIDER>            — Traefik dnsChallenge provider name for your DNS
-#                               (see Traefik "DNS Providers" docs; e.g. cloudflare,
-#                               route53, digitalocean — pick yours, do not guess)
-#   <DNS_PROVIDER_ENV_*>      — provider-specific env vars Traefik expects
-#                               (API token / keys). Inject via Traefik container
-#                               env or a secrets store — never hard-code here.
+#   <ACME_EMAIL>                 — Let's Encrypt contact email
+#   <ACME_DNS_STORAGE_PATH>      — durable path for THIS resolver only
+#                                  (e.g. /data/acme-dns.json). When adding a
+#                                  second resolver alongside HTTP-01, MUST differ
+#                                  from the HTTP-01 resolver's storage file —
+#                                  Traefik allows one storage file per resolver.
+#   <DNS_PROVIDER>               — Traefik dnsChallenge provider name for your DNS
+#                                  (see Traefik "DNS Providers" docs; e.g. cloudflare,
+#                                  route53, digitalocean — pick yours, do not guess)
+#   <DNS_PROVIDER_ENV_*>         — provider-specific env vars Traefik expects
+#                                  (API token / keys). Inject via Traefik container
+#                                  env or a secrets store — never hard-code here.
 #
-# Keep any existing HTTP-01 resolver (e.g. "letsencrypt") for non-wildcard hosts.
-# This fragment adds a second resolver used only for the preview wildcard.
+# Prefer the default path in docs/deploy.md § Wildcard: convert the existing
+# resolver to dnsChallenge (same name, same storage). Use this file only for
+# the coexistence branch below.
+#
+# Coexistence — paste under certificatesResolvers: (HTTP-01 stays as-is):
 
-certificatesResolvers:
-  # Name must match SPROUT_TRAEFIK_CERTRESOLVER (or the resolver you point
-  # gateway TLS labels / the bootstrap router at).
   letsencrypt-dns:
     acme:
       email: "<ACME_EMAIL>"
-      storage: "<ACME_STORAGE_PATH>"
+      storage: "<ACME_DNS_STORAGE_PATH>"
       # Optional: caServer for staging while testing issuance:
       # caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
       dnsChallenge:
