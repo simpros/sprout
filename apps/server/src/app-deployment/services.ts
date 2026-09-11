@@ -11,9 +11,11 @@ import {
 } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import {
-  previewContainerName,
+  materializeContainer,
   previewServiceContainerName,
-} from "../preview/naming.ts";
+  removePreviewServices,
+  resolveExposedPort,
+} from "./preview-containers.ts";
 
 export type PreviewServiceSpec = {
   /** Alphanumeric service id (same grammar as slug). */
@@ -45,46 +47,14 @@ export type ReplacePreviewServicesInput = {
   connectionEnv?: PreviewEnvMap;
 };
 
-/** Force-remove every cataloged container for one preview (app + services). */
-export async function removePreviewContainers(
-  docker: PreviewDocker,
-  slug: string,
-  prId: number,
-): Promise<void> {
-  const names = new Set<string>([previewContainerName(slug, prId)]);
-  for (const c of await docker.listPreviewContainers()) {
-    if (c.slug === slug && c.prId === prId) {
-      names.add(c.containerName);
-    }
-  }
-  await Promise.all([...names].map((name) => docker.removeByName(name)));
-}
-
-/** Remove only service containers for one preview (leave the app). */
-export async function removePreviewServices(
-  docker: PreviewDocker,
-  slug: string,
-  prId: number,
-): Promise<void> {
-  const catalog = await docker.listPreviewContainers();
-  await Promise.all(
-    catalog
-      .filter(
-        (c) =>
-          c.slug === slug &&
-          c.prId === prId &&
-          c.containerName !== previewContainerName(slug, prId),
-      )
-      .map((c) => docker.removeByName(c.containerName)),
-  );
-}
+export { removePreviewServices };
 
 /**
  * Replace long-lived preview service containers for one PR.
  * Clears prior services for the preview, then creates each requested service
  * with dual-network attach and the same connection env as the app.
  * Traefik labels only when hostname and/or path is set (otherwise internal).
- * Caller must already have pulled images.
+ * Caller must already have pulled images. Empty list clears without creating.
  */
 export async function replacePreviewServices(
   deps: ReplacePreviewServicesDeps,
@@ -92,36 +62,44 @@ export async function replacePreviewServices(
 ): Promise<void> {
   await removePreviewServices(deps.docker, input.slug, input.prId);
 
-  for (const service of input.services) {
-    const exposed = await deps.docker.firstExposedPort(service.image);
-    const port = exposed ?? deps.previewPortDefault;
-    const name = previewServiceContainerName(
-      input.slug,
-      input.prId,
-      service.name,
-    );
-    const routeHost = service.hostname ?? input.appHostname;
-    const routed = service.hostname != null || service.path != null;
-    const labels = routed
-      ? traefikLabels({
-          routerName: name,
-          hostname: routeHost,
-          port,
-          pathPrefix: service.path,
-          tls: deps.traefikTls,
-          forwardAuth: deps.traefikForwardAuth,
-        })
-      : {};
+  const connection = pgConnectionEnv(
+    deps.pg,
+    input.dbName,
+    input.connectionEnv,
+  );
 
-    await deps.docker.createAndStart({
-      name,
-      image: service.image,
-      env: withGatewayConnectionEnv(
-        [],
-        pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
-      ),
-      labels,
-      networkNames: [deps.networks.traefik, deps.networks.postgres],
-    });
-  }
+  await Promise.all(
+    input.services.map(async (service) => {
+      const port = await resolveExposedPort(
+        deps.docker,
+        service.image,
+        deps.previewPortDefault,
+      );
+      const name = previewServiceContainerName(
+        input.slug,
+        input.prId,
+        service.name,
+      );
+      const routeHost = service.hostname ?? input.appHostname;
+      const routed = service.hostname != null || service.path != null;
+      const labels = routed
+        ? traefikLabels({
+            routerName: name,
+            hostname: routeHost,
+            port,
+            pathPrefix: service.path,
+            tls: deps.traefikTls,
+            forwardAuth: deps.traefikForwardAuth,
+          })
+        : {};
+
+      await materializeContainer(deps.docker, {
+        name,
+        image: service.image,
+        env: withGatewayConnectionEnv([], connection),
+        labels,
+        networkNames: [deps.networks.traefik, deps.networks.postgres],
+      });
+    }),
+  );
 }

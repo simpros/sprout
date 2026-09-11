@@ -80,8 +80,11 @@ export type ProvisionInput = {
   seed?: SeedImageSpec;
   /** Adopter KEY=VALUE for the app container; request-scoped, not persisted. */
   appEnv: string[];
-  /** Extra long-lived service containers; request-scoped, not persisted. */
-  services: PreviewServiceSpec[];
+  /**
+   * Companion fleet sync; request-scoped, not persisted.
+   * `undefined` = leave existing companions; `[]` = clear; non-empty = replace.
+   */
+  services?: PreviewServiceSpec[];
   /** Connection env name remap; request-scoped, not persisted. */
   connectionEnv?: PreviewEnvMap;
   /**
@@ -373,9 +376,59 @@ async function ensureDatabase(
   });
 }
 
+/** Best-effort fleet remove + mark failed (shared health/service fail path). */
+async function failAttach(
+  deps: LifecycleDeps,
+  row: Pick<PreviewRow, "slug" | "prId" | "canonicalRepoId">,
+  error: string,
+): Promise<Result<never>> {
+  try {
+    await deps.app.remove(row.slug, row.prId);
+  } catch {
+    console.warn(
+      `preview container remove failed for ${row.slug} pr=${row.prId} after ${error}`,
+    );
+  }
+  await markPreviewFailed(
+    deps.db,
+    row.canonicalRepoId,
+    row.prId,
+    error,
+  );
+  return { ok: false, status: 500, error };
+}
+
 /**
- * Replace + health only. Ends at healthy `starting` — seed/promote is a
- * separate phase owned by attachThenPromote / promoteAfterHealthy.
+ * Orthogonal companion sync after app is healthy (attach) or seed-resume.
+ * `undefined` leaves existing containers; `[]` clears; non-empty replaces.
+ */
+async function syncPreviewServices(
+  deps: LifecycleDeps,
+  row: Pick<PreviewRow, "slug" | "prId" | "canonicalRepoId" | "dbName">,
+  input: ProvisionInput,
+): Promise<Result<true>> {
+  if (input.services === undefined) {
+    return { ok: true, value: true };
+  }
+  try {
+    await deps.app.replaceServices({
+      slug: row.slug,
+      prId: row.prId,
+      appHostname: input.hostname,
+      dbName: row.dbName,
+      services: input.services,
+      connectionEnv: input.connectionEnv,
+    });
+    return { ok: true, value: true };
+  } catch {
+    return failAttach(deps, row, "preview_service_deploy_failed");
+  }
+}
+
+/**
+ * Replace + health only. Ends at healthy `starting` — seed/promote and
+ * service sync are separate phases owned by attachThenPromote /
+ * syncPreviewServices / promoteAfterHealthy.
  * Accept owns generation remint; attach never touches createdAt.
  */
 async function attachAppContainer(
@@ -429,48 +482,7 @@ async function attachAppContainer(
     console.warn("health:timeout");
     // Best-effort remove: failed must not leave a Traefik-routed container
     // claimed by the row (orphan sweep skips keys still in previews).
-    try {
-      await deps.app.remove(row.slug, row.prId);
-    } catch {
-      console.warn(
-        `preview container remove failed for ${row.slug} pr=${row.prId} after health timeout`,
-      );
-    }
-    await markPreviewFailed(
-      deps.db,
-      row.canonicalRepoId,
-      row.prId,
-      "health_timeout",
-    );
-    return { ok: false, status: 500, error: "health_timeout" };
-  }
-
-  // Services after app health: gate covers the app only; services are
-  // best-effort companions sharing PGDATABASE (no per-service health).
-  try {
-    await deps.app.replaceServices({
-      slug: row.slug,
-      prId: row.prId,
-      appHostname: input.hostname,
-      dbName: row.dbName,
-      services: input.services,
-      connectionEnv: input.connectionEnv,
-    });
-  } catch {
-    try {
-      await deps.app.remove(row.slug, row.prId);
-    } catch {
-      console.warn(
-        `preview container remove failed for ${row.slug} pr=${row.prId} after service deploy failure`,
-      );
-    }
-    await markPreviewFailed(
-      deps.db,
-      row.canonicalRepoId,
-      row.prId,
-      "preview_service_deploy_failed",
-    );
-    return { ok: false, status: 500, error: "preview_service_deploy_failed" };
+    return failAttach(deps, row, "health_timeout");
   }
 
   return { ok: true, value: starting };
@@ -484,7 +496,7 @@ function deployEphemerals(input: ProvisionInput) {
   };
 }
 
-/** Attach (replace+health) then promote (running or seed phase). */
+/** Attach (replace+health) → sync services → promote (running or seed phase). */
 async function attachThenPromote(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -503,6 +515,8 @@ async function attachThenPromote(
       "preview_row_missing_on_reseed_clear",
     );
   }
+  const synced = await syncPreviewServices(deps, starting, input);
+  if (!synced.ok) return synced;
   return promoteAfterHealthy(deps, starting, deployEphemerals(input));
 }
 
@@ -700,7 +714,15 @@ async function completeProvisionUnlocked(
     return { ok: false, status: 404, error: "preview_not_found" };
   }
   if (status.value === "seeding" && canSeedWithoutAppReplace(row, input)) {
-    return resumeIncompleteSeed(deps, row, deployEphemerals(input));
+    const seeded = await resumeIncompleteSeed(
+      deps,
+      row,
+      deployEphemerals(input),
+    );
+    if (!seeded.ok) return seeded;
+    const synced = await syncPreviewServices(deps, row, input);
+    if (!synced.ok) return synced;
+    return seeded;
   }
   return ensureThenAttach(deps, row, input);
 }
@@ -828,7 +850,7 @@ async function pullImagesOutsideLock(
       pullImageOrFail(deps.app, input.seed.image, "preview_seed_pull_failed"),
     );
   }
-  for (const service of input.services) {
+  for (const service of input.services ?? []) {
     pulls.push(
       pullImageOrFail(
         deps.app,

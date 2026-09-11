@@ -108,6 +108,9 @@ export function createFakeDockerClient(
           containerName: name,
           slug: parsed.slug,
           prId: parsed.prId,
+          ...(parsed.serviceName != null
+            ? { serviceName: parsed.serviceName }
+            : {}),
         });
       }
       return out;

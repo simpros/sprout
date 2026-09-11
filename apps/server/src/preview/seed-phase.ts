@@ -188,21 +188,19 @@ export async function promoteAfterHealthy(
 /**
  * Live same-app structural check: container + matching image+hostname.
  * Compose with status / reseed at accept — does not mean "seed not done."
+ * Service sync is orthogonal (see ProvisionInput.services tri-state).
  */
 export function canSeedWithoutAppReplace(
   row: PreviewRow,
   input: {
     appImage: string;
     hostname: string;
-    /** Non-empty services force app replace so companions stay in sync. */
-    services?: readonly unknown[];
   },
 ): boolean {
   return (
     row.containerId != null &&
     row.appImage === input.appImage &&
-    row.hostname === input.hostname &&
-    (input.services?.length ?? 0) === 0
+    row.hostname === input.hostname
   );
 }
 

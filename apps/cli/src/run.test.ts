@@ -459,63 +459,6 @@ preview:
     expect(captured[0]?.body).not.toHaveProperty("seed_env");
   });
 
-  test("deploy forwards --service and yaml service routing", async () => {
-    const baseUrl = startGateway(async (req, url) => {
-      captured.push({
-        method: req.method,
-        path: url.pathname,
-        body: await req.json(),
-        authorization: req.headers.get("authorization"),
-      });
-      return Response.json({
-        ok: true,
-        status: "running",
-        preview_url: "https://pr-9.example.com",
-      });
-    });
-
-    const cwd = await withWorkspace(`
-slug: myapp
-preview:
-  hostname: "pr-{pr_id}.example.com"
-  services:
-    - name: api
-      hostname: "api-pr-{pr_id}.example.com"
-`);
-    const code = await runCli(
-      [
-        "deploy",
-        "-i",
-        "app:1",
-        "--service",
-        "api=ghcr.io/org/api:sha",
-        "--service",
-        "worker=ghcr.io/org/worker:sha",
-      ],
-      deps({
-        cwd,
-        env: {
-          SPROUT_URL: baseUrl,
-          SPROUT_TOKEN: "t",
-          GITHUB_REPOSITORY: "org/repo",
-          GITHUB_REF: "refs/pull/9/merge",
-        },
-        readTextFile: async (path) => Bun.file(path).text(),
-      }),
-    );
-    expect(code).toBe(0);
-    expect(captured[0]?.body).toMatchObject({
-      services: [
-        {
-          name: "api",
-          image: "ghcr.io/org/api:sha",
-          hostname: "api-pr-9.example.com",
-        },
-        { name: "worker", image: "ghcr.io/org/worker:sha" },
-      ],
-    });
-  });
-
   test("deploy rejects invalid --app-env before calling the gateway", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({

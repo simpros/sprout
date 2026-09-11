@@ -10,12 +10,16 @@ import {
   type AppDeployPg,
 } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
-import { previewContainerName } from "../preview/naming.ts";
-import { removePreviewContainers } from "./services.ts";
+import {
+  materializeContainer,
+  previewContainerName,
+  removePreviewFleet,
+  resolveExposedPort,
+} from "./preview-containers.ts";
 
 export type { AppDeployPg };
 export type { TraefikForwardAuth, TraefikTls };
-export { removePreviewContainers };
+export { removePreviewFleet };
 
 export type AppDeployNetworks = {
   traefik: string;
@@ -47,18 +51,6 @@ export type ReplacePreviewAppInput = {
 };
 
 /**
- * Force-remove the preview app and all service containers for one PR
- * (idempotent via Engine). Cataloged `-svc-*` names are cleared with the app.
- */
-export async function removePreviewApp(
-  docker: PreviewDocker,
-  slug: string,
-  prId: number,
-): Promise<void> {
-  await removePreviewContainers(docker, slug, prId);
-}
-
-/**
  * Replace (or first-start) the preview app container for one PR.
  * Force-removes any prior container with the stable name, then creates+starts
  * with dual-network attach, Traefik labels, adopter app env, and connection env
@@ -66,18 +58,20 @@ export async function removePreviewApp(
  * replace colliding user app-env keys (PG* or remapped names), same policy as seed.
  * Resolves Traefik port from image EXPOSE (or previewPortDefault).
  * Caller must already have pulled the image (outside the preview lock).
+ * App-only remove: services sync after health in lifecycle.
  */
 export async function replacePreviewApp(
   deps: ReplacePreviewAppDeps,
   input: ReplacePreviewAppInput,
 ): Promise<{ containerId: string; port: number }> {
-  const exposed = await deps.docker.firstExposedPort(input.image);
-  const port = exposed ?? deps.previewPortDefault;
+  const port = await resolveExposedPort(
+    deps.docker,
+    input.image,
+    deps.previewPortDefault,
+  );
   const name = previewContainerName(input.slug, input.prId);
-  // App-only remove here: services are replaced after health in lifecycle.
-  // Full teardown still uses removePreviewApp (app + services).
   await deps.docker.removeByName(name);
-  const { id } = await deps.docker.createAndStart({
+  const { containerId } = await materializeContainer(deps.docker, {
     name,
     image: input.image,
     env: withGatewayConnectionEnv(
@@ -93,5 +87,5 @@ export async function replacePreviewApp(
     }),
     networkNames: [deps.networks.traefik, deps.networks.postgres],
   });
-  return { containerId: id, port };
+  return { containerId, port };
 }

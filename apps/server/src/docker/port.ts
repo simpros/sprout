@@ -3,6 +3,8 @@ export type CatalogContainer = {
   containerName: string;
   slug: string;
   prId: number;
+  /** Present when the cataloged name is a `-svc-<name>` companion. */
+  serviceName?: string;
 };
 
 /** Spec for creating a preview (or other) container via the Docker engine. */

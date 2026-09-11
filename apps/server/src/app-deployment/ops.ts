@@ -6,8 +6,8 @@ import {
   type HealthProbe,
   type HealthSpec,
 } from "./health.ts";
+import { removePreviewFleet } from "./preview-containers.ts";
 import {
-  removePreviewApp,
   replacePreviewApp,
   type ReplacePreviewAppDeps,
   type ReplacePreviewAppInput,
@@ -55,7 +55,7 @@ export type PreviewAppOps = {
   ) => Promise<"ok" | "timeout">;
   /** One-shot seed image on Postgres network; caller already pulled the image. */
   runSeed: (input: SeedImageInput) => Promise<SeedImageResult>;
-  /** Remove app + all service containers for one PR. */
+  /** Remove app + all service containers for one PR (fleet teardown). */
   remove: (slug: string, prId: number) => Promise<void>;
   /** Catalog of running sprout-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
@@ -127,7 +127,7 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
         },
         input,
       ),
-    remove: (slug, prId) => removePreviewApp(deps.docker, slug, prId),
+    remove: (slug, prId) => removePreviewFleet(deps.docker, slug, prId),
     list: () => deps.docker.listPreviewContainers(),
     liveLogs: (input) => fetchLiveContainerLogs(deps.docker, input),
   };

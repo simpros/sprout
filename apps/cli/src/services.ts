@@ -1,7 +1,6 @@
 import type { Result } from "./result.ts";
+import { SERVICE_NAME_RE } from "./service-name.ts";
 import type { SproutYamlService } from "./yaml.ts";
-
-const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
 
 export type DeployService = {
   name: string;
@@ -27,15 +26,23 @@ export function parseServiceFlag(raw: string): Result<{ name: string; image: str
 /**
  * Merge yaml `preview.services` with repeatable `--service name=image`.
  * CLI images overlay matching names; every service needs an image after merge.
+ * Empty merge → undefined (omit from deploy body = leave companions).
  */
 export function mergeServices(
   yamlServices: SproutYamlService[] | undefined,
   flagValues: string[],
 ): Result<DeployService[] | undefined> {
-  const byName = new Map<string, DeployService>();
+  type Draft = {
+    name: string;
+    image?: string;
+    hostname?: string;
+    path?: string;
+  };
+  const byName = new Map<string, Draft>();
 
   for (const svc of yamlServices ?? []) {
-    const entry: DeployService = { name: svc.name, image: svc.image ?? "" };
+    const entry: Draft = { name: svc.name };
+    if (svc.image) entry.image = svc.image;
     if (svc.hostname) entry.hostname = svc.hostname;
     if (svc.path) entry.path = svc.path;
     byName.set(svc.name, entry);
@@ -65,7 +72,10 @@ export function mergeServices(
         error: `service ${svc.name} requires an image (--service ${svc.name}=<image>)`,
       };
     }
-    out.push(svc);
+    const entry: DeployService = { name: svc.name, image: svc.image };
+    if (svc.hostname) entry.hostname = svc.hostname;
+    if (svc.path) entry.path = svc.path;
+    out.push(entry);
   }
   return { ok: true, value: out };
 }

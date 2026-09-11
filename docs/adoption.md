@@ -350,10 +350,11 @@ sprout deploy -i "$APP_IMAGE" \
 - Static `image` in yaml is allowed for pinned images; `--service` overlays
   the image for that name. Every service needs an image after merge.
 
-Pass `--service` on every synchronize deploy that should keep companions
-(omitting them clears prior services on a full attach). Seed-only reseed
-(`--reseed` with unchanged app image/hostname and no `--service`) leaves
-existing service containers in place.
+Pass `--service` when companions should be created or refreshed. Omitting
+`--service` (and yaml services) leaves existing companions in place. To clear
+companions, POST `services: []` to the deploy API. Seed-only reseed
+(`--reseed` with unchanged app image/hostname) can refresh companions without
+replacing the app when `--service` is passed.
 
 ## Debugging
 

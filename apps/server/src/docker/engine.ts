@@ -323,6 +323,9 @@ export function createDockerEngineClient(
             containerName: name,
             slug: parsed.slug,
             prId: parsed.prId,
+            ...(parsed.serviceName != null
+              ? { serviceName: parsed.serviceName }
+              : {}),
           });
           break;
         }

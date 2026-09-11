@@ -3,6 +3,7 @@ import {
   type PreviewEnvMap,
 } from "@sprout/preview-env";
 import type { Result } from "./result.ts";
+import { SERVICE_NAME_RE } from "./service-name.ts";
 
 export type { PreviewEnvMap };
 
@@ -40,7 +41,6 @@ const TOP_KEYS = new Set(["slug", "preview", "health"]);
 const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 const SERVICE_KEYS = new Set(["name", "image", "hostname", "path"]);
-const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

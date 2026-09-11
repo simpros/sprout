@@ -83,12 +83,8 @@ export type DeployBody = {
   seed_env?: string[];
   seed_arg?: string[];
   app_env?: string[];
-  services?: Array<{
-    name: string;
-    image: string;
-    hostname?: string;
-    path?: string;
-  }>;
+  /** Omit = leave companions; `[]` = clear; non-empty = replace. */
+  services?: PreviewServiceSpec[];
   reseed?: boolean;
 };
 
@@ -166,11 +162,19 @@ export function resolveAppEnvRequest(
   return { ok: true, value: appEnv };
 }
 
-/** Validate optional service list; empty/omitted → []. */
+/**
+ * Validate optional service list.
+ * Omitted → undefined (leave companions); present (incl. `[]`) → sync/clear.
+ */
 export function resolveServicesRequest(
   body: Pick<DeployBody, "services">,
-): { ok: true; value: PreviewServiceSpec[] } | { ok: false; error: string } {
-  const raw = body.services ?? [];
+):
+  | { ok: true; value: PreviewServiceSpec[] | undefined }
+  | { ok: false; error: string } {
+  if (body.services === undefined) {
+    return { ok: true, value: undefined };
+  }
+  const raw = body.services;
   if (raw.length > MAX_SERVICES) {
     return { ok: false, error: "too_many_services" };
   }

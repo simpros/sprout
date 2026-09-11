@@ -4,10 +4,8 @@ import {
   restrictedRoleName,
 } from "@sprout/preview-db";
 import { createFakeDockerClient } from "../docker/fake.ts";
-import {
-  removePreviewContainers,
-  replacePreviewServices,
-} from "./services.ts";
+import { removePreviewFleet } from "./preview-containers.ts";
+import { replacePreviewServices } from "./services.ts";
 
 const baseDeps = {
   pg: {
@@ -58,7 +56,7 @@ describe("replacePreviewServices", () => {
     );
 
     expect(docker.creates).toHaveLength(2);
-    const api = docker.creates[0]!;
+    const api = docker.creates.find((c) => c.name.endsWith("-svc-api"))!;
     expect(api.name).toBe("sprout-myapp-pr-42-svc-api");
     expect(api.env).toEqual([
       "PGHOST=postgres",
@@ -77,7 +75,7 @@ describe("replacePreviewServices", () => {
         "4000",
     });
 
-    const worker = docker.creates[1]!;
+    const worker = docker.creates.find((c) => c.name.endsWith("-svc-worker"))!;
     expect(worker.name).toBe("sprout-myapp-pr-42-svc-worker");
     expect(worker.labels).toEqual({});
     expect(worker.env).toContain("PGDATABASE=sprout_myapp_pr42");
@@ -142,7 +140,7 @@ describe("replacePreviewServices", () => {
   });
 });
 
-describe("removePreviewContainers", () => {
+describe("removePreviewFleet", () => {
   test("removes app and all service containers for the preview", async () => {
     const docker = createFakeDockerClient({
       exposedPorts: { "app:1": 80, "svc:1": 80 },
@@ -162,7 +160,7 @@ describe("removePreviewContainers", () => {
       networkNames: ["sprout-traefik", "sprout-postgres"],
     });
 
-    await removePreviewContainers(docker, "myapp", 42);
+    await removePreviewFleet(docker, "myapp", 42);
     expect(docker.removed).toEqual(
       expect.arrayContaining([
         "sprout-myapp-pr-42",
