@@ -55,7 +55,7 @@ async function captureSeedLogs(
  * (PG* or remapped names) so adopters cannot retarget the DB.
  * Never sets Entrypoint — image default entrypoint owns seed logic.
  * Docker ops errors are absorbed into SeedImageResult (never throw mid-phase).
- * On failure, stdout/stderr are captured before remove so GET …/logs can show them.
+ * Failure logs are always captured while the container still exists, then removed.
  */
 export async function runSeedImage(
   deps: RunSeedImageDeps,
@@ -68,36 +68,48 @@ export async function runSeedImage(
     // Spec: log key count only — never values (may contain secrets).
     console.log("seed:env", input.env.length);
 
-    try {
-      const { id } = await deps.docker.createAndStart({
-        name,
-        image: input.image,
-        env: withGatewayConnectionEnv(
-          input.env,
-          pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
-        ),
-        labels: {},
-        networkNames: [deps.networks.postgres],
-        ...(input.args.length > 0 ? { cmd: input.args } : {}),
-      });
+    const { id } = await deps.docker.createAndStart({
+      name,
+      image: input.image,
+      env: withGatewayConnectionEnv(
+        input.env,
+        pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
+      ),
+      labels: {},
+      networkNames: [deps.networks.postgres],
+      ...(input.args.length > 0 ? { cmd: input.args } : {}),
+    });
 
+    let outcome: SeedImageResult;
+    try {
       const wait = await deps.docker.waitForExit(id, deps.seedTimeoutMs);
+      if (!wait.timedOut && wait.exitCode === 0) {
+        outcome = { ok: true };
+      } else {
+        const logs = await captureSeedLogs(deps.docker, name);
+        outcome = wait.timedOut
+          ? { ok: false, timedOut: true, logs }
+          : { ok: false, timedOut: false, exitCode: wait.exitCode, logs };
+      }
+    } catch {
+      // waitForExit threw (Engine error / missing StatusCode): capture before remove.
       const logs = await captureSeedLogs(deps.docker, name);
-      if (wait.timedOut) {
-        return { ok: false, timedOut: true, logs };
-      }
-      if (wait.exitCode !== 0) {
-        return { ok: false, timedOut: false, exitCode: wait.exitCode, logs };
-      }
-      return { ok: true };
-    } finally {
-      try {
-        await deps.docker.removeByName(name);
-      } catch {
-        console.warn(`seed image remove failed for ${name}`);
-      }
+      outcome = { ok: false, timedOut: false, exitCode: null, logs };
     }
+
+    try {
+      await deps.docker.removeByName(name);
+    } catch {
+      console.warn(`seed image remove failed for ${name}`);
+    }
+    return outcome;
   } catch {
+    // create never started (or pre-create remove failed): nothing to capture.
+    try {
+      await deps.docker.removeByName(name);
+    } catch {
+      /* best-effort scrub */
+    }
     return { ok: false, timedOut: false, exitCode: null, logs: "" };
   }
 }

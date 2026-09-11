@@ -379,6 +379,7 @@ describe("POST /v1/deploy seed image", () => {
       expect(res.body).toMatchObject({
         status: "failed",
         last_error: "seed_failed",
+        last_error_detail: "exit=7",
       });
 
       const [row] = await testApp!.db
@@ -391,6 +392,7 @@ describe("POST /v1/deploy seed image", () => {
       expect(row?.status).toBe("failed");
       expect(row?.seededAt).toBeNull();
       expect(row?.containerId).toBe("fake-1");
+      expect(row?.seedLog).toBeNull();
       expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
       expect(warns.some((args) => args[0] === "seed:failed" && args[1] === 7)).toBe(
         true,
@@ -421,6 +423,7 @@ describe("POST /v1/deploy seed image", () => {
       expect(res.body).toMatchObject({
         status: "failed",
         last_error: "seed_failed",
+        last_error_detail: "timeout",
       });
       expect(
         warns.some(

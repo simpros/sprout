@@ -17,8 +17,16 @@ import {
   type SeedImageInput,
   type SeedImageResult,
 } from "./seed.ts";
-import type { CatalogContainer } from "../docker/port.ts";
-import { previewContainerName } from "../preview/naming.ts";
+import type { CatalogContainer, PreviewDocker } from "../docker/port.ts";
+import {
+  previewContainerName,
+  seedImageRunName,
+} from "../preview/naming.ts";
+
+export type PreviewLogsBundle = {
+  app: string;
+  seed: string;
+};
 
 /** Bound deploy ops for lifecycle/sweep — no PGHOST / network config at callers. */
 export type PreviewAppOps = {
@@ -38,14 +46,15 @@ export type PreviewAppOps = {
   /** Catalog of running sprout-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
   /**
-   * Live app container logs by preview identity. Missing container → "".
-   * Seed output is persisted on seed_failed (`last_error_detail`), not live.
+   * Live app logs + seed text (live seed container if present, else stored).
+   * Missing containers → "".
    */
-  logs: (
-    slug: string,
-    prId: number,
-    options: { tail: number },
-  ) => Promise<string>;
+  logs: (input: {
+    slug: string;
+    prId: number;
+    tail: number;
+    storedSeedLog: string | null;
+  }) => Promise<PreviewLogsBundle>;
 };
 
 export type BindPreviewOpsDeps = ReplacePreviewAppDeps & {
@@ -56,6 +65,41 @@ export type BindPreviewOpsDeps = ReplacePreviewAppDeps & {
   /** Test seam — defaults to Date.now / setTimeout. */
   healthClock?: HealthClock;
 };
+
+async function containerLogText(
+  docker: PreviewDocker,
+  name: string,
+  tail: number,
+): Promise<string> {
+  return (await docker.containerLogs(name, { tail })) ?? "";
+}
+
+/**
+ * Resolve seed text: prefer a still-running seed container, else stored capture.
+ */
+export async function resolvePreviewLogs(
+  docker: PreviewDocker,
+  input: {
+    slug: string;
+    prId: number;
+    tail: number;
+    storedSeedLog: string | null;
+  },
+): Promise<PreviewLogsBundle> {
+  const app = await containerLogText(
+    docker,
+    previewContainerName(input.slug, input.prId),
+    input.tail,
+  );
+  const liveSeed = await containerLogText(
+    docker,
+    seedImageRunName(input.slug, input.prId),
+    input.tail,
+  );
+  const seed =
+    liveSeed !== "" ? liveSeed : (input.storedSeedLog ?? "");
+  return { app, seed };
+}
 
 /** Compose replace/health + seed at the composition root (not in replace.ts). */
 export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
@@ -88,12 +132,6 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
       ),
     remove: (slug, prId) => removePreviewApp(deps.docker, slug, prId),
     list: () => deps.docker.listPreviewContainers(),
-    logs: async (slug, prId, options) => {
-      const app = await deps.docker.containerLogs(
-        previewContainerName(slug, prId),
-        options,
-      );
-      return app ?? "";
-    },
+    logs: (input) => resolvePreviewLogs(deps.docker, input),
   };
 }

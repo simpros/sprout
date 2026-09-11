@@ -50,11 +50,21 @@ function toRunningSnapshot(row: PreviewRow): SeedPhaseSnapshot {
   };
 }
 
+/** Short sticky detail for status/CLI — never the seed log blob. */
+function seedFailureDetail(
+  result: Extract<SeedImageResult, { ok: false }>,
+): string | null {
+  if (result.timedOut) return "timeout";
+  if (result.exitCode != null) return `exit=${result.exitCode}`;
+  return null;
+}
+
 /** Seed failure: keep containerId so the healthy app stays routable for operators. */
 async function markSeedFailed(
   db: StateDb,
   repo: string,
   prId: number,
+  detail: string | null,
   /** Captured seed container stdout/stderr (empty → null). */
   logs: string,
 ): Promise<void> {
@@ -63,7 +73,8 @@ async function markSeedFailed(
     .set({
       status: "failed",
       lastError: "seed_failed",
-      lastErrorDetail: logs === "" ? null : logs,
+      lastErrorDetail: detail,
+      seedLog: logs === "" ? null : logs,
       updatedAt: utcIsoNow(),
     })
     .where(
@@ -109,6 +120,7 @@ async function runSeedPhase(
         deps.db,
         row.canonicalRepoId,
         row.prId,
+        seedFailureDetail(seedResult),
         seedResult.logs,
       );
       return { ok: false, status: 500, error: "seed_failed" };
@@ -123,6 +135,7 @@ async function runSeedPhase(
         seededAt,
         lastError: null,
         lastErrorDetail: null,
+        seedLog: null,
         updatedAt: seededAt,
       },
       "preview_row_missing_on_seeded_running",
@@ -130,7 +143,7 @@ async function runSeedPhase(
     return { ok: true, value: toRunningSnapshot(updated) };
   } catch (err) {
     console.warn("seed:failed", err);
-    await markSeedFailed(deps.db, row.canonicalRepoId, row.prId, "");
+    await markSeedFailed(deps.db, row.canonicalRepoId, row.prId, null, "");
     return { ok: false, status: 500, error: "seed_failed" };
   }
 }
@@ -160,6 +173,7 @@ export async function promoteAfterHealthy(
       status: "running",
       lastError: null,
       lastErrorDetail: null,
+      seedLog: null,
       updatedAt: utcIsoNow(),
     },
     "preview_row_missing_on_running",

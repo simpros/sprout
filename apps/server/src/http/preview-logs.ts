@@ -1,6 +1,7 @@
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
 import type { LifecycleDeps } from "../preview/lifecycle.ts";
+import { readPreviewLogs } from "../preview/preview-logs.ts";
 import type { Result } from "../preview/result.ts";
 import { mapResult, requireReadablePreview } from "./result-map.ts";
 
@@ -49,7 +50,7 @@ function parseTail(raw: string | undefined): Result<number> {
 
 /**
  * GET /v1/previews/:id/logs — `:id` is pr_id; repo from query.
- * Live app container logs + seed text stored on seed_failed (`last_error_detail`).
+ * Live app logs + seed text (live-if-present, else stored seed_log).
  */
 export function getPreviewLogs(deps: LifecycleDeps) {
   return async ({
@@ -74,13 +75,15 @@ export function getPreviewLogs(deps: LifecycleDeps) {
     const tail = parseTail(query.tail);
     if (!tail.ok) return mapResult(tail, set);
 
-    const app = await deps.app.logs(preview.value.slug, preview.value.pr_id, {
-      tail: tail.value,
-    });
-    const seed =
-      preview.value.last_error === "seed_failed"
-        ? (preview.value.last_error_detail ?? "")
-        : "";
+    const { app, seed } = await readPreviewLogs(
+      deps,
+      {
+        canonicalRepoId: preview.value.canonical_repo_id,
+        slug: preview.value.slug,
+        prId: preview.value.pr_id,
+      },
+      tail.value,
+    );
     return {
       ok: true,
       canonical_repo_id: preview.value.canonical_repo_id,

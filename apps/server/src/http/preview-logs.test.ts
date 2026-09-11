@@ -114,7 +114,7 @@ describe("GET /v1/previews/:id/logs", () => {
     expect(settled.outcome).toBe("failed");
     expect(settled.body).toMatchObject({
       last_error: "seed_failed",
-      last_error_detail: "seed boom\nseed line 2\n",
+      last_error_detail: "exit=7",
     });
 
     docker.logs.set(previewContainerName("myapp", 42), "still-running-app\n");

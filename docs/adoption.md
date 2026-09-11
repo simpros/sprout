@@ -297,11 +297,12 @@ Repo resolution matches `deploy` / `drop`: `--repo`, else `GITHUB_REPOSITORY` /
 `CI_PROJECT_URL`, else `git remote get-url origin`. The deploy token is scoped
 to one canonical repo — it cannot read another repo's previews.
 
-Output is live app container logs, then seed logs when the last seed run
-failed (`last_error=seed_failed`). The gateway captures seed stdout/stderr
-before removing the one-shot container and stores them on
-`last_error_detail` — so `sprout logs` still shows why seeding died after
-the container is gone. Successful seeds do not keep seed output.
+Output is live app container logs, then seed logs when available. While the
+seed container is still running, `sprout logs` reads it live; after a failed
+seed the gateway has already captured stdout/stderr into `seed_log` (before
+remove) so the seed section still shows why seeding died. Status polling keeps
+a short `last_error_detail` (`exit=7`, `timeout`) — not the log blob.
+Successful seeds do not keep seed output.
 
 ## CI workflow (GitHub Actions)
 

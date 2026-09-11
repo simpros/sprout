@@ -215,6 +215,7 @@ export async function getPreviewRow(
 const clearLastError = {
   lastError: null,
   lastErrorDetail: null,
+  seedLog: null,
 } as const;
 
 /**
