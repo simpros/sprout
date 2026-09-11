@@ -313,8 +313,9 @@ Each service:
    including any `preview.env` remap).
 3. Is force-removed on **teardown** (and on replace) with the app.
 
-The health gate still covers **only the app**. Services start after the app
-passes `health.expect`; there is no per-service health poll in this release.
+The health gate still covers **only the app**. After the app passes
+`health.expect`, seed runs (when configured), then companion services start.
+There is no per-service health poll in this release.
 
 ### Routing (optional)
 

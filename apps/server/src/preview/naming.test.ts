@@ -12,6 +12,7 @@ describe("parsePreviewContainerName", () => {
     expect(parsePreviewContainerName("sprout-widgets-pr-7")).toEqual({
       slug: "widgets",
       prId: 7,
+      kind: "app",
     });
   });
 
@@ -22,6 +23,7 @@ describe("parsePreviewContainerName", () => {
     expect(parsePreviewContainerName("sprout-widgets-pr-7-svc-api")).toEqual({
       slug: "widgets",
       prId: 7,
+      kind: "service",
       serviceName: "api",
     });
   });

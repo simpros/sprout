@@ -1,20 +1,11 @@
 import type { PreviewEnvMap } from "@sprout/preview-env";
-import {
-  traefikLabels,
-  type TraefikForwardAuth,
-  type TraefikTls,
-} from "./labels.ts";
-import {
-  pgConnectionEnv,
-  withGatewayConnectionEnv,
-  type AppDeployPg,
-} from "./pg-env.ts";
+import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
+import type { AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import {
-  materializeContainer,
+  materializePreviewWorkload,
   previewContainerName,
   removePreviewFleet,
-  resolveExposedPort,
 } from "./preview-containers.ts";
 
 export type { AppDeployPg };
@@ -52,40 +43,30 @@ export type ReplacePreviewAppInput = {
 
 /**
  * Replace (or first-start) the preview app container for one PR.
- * Force-removes any prior container with the stable name, then creates+starts
- * with dual-network attach, Traefik labels, adopter app env, and connection env
- * (PG* names, optionally remapped via connectionEnv). Gateway connection keys
- * replace colliding user app-env keys (PG* or remapped names), same policy as seed.
- * Resolves Traefik port from image EXPOSE (or previewPortDefault).
- * Caller must already have pulled the image (outside the preview lock).
- * App-only remove: services sync after health in lifecycle.
+ * Force-removes any prior container with the stable name, then materializes
+ * with Traefik routing. Caller must already have pulled the image.
+ * App-only remove: companion sync runs after promote/seed in bring-up.
  */
 export async function replacePreviewApp(
   deps: ReplacePreviewAppDeps,
   input: ReplacePreviewAppInput,
 ): Promise<{ containerId: string; port: number }> {
-  const port = await resolveExposedPort(
-    deps.docker,
-    input.image,
-    deps.previewPortDefault,
-  );
   const name = previewContainerName(input.slug, input.prId);
   await deps.docker.removeByName(name);
-  const { containerId } = await materializeContainer(deps.docker, {
+  return materializePreviewWorkload(deps.docker, {
     name,
     image: input.image,
-    env: withGatewayConnectionEnv(
-      input.appEnv,
-      pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
-    ),
-    labels: traefikLabels({
-      routerName: name,
+    userEnv: input.appEnv,
+    routing: {
+      kind: "routed",
       hostname: input.hostname,
-      port,
       tls: deps.traefikTls,
       forwardAuth: deps.traefikForwardAuth,
-    }),
-    networkNames: [deps.networks.traefik, deps.networks.postgres],
+    },
+    networks: deps.networks,
+    pg: deps.pg,
+    dbName: input.dbName,
+    connectionEnv: input.connectionEnv,
+    previewPortDefault: deps.previewPortDefault,
   });
-  return { containerId, port };
 }

@@ -1,50 +1,52 @@
-import type { PreviewEnvMap } from "@sprout/preview-env";
 import { and, eq, ne } from "drizzle-orm";
-import type { HealthSpec } from "../app-deployment/health.ts";
-import type {
-  PreviewAppOps,
-  PreviewServiceSpec,
-} from "../app-deployment/ops.ts";
-import type { SeedImageSpec } from "../app-deployment/seed.ts";
-import { extractPullDetail } from "../docker/pull-failure.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import { previewDbName } from "../preview-db/names.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
+import { completeBringUp, pullImagesOutsideLock } from "./bring-up.ts";
+import { withDbNameLock, withPreviewLock } from "./locks.ts";
+import { markPreviewFailed } from "./mark-failed.ts";
 import {
   updatePreviewRow,
   utcIsoNow,
   type PreviewRow,
 } from "./row.ts";
-import {
-  canSeedWithoutAppReplace,
-  promoteAfterHealthy,
-  resumeIncompleteSeed,
-} from "./seed-phase.ts";
+import { canSeedWithoutAppReplace } from "./seed-phase.ts";
 import type { Result } from "./result.ts";
+import type {
+  DisplayPreviewStatus,
+  LifecycleDeps,
+  PreviewSnapshot,
+  PreviewStatus,
+  ProvisionInput,
+  RemovePreviewInput,
+  TeardownDeps,
+  TeardownInput,
+  TeardownSnapshot,
+} from "./types.ts";
 
 export type { PreviewRow };
+export type {
+  DisplayPreviewStatus,
+  LifecycleDeps,
+  PreviewSnapshot,
+  PreviewStatus,
+  ProvisionInput,
+  RemovePreviewInput,
+  TeardownDeps,
+  TeardownInput,
+  TeardownSnapshot,
+} from "./types.ts";
+export { withPreviewLock, withDbNameLock } from "./locks.ts";
+export {
+  markPreviewFailed,
+  markStickyPreviewFailed,
+} from "./mark-failed.ts";
 
-/**
- * Internal SQLite phases (spec): provisioning → starting → seeding → running / failed.
- * Display maps starting/seeding → provisioning for list views.
- */
-export type PreviewStatus =
-  | "provisioning"
-  | "starting"
-  | "seeding"
-  | "running"
-  | "failed"
-  | "removing"
-  | "removed";
-
-/** Coarse status for list/doctor display (starting/seeding → provisioning). */
-export type DisplayPreviewStatus =
-  | "provisioning"
-  | "running"
-  | "failed"
-  | "removing"
-  | "removed";
+/** lastError values that mean seed-incomplete (retry → seed-resume). */
+const SEED_RESUME_ERRORS = new Set([
+  "seed_failed",
+  "seed_image_required_to_resume_seeding",
+]);
 
 export function toDisplayStatus(status: PreviewStatus): DisplayPreviewStatus {
   switch (status) {
@@ -55,82 +57,6 @@ export function toDisplayStatus(status: PreviewStatus): DisplayPreviewStatus {
       return status;
   }
 }
-
-export type TeardownDeps = {
-  db: StateDb;
-  previewDb: PreviewDb;
-  app: Pick<PreviewAppOps, "remove">;
-};
-
-export type LifecycleDeps = {
-  db: StateDb;
-  previewDb: PreviewDb;
-  app: PreviewAppOps;
-};
-
-export type ProvisionInput = {
-  repo: string;
-  prId: number;
-  slug: string;
-  hostname: string;
-  appImage: string;
-  /** Resolved at the HTTP/CLI boundary — never defaulted here. */
-  health: HealthSpec;
-  /** Present when deploy requested a seed image; env/args not persisted. */
-  seed?: SeedImageSpec;
-  /** Adopter KEY=VALUE for the app container; request-scoped, not persisted. */
-  appEnv: string[];
-  /**
-   * Companion fleet sync; request-scoped, not persisted.
-   * `undefined` = leave existing companions; `[]` = clear; non-empty = replace.
-   */
-  services?: PreviewServiceSpec[];
-  /** Connection env name remap; request-scoped, not persisted. */
-  connectionEnv?: PreviewEnvMap;
-  /**
-   * Lifecycle-only: seed-only accept plan when same-app, and clear seeded_at
-   * after healthy attach (replace path). Seed-only path clears inside
-   * runSeedPhase. Never forwarded into DeployEphemerals.
-   */
-  reseed?: boolean;
-};
-
-export type TeardownInput = {
-  repo: string;
-  prId: number;
-};
-
-/**
- * Sweep control-plane remove: revalidate generation under lock, then same
- * machine as teardown. Eligibility (TTL / PR-closed) is decided at plan time;
- * under the lock we only verify identity + generation have not moved.
- */
-export type RemovePreviewInput = {
-  repo: string;
-  prId: number;
-  expectedDbName: string;
-  /** Abort if provision refreshed createdAt since the sweep plan. */
-  expectedCreatedAt: string;
-};
-
-export type PreviewSnapshot = {
-  ok: true;
-  canonical_repo_id: string;
-  pr_id: number;
-  slug: string;
-  db_name: string;
-  hostname: string;
-  status: PreviewStatus;
-  preview_url?: string;
-  /** Sticky last deploy attempt; independent of phase (e.g. running + pull fail). */
-  last_error?: string;
-  last_error_detail?: string;
-};
-
-export type TeardownSnapshot = {
-  ok: true;
-  status: "removed";
-};
 
 export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
   const status = parsePreviewStatus(row.status);
@@ -149,51 +75,6 @@ export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
       ? { last_error_detail: row.lastErrorDetail }
       : {}),
   };
-}
-
-/**
- * Serialize control-plane mutations per (repo, prId).
- * ADR 0001: one gateway process — in-process queue is the concurrency design.
- * ponytail: global Map; upgrade to shared lock if multi-process ever lands.
- */
-const previewLocks = new Map<string, Promise<void>>();
-
-/**
- * Serialize catalog DROP/CREATE per dbName so orphan sweep cannot race provision.
- * Taken inside the (repo, prId) lock for lifecycle paths; alone for orphan drops.
- */
-const dbNameLocks = new Map<string, Promise<void>>();
-
-function withKeyedLock<T>(
-  locks: Map<string, Promise<void>>,
-  key: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const prev = locks.get(key) ?? Promise.resolve();
-  const run = prev.then(fn, fn);
-  locks.set(
-    key,
-    run.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  return run;
-}
-
-export function withPreviewLock<T>(
-  repo: string,
-  prId: number,
-  fn: () => Promise<T>,
-): Promise<T> {
-  return withKeyedLock(previewLocks, `${repo}\0${prId}`, fn);
-}
-
-function withDbNameLock<T>(
-  dbName: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  return withKeyedLock(dbNameLocks, dbName, fn);
 }
 
 export function parsePreviewStatus(status: string): Result<PreviewStatus> {
@@ -279,33 +160,6 @@ async function persistPullFailure(
     );
 }
 
-/**
- * Bring-up / replace / health / ensure / drop failure: clear containerId so
- * Traefik orphans are not claimed. Callers that run outside a held preview
- * lock (background catch) must wrap with {@link withPreviewLock} and skip
- * `removing` / `removed` so teardown cannot be resurrected.
- */
-export async function markPreviewFailed(
-  db: StateDb,
-  repo: string,
-  prId: number,
-  error: string,
-  detail?: string,
-): Promise<void> {
-  await db
-    .update(previews)
-    .set({
-      status: "failed",
-      containerId: null,
-      lastError: error,
-      lastErrorDetail: detail ?? null,
-      updatedAt: utcIsoNow(),
-    })
-    .where(
-      and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-    );
-}
-
 async function writeProvisioningIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -361,187 +215,6 @@ async function patchAccept(
   );
 }
 
-/** CREATE under dbName lock only. Callers decide failed vs leave-provisioning. */
-async function ensureDatabase(
-  deps: LifecycleDeps,
-  row: PreviewRow,
-): Promise<Result<true>> {
-  return withDbNameLock(row.dbName, async () => {
-    try {
-      await deps.previewDb.createDatabase(row.dbName);
-      return { ok: true, value: true };
-    } catch {
-      return { ok: false, status: 500, error: "preview_db_create_failed" };
-    }
-  });
-}
-
-/** Best-effort fleet remove + mark failed (shared health/service fail path). */
-async function failAttach(
-  deps: LifecycleDeps,
-  row: Pick<PreviewRow, "slug" | "prId" | "canonicalRepoId">,
-  error: string,
-): Promise<Result<never>> {
-  try {
-    await deps.app.remove(row.slug, row.prId);
-  } catch {
-    console.warn(
-      `preview container remove failed for ${row.slug} pr=${row.prId} after ${error}`,
-    );
-  }
-  await markPreviewFailed(
-    deps.db,
-    row.canonicalRepoId,
-    row.prId,
-    error,
-  );
-  return { ok: false, status: 500, error };
-}
-
-/**
- * Orthogonal companion sync after app is healthy (attach) or seed-resume.
- * `undefined` leaves existing containers; `[]` clears; non-empty replaces.
- */
-async function syncPreviewServices(
-  deps: LifecycleDeps,
-  row: Pick<PreviewRow, "slug" | "prId" | "canonicalRepoId" | "dbName">,
-  input: ProvisionInput,
-): Promise<Result<true>> {
-  if (input.services === undefined) {
-    return { ok: true, value: true };
-  }
-  try {
-    await deps.app.replaceServices({
-      slug: row.slug,
-      prId: row.prId,
-      appHostname: input.hostname,
-      dbName: row.dbName,
-      services: input.services,
-      connectionEnv: input.connectionEnv,
-    });
-    return { ok: true, value: true };
-  } catch {
-    return failAttach(deps, row, "preview_service_deploy_failed");
-  }
-}
-
-/**
- * Replace + health only. Ends at healthy `starting` — seed/promote and
- * service sync are separate phases owned by attachThenPromote /
- * syncPreviewServices / promoteAfterHealthy.
- * Accept owns generation remint; attach never touches createdAt.
- */
-async function attachAppContainer(
-  deps: LifecycleDeps,
-  row: PreviewRow,
-  input: ProvisionInput,
-): Promise<Result<PreviewRow>> {
-  let containerId: string;
-  let port: number;
-  try {
-    ({ containerId, port } = await deps.app.replace({
-      slug: row.slug,
-      prId: row.prId,
-      hostname: input.hostname,
-      image: input.appImage,
-      dbName: row.dbName,
-      appEnv: input.appEnv,
-      connectionEnv: input.connectionEnv,
-    }));
-  } catch {
-    await markPreviewFailed(
-      deps.db,
-      row.canonicalRepoId,
-      row.prId,
-      "preview_app_deploy_failed",
-    );
-    return { ok: false, status: 500, error: "preview_app_deploy_failed" };
-  }
-
-  const now = utcIsoNow();
-  const starting = await updatePreviewRow(
-    deps.db,
-    row,
-    {
-      hostname: input.hostname,
-      appImage: input.appImage,
-      containerId,
-      status: "starting",
-      ...clearLastError,
-      updatedAt: now,
-    },
-    "preview_row_missing_on_app_attach",
-  );
-
-  const outcome = await deps.app.waitHealthy(
-    containerId,
-    port,
-    input.health,
-  );
-  if (outcome === "timeout") {
-    console.warn("health:timeout");
-    // Best-effort remove: failed must not leave a Traefik-routed container
-    // claimed by the row (orphan sweep skips keys still in previews).
-    return failAttach(deps, row, "health_timeout");
-  }
-
-  return { ok: true, value: starting };
-}
-
-/** Project request-scoped seed/remap fields only at the seed-phase boundary. */
-function deployEphemerals(input: ProvisionInput) {
-  return {
-    seed: input.seed,
-    connectionEnv: input.connectionEnv,
-  };
-}
-
-/** Attach (replace+health) → sync services → promote (running or seed phase). */
-async function attachThenPromote(
-  deps: LifecycleDeps,
-  row: PreviewRow,
-  input: ProvisionInput,
-): Promise<Result<PreviewSnapshot>> {
-  const attached = await attachAppContainer(deps, row, input);
-  if (!attached.ok) return attached;
-  let starting = attached.value;
-  // Clear after healthy attach so pull/health failure cannot erase a prior
-  // successful seed marker. Promote stays dumb on seeded_at.
-  if (input.reseed === true && starting.seededAt != null) {
-    starting = await updatePreviewRow(
-      deps.db,
-      starting,
-      { seededAt: null, updatedAt: utcIsoNow() },
-      "preview_row_missing_on_reseed_clear",
-    );
-  }
-  const synced = await syncPreviewServices(deps, starting, input);
-  if (!synced.ok) return synced;
-  return promoteAfterHealthy(deps, starting, deployEphemerals(input));
-}
-
-/**
- * Ensure catalog DB under lock; mark failed on ensure error; then attach+promote.
- * Single post-accept bring-up path (accept already reminted / wrote intent).
- */
-async function ensureThenAttach(
-  deps: LifecycleDeps,
-  row: PreviewRow,
-  input: ProvisionInput,
-): Promise<Result<PreviewSnapshot>> {
-  const ensured = await ensureDatabase(deps, row);
-  if (!ensured.ok) {
-    await markPreviewFailed(
-      deps.db,
-      row.canonicalRepoId,
-      row.prId,
-      ensured.error,
-    );
-    return ensured;
-  }
-  return attachThenPromote(deps, row, input);
-}
-
 /** slug + dbName ownership; hostname is routing and may change on replace. */
 function dbIdentityMatches(
   row: PreviewRow,
@@ -568,10 +241,12 @@ function requireDbIdentity(
 
 /**
  * Shared accept plan for identity-matched rows that may seed without replace.
- * - failed/seeding + same app → seeding (resume incomplete seed)
+ * - seeding + same app → seeding (resume incomplete seed)
+ * - failed + same app + seed-domain lastError → seeding
+ * - failed + companion (or other) sticky fail → provisioning (replace→sync)
  * - running/starting + reseed + same app → seeding (seed-only reseed)
  * - else → provisioning (replace path)
- * Status only — seeded_at clears after healthy attach or on seed-phase entry.
+ * seeded_at clears after healthy attach or on seed-phase entry.
  */
 function planAcceptBringUp(
   row: PreviewRow,
@@ -579,8 +254,18 @@ function planAcceptBringUp(
   status: "failed" | "seeding" | "running" | "starting",
 ): "seeding" | "provisioning" {
   const sameApp = canSeedWithoutAppReplace(row, input);
-  if (status === "failed" || status === "seeding") {
+  if (status === "seeding") {
     return sameApp ? "seeding" : "provisioning";
+  }
+  if (status === "failed") {
+    if (
+      sameApp &&
+      row.lastError != null &&
+      SEED_RESUME_ERRORS.has(row.lastError)
+    ) {
+      return "seeding";
+    }
+    return "provisioning";
   }
   return input.reseed === true && sameApp ? "seeding" : "provisioning";
 }
@@ -690,6 +375,9 @@ export async function claimDeployIntent(
  * row — that still has containerId/appImage and would wrongly match
  * canSeedWithoutAppReplace without the seeding-only guard (`failed` is
  * terminal after accept).
+ *
+ * Bring-up pipeline (see bring-up.ts): attach → promote/seed → sync companions
+ * (or seed-resume → sync).
  */
 async function completeProvisionUnlocked(
   deps: LifecycleDeps,
@@ -713,18 +401,7 @@ async function completeProvisionUnlocked(
   if (status.value === "removed") {
     return { ok: false, status: 404, error: "preview_not_found" };
   }
-  if (status.value === "seeding" && canSeedWithoutAppReplace(row, input)) {
-    const seeded = await resumeIncompleteSeed(
-      deps,
-      row,
-      deployEphemerals(input),
-    );
-    if (!seeded.ok) return seeded;
-    const synced = await syncPreviewServices(deps, row, input);
-    if (!synced.ok) return synced;
-    return seeded;
-  }
-  return ensureThenAttach(deps, row, input);
+  return completeBringUp(deps, row, input, status.value);
 }
 
 /** Soft-remove (sweep/teardown) vs hard-delete SQLite row (admin drop). */
@@ -817,53 +494,6 @@ async function teardownUnlocked(
   }
 
   return destroyPreviewRow(deps, existing, "tombstone");
-}
-
-async function pullImageOrFail(
-  app: PreviewAppOps,
-  image: string,
-  error: string,
-): Promise<Result<true>> {
-  try {
-    await app.pullImage(image);
-    return { ok: true, value: true };
-  } catch (err) {
-    return {
-      ok: false,
-      status: 500,
-      error,
-      detail: extractPullDetail(err),
-    };
-  }
-}
-
-/** Pull app (+ optional seed + services) outside the preview lock. */
-async function pullImagesOutsideLock(
-  deps: LifecycleDeps,
-  input: ProvisionInput,
-): Promise<Result<true>> {
-  const pulls: Promise<Result<true>>[] = [
-    pullImageOrFail(deps.app, input.appImage, "preview_app_pull_failed"),
-  ];
-  if (input.seed) {
-    pulls.push(
-      pullImageOrFail(deps.app, input.seed.image, "preview_seed_pull_failed"),
-    );
-  }
-  for (const service of input.services ?? []) {
-    pulls.push(
-      pullImageOrFail(
-        deps.app,
-        service.image,
-        "preview_service_pull_failed",
-      ),
-    );
-  }
-  const results = await Promise.all(pulls);
-  for (const result of results) {
-    if (!result.ok) return result;
-  }
-  return { ok: true, value: true };
 }
 
 /**

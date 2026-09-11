@@ -28,16 +28,20 @@ export function seedImageRunName(slug: string, prId: number): string {
  */
 export function parsePreviewContainerName(
   name: string,
-): { slug: string; prId: number; serviceName?: string } | null {
+):
+  | { slug: string; prId: number; kind: "app" }
+  | { slug: string; prId: number; kind: "service"; serviceName: string }
+  | null {
   const service = PREVIEW_SERVICE_CONTAINER_RE.exec(name);
   if (service) {
     return {
       slug: service[1]!,
       prId: Number(service[2]),
+      kind: "service",
       serviceName: service[3]!,
     };
   }
   const app = PREVIEW_APP_CONTAINER_RE.exec(name);
   if (!app) return null;
-  return { slug: app[1]!, prId: Number(app[2]) };
+  return { slug: app[1]!, prId: Number(app[2]), kind: "app" };
 }

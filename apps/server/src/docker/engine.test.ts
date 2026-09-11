@@ -372,12 +372,14 @@ describe("createDockerEngineClient", () => {
         containerName: "sprout-widgets-pr-7",
         slug: "widgets",
         prId: 7,
+        kind: "app",
       },
       {
         containerId: "id-8",
         containerName: "sprout-widgets-pr-8",
         slug: "widgets",
         prId: 8,
+        kind: "app",
       },
     ]);
   });

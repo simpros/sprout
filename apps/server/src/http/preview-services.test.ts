@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import { and, eq } from "drizzle-orm";
 import {
   createFakeDockerClient,
   type FakeDockerClient,
 } from "../docker/fake.ts";
+import { previews } from "../infrastructure/db/schema.ts";
 import {
   createFakePreviewDb,
   type FakePreviewDb,
@@ -130,5 +132,87 @@ describe("POST /v1/deploy services", () => {
     expect(res.settleStatus).toBe(422);
     expect(res.body).toEqual({ error: "invalid_service_name" });
     expect(fakePreviewDb!.created).toEqual([]);
+  });
+
+  test("companion deploy failure keeps healthy app containerId", async () => {
+    const SVC = "ghcr.io/org/api:sha";
+    const { deployToken } = await setup({
+      exposedPorts: { [APP_IMAGE]: 3000, [SVC]: 4000 },
+    });
+    const orig = fakeDocker!.createAndStart.bind(fakeDocker!);
+    fakeDocker!.createAndStart = async (spec) => {
+      if (spec.name.includes("-svc-")) throw new Error("svc boom");
+      return orig(spec);
+    };
+
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        services: [{ name: "api", image: SVC }],
+      }),
+    );
+    expect(res.outcome).toBe("failed");
+    expect(res.body).toMatchObject({
+      status: "failed",
+      last_error: "preview_service_deploy_failed",
+    });
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      );
+    expect(row?.status).toBe("failed");
+    expect(row?.lastError).toBe("preview_service_deploy_failed");
+    expect(row?.containerId).toBe("fake-1");
+    expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
+    expect(fakeDocker!.running.has("sprout-myapp-pr-42-svc-api")).toBe(false);
+
+    // Retry without -s must replace→sync, not seed-resume (no seed_image_required).
+    fakeDocker!.createAndStart = orig;
+    const retry = await postDeploy(
+      deployToken,
+      deployBody({
+        services: [{ name: "api", image: SVC }],
+      }),
+    );
+    expect(retry.settleStatus).toBe(200);
+    expect(retry.body).toMatchObject({ status: "running" });
+    expect(retry.body).not.toHaveProperty(
+      "last_error",
+      "seed_image_required_to_resume_seeding",
+    );
+    expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
+    expect(fakeDocker!.running.has("sprout-myapp-pr-42-svc-api")).toBe(true);
+  });
+
+  test("seed runs before companion services on first deploy", async () => {
+    const SVC = "ghcr.io/org/api:sha";
+    const SEED = "ghcr.io/org/seed:sha";
+    const { deployToken } = await setup({
+      exposedPorts: { [APP_IMAGE]: 3000, [SVC]: 4000, [SEED]: 80 },
+    });
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        seed_image: SEED,
+        health: {
+          path: "/health",
+          interval: "1s",
+          timeout: "30s",
+          expect: 200,
+        },
+        services: [{ name: "api", image: SVC }],
+      }),
+    );
+    expect(res.settleStatus).toBe(200);
+    expect(res.body).toMatchObject({ status: "running" });
+    const names = fakeDocker!.creates.map((c) => c.name);
+    expect(names).toEqual([
+      "sprout-myapp-pr-42",
+      "sprout-myapp-pr-42-seed",
+      "sprout-myapp-pr-42-svc-api",
+    ]);
   });
 });

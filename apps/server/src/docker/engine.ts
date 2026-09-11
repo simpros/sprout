@@ -318,15 +318,24 @@ export function createDockerEngineClient(
           const name = rawName.replace(/^\//, "");
           const parsed = parsePreviewContainerName(name);
           if (!parsed) continue;
-          out.push({
-            containerId: row.Id,
-            containerName: name,
-            slug: parsed.slug,
-            prId: parsed.prId,
-            ...(parsed.serviceName != null
-              ? { serviceName: parsed.serviceName }
-              : {}),
-          });
+          if (parsed.kind === "service") {
+            out.push({
+              containerId: row.Id,
+              containerName: name,
+              slug: parsed.slug,
+              prId: parsed.prId,
+              kind: "service",
+              serviceName: parsed.serviceName,
+            });
+          } else {
+            out.push({
+              containerId: row.Id,
+              containerName: name,
+              slug: parsed.slug,
+              prId: parsed.prId,
+              kind: "app",
+            });
+          }
           break;
         }
       }

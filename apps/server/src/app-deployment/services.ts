@@ -1,20 +1,11 @@
 import type { PreviewEnvMap } from "@sprout/preview-env";
-import {
-  traefikLabels,
-  type TraefikForwardAuth,
-  type TraefikTls,
-} from "./labels.ts";
-import {
-  pgConnectionEnv,
-  withGatewayConnectionEnv,
-  type AppDeployPg,
-} from "./pg-env.ts";
+import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
+import type { AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import {
-  materializeContainer,
+  materializePreviewWorkload,
   previewServiceContainerName,
   removePreviewServices,
-  resolveExposedPort,
 } from "./preview-containers.ts";
 
 export type PreviewServiceSpec = {
@@ -51,9 +42,9 @@ export { removePreviewServices };
 
 /**
  * Replace long-lived preview service containers for one PR.
- * Clears prior services for the preview, then creates each requested service
- * with dual-network attach and the same connection env as the app.
+ * Clears prior services, then creates each requested service in parallel.
  * Traefik labels only when hostname and/or path is set (otherwise internal).
+ * On any create failure, clears partial services before rethrowing.
  * Caller must already have pulled images. Empty list clears without creating.
  */
 export async function replacePreviewServices(
@@ -62,44 +53,44 @@ export async function replacePreviewServices(
 ): Promise<void> {
   await removePreviewServices(deps.docker, input.slug, input.prId);
 
-  const connection = pgConnectionEnv(
-    deps.pg,
-    input.dbName,
-    input.connectionEnv,
-  );
-
-  await Promise.all(
-    input.services.map(async (service) => {
-      const port = await resolveExposedPort(
-        deps.docker,
-        service.image,
-        deps.previewPortDefault,
+  try {
+    await Promise.all(
+      input.services.map(async (service) => {
+        const name = previewServiceContainerName(
+          input.slug,
+          input.prId,
+          service.name,
+        );
+        const routed = service.hostname != null || service.path != null;
+        await materializePreviewWorkload(deps.docker, {
+          name,
+          image: service.image,
+          userEnv: [],
+          routing: routed
+            ? {
+                kind: "routed",
+                hostname: service.hostname ?? input.appHostname,
+                pathPrefix: service.path,
+                tls: deps.traefikTls,
+                forwardAuth: deps.traefikForwardAuth,
+              }
+            : { kind: "internal" },
+          networks: deps.networks,
+          pg: deps.pg,
+          dbName: input.dbName,
+          connectionEnv: input.connectionEnv,
+          previewPortDefault: deps.previewPortDefault,
+        });
+      }),
+    );
+  } catch (err) {
+    try {
+      await removePreviewServices(deps.docker, input.slug, input.prId);
+    } catch {
+      console.warn(
+        `preview service cleanup failed for ${input.slug} pr=${input.prId} after create error`,
       );
-      const name = previewServiceContainerName(
-        input.slug,
-        input.prId,
-        service.name,
-      );
-      const routeHost = service.hostname ?? input.appHostname;
-      const routed = service.hostname != null || service.path != null;
-      const labels = routed
-        ? traefikLabels({
-            routerName: name,
-            hostname: routeHost,
-            port,
-            pathPrefix: service.path,
-            tls: deps.traefikTls,
-            forwardAuth: deps.traefikForwardAuth,
-          })
-        : {};
-
-      await materializeContainer(deps.docker, {
-        name,
-        image: service.image,
-        env: withGatewayConnectionEnv([], connection),
-        labels,
-        networkNames: [deps.networks.traefik, deps.networks.postgres],
-      });
-    }),
-  );
+    }
+    throw err;
+  }
 }

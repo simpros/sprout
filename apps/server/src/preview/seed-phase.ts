@@ -1,9 +1,8 @@
 import type { PreviewEnvMap } from "@sprout/preview-env";
-import { and, eq } from "drizzle-orm";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { SeedImageResult, SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
-import { previews } from "../infrastructure/db/schema.ts";
+import { markStickyPreviewFailed } from "./mark-failed.ts";
 import type { Result } from "./result.ts";
 import {
   updatePreviewRow,
@@ -61,32 +60,9 @@ function seedFailureDetail(
   return null;
 }
 
-/** Seed failure: keep containerId so the healthy app stays routable for operators. */
-async function markSeedFailed(
-  db: StateDb,
-  repo: string,
-  prId: number,
-  detail: string | null,
-  /** Captured seed container stdout/stderr (empty → null). */
-  logs: string,
-): Promise<void> {
-  await db
-    .update(previews)
-    .set({
-      status: "failed",
-      lastError: "seed_failed",
-      lastErrorDetail: detail,
-      seedLog: logs === "" ? null : logs,
-      updatedAt: utcIsoNow(),
-    })
-    .where(
-      and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-    );
-}
-
 /**
  * Seed phase ownership: enter seeding → run → running+seededAt | failed(keep container).
- * Any post-enter throw still markSeedFailed so the row cannot tombstone as seeding.
+ * Any post-enter throw still markStickyPreviewFailed so the row cannot tombstone as seeding.
  */
 async function runSeedPhase(
   deps: SeedPhaseDeps,
@@ -120,12 +96,15 @@ async function runSeedPhase(
       } else {
         console.warn("seed:failed", seedResult.exitCode);
       }
-      await markSeedFailed(
+      await markStickyPreviewFailed(
         deps.db,
         row.canonicalRepoId,
         row.prId,
-        seedFailureDetail(seedResult),
-        seedResult.logs,
+        {
+          error: "seed_failed",
+          detail: seedFailureDetail(seedResult),
+          seedLog: seedResult.logs,
+        },
       );
       return { ok: false, status: 500, error: "seed_failed" };
     }
@@ -147,7 +126,11 @@ async function runSeedPhase(
     return { ok: true, value: toRunningSnapshot(updated) };
   } catch (err) {
     console.warn("seed:failed", err);
-    await markSeedFailed(deps.db, row.canonicalRepoId, row.prId, null, "");
+    await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
+      error: "seed_failed",
+      detail: null,
+      seedLog: "",
+    });
     return { ok: false, status: 500, error: "seed_failed" };
   }
 }
@@ -215,20 +198,10 @@ export async function resumeIncompleteSeed(
 ): Promise<Result<SeedPhaseSnapshot>> {
   if (!ephemerals.seed) {
     // Keep containerId so the healthy app stays reclaimable for a seeded retry.
-    await deps.db
-      .update(previews)
-      .set({
-        status: "failed",
-        lastError: "seed_image_required_to_resume_seeding",
-        lastErrorDetail: null,
-        updatedAt: utcIsoNow(),
-      })
-      .where(
-        and(
-          eq(previews.canonicalRepoId, row.canonicalRepoId),
-          eq(previews.prId, row.prId),
-        ),
-      );
+    await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
+      error: "seed_image_required_to_resume_seeding",
+      detail: null,
+    });
     return {
       ok: false,
       status: 422,

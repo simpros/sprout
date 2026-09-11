@@ -110,6 +110,68 @@ describe("replacePreviewServices", () => {
     );
   });
 
+  test("routed services inherit gateway forwardAuth", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "ghcr.io/org/api:sha": 4000 },
+    });
+
+    await replacePreviewServices(
+      {
+        docker,
+        ...baseDeps,
+        traefikForwardAuth: {
+          middleware: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
+      },
+      {
+        slug: "myapp",
+        prId: 42,
+        appHostname: "pr-42.myapp.preview.example.com",
+        dbName: "sprout_myapp_pr42",
+        services: [
+          {
+            name: "api",
+            image: "ghcr.io/org/api:sha",
+            path: "/api",
+          },
+        ],
+      },
+    );
+
+    expect(docker.creates[0]!.labels).toMatchObject({
+      "traefik.http.routers.sprout-myapp-pr-42-svc-api.middlewares": "voidauth",
+      "traefik.http.middlewares.voidauth.forwardauth.address":
+        "https://auth.example.com/api/authz/forward-auth",
+    });
+  });
+
+  test("internal services omit Traefik labels including forwardAuth", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "ghcr.io/org/worker:sha": 5000 },
+    });
+
+    await replacePreviewServices(
+      {
+        docker,
+        ...baseDeps,
+        traefikForwardAuth: {
+          middleware: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
+      },
+      {
+        slug: "myapp",
+        prId: 42,
+        appHostname: "pr-42.myapp.preview.example.com",
+        dbName: "sprout_myapp_pr42",
+        services: [{ name: "worker", image: "ghcr.io/org/worker:sha" }],
+      },
+    );
+
+    expect(docker.creates[0]!.labels).toEqual({});
+  });
+
   test("empty list clears prior services without creating", async () => {
     const docker = createFakeDockerClient({
       exposedPorts: { "img:1": 80 },
@@ -137,6 +199,37 @@ describe("replacePreviewServices", () => {
     expect(docker.removed).toContain("sprout-myapp-pr-1-svc-api");
     expect(docker.creates).toHaveLength(1);
     expect(docker.running.has("sprout-myapp-pr-1-svc-api")).toBe(false);
+  });
+  test("clears partial creates when one service materialize fails", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "img:ok": 80, "img:bad": 80 },
+    });
+    const orig = docker.createAndStart.bind(docker);
+    let creates = 0;
+    docker.createAndStart = async (spec) => {
+      creates += 1;
+      if (creates === 2) throw new Error("create boom");
+      return orig(spec);
+    };
+
+    await expect(
+      replacePreviewServices(
+        { docker, ...baseDeps },
+        {
+          slug: "myapp",
+          prId: 1,
+          appHostname: "pr-1.example.com",
+          dbName: "sprout_myapp_pr1",
+          services: [
+            { name: "ok", image: "img:ok" },
+            { name: "bad", image: "img:bad" },
+          ],
+        },
+      ),
+    ).rejects.toThrow("create boom");
+
+    expect(docker.running.has("sprout-myapp-pr-1-svc-ok")).toBe(false);
+    expect(docker.running.has("sprout-myapp-pr-1-svc-bad")).toBe(false);
   });
 });
 
