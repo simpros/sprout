@@ -27,16 +27,16 @@ export const previews = sqliteTable(
     /** Short sticky diagnostic (e.g. exit=7, timeout) — not log blobs. */
     lastErrorDetail: text("last_error_detail"),
     /**
-     * Sticky `failed` classification. Survives accept until success/replace.
-     * Used with {@link bringUpPlan}: `seed_incomplete` → seed_resume;
-     * `post_healthy` → sync_close when services are explicit.
+     * Sticky `failed` diagnostic family (API / logs). Survives accept until
+     * success/replace. Recovery path is {@link bringUpPlan}, written with the
+     * sticky mark — do not re-derive plan from this column at accept.
      */
     failureFamily: text("failure_family"),
     /**
-     * Durable bring-up plan written at accept (and advanced to `sync_close`
-     * after promote/seed). Bring-up consumes this blindly — do not re-parse
-     * status/`failureFamily` for the recovery path.
-     * `seed_resume` | `sync_close` | `full_replace`; cleared on `running`.
+     * Durable bring-up plan. Accept preserves sticky/crash plans; promote/seed
+     * advances to `sync_close` (fleet pending) or `close` (no companions).
+     * Sticky fail writes `seed_resume` / `sync_close` with the family.
+     * Bring-up consumes this blindly. Cleared on `running`.
      */
     bringUpPlan: text("bring_up_plan"),
     /** Captured one-shot seed stdout/stderr for GET …/logs (cleared on success/remint). */

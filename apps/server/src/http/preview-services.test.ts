@@ -166,6 +166,7 @@ describe("POST /v1/deploy services", () => {
     expect(row?.status).toBe("failed");
     expect(row?.lastError).toBe("preview_service_deploy_failed");
     expect(row?.failureFamily).toBe("post_healthy");
+    expect(row?.bringUpPlan).toBe("sync_close");
     expect(row?.containerId).toBe("fake-1");
     expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
     expect(fakeDocker!.running.has("sprout-myapp-pr-42-svc-api")).toBe(false);
@@ -247,7 +248,50 @@ describe("POST /v1/deploy services", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       );
     expect(row?.failureFamily).toBe("post_healthy");
+    expect(row?.bringUpPlan).toBe("sync_close");
     expect(row?.containerId).toBe("fake-1");
+    expect(row?.status).toBe("failed");
+  });
+
+  test("crash mid-sync with omit services stays failed (no false running)", async () => {
+    const SVC = "ghcr.io/org/api:sha";
+    const { deployToken } = await setup({
+      exposedPorts: { [APP_IMAGE]: 3000, [SVC]: 4000 },
+    });
+    // Crash mid-replaceServices: plan durable, no sticky failureFamily yet.
+    await testApp!.db.insert(previews).values({
+      canonicalRepoId: REPO,
+      prId: 42,
+      slug: "myapp",
+      dbName: "sprout_myapp_pr42",
+      hostname: "pr-42.myapp.preview.example.com",
+      status: "starting",
+      appImage: APP_IMAGE,
+      containerId: "fake-stuck",
+      bringUpPlan: "sync_close",
+    });
+
+    const createsBefore = fakeDocker!.creates.length;
+    const retry = await postDeploy(
+      deployToken,
+      deployBody({}), // omit — must not close to running with empty fleet
+    );
+    expect(retry.outcome).toBe("failed");
+    expect(retry.body).toMatchObject({
+      status: "failed",
+      last_error: "services_required_after_companion_failure",
+    });
+    expect(fakeDocker!.creates.slice(createsBefore)).toEqual([]);
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      );
+    expect(row?.failureFamily).toBe("post_healthy");
+    expect(row?.bringUpPlan).toBe("sync_close");
+    expect(row?.containerId).toBe("fake-stuck");
     expect(row?.status).toBe("failed");
   });
 
@@ -342,6 +386,43 @@ describe("POST /v1/deploy services", () => {
       );
     expect(row?.containerId).toBe("fake-stuck");
     expect(row?.bringUpPlan).toBeNull();
+  });
+
+  test("crash after seed with close plan finishes without re-seed", async () => {
+    const SEED = "ghcr.io/org/seed:sha";
+    const { deployToken } = await setup({
+      exposedPorts: { [APP_IMAGE]: 3000, [SEED]: 80 },
+    });
+    // Seed done, no fleet work queued — only close remains.
+    await testApp!.db.insert(previews).values({
+      canonicalRepoId: REPO,
+      prId: 42,
+      slug: "myapp",
+      dbName: "sprout_myapp_pr42",
+      hostname: "pr-42.myapp.preview.example.com",
+      status: "seeding",
+      appImage: APP_IMAGE,
+      containerId: "fake-stuck",
+      seededAt: new Date().toISOString(),
+      bringUpPlan: "close",
+    });
+
+    const createsBefore = fakeDocker!.creates.length;
+    const res = await postDeploy(deployToken, deployBody({}));
+    expect(res.settleStatus).toBe(200);
+    expect(res.body).toMatchObject({ status: "running" });
+    expect(fakeDocker!.creates.slice(createsBefore)).toEqual([]);
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      );
+    expect(row?.status).toBe("running");
+    expect(row?.containerId).toBe("fake-stuck");
+    expect(row?.bringUpPlan).toBeNull();
+    expect(row?.seededAt).not.toBeNull();
   });
 
   test("seed runs before companion services on first deploy", async () => {

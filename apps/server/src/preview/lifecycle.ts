@@ -194,11 +194,11 @@ async function writeProvisioningIntent(
 }
 
 /**
- * Same-identity accept patch: clear sticky errors, write durable bringUpPlan,
- * and set the in-flight status. Optional remint advances TTL generation
- * (stuck provisioning only). Does not touch seeded_at — that clears after
- * healthy attach or on seed entry. Preserves failureFamily through claim
- * (survives until closeRunning / attach / sticky re-mark).
+ * Same-identity accept patch: clear sticky error strings, write durable
+ * bringUpPlan, and set the in-flight status. Optional remint advances TTL
+ * generation (stuck provisioning only). Does not touch seeded_at — that
+ * clears after healthy attach or on seed entry. Preserves failureFamily
+ * through claim (survives until closeRunning / attach / sticky re-mark).
  */
 async function patchAccept(
   deps: LifecycleDeps,
@@ -253,19 +253,19 @@ function requireDbIdentity(
 }
 
 /**
- * Write the bring-up plan once at accept. Bring-up consumes `bringUpPlan`
- * blindly — do not re-derive from status/`failureFamily` there.
+ * Write / preserve the bring-up plan at accept. Bring-up consumes
+ * `bringUpPlan` blindly — sticky fail already wrote recovery plans; do not
+ * rebuild from `failureFamily`.
  *
- * - Durable `sync_close` (promote/seed already done) + same app → sync_close
- * - seeding + seededAt (seed done, plan missing) + same app → sync_close
+ * - Durable `sync_close` / `close` / `seed_resume` + same app → keep that plan
+ * - seeding + seededAt (seed done, plan missing) + same app → close
  * - seeding + same app (seed incomplete) → seed_resume
- * - failed + seed_incomplete + same app → seed_resume
- * - failed + post_healthy + same app → sync_close (bring-up requires services)
+ * - failed without a durable recovery plan → full_replace
  * - running/starting + reseed + same app → seed_resume
  * - else → full_replace
  *
- * Bare `starting` without `bringUpPlan=sync_close` is mid-health (or older
- * crash); keep full_replace — promote writes sync_close only after healthy.
+ * Bare `starting` without close/sync_close is mid-health (or older crash);
+ * keep full_replace — promote writes close|sync_close only after healthy.
  */
 function planAcceptBringUp(
   row: PreviewRow,
@@ -274,14 +274,23 @@ function planAcceptBringUp(
 ): AcceptBringUp {
   const sameApp = canSeedWithoutAppReplace(row, input);
 
-  // Crash recovery: promote/seed already advanced the plan (or left seededAt
-  // set before the column existed).
+  // Crash / sticky recovery: plan already on the row.
   if (sameApp) {
     if (row.bringUpPlan === "sync_close") {
       return { status: "provisioning", plan: "sync_close" };
     }
+    if (row.bringUpPlan === "close") {
+      return { status: "provisioning", plan: "close" };
+    }
+    if (
+      row.bringUpPlan === "seed_resume" &&
+      (status === "failed" || status === "seeding")
+    ) {
+      return { status: "seeding", plan: "seed_resume" };
+    }
+    // Legacy: seed done before close plan existed.
     if (status === "seeding" && row.seededAt != null) {
-      return { status: "provisioning", plan: "sync_close" };
+      return { status: "provisioning", plan: "close" };
     }
   }
 
@@ -291,12 +300,6 @@ function planAcceptBringUp(
       : { status: "provisioning", plan: "full_replace" };
   }
   if (status === "failed") {
-    if (sameApp && row.failureFamily === "seed_incomplete") {
-      return { status: "seeding", plan: "seed_resume" };
-    }
-    if (sameApp && row.failureFamily === "post_healthy") {
-      return { status: "provisioning", plan: "sync_close" };
-    }
     return { status: "provisioning", plan: "full_replace" };
   }
   if (input.reseed === true && sameApp) {
@@ -304,7 +307,6 @@ function planAcceptBringUp(
   }
   return { status: "provisioning", plan: "full_replace" };
 }
-
 /**
  * Accept-time writer of truth: under the preview lock, insert or rewrite a
  * `provisioning` intent row and return its snapshot. Does not pull or bring-up.
@@ -411,8 +413,8 @@ export async function claimDeployIntent(
  * `bringUpPlan`. Never remints createdAt — accept owns generation.
  *
  * Bring-up consumes `bringUpPlan` only (see bring-up.ts):
- * seed_resume → seed → sync → running; sync_close → sync → running;
- * full_replace → ensure → attach → promote → sync → running.
+ * seed_resume → seed → close|sync; sync_close → sync → running;
+ * close → running; full_replace → ensure → attach → promote → close|sync.
  */
 async function completeProvisionUnlocked(
   deps: LifecycleDeps,

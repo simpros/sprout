@@ -31,6 +31,7 @@ function parseBringUpPlan(raw: string | null): BringUpPlan {
   switch (raw) {
     case "seed_resume":
     case "sync_close":
+    case "close":
     case "full_replace":
       return raw;
     default:
@@ -81,6 +82,7 @@ async function failUnhealthyAttach(
 /**
  * Post-healthy companion sync failure: keep the routable app (like seed_failed).
  * replacePreviewServices already clears partial creates locally.
+ * Sticky mark writes bringUpPlan=sync_close with the family.
  */
 async function failCompanionSync(
   deps: LifecycleDeps,
@@ -99,16 +101,13 @@ async function failCompanionSync(
 
 /**
  * Orthogonal companion sync after promote/seed.
- * `undefined` leaves existing containers; `[]` clears; non-empty replaces.
+ * Caller must pass an explicit set/clear (`services` defined).
  */
 async function syncPreviewServices(
   deps: LifecycleDeps,
   row: Pick<PreviewRow, "slug" | "prId" | "canonicalRepoId" | "dbName">,
-  input: ProvisionInput,
+  input: ProvisionInput & { services: NonNullable<ProvisionInput["services"]> },
 ): Promise<Result<true>> {
-  if (input.services === undefined) {
-    return { ok: true, value: true };
-  }
   try {
     await deps.app.replaceServices({
       slug: row.slug,
@@ -158,19 +157,15 @@ async function closeRunning(
 
 /**
  * Sync companions then close to `running`.
- * Shared by replace, seed-resume, crash-recovery, and companion-only retry.
+ * Entered only for durable `sync_close` (fleet work pending). Omit cannot
+ * declare victory — require an explicit set/clear.
  */
 async function syncThenCloseRunning(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
-  // post_healthy sticky retry must re-state the fleet — omit must not
-  // clear sticky failure into false `running` with an empty/stale fleet.
-  if (
-    row.failureFamily === "post_healthy" &&
-    input.services === undefined
-  ) {
+  if (input.services === undefined) {
     await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
       error: "services_required_after_companion_failure",
       family: "post_healthy",
@@ -181,16 +176,35 @@ async function syncThenCloseRunning(
       error: "services_required_after_companion_failure",
     };
   }
-  const synced = await syncPreviewServices(deps, row, input);
+  const synced = await syncPreviewServices(deps, row, {
+    ...input,
+    services: input.services,
+  });
   if (!synced.ok) return synced;
   return closeRunning(deps, row);
 }
 
-/** Project request-scoped seed/remap fields only at the seed-phase boundary. */
+/**
+ * After promote/seed: close directly when no fleet work; else sync then close.
+ * Matches bringUpPlan close vs sync_close written by seed-phase.
+ */
+async function finishAfterPromote(
+  deps: LifecycleDeps,
+  row: PreviewRow,
+  input: ProvisionInput,
+): Promise<Result<PreviewSnapshot>> {
+  if (input.services === undefined) {
+    return closeRunning(deps, row);
+  }
+  return syncThenCloseRunning(deps, row, input);
+}
+
+/** Project request-scoped seed/remap/fleet fields only at the seed-phase boundary. */
 function deployEphemerals(input: ProvisionInput) {
   return {
     seed: input.seed,
     connectionEnv: input.connectionEnv,
+    fleetPending: input.services !== undefined,
   };
 }
 
@@ -284,7 +298,7 @@ async function attachThenPromote(
     deployEphemerals(input),
   );
   if (!promoted.ok) return promoted;
-  return syncThenCloseRunning(deps, starting, input);
+  return finishAfterPromote(deps, starting, input);
 }
 
 /**
@@ -358,8 +372,8 @@ export async function pullImagesOutsideLock(
 
 /**
  * Post-accept bring-up under the preview lock (caller holds lock).
- * Consumes `bringUpPlan` written at accept (advanced to `sync_close` after
- * promote/seed). Do not re-parse status / failureFamily here.
+ * Consumes `bringUpPlan` written at accept / sticky fail / promote.
+ * Do not re-parse status / failureFamily here.
  */
 export async function completeBringUp(
   deps: LifecycleDeps,
@@ -368,8 +382,14 @@ export async function completeBringUp(
 ): Promise<Result<PreviewSnapshot>> {
   switch (parseBringUpPlan(row.bringUpPlan)) {
     case "seed_resume": {
+      // Accept already gated sameApp before writing this plan. Silent
+      // escalate to replace would hide accept bugs behind Traefik flaps.
       if (!canSeedWithoutAppReplace(row, input)) {
-        return ensureThenAttach(deps, row, input);
+        return {
+          ok: false,
+          status: 500,
+          error: "preview_plan_conflict",
+        };
       }
       const seeded = await resumeIncompleteSeed(
         deps,
@@ -377,10 +397,12 @@ export async function completeBringUp(
         deployEphemerals(input),
       );
       if (!seeded.ok) return seeded;
-      return syncThenCloseRunning(deps, row, input);
+      return finishAfterPromote(deps, row, input);
     }
     case "sync_close":
       return syncThenCloseRunning(deps, row, input);
+    case "close":
+      return closeRunning(deps, row);
     case "full_replace":
       return ensureThenAttach(deps, row, input);
   }

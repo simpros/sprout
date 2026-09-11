@@ -9,6 +9,7 @@ import {
   utcIsoNow,
   type PreviewRow,
 } from "./row.ts";
+import type { BringUpPlan } from "./types.ts";
 
 export type SeedPhaseDeps = {
   db: StateDb;
@@ -20,11 +21,18 @@ export type SeedPhaseDeps = {
  * seed and connectionEnv are siblings — do not hitch connectionEnv onto SeedImageSpec.
  * Whether to seed is answered by seeded_at on the row (lifecycle clears it
  * after healthy attach for replace+reseed; runSeedPhase clears on entry).
+ * fleetPending selects close vs sync_close after promote/seed success.
  */
 export type DeployEphemerals = {
   seed?: SeedImageSpec;
   connectionEnv?: PreviewEnvMap;
+  /** True when ProvisionInput.services is defined (set or clear queued). */
+  fleetPending?: boolean;
 };
+
+function planAfterPromote(fleetPending: boolean | undefined): BringUpPlan {
+  return fleetPending === true ? "sync_close" : "close";
+}
 
 /** Short sticky detail for status/CLI — never the seed log blob. */
 function seedFailureDetail(
@@ -36,10 +44,10 @@ function seedFailureDetail(
 }
 
 /**
- * Seed phase ownership: enter seeding → run → seededAt + bringUpPlan=sync_close |
- * failed(keep container). Bring-up syncs companions then closes to `running`.
- * Any post-enter throw still markStickyPreviewFailed so the row cannot
- * tombstone as seeding.
+ * Seed phase ownership: enter seeding → run → seededAt + close|sync_close |
+ * failed(keep container). Bring-up syncs companions (if sync_close) then
+ * closes to `running`. Any post-enter throw still markStickyPreviewFailed
+ * so the row cannot tombstone as seeding.
  */
 async function runSeedPhase(
   deps: SeedPhaseDeps,
@@ -92,11 +100,11 @@ async function runSeedPhase(
       deps.db,
       row,
       {
-        // Stay seeding until bring-up syncs companions and closes to running.
+        // Stay seeding until bring-up closes to running (after optional sync).
         status: "seeding",
         seededAt,
-        // Durable: only fleet close remains — crash recovery must not re-seed.
-        bringUpPlan: "sync_close",
+        // Durable: sync_close only when fleet work is queued; else close.
+        bringUpPlan: planAfterPromote(ephemerals.fleetPending),
         lastError: null,
         lastErrorDetail: null,
         failureFamily: null,
@@ -119,8 +127,8 @@ async function runSeedPhase(
 }
 
 /**
- * After-healthy hook entry: no seed → mark sync_close; else run seed phase.
- * Does not write `running` — bring-up owns that after companion sync.
+ * After-healthy hook entry: no seed → mark close|sync_close; else run seed.
+ * Does not write `running` — bring-up owns that after optional companion sync.
  * Seed image is the only after-healthy hook impl in v0.1.
  */
 export async function promoteAfterHealthy(
@@ -137,11 +145,13 @@ export async function promoteAfterHealthy(
     return runSeedPhase(deps, starting, { ...ephemerals, seed });
   }
 
-  // Durable: attach is healthy; only fleet close remains.
   await updatePreviewRow(
     deps.db,
     starting,
-    { bringUpPlan: "sync_close", updatedAt: utcIsoNow() },
+    {
+      bringUpPlan: planAfterPromote(ephemerals.fleetPending),
+      updatedAt: utcIsoNow(),
+    },
     "preview_row_missing_on_promote",
   );
   return { ok: true, value: true };

@@ -2,6 +2,7 @@ import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import { and, eq } from "drizzle-orm";
 import { utcIsoNow } from "./row.ts";
+import type { BringUpPlan } from "./types.ts";
 
 /**
  * Pre-healthy / ensure / drop failure: clear containerId so Traefik orphans
@@ -37,17 +38,27 @@ export type StickyFailureFamily = "seed_incomplete" | "post_healthy";
 
 export type StickyPreviewFailure = {
   error: string;
-  /** Classifies sticky failed for accept → bringUpPlan. */
+  /** Diagnostic family; also selects the durable recovery {@link BringUpPlan}. */
   family: StickyFailureFamily;
   detail?: string | null;
   /** Captured seed container stdout/stderr; omit to leave seed_log unchanged. */
   seedLog?: string | null;
 };
 
+function recoveryPlanFor(family: StickyFailureFamily): BringUpPlan {
+  switch (family) {
+    case "seed_incomplete":
+      return "seed_resume";
+    case "post_healthy":
+      return "sync_close";
+  }
+}
+
 /**
  * Post-healthy sticky failure (seed / companion sync): keep containerId so the
- * routable app stays reclaimable. Clears bringUpPlan; accept writes a fresh
- * plan from {@link StickyFailureFamily} + request (not lastError strings).
+ * routable app stays reclaimable. Writes the recovery {@link BringUpPlan}
+ * with the family so accept preserves it — do not clear the plan for accept
+ * to rebuild from failureFamily.
  */
 export async function markStickyPreviewFailed(
   db: StateDb,
@@ -62,7 +73,7 @@ export async function markStickyPreviewFailed(
       lastError: failure.error,
       lastErrorDetail: failure.detail ?? null,
       failureFamily: failure.family,
-      bringUpPlan: null,
+      bringUpPlan: recoveryPlanFor(failure.family),
       ...(failure.seedLog !== undefined
         ? { seedLog: failure.seedLog === "" ? null : failure.seedLog }
         : {}),
