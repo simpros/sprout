@@ -3,14 +3,23 @@ import {
   resolveHealthSpec,
   resolveHostnameValue,
 } from "@sprout/preview-env";
-import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
-import { resolveAppEnvValues } from "../app-env-values.ts";
-import type { CliContext } from "../context.ts";
+import {
+  type DotenvFile,
+  mergeAppEnv,
+  mergeSeedEnv,
+} from "../app-env.ts";
+import {
+  expandAppEnvValue,
+  requiredAppEnvKeys,
+  resolveAppEnvValues,
+} from "../app-env-values.ts";
+import type { CliContext, CliDeps } from "../context.ts";
 import { fail, loadYaml, resolveIdentity } from "../context.ts";
 import { resolveCommitSha } from "../identity.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
 import { hostnameIssueMessage } from "../hostname.ts";
+import type { Result } from "../result.ts";
 import { mergeServices, type DeployService } from "../services.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
@@ -34,6 +43,44 @@ function resolveDeployHostname(
   return resolved;
 }
 
+function resolveEnvPath(cwd: string, path: string): string {
+  return path.startsWith("/") ? path : `${cwd}/${path}`;
+}
+
+/**
+ * Collect the dotenv blob for one env surface. Order: the file-type CI
+ * variable (`envVarName`, e.g. `SPROUT_APP_ENV`), then explicit `--*-env-file`
+ * flags. Each value is a path GitLab writes the masked blob to; missing paths
+ * fail naming the variable rather than silently dropping secrets.
+ */
+async function readEnvFiles(
+  deps: CliDeps,
+  envVarName: string,
+  flagPaths: string[],
+  flagName: string,
+): Promise<Result<DotenvFile[]>> {
+  const files: DotenvFile[] = [];
+
+  const envPath = deps.env[envVarName]?.trim();
+  if (envPath) {
+    const raw = await deps.readTextFile(resolveEnvPath(deps.cwd, envPath));
+    if (raw === null) {
+      return { ok: false, error: `cannot read ${envVarName}: ${envPath}` };
+    }
+    files.push({ pathLabel: `${envVarName} (${envPath})`, content: raw });
+  }
+
+  for (const filePath of flagPaths) {
+    const raw = await deps.readTextFile(resolveEnvPath(deps.cwd, filePath));
+    if (raw === null) {
+      return { ok: false, error: `cannot read ${flagName}: ${filePath}` };
+    }
+    files.push({ pathLabel: filePath, content: raw });
+  }
+
+  return { ok: true, value: files };
+}
+
 export async function runDeploy(
   tokens: string[],
   ctx: CliContext,
@@ -42,6 +89,7 @@ export async function runDeploy(
     "-i",
     "-s",
     "--seed-env",
+    "--seed-env-file",
     "--seed-arg",
     "--app-env",
     "--app-env-file",
@@ -116,7 +164,6 @@ export async function runDeploy(
 
   if (yaml.value.health) body.health = yaml.value.health;
   if (flags.value.seedImage) body.seed_image = flags.value.seedImage;
-  if (flags.value.seedEnv.length > 0) body.seed_env = flags.value.seedEnv;
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (flags.value.reseed) body.reseed = true;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
@@ -150,36 +197,55 @@ export async function runDeploy(
     }
   }
 
-  const dotenvFiles: DotenvFile[] = [];
-  for (const filePath of flags.value.appEnvFile) {
-    const resolved = filePath.startsWith("/")
-      ? filePath
-      : `${ctx.deps.cwd}/${filePath}`;
-    const raw = await ctx.deps.readTextFile(resolved);
-    if (raw === null) {
-      return fail(ctx.deps.io, `cannot read --app-env-file: ${filePath}`);
-    }
-    dotenvFiles.push({ pathLabel: filePath, content: raw });
-  }
+  const appEnvFiles = await readEnvFiles(
+    ctx.deps,
+    "SPROUT_APP_ENV",
+    flags.value.appEnvFile,
+    "--app-env-file",
+  );
+  if (!appEnvFiles.ok) return fail(ctx.deps.io, appEnvFiles.error);
 
-  const resolvedYamlEnv = resolveAppEnvValues(yaml.value.preview.app_env, {
+  const seedEnvFiles = await readEnvFiles(
+    ctx.deps,
+    "SPROUT_SEED_ENV",
+    flags.value.seedEnvFile,
+    "--seed-env-file",
+  );
+  if (!seedEnvFiles.ok) return fail(ctx.deps.io, seedEnvFiles.error);
+
+  const resolveCtx = {
     hostname: body.hostname,
     prId: identity.value.prId,
     commitSha: resolveCommitSha(ctx.deps.env),
     repo: identity.value.repo,
     // HMAC key is SPROUT_TOKEN only (not local admin fallback) so CI and
     // local agree when the same deploy token is used.
-    deployToken: ctx.deps.env.SPROUT_TOKEN?.trim(),
-  });
+    deployToken: ctx.deps.env.SPROUT_TOKEN?.trim() ?? "",
+  };
+
+  const resolvedYamlEnv = resolveAppEnvValues(
+    yaml.value.preview.app_env,
+    resolveCtx,
+  );
   if (!resolvedYamlEnv.ok) return fail(ctx.deps.io, resolvedYamlEnv.error);
 
   const appEnv = mergeAppEnv(
     resolvedYamlEnv.value,
-    dotenvFiles,
+    requiredAppEnvKeys(yaml.value.preview.app_env),
+    appEnvFiles.value,
     flags.value.appEnv,
+    (_key, value) => expandAppEnvValue(value, resolveCtx),
   );
   if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);
   if (appEnv.value) body.app_env = appEnv.value;
+
+  const seedEnv = mergeSeedEnv(
+    seedEnvFiles.value,
+    flags.value.seedEnv,
+    (_key, value) => expandAppEnvValue(value, resolveCtx),
+  );
+  if (!seedEnv.ok) return fail(ctx.deps.io, seedEnv.error);
+  if (seedEnv.value) body.seed_env = seedEnv.value;
 
   const response = await ctx.client.v1.deploy.post(body);
   const result = readEden<PreviewSnapshot>(response);

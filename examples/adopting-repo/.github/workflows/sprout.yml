@@ -50,6 +50,17 @@ jobs:
           echo "APP_IMAGE=$APP_IMAGE" >> "$GITHUB_ENV"
           echo "SEED_IMAGE=$SEED_IMAGE" >> "$GITHUB_ENV"
 
+      - name: Write preview app env (optional masked secret)
+        if: github.event.action != 'closed'
+        env:
+          SPROUT_APP_ENV_BLOB: ${{ secrets.SPROUT_APP_ENV }}
+        run: |
+          # One masked variable holding a dotenv blob; the CLI reads it via
+          # SPROUT_APP_ENV automatically (see docs/adoption.md). Empty when
+          # the secret is unset — deploys without app secrets still work.
+          printf '%s\n' "$SPROUT_APP_ENV_BLOB" > "$RUNNER_TEMP/preview.app.env"
+          echo "SPROUT_APP_ENV=$RUNNER_TEMP/preview.app.env" >> "$GITHUB_ENV"
+
       - name: Deploy preview
         if: github.event.action != 'closed'
         id: deploy

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { resolveAppEnvValues } from "./app-env-values.ts";
+import {
+  expandAppEnvValue,
+  requiredAppEnvKeys,
+  resolveAppEnvValues,
+} from "./app-env-values.ts";
 
 const ctx = {
   hostname: "pr-42.myapp.preview.example.com",
@@ -111,6 +115,63 @@ describe("resolveAppEnvValues", () => {
       ok: false,
       error:
         "preview.app_env.BETTER_AUTH_SECRET: SPROUT_TOKEN required for generate: stable_per_pr",
+    });
+  });
+
+  test("required entries contribute no value and are otherwise skipped", () => {
+    expect(
+      resolveAppEnvValues(
+        {
+          BETTER_AUTH_URL: "https://{hostname}",
+          STRIPE_API_KEY: { required: true },
+        },
+        ctx,
+      ),
+    ).toEqual({
+      ok: true,
+      value: {
+        BETTER_AUTH_URL: "https://pr-42.myapp.preview.example.com",
+      },
+    });
+  });
+
+  test("only required entries → undefined (enforced later)", () => {
+    expect(
+      resolveAppEnvValues({ STRIPE_API_KEY: { required: true } }, ctx),
+    ).toEqual({ ok: true, value: undefined });
+  });
+});
+
+describe("requiredAppEnvKeys", () => {
+  test("returns required keys in declaration order", () => {
+    expect(
+      requiredAppEnvKeys({
+        A: "x",
+        B: { required: true },
+        C: { generate: "stable_per_pr" },
+        D: { required: true },
+      }),
+    ).toEqual(["B", "D"]);
+  });
+
+  test("undefined / none required → empty", () => {
+    expect(requiredAppEnvKeys(undefined)).toEqual([]);
+    expect(requiredAppEnvKeys({ A: "x" })).toEqual([]);
+  });
+});
+
+describe("expandAppEnvValue", () => {
+  test("expands known placeholders", () => {
+    expect(expandAppEnvValue("https://{hostname}/p{pr_id}", ctx)).toEqual({
+      ok: true,
+      value: "https://pr-42.myapp.preview.example.com/p42",
+    });
+  });
+
+  test("returns a bare reason with no key prefix", () => {
+    expect(expandAppEnvValue("https://{host}", ctx)).toEqual({
+      ok: false,
+      error: "unknown placeholder {host}",
     });
   });
 });

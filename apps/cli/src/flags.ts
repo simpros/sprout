@@ -4,6 +4,7 @@ type FlagBag = {
   image?: string;
   seedImage?: string;
   seedEnv: string[];
+  seedEnvFile: string[];
   seedArg: string[];
   appEnv: string[];
   appEnvFile: string[];
@@ -81,6 +82,7 @@ const FLAG_DEFS = [
   { flag: "-i", field: "image", kind: "string" },
   { flag: "-s", field: "seedImage", kind: "string" },
   { flag: "--seed-env", field: "seedEnv", kind: "repeat", allowDash: true },
+  { flag: "--seed-env-file", field: "seedEnvFile", kind: "repeat" },
   { flag: "--seed-arg", field: "seedArg", kind: "repeat", allowDash: true },
   { flag: "--app-env", field: "appEnv", kind: "repeat", allowDash: true },
   { flag: "--app-env-file", field: "appEnvFile", kind: "repeat" },
@@ -103,6 +105,7 @@ export function parseFlags(
 ): Result<FlagBag> {
   const emptyBag: FlagBag = {
     seedEnv: [],
+    seedEnvFile: [],
     seedArg: [],
     appEnv: [],
     appEnvFile: [],

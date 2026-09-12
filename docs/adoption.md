@@ -56,8 +56,9 @@ health:
 - `preview.app_env` — optional adopter env for the app container. String
   values may interpolate `{hostname}`, `{pr_id}`, `{commit_sha}`; use
   `{ generate: stable_per_pr }` for a per-MR secret derived from the
-  deploy token (see Extra app env). Prefer `--app-env` / `--app-env-file` for
-  CI secrets.
+  deploy token and `{ required: true }` for a key CI must supply (see Extra app
+  env). CI secrets still come via `SPROUT_APP_ENV` / `--app-env-file` /
+  `--app-env`.
 - `health` — optional HTTP poll the gateway runs against the app container
   IP on the Postgres network. When omitted, the gateway polls `GET /health`
   every `2s` for up to `120s`, expecting `200`. Add a `health` block only to
@@ -139,8 +140,12 @@ Pass those as:
 
 - Map in `.sprout.yaml` under `preview.app_env` (computed defaults; no CI
   secrets in git)
-- Repeatable `--app-env-file PATH` (dotenv `KEY=VALUE` file; blank/`#` lines skipped)
-- Repeatable `--app-env KEY=VALUE` (secrets or one-offs from CI)
+- One masked, **file-type** CI variable holding a dotenv blob —
+  `SPROUT_APP_ENV` (app) and `SPROUT_SEED_ENV` (seed); the CLI reads the file
+  path from the variable automatically
+- Repeatable `--app-env-file PATH` / `--seed-env-file PATH` (explicit dotenv
+  files; blank lines, `#` comments, optional `export ` prefix)
+- Repeatable `--app-env KEY=VALUE` / `--seed-env KEY=VALUE` (one-offs from CI)
 
 String values may use `{hostname}`, `{pr_id}`, and `{commit_sha}`
 (`{hostname}` is the substituted preview host; `{commit_sha}` needs
@@ -148,8 +153,11 @@ String values may use `{hostname}`, `{pr_id}`, and `{commit_sha}`
 across redeploy and reseed of the same MR with `{ generate: stable_per_pr }`
 — an HMAC of `(canonical_repo_id, pr_id, env_key)` keyed by the sprout
 deploy token (`SPROUT_TOKEN`). Keep that token stable for the MR’s lifetime
-or sessions will invalidate when it rotates. Unknown placeholders and
-malformed values fail before any gateway call and name the offending key.
+or sessions will invalidate when it rotates.
+
+Declare a key that CI must supply (never the manifest) with
+`{ required: true }`; if no file or flag provides it, deploy fails before the
+gateway call naming the key instead of letting the container crash-loop:
 
 ```yaml
 slug: myapp
@@ -157,47 +165,76 @@ preview:
   hostname: "pr-{pr_id}.myapp.preview.example.com"
   app_env:
     LOG_LEVEL: info
-    FEATURE_PREVIEW_BANNER: "1"
     BETTER_AUTH_URL: "https://{hostname}"
     BETTER_AUTH_SECRET:
       generate: stable_per_pr
+    STRIPE_API_KEY:
+      required: true
 ```
 
+Placeholders expand in **every** layer (manifest, file blob, and
+`--app-env`), so a blob entry like `BETTER_AUTH_URL=https://{hostname}`
+works. The file-type CI variable is read automatically:
+
 ```bash
-sprout deploy -i "$APP_IMAGE" \
-  --app-env-file "$PREVIEW_APP_ENV"
+sprout deploy -i "$APP_IMAGE"
 ```
 
 CLI merge order: yaml `app_env` (after placeholder / generate expansion)
-first, then each `--app-env-file` in flag order, then `--app-env` flags
-(later wins on duplicate keys; one entry per key on the wire). Invalid
-dotenv lines or flags fail before any gateway call. Gateway connection
+first, then `SPROUT_APP_ENV` / each `--app-env-file` in order, then
+`--app-env` flags (later wins on duplicate keys; one entry per key on the
+wire). `--seed-env-file` / `SPROUT_SEED_ENV` / `--seed-env` follow the same
+order for the seed container. Required keys are checked after all layers.
+Invalid dotenv lines or flags fail before any gateway call and name the
+offending key or file **without echoing the value**. Gateway connection
 keys replace colliding adopter keys (canonical PG* ∪ remapped names) —
-same policy as seed `--seed-env`. Seed env applies only to the seed
-container.
+same policy as seed env.
 
-#### CI: dotenv file from variables
+#### CI: one masked file-type variable
 
-**GitLab** — store a file-type CI/CD variable (e.g. `PREVIEW_APP_ENV`). GitLab
-writes the file and exposes its path in `$PREVIEW_APP_ENV`:
+Store the app secrets as a single dotenv blob in `SPROUT_APP_ENV` (and, when
+seeding, `SPROUT_SEED_ENV`). The blob supports `.env` syntax: blank lines,
+`#` comments, an optional `export ` prefix, and `KEY=value` (values may
+contain `=`; keys are trimmed and matching surrounding quotes are stripped).
+Placeholders such as `{hostname}` expand per value.
+
+**GitLab** — create a CI/CD variable named `SPROUT_APP_ENV`, type **File**,
+marked **Masked**. GitLab writes the blob to a temp file and exports its path;
+the CLI reads it automatically:
 
 ```yaml
 script:
-  - sprout deploy -i "$APP_IMAGE" --app-env-file "$PREVIEW_APP_ENV"
+  - sprout deploy -i "$APP_IMAGE"
 ```
 
-**GitHub Actions** — no file-type secrets; write a multiline secret/var to a
-temp file, then pass the path:
+**Masked** keeps the value out of job logs; **File** means only the temp path
+is exported to the job. The CLI never prints env values, and its parse errors
+never echo a line.
+
+**GitHub Actions** — no file-type secrets; write the multiline secret to a
+temp file and point `SPROUT_APP_ENV` at it:
 
 ```yaml
 - name: Write preview app env
   env:
-    PREVIEW_APP_ENV: ${{ secrets.PREVIEW_APP_ENV }}
+    SPROUT_APP_ENV_BLOB: ${{ secrets.SPROUT_APP_ENV }}
   run: |
-    printf '%s\n' "$PREVIEW_APP_ENV" > "$RUNNER_TEMP/preview.app.env"
-    echo "PREVIEW_APP_ENV_FILE=$RUNNER_TEMP/preview.app.env" >> "$GITHUB_ENV"
+    printf '%s\n' "$SPROUT_APP_ENV_BLOB" > "$RUNNER_TEMP/preview.app.env"
+    echo "SPROUT_APP_ENV=$RUNNER_TEMP/preview.app.env" >> "$GITHUB_ENV"
 - name: Deploy
-  run: sprout deploy -i "$APP_IMAGE" --app-env-file "$PREVIEW_APP_ENV_FILE"
+  run: sprout deploy -i "$APP_IMAGE"
+```
+
+Explicit wiring still works: pass `--app-env-file "$PATH"` (or
+`--seed-env-file`) instead of setting the variable.
+
+Secrets stay out of logs by construction: deploy prints only `preview_url=`
+to stdout, parse errors never echo a line, and the MR note carries just the
+URL. Prove it by grepping the captured job log for a sentinel from the blob:
+
+```bash
+sprout deploy -i "$APP_IMAGE" | tee deploy.log
+! grep -q "sk_live" deploy.log
 ```
 
 ### Shell entrypoint (any runtime)

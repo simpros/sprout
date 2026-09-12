@@ -3,6 +3,7 @@ import type { Result } from "./result.ts";
 import type { AppEnvValue } from "./yaml.ts";
 
 const PLACEHOLDER_RE = /\{([a-z_]+)\}/g;
+const KNOWN_PLACEHOLDERS = new Set(["hostname", "pr_id", "commit_sha"]);
 
 export type AppEnvResolveContext = {
   hostname: string;
@@ -14,9 +15,59 @@ export type AppEnvResolveContext = {
   deployToken?: string;
 };
 
+/** Keys declared `{ required: true }` in the manifest, in declaration order. */
+export function requiredAppEnvKeys(
+  appEnv: Record<string, AppEnvValue> | undefined,
+): string[] {
+  if (!appEnv) return [];
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(appEnv)) {
+    if (typeof value === "object" && value !== null && "required" in value) {
+      out.push(key);
+    }
+  }
+  return out;
+}
+
+/**
+ * Expand `{hostname}` / `{pr_id}` / `{commit_sha}` in one value. The error is a
+ * bare reason with no key prefix so `--app-env-file` and `--app-env` callers
+ * can label the source; `resolveAppEnvValues` adds the manifest key.
+ */
+export function expandAppEnvValue(
+  value: string,
+  ctx: AppEnvResolveContext,
+): Result<string> {
+  let unknown: string | undefined;
+  let needsCommitSha = false;
+  const replaced = value.replace(PLACEHOLDER_RE, (match, name: string) => {
+    if (!KNOWN_PLACEHOLDERS.has(name)) {
+      unknown = match;
+      return match;
+    }
+    if (name === "commit_sha") {
+      needsCommitSha = true;
+      return ctx.commitSha ?? match;
+    }
+    if (name === "hostname") return ctx.hostname;
+    return String(ctx.prId);
+  });
+  if (unknown) {
+    return { ok: false, error: `unknown placeholder ${unknown}` };
+  }
+  if (needsCommitSha && !ctx.commitSha) {
+    return {
+      ok: false,
+      error: "{commit_sha} requires GITHUB_SHA or CI_COMMIT_SHA",
+    };
+  }
+  return { ok: true, value: replaced };
+}
+
 /**
  * Expand `preview.app_env` templates and materialize `generate: stable_per_pr`
- * secrets into plain strings for {@link mergeAppEnv}.
+ * secrets into plain strings for {@link mergeAppEnv}. `{ required: true }`
+ * entries contribute no value here — they are enforced after CI layers merge.
  */
 export function resolveAppEnvValues(
   appEnv: Record<string, AppEnvValue> | undefined,
@@ -29,11 +80,14 @@ export function resolveAppEnvValues(
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(appEnv)) {
     if (typeof value === "string") {
-      const expanded = expandPlaceholders(key, value, ctx);
-      if (!expanded.ok) return expanded;
+      const expanded = expandAppEnvValue(value, ctx);
+      if (!expanded.ok) {
+        return { ok: false, error: `preview.app_env.${key}: ${expanded.error}` };
+      }
       out[key] = expanded.value;
       continue;
     }
+    if ("required" in value) continue;
     switch (value.generate) {
       case "stable_per_pr": {
         const secret = stablePerPrSecret(key, ctx);
@@ -50,46 +104,8 @@ export function resolveAppEnvValues(
       }
     }
   }
+  if (Object.keys(out).length === 0) return { ok: true, value: undefined };
   return { ok: true, value: out };
-}
-
-function expandPlaceholders(
-  key: string,
-  template: string,
-  ctx: AppEnvResolveContext,
-): Result<string> {
-  const values: Record<string, string | undefined> = {
-    hostname: ctx.hostname,
-    pr_id: String(ctx.prId),
-    commit_sha: ctx.commitSha,
-  };
-
-  for (const match of template.matchAll(PLACEHOLDER_RE)) {
-    const name = match[1]!;
-    if (!(name in values)) {
-      return {
-        ok: false,
-        error: `preview.app_env.${key}: unknown placeholder ${match[0]}`,
-      };
-    }
-    if (values[name] === undefined) {
-      if (name === "commit_sha") {
-        return {
-          ok: false,
-          error: `preview.app_env.${key}: {commit_sha} requires GITHUB_SHA or CI_COMMIT_SHA`,
-        };
-      }
-      return {
-        ok: false,
-        error: `preview.app_env.${key}: {${name}} is not available`,
-      };
-    }
-  }
-
-  return {
-    ok: true,
-    value: template.replace(PLACEHOLDER_RE, (_m, name: string) => values[name]!),
-  };
 }
 
 function stablePerPrSecret(

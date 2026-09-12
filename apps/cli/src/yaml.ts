@@ -28,8 +28,14 @@ export type SproutYamlService = {
   path?: string;
 };
 
-/** Plain string, or request a HMAC secret stable for the MR lifetime. */
-export type AppEnvValue = string | { generate: "stable_per_pr" };
+/**
+ * Plain string, a HMAC secret stable for the MR lifetime, or a key that CI must
+ * supply via `--app-env-file` / `SPROUT_APP_ENV` / `--app-env`.
+ */
+export type AppEnvValue =
+  | string
+  | { generate: "stable_per_pr" }
+  | { required: true };
 
 export type SproutYaml = {
   slug: string;
@@ -39,7 +45,8 @@ export type SproutYaml = {
     /**
      * Adopter env for the app container. Strings may use `{hostname}`,
      * `{pr_id}`, `{commit_sha}`; `{ generate: stable_per_pr }` derives a
-     * secret from the deploy token (secrets via --app-env / --app-env-file).
+     * secret from the deploy token; `{ required: true }` must be supplied by
+     * CI (secrets via --app-env / --app-env-file / SPROUT_APP_ENV).
      */
     app_env?: Record<string, AppEnvValue>;
     /** Optional companion services (images usually via `--service`). */
@@ -126,7 +133,7 @@ function parsePreviewEnv(
 }
 
 const APP_ENV_VALUE_HINT =
-  "must be a string or { generate: stable_per_pr }";
+  "must be a string, { generate: stable_per_pr }, or { required: true }";
 
 /** Absent or empty map → undefined. Strings or `{ generate: stable_per_pr }`. */
 function parseAppEnv(
@@ -165,19 +172,35 @@ function parseAppEnvValue(
     };
   }
   const keys = Object.keys(value);
-  if (keys.length !== 1 || keys[0] !== "generate") {
+  if (keys.length !== 1) {
     return {
       ok: false,
       error: `preview.app_env.${key} ${APP_ENV_VALUE_HINT}`,
     };
   }
-  if (value.generate === "stable_per_pr") {
-    return { ok: true, value: { generate: "stable_per_pr" } };
-  }
-  if (typeof value.generate === "string") {
+  const kind = keys[0];
+  if (kind === "generate") {
+    if (value.generate === "stable_per_pr") {
+      return { ok: true, value: { generate: "stable_per_pr" } };
+    }
+    if (typeof value.generate === "string") {
+      return {
+        ok: false,
+        error: `preview.app_env.${key}: unknown generate kind: ${value.generate}`,
+      };
+    }
     return {
       ok: false,
-      error: `preview.app_env.${key}: unknown generate kind: ${value.generate}`,
+      error: `preview.app_env.${key} ${APP_ENV_VALUE_HINT}`,
+    };
+  }
+  if (kind === "required") {
+    if (value.required === true) {
+      return { ok: true, value: { required: true } };
+    }
+    return {
+      ok: false,
+      error: `preview.app_env.${key}: required must be true`,
     };
   }
   return {
