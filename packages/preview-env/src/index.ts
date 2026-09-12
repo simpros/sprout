@@ -94,7 +94,6 @@ export function parsePreviewEnvMap(
 }
 
 export {
-  HOSTNAME_PLACEHOLDER,
   resolveHostnameValue,
   validateHostname,
   validateHostnameValue,

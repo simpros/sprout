@@ -1,7 +1,6 @@
 import type { PreviewSnapshot } from "@sprout/api-client";
 import {
-  DEFAULT_HEALTH,
-  parseDurationMs,
+  resolveHealthSpec,
   resolveHostnameValue,
 } from "@sprout/preview-env";
 import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
@@ -16,29 +15,6 @@ import { deployOutcome } from "./deploy-outcome.ts";
 
 /** Extra budget beyond health.timeout for image pull + replace + optional seed. */
 const DEPLOY_POLL_BUFFER_MS = 180_000;
-
-/** Yaml already validated durations; omitted health → gateway defaults. */
-function healthDurationMs(
-  raw: string | undefined,
-  fallback: number,
-): number {
-  if (!raw) return fallback;
-  return parseDurationMs(raw) ?? fallback;
-}
-
-function pollBudgetMs(yaml: SproutYaml): number {
-  return (
-    healthDurationMs(yaml.health?.timeout, DEFAULT_HEALTH.timeoutMs) +
-    DEPLOY_POLL_BUFFER_MS
-  );
-}
-
-function pollIntervalMs(yaml: SproutYaml): number {
-  return Math.max(
-    200,
-    healthDurationMs(yaml.health?.interval, DEFAULT_HEALTH.intervalMs),
-  );
-}
 
 function resolveDeployHostname(
   raw: string,
@@ -205,8 +181,10 @@ export async function runDeploy(
       ctx.deps.sleep ??
       ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     const now = ctx.deps.now ?? (() => Date.now());
-    const deadline = now() + pollBudgetMs(yaml.value);
-    const interval = pollIntervalMs(yaml.value);
+    const health = resolveHealthSpec(yaml.value.health);
+    if (!health.ok) return fail(ctx.deps.io, health.issue.code);
+    const deadline = now() + health.value.timeoutMs + DEPLOY_POLL_BUFFER_MS;
+    const interval = Math.max(200, health.value.intervalMs);
 
     while (true) {
       if (now() >= deadline) {

@@ -1,6 +1,6 @@
 /** Preview hostname template + host validation (single grammar for CLI + gateway). */
 
-export const HOSTNAME_PLACEHOLDER = "{pr_id}";
+const HOSTNAME_PLACEHOLDER = "{pr_id}";
 
 /** Sentinel digit used at parse time so templates share {@link validateHostname}. */
 const TEMPLATE_SENTINEL = "0";
