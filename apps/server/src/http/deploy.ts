@@ -243,7 +243,8 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: identityErr };
     }
-    if (!validateHostname(body.hostname.trim()).ok) {
+    const hostname = body.hostname.trim();
+    if (!validateHostname(hostname).ok) {
       set.status = 422;
       return { error: "invalid_hostname" };
     }
@@ -282,7 +283,7 @@ export function deploy(deps: LifecycleDeps) {
       repo: repo.value,
       prId: body.pr_id,
       slug: body.slug,
-      hostname: body.hostname,
+      hostname,
       appImage: body.app_image,
       health: health.value,
       seed: seed.value,

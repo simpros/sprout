@@ -126,6 +126,26 @@ describe("POST /v1/deploy", () => {
     expect(fakePreviewDb!.created).toEqual([]);
   });
 
+  test("trims hostname before validate and persist", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({ hostname: "  pr-42.myapp.preview.example.com  " }),
+    );
+    expect(res.settleStatus).toBe(200);
+    expect(res.body).toMatchObject({
+      hostname: "pr-42.myapp.preview.example.com",
+      preview_url: "https://pr-42.myapp.preview.example.com",
+    });
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      );
+    expect(row?.hostname).toBe("pr-42.myapp.preview.example.com");
+  });
+
   test("creates preview database and SQLite row", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(deployToken, deployBody());

@@ -103,7 +103,6 @@ export {
 
 export {
   DEFAULT_HEALTH,
-  parseDurationMs,
   resolveHealthSpec,
   type HealthIssue,
   type HealthRequest,
