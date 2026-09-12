@@ -3,6 +3,7 @@ import { fail } from "../context.ts";
 import {
   type CiIdentity,
   resolveCiIdentity,
+  resolveCiPreviewIdentity,
 } from "./ci-identity.ts";
 
 const CI_HELP = `usage: sprout ci <preview|teardown|reseed|logs> …
@@ -49,6 +50,12 @@ export async function runCi(
 
   if (rest.includes("--help") || rest.includes("-h")) {
     return printHelp(ctx);
+  }
+
+  if (subcommand === "preview") {
+    const identity = await resolveCiPreviewIdentity(ctx.deps);
+    if (!identity.ok) return fail(ctx.deps.io, identity.error);
+    return dispatchCiSubcommand(subcommand, identity.value, ctx);
   }
 
   const identity = await resolveCiIdentity(ctx.deps);

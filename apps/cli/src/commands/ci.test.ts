@@ -88,7 +88,7 @@ describe("sprout ci", () => {
     expect(stderr[0]).toContain("merge-request or pull-request");
   });
 
-  test("ci subcommand with valid MR env reaches not-implemented seam", async () => {
+  test("ci preview with valid MR env reaches not-implemented seam", async () => {
     const code = await runCli(
       ["ci", "preview"],
       deps({
@@ -103,6 +103,21 @@ describe("sprout ci", () => {
     );
     expect(code).toBe(1);
     expect(stderr[0]).toBe("sprout ci preview is not implemented yet");
+  });
+
+  test("ci teardown does not require image ref", async () => {
+    const code = await runCli(
+      ["ci", "teardown"],
+      deps({
+        env: {
+          CI_PROJECT_URL: "https://gitlab.com/group/repo",
+          CI_MERGE_REQUEST_IID: "9",
+          CI_PIPELINE_SOURCE: "merge_request_event",
+        },
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe("sprout ci teardown is not implemented yet");
   });
 
   test("ci preview refuses missing image ref", async () => {
