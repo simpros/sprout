@@ -3,12 +3,18 @@ import type { Result } from "./result.ts";
 export type DotenvFile = { pathLabel: string; content: string };
 
 /**
- * Expand `{placeholder}` templates in a value. The returned error is a bare
- * reason (no key / source prefix); callers add the offending key and source.
+ * Expand `{placeholder}` templates in a final merged value. The returned error
+ * is a bare reason (no key prefix); {@link mergeLayers} adds the key label.
  */
-export type EnvValueExpander = (key: string, value: string) => Result<string>;
+export type EnvValueExpander = (value: string) => Result<string>;
 
-/** A rendered key/value plus the reason when the value could not be expanded. */
+/** Minimal deps for reading CI / flag dotenv paths (no CLI command types). */
+export type EnvFileReader = {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  readTextFile: (path: string) => Promise<string | null>;
+};
+
 type ParsedEntry = { key: string; value: string };
 
 function parseEntry(entry: string): ParsedEntry | null {
@@ -37,31 +43,57 @@ function stripQuotes(value: string): string {
   return value;
 }
 
+function resolveEnvPath(cwd: string, path: string): string {
+  return path.startsWith("/") ? path : `${cwd}/${path}`;
+}
+
 /**
- * Apply `--*-env KEY=VALUE` entries into `byKey`. Values are expanded when an
- * expander is supplied. Errors never echo the entry: it may carry a secret.
+ * Collect the dotenv blob for one env surface. Order: the file-type CI
+ * variable (`envVarName`, e.g. `SPROUT_APP_ENV`), then explicit `--*-env-file`
+ * flags. Each value is a path GitLab writes the masked blob to; missing paths
+ * fail naming the variable rather than silently dropping secrets.
+ */
+export async function readEnvFiles(
+  deps: EnvFileReader,
+  envVarName: string,
+  flagPaths: string[],
+  flagName: string,
+): Promise<Result<DotenvFile[]>> {
+  const files: DotenvFile[] = [];
+
+  const envPath = deps.env[envVarName]?.trim();
+  if (envPath) {
+    const raw = await deps.readTextFile(resolveEnvPath(deps.cwd, envPath));
+    if (raw === null) {
+      return { ok: false, error: `cannot read ${envVarName}: ${envPath}` };
+    }
+    files.push({ pathLabel: `${envVarName} (${envPath})`, content: raw });
+  }
+
+  for (const filePath of flagPaths) {
+    const raw = await deps.readTextFile(resolveEnvPath(deps.cwd, filePath));
+    if (raw === null) {
+      return { ok: false, error: `cannot read ${flagName}: ${filePath}` };
+    }
+    files.push({ pathLabel: filePath, content: raw });
+  }
+
+  return { ok: true, value: files };
+}
+
+/**
+ * Apply `--*-env KEY=VALUE` entries into `byKey`. Errors never echo the entry:
+ * it may carry a secret.
  */
 function applyFlagEntries(
   byKey: Map<string, string>,
   flags: string[],
   flagLabel: string,
-  expand?: EnvValueExpander,
 ): Result<true> {
   for (const entry of flags) {
     const parsed = parseEntry(entry);
     if (!parsed) {
       return { ok: false, error: `invalid ${flagLabel} (expected KEY=VALUE)` };
-    }
-    if (expand) {
-      const expanded = expand(parsed.key, parsed.value);
-      if (!expanded.ok) {
-        return {
-          ok: false,
-          error: `${flagLabel} ${parsed.key}: ${expanded.error}`,
-        };
-      }
-      byKey.set(parsed.key, expanded.value);
-      continue;
     }
     byKey.set(parsed.key, parsed.value);
   }
@@ -70,16 +102,14 @@ function applyFlagEntries(
 
 /**
  * Apply dotenv text into `byKey`. Blank lines and `#` comments are skipped; an
- * optional `export ` prefix is stripped. Values are expanded when an expander
- * is supplied. Invalid lines fail with a path + line number and never echo the
- * line, which may carry a secret.
+ * optional `export ` prefix is stripped. Invalid lines fail with a path + line
+ * number and never echo the line, which may carry a secret.
  */
 function applyDotenv(
   byKey: Map<string, string>,
   content: string,
   pathLabel: string,
   fileFlagLabel: string,
-  expand?: EnvValueExpander,
 ): Result<true> {
   const lines = content.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
@@ -95,40 +125,35 @@ function applyDotenv(
         error: `invalid ${fileFlagLabel} ${pathLabel}:${i + 1}: expected KEY=VALUE`,
       };
     }
-    if (expand) {
-      const expanded = expand(parsed.key, parsed.value);
-      if (!expanded.ok) {
-        return {
-          ok: false,
-          error: `invalid ${fileFlagLabel} ${pathLabel}:${i + 1}: ${parsed.key}: ${expanded.error}`,
-        };
-      }
-      byKey.set(parsed.key, expanded.value);
-      continue;
-    }
     byKey.set(parsed.key, parsed.value);
   }
   return { ok: true, value: true };
 }
 
 type MergeLayersInput = {
-  /** Already-expanded manifest values (lowest precedence). */
+  /** Manifest values (lowest precedence); may still contain `{placeholder}`s. */
   yamlValues?: Record<string, string>;
-  /** Manifest keys declared required; must be provided by a file or flag. */
-  required?: string[];
   files: DotenvFile[];
   flags: string[];
   flagLabel: string;
   fileFlagLabel: string;
+  /** Expand each final value once after all layers merge. */
   expand?: EnvValueExpander;
+  /** Prefix for expansion errors, e.g. `preview.app_env.` or `--seed-env `. */
+  expandKeyPrefix: string;
 };
+
+function serializeEnv(byKey: Map<string, string>): string[] | undefined {
+  if (byKey.size === 0) return undefined;
+  return [...byKey].map(([key, value]) => `${key}=${value}`);
+}
 
 /**
  * Merge manifest values, then dotenv files in order, then flags. Later layers
- * overwrite duplicate keys. Required keys missing after all layers fail fast
- * with a named error. Empty result → undefined (omit the wire field).
+ * overwrite duplicate keys. When `expand` is set, each final value is expanded
+ * once.
  */
-function mergeLayers(input: MergeLayersInput): Result<string[] | undefined> {
+function mergeLayers(input: MergeLayersInput): Result<Map<string, string>> {
   const byKey = new Map(Object.entries(input.yamlValues ?? {}));
   for (const file of input.files) {
     const applied = applyDotenv(
@@ -136,38 +161,33 @@ function mergeLayers(input: MergeLayersInput): Result<string[] | undefined> {
       file.content,
       file.pathLabel,
       input.fileFlagLabel,
-      input.expand,
     );
     if (!applied.ok) return applied;
   }
-  const flagsResult = applyFlagEntries(
-    byKey,
-    input.flags,
-    input.flagLabel,
-    input.expand,
-  );
+  const flagsResult = applyFlagEntries(byKey, input.flags, input.flagLabel);
   if (!flagsResult.ok) return flagsResult;
 
-  for (const key of input.required ?? []) {
-    if (!byKey.has(key)) {
-      return {
-        ok: false,
-        error: `preview.app_env.${key}: required value missing (supply it via ${input.fileFlagLabel}, SPROUT_APP_ENV, or ${input.flagLabel})`,
-      };
+  if (input.expand) {
+    for (const [key, value] of byKey) {
+      const expanded = input.expand(value);
+      if (!expanded.ok) {
+        return {
+          ok: false,
+          error: `${input.expandKeyPrefix}${key}: ${expanded.error}`,
+        };
+      }
+      byKey.set(key, expanded.value);
     }
   }
 
-  if (byKey.size === 0) return { ok: true, value: undefined };
-  return {
-    ok: true,
-    value: [...byKey].map(([key, value]) => `${key}=${value}`),
-  };
+  return { ok: true, value: byKey };
 }
 
 /**
  * Merge `preview.app_env`, then `--app-env-file` / `SPROUT_APP_ENV` contents,
- * then `--app-env` flags. Later layers overwrite duplicate keys. Invalid
- * flags / file lines fail before any network call.
+ * then `--app-env` flags. Later layers overwrite duplicate keys. Required keys
+ * missing after all layers fail with an app-surface error. Invalid flags /
+ * file lines fail before any network call.
  */
 export function mergeAppEnv(
   yamlValues: Record<string, string> | undefined,
@@ -176,15 +196,27 @@ export function mergeAppEnv(
   flags: string[],
   expand?: EnvValueExpander,
 ): Result<string[] | undefined> {
-  return mergeLayers({
+  const merged = mergeLayers({
     yamlValues,
-    required,
     files: dotenvFiles,
     flags,
     flagLabel: "--app-env",
     fileFlagLabel: "--app-env-file",
     expand,
+    expandKeyPrefix: "preview.app_env.",
   });
+  if (!merged.ok) return merged;
+
+  for (const key of required ?? []) {
+    if (!merged.value.has(key)) {
+      return {
+        ok: false,
+        error: `preview.app_env.${key}: required value missing (supply it via --app-env-file, SPROUT_APP_ENV, or --app-env)`,
+      };
+    }
+  }
+
+  return { ok: true, value: serializeEnv(merged.value) };
 }
 
 /**
@@ -196,11 +228,14 @@ export function mergeSeedEnv(
   flags: string[],
   expand?: EnvValueExpander,
 ): Result<string[] | undefined> {
-  return mergeLayers({
+  const merged = mergeLayers({
     files: dotenvFiles,
     flags,
     flagLabel: "--seed-env",
     fileFlagLabel: "--seed-env-file",
     expand,
+    expandKeyPrefix: "--seed-env ",
   });
+  if (!merged.ok) return merged;
+  return { ok: true, value: serializeEnv(merged.value) };
 }

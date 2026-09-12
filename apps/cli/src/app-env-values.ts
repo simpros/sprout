@@ -15,24 +15,15 @@ export type AppEnvResolveContext = {
   deployToken?: string;
 };
 
-/** Keys declared `{ required: true }` in the manifest, in declaration order. */
-export function requiredAppEnvKeys(
-  appEnv: Record<string, AppEnvValue> | undefined,
-): string[] {
-  if (!appEnv) return [];
-  const out: string[] = [];
-  for (const [key, value] of Object.entries(appEnv)) {
-    if (typeof value === "object" && value !== null && "required" in value) {
-      out.push(key);
-    }
-  }
-  return out;
-}
+/** Manifest layer for {@link mergeAppEnv}: templates unexpanded, generates materialized. */
+export type ResolvedAppEnv = {
+  values: Record<string, string> | undefined;
+  requiredKeys: string[];
+};
 
 /**
  * Expand `{hostname}` / `{pr_id}` / `{commit_sha}` in one value. The error is a
- * bare reason with no key prefix so `--app-env-file` and `--app-env` callers
- * can label the source; `resolveAppEnvValues` adds the manifest key.
+ * bare reason with no key prefix so merge can label with the final key.
  */
 export function expandAppEnvValue(
   value: string,
@@ -65,47 +56,54 @@ export function expandAppEnvValue(
 }
 
 /**
- * Expand `preview.app_env` templates and materialize `generate: stable_per_pr`
- * secrets into plain strings for {@link mergeAppEnv}. `{ required: true }`
- * entries contribute no value here — they are enforced after CI layers merge.
+ * Materialize `generate: stable_per_pr` secrets and collect `{ required: true }`
+ * keys. String templates pass through **unexpanded** — {@link mergeAppEnv}
+ * expands each final value once after CI layers merge.
  */
 export function resolveAppEnvValues(
   appEnv: Record<string, AppEnvValue> | undefined,
   ctx: AppEnvResolveContext,
-): Result<Record<string, string> | undefined> {
+): Result<ResolvedAppEnv> {
   if (!appEnv || Object.keys(appEnv).length === 0) {
-    return { ok: true, value: undefined };
+    return { ok: true, value: { values: undefined, requiredKeys: [] } };
   }
 
   const out: Record<string, string> = {};
+  const requiredKeys: string[] = [];
   for (const [key, value] of Object.entries(appEnv)) {
     if (typeof value === "string") {
-      const expanded = expandAppEnvValue(value, ctx);
-      if (!expanded.ok) {
-        return { ok: false, error: `preview.app_env.${key}: ${expanded.error}` };
-      }
-      out[key] = expanded.value;
+      out[key] = value;
       continue;
     }
-    if ("required" in value) continue;
-    switch (value.generate) {
-      case "stable_per_pr": {
-        const secret = stablePerPrSecret(key, ctx);
-        if (!secret.ok) return secret;
-        out[key] = secret.value;
-        break;
+    if ("generate" in value) {
+      switch (value.generate) {
+        case "stable_per_pr": {
+          const secret = stablePerPrSecret(key, ctx);
+          if (!secret.ok) return secret;
+          out[key] = secret.value;
+          break;
+        }
+        default: {
+          const _exhaustive: never = value.generate;
+          return {
+            ok: false,
+            error: `preview.app_env.${key}: unknown generate kind: ${_exhaustive}`,
+          };
+        }
       }
-      default: {
-        const _exhaustive: never = value.generate;
-        return {
-          ok: false,
-          error: `preview.app_env.${key}: unknown generate kind: ${_exhaustive}`,
-        };
-      }
+      continue;
+    }
+    if (value.required === true) {
+      requiredKeys.push(key);
     }
   }
-  if (Object.keys(out).length === 0) return { ok: true, value: undefined };
-  return { ok: true, value: out };
+  return {
+    ok: true,
+    value: {
+      values: Object.keys(out).length === 0 ? undefined : out,
+      requiredKeys,
+    },
+  };
 }
 
 function stablePerPrSecret(

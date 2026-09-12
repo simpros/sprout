@@ -4,22 +4,20 @@ import {
   resolveHostnameValue,
 } from "@sprout/preview-env";
 import {
-  type DotenvFile,
   mergeAppEnv,
   mergeSeedEnv,
+  readEnvFiles,
 } from "../app-env.ts";
 import {
   expandAppEnvValue,
-  requiredAppEnvKeys,
   resolveAppEnvValues,
 } from "../app-env-values.ts";
-import type { CliContext, CliDeps } from "../context.ts";
+import type { CliContext } from "../context.ts";
 import { fail, loadYaml, resolveIdentity } from "../context.ts";
 import { resolveCommitSha } from "../identity.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
 import { hostnameIssueMessage } from "../hostname.ts";
-import type { Result } from "../result.ts";
 import { mergeServices, type DeployService } from "../services.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
@@ -41,44 +39,6 @@ function resolveDeployHostname(
     };
   }
   return resolved;
-}
-
-function resolveEnvPath(cwd: string, path: string): string {
-  return path.startsWith("/") ? path : `${cwd}/${path}`;
-}
-
-/**
- * Collect the dotenv blob for one env surface. Order: the file-type CI
- * variable (`envVarName`, e.g. `SPROUT_APP_ENV`), then explicit `--*-env-file`
- * flags. Each value is a path GitLab writes the masked blob to; missing paths
- * fail naming the variable rather than silently dropping secrets.
- */
-async function readEnvFiles(
-  deps: CliDeps,
-  envVarName: string,
-  flagPaths: string[],
-  flagName: string,
-): Promise<Result<DotenvFile[]>> {
-  const files: DotenvFile[] = [];
-
-  const envPath = deps.env[envVarName]?.trim();
-  if (envPath) {
-    const raw = await deps.readTextFile(resolveEnvPath(deps.cwd, envPath));
-    if (raw === null) {
-      return { ok: false, error: `cannot read ${envVarName}: ${envPath}` };
-    }
-    files.push({ pathLabel: `${envVarName} (${envPath})`, content: raw });
-  }
-
-  for (const filePath of flagPaths) {
-    const raw = await deps.readTextFile(resolveEnvPath(deps.cwd, filePath));
-    if (raw === null) {
-      return { ok: false, error: `cannot read ${flagName}: ${filePath}` };
-    }
-    files.push({ pathLabel: filePath, content: raw });
-  }
-
-  return { ok: true, value: files };
 }
 
 export async function runDeploy(
@@ -197,20 +157,21 @@ export async function runDeploy(
     }
   }
 
-  const appEnvFiles = await readEnvFiles(
-    ctx.deps,
-    "SPROUT_APP_ENV",
-    flags.value.appEnvFile,
-    "--app-env-file",
-  );
+  const [appEnvFiles, seedEnvFiles] = await Promise.all([
+    readEnvFiles(
+      ctx.deps,
+      "SPROUT_APP_ENV",
+      flags.value.appEnvFile,
+      "--app-env-file",
+    ),
+    readEnvFiles(
+      ctx.deps,
+      "SPROUT_SEED_ENV",
+      flags.value.seedEnvFile,
+      "--seed-env-file",
+    ),
+  ]);
   if (!appEnvFiles.ok) return fail(ctx.deps.io, appEnvFiles.error);
-
-  const seedEnvFiles = await readEnvFiles(
-    ctx.deps,
-    "SPROUT_SEED_ENV",
-    flags.value.seedEnvFile,
-    "--seed-env-file",
-  );
   if (!seedEnvFiles.ok) return fail(ctx.deps.io, seedEnvFiles.error);
 
   const resolveCtx = {
@@ -229,12 +190,14 @@ export async function runDeploy(
   );
   if (!resolvedYamlEnv.ok) return fail(ctx.deps.io, resolvedYamlEnv.error);
 
+  const expandValue = (value: string) => expandAppEnvValue(value, resolveCtx);
+
   const appEnv = mergeAppEnv(
-    resolvedYamlEnv.value,
-    requiredAppEnvKeys(yaml.value.preview.app_env),
+    resolvedYamlEnv.value.values,
+    resolvedYamlEnv.value.requiredKeys,
     appEnvFiles.value,
     flags.value.appEnv,
-    (_key, value) => expandAppEnvValue(value, resolveCtx),
+    expandValue,
   );
   if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);
   if (appEnv.value) body.app_env = appEnv.value;
@@ -242,7 +205,7 @@ export async function runDeploy(
   const seedEnv = mergeSeedEnv(
     seedEnvFiles.value,
     flags.value.seedEnv,
-    (_key, value) => expandAppEnvValue(value, resolveCtx),
+    expandValue,
   );
   if (!seedEnv.ok) return fail(ctx.deps.io, seedEnv.error);
   if (seedEnv.value) body.seed_env = seedEnv.value;

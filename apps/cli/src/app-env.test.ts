@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mergeAppEnv, mergeSeedEnv } from "./app-env.ts";
+import { mergeAppEnv, mergeSeedEnv, readEnvFiles } from "./app-env.ts";
 
 describe("mergeAppEnv", () => {
   test("yaml-only → KEY=VALUE list", () => {
@@ -143,15 +143,15 @@ FILE_ONLY=1
     });
   });
 
-  test("file and flag values are expanded by the expander", () => {
-    const expand = (_key: string, value: string) =>
+  test("final values are expanded once after all layers merge", () => {
+    const expand = (value: string) =>
       ({ ok: true, value: value.replace("{hostname}", "pr-9.example.com") }) as const;
     expect(
       mergeAppEnv(
+        { AUTH_URL: "https://{hostname}" },
         undefined,
-        undefined,
-        [{ pathLabel: "ci.env", content: "AUTH_URL=https://{hostname}\n" }],
-        ["API_URL=https://{hostname}/api"],
+        [{ pathLabel: "ci.env", content: "API_URL=https://{hostname}/api\n" }],
+        ["FLAG_URL=https://{hostname}/flag"],
         expand,
       ),
     ).toEqual({
@@ -159,12 +159,13 @@ FILE_ONLY=1
       value: [
         "AUTH_URL=https://pr-9.example.com",
         "API_URL=https://pr-9.example.com/api",
+        "FLAG_URL=https://pr-9.example.com/flag",
       ],
     });
   });
 
-  test("expander errors name the key and source", () => {
-    const expand = (_key: string, value: string) =>
+  test("expander errors name the key once (no per-layer branch)", () => {
+    const expand = (value: string) =>
       value.includes("{host}")
         ? ({ ok: false, error: "unknown placeholder {host}" }) as const
         : ({ ok: true, value }) as const;
@@ -178,17 +179,17 @@ FILE_ONLY=1
       ),
     ).toEqual({
       ok: false,
-      error: "invalid --app-env-file ci.env:2: ORIGIN: unknown placeholder {host}",
+      error: "preview.app_env.ORIGIN: unknown placeholder {host}",
     });
     expect(mergeAppEnv(undefined, undefined, [], ["ORIGIN={host}"], expand)).toEqual(
       {
         ok: false,
-        error: "--app-env ORIGIN: unknown placeholder {host}",
+        error: "preview.app_env.ORIGIN: unknown placeholder {host}",
       },
     );
   });
 
-  test("required key missing fails naming the key", () => {
+  test("required key missing fails naming the key (app-surface only)", () => {
     expect(
       mergeAppEnv(
         { BETTER_AUTH_URL: "https://pr.example.com" },
@@ -236,7 +237,8 @@ FILE_ONLY=1
     ).toEqual({ ok: true, value: undefined });
   });
 
-  test("values may contain `=`", () => {    expect(
+  test("values may contain `=`", () => {
+    expect(
       mergeAppEnv(
         undefined,
         undefined,
@@ -307,6 +309,105 @@ describe("mergeSeedEnv", () => {
     ).toEqual({
       ok: false,
       error: "invalid --seed-env-file seed.env:1: expected KEY=VALUE",
+    });
+  });
+
+  test("expander errors use the seed flag label", () => {
+    const expand = (value: string) =>
+      value.includes("{host}")
+        ? ({ ok: false, error: "unknown placeholder {host}" }) as const
+        : ({ ok: true, value }) as const;
+    expect(
+      mergeSeedEnv([{ pathLabel: "seed.env", content: "ORIGIN={host}\n" }], [], expand),
+    ).toEqual({
+      ok: false,
+      error: "--seed-env ORIGIN: unknown placeholder {host}",
+    });
+  });
+});
+
+describe("readEnvFiles", () => {
+  test("reads SPROUT_* path then flag paths in order", async () => {
+    const reads: string[] = [];
+    const result = await readEnvFiles(
+      {
+        cwd: "/ws",
+        env: { SPROUT_APP_ENV: "ci.env" },
+        readTextFile: async (path) => {
+          reads.push(path);
+          if (path === "/ws/ci.env") return "FROM_CI=1\n";
+          if (path === "/ws/flag.env") return "FROM_FLAG=1\n";
+          return null;
+        },
+      },
+      "SPROUT_APP_ENV",
+      ["flag.env"],
+      "--app-env-file",
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        { pathLabel: "SPROUT_APP_ENV (ci.env)", content: "FROM_CI=1\n" },
+        { pathLabel: "flag.env", content: "FROM_FLAG=1\n" },
+      ],
+    });
+    expect(reads).toEqual(["/ws/ci.env", "/ws/flag.env"]);
+  });
+
+  test("absolute CI path is used as-is", async () => {
+    const result = await readEnvFiles(
+      {
+        cwd: "/ws",
+        env: { SPROUT_APP_ENV: "/tmp/secrets.env" },
+        readTextFile: async (path) =>
+          path === "/tmp/secrets.env" ? "A=1\n" : null,
+      },
+      "SPROUT_APP_ENV",
+      [],
+      "--app-env-file",
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        {
+          pathLabel: "SPROUT_APP_ENV (/tmp/secrets.env)",
+          content: "A=1\n",
+        },
+      ],
+    });
+  });
+
+  test("missing CI path names the env var", async () => {
+    const result = await readEnvFiles(
+      {
+        cwd: "/ws",
+        env: { SPROUT_APP_ENV: "/nope/secrets.env" },
+        readTextFile: async () => null,
+      },
+      "SPROUT_APP_ENV",
+      [],
+      "--app-env-file",
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: "cannot read SPROUT_APP_ENV: /nope/secrets.env",
+    });
+  });
+
+  test("missing flag path names the flag", async () => {
+    const result = await readEnvFiles(
+      {
+        cwd: "/ws",
+        env: {},
+        readTextFile: async () => null,
+      },
+      "SPROUT_APP_ENV",
+      ["missing.env"],
+      "--app-env-file",
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: "cannot read --app-env-file: missing.env",
     });
   });
 });
