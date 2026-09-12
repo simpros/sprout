@@ -54,13 +54,14 @@ function unknownKey(path: string): Result<never> {
   return { ok: false, error: `unknown key: ${path}` };
 }
 
-function healthIssueMessage(label: string, issue: HealthIssue): string {
+function healthIssueMessage(issue: HealthIssue): string {
   switch (issue.code) {
     case "invalid_health_path":
-      return `${label} must start with /`;
+      return "health.path must start with /";
     case "invalid_health_interval":
+      return "health.interval is invalid (expected Ns, e.g. 2s)";
     case "invalid_health_timeout":
-      return `${label} is invalid (expected Ns, e.g. 2s)`;
+      return "health.timeout is invalid (expected Ns, e.g. 2s)";
     case "invalid_health_expect":
       return "health.expect must be a number between 100 and 599";
   }
@@ -284,7 +285,6 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
         error: "health.expect must be a number between 100 and 599",
       };
     }
-    // Shared request-shape grammar (same as gateway resolveHealthSpec).
     const resolved = resolveHealthSpec({
       path: path.value,
       interval: interval.value,
@@ -292,22 +292,12 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
       expect: parsed.health.expect,
     });
     if (!resolved.ok) {
-      const { issue } = resolved;
-      const label =
-        issue.code === "invalid_health_path"
-          ? "health.path"
-          : issue.code === "invalid_health_interval"
-            ? "health.interval"
-            : issue.code === "invalid_health_timeout"
-              ? "health.timeout"
-              : "health.expect";
-      return { ok: false, error: healthIssueMessage(label, issue) };
+      return { ok: false, error: healthIssueMessage(resolved.issue) };
     }
-    // Keep yaml wire strings; resolveHealthSpec already validated durations.
     value.health = {
       path: resolved.value.path,
-      interval: interval.value.trim(),
-      timeout: timeout.value.trim(),
+      interval: interval.value,
+      timeout: timeout.value,
       expect: parsed.health.expect,
     };
   }

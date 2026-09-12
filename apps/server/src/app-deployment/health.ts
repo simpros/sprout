@@ -1,13 +1,6 @@
 /**
  * Gateway health polling. Request-shape grammar lives in `@sprout/preview-env`.
  */
-export {
-  DEFAULT_HEALTH,
-  parseDurationMs,
-  resolveHealthSpec,
-  type HealthRequest,
-  type HealthSpec,
-} from "@sprout/preview-env";
 
 import type { HealthSpec } from "@sprout/preview-env";
 

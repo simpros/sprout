@@ -17,19 +17,18 @@ import { deployOutcome } from "./deploy-outcome.ts";
 /** Extra budget beyond health.timeout for image pull + replace + optional seed. */
 const DEPLOY_POLL_BUFFER_MS = 180_000;
 
-/** Parse `Ns` durations; missing uses fallback. Malformed throws (no silent default). */
-function parseSecondsMs(raw: string | undefined, fallback: number): number {
+/** Yaml already validated durations; omitted health → gateway defaults. */
+function healthDurationMs(
+  raw: string | undefined,
+  fallback: number,
+): number {
   if (!raw) return fallback;
-  const ms = parseDurationMs(raw);
-  if (ms === null) {
-    throw new Error(`invalid duration (expected Ns): ${raw}`);
-  }
-  return ms;
+  return parseDurationMs(raw) ?? fallback;
 }
 
 function pollBudgetMs(yaml: SproutYaml): number {
   return (
-    parseSecondsMs(yaml.health?.timeout, DEFAULT_HEALTH.timeoutMs) +
+    healthDurationMs(yaml.health?.timeout, DEFAULT_HEALTH.timeoutMs) +
     DEPLOY_POLL_BUFFER_MS
   );
 }
@@ -37,7 +36,7 @@ function pollBudgetMs(yaml: SproutYaml): number {
 function pollIntervalMs(yaml: SproutYaml): number {
   return Math.max(
     200,
-    parseSecondsMs(yaml.health?.interval, DEFAULT_HEALTH.intervalMs),
+    healthDurationMs(yaml.health?.interval, DEFAULT_HEALTH.intervalMs),
   );
 }
 
@@ -206,17 +205,8 @@ export async function runDeploy(
       ctx.deps.sleep ??
       ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     const now = ctx.deps.now ?? (() => Date.now());
-    let deadline: number;
-    let interval: number;
-    try {
-      deadline = now() + pollBudgetMs(yaml.value);
-      interval = pollIntervalMs(yaml.value);
-    } catch (err) {
-      return fail(
-        ctx.deps.io,
-        err instanceof Error ? err.message : "invalid_health_duration",
-      );
-    }
+    const deadline = now() + pollBudgetMs(yaml.value);
+    const interval = pollIntervalMs(yaml.value);
 
     while (true) {
       if (now() >= deadline) {

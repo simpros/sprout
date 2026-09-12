@@ -1,52 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  DEFAULT_HEALTH,
-  healthUrl,
-  parseDurationMs,
-  pollHealth,
-  resolveHealthSpec,
-} from "./health.ts";
-
-describe("parseDurationMs (re-export)", () => {
-  test("parses second durations", () => {
-    expect(parseDurationMs("2s")).toBe(2000);
-    expect(parseDurationMs("120s")).toBe(120_000);
-  });
-
-  test("rejects non-second forms", () => {
-    expect(parseDurationMs("2")).toBeNull();
-    expect(parseDurationMs("2ms")).toBeNull();
-    expect(parseDurationMs("")).toBeNull();
-  });
-});
-
-describe("resolveHealthSpec (re-export)", () => {
-  test("defaults when omitted", () => {
-    expect(resolveHealthSpec()).toEqual({
-      ok: true,
-      value: DEFAULT_HEALTH,
-    });
-  });
-
-  test("honors yaml-shaped block", () => {
-    expect(
-      resolveHealthSpec({
-        path: "/readyz",
-        interval: "1s",
-        timeout: "30s",
-        expect: 204,
-      }),
-    ).toEqual({
-      ok: true,
-      value: {
-        path: "/readyz",
-        intervalMs: 1000,
-        timeoutMs: 30_000,
-        expectStatus: 204,
-      },
-    });
-  });
-});
+import { DEFAULT_HEALTH } from "@sprout/preview-env";
+import { healthUrl, pollHealth } from "./health.ts";
 
 describe("pollHealth", () => {
   test("returns ok on first matching status", async () => {

@@ -95,11 +95,8 @@ export function parsePreviewEnvMap(
 
 export {
   HOSTNAME_PLACEHOLDER,
-  isHostnameTemplate,
   resolveHostnameValue,
-  substituteHostname,
   validateHostname,
-  validateHostnameTemplate,
   validateHostnameValue,
   type HostnameIssue,
   type HostnameMode,

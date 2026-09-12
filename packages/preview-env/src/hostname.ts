@@ -2,11 +2,11 @@
 
 export const HOSTNAME_PLACEHOLDER = "{pr_id}";
 
+/** Sentinel digit used at parse time so templates share {@link validateHostname}. */
+const TEMPLATE_SENTINEL = "0";
+
 /** Lowercase hostname label: starts/ends alnum, interior hyphens allowed. */
 const HOST_LABEL_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
-
-/** Template may only contain lowercase hostname chars plus the placeholder. */
-const TEMPLATE_CHUNK_RE = /^[a-z0-9.-]*$/;
 
 export type HostnameIssue =
   | { code: "hostname_template_missing_placeholder" }
@@ -21,7 +21,7 @@ export type HostnameIssue =
 export type HostnameMode = "required_template" | "static_or_template";
 
 /** True when the value is treated as a `{pr_id}` template under `mode`. */
-export function isHostnameTemplate(raw: string, mode: HostnameMode): boolean {
+function isHostnameTemplate(raw: string, mode: HostnameMode): boolean {
   if (mode === "required_template") return true;
   // Any brace means "intended template" — reject stray `{`/`}` via template rules.
   return raw.includes("{") || raw.includes("}");
@@ -29,10 +29,9 @@ export function isHostnameTemplate(raw: string, mode: HostnameMode): boolean {
 
 /**
  * Validate a `.sprout.yaml` hostname template.
- * The template must contain `{pr_id}` exactly for per-PR hosts and must not
- * contain any other placeholder, scheme, path, or whitespace.
+ * Placeholder checks, then the same host grammar via a sentinel substitution.
  */
-export function validateHostnameTemplate(
+function validateHostnameTemplate(
   template: string,
 ):
   | { ok: true }
@@ -43,8 +42,8 @@ export function validateHostnameTemplate(
       issue: { code: "hostname_template_missing_placeholder" },
     };
   }
-  const without = template.split(HOSTNAME_PLACEHOLDER).join("\0");
-  if (without.includes("{") || without.includes("}")) {
+  const withoutPlaceholder = template.split(HOSTNAME_PLACEHOLDER).join("");
+  if (withoutPlaceholder.includes("{") || withoutPlaceholder.includes("}")) {
     return {
       ok: false,
       issue: {
@@ -53,18 +52,9 @@ export function validateHostnameTemplate(
       },
     };
   }
-  for (const chunk of without.split("\0")) {
-    if (!TEMPLATE_CHUNK_RE.test(chunk)) {
-      return {
-        ok: false,
-        issue: {
-          code: "hostname_template_invalid",
-          detail: `invalid characters in ${JSON.stringify(chunk)}`,
-        },
-      };
-    }
-  }
-  return { ok: true };
+  return validateHostname(
+    template.replaceAll(HOSTNAME_PLACEHOLDER, TEMPLATE_SENTINEL),
+  );
 }
 
 /** Validate a fully-substituted preview host (no scheme, path, or port). */
@@ -120,7 +110,7 @@ export function validateHostnameValue(
  * Substitute `{pr_id}` and validate the resulting host.
  * Rejects templates that cannot produce a host for the given PR.
  */
-export function substituteHostname(
+function substituteHostname(
   template: string,
   prId: number,
 ):

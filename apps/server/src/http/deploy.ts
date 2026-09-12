@@ -1,10 +1,11 @@
-import { parsePreviewEnvMap, validateHostname } from "@sprout/preview-env";
+import {
+  parsePreviewEnvMap,
+  resolveHealthSpec,
+  validateHostname,
+  type HealthRequest,
+} from "@sprout/preview-env";
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
-import {
-  resolveHealthSpec,
-  type HealthRequest,
-} from "../app-deployment/health.ts";
 import type { PreviewServiceSpec } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
