@@ -407,7 +407,7 @@ The **canonical** workflow is
 
 ### Install from a release asset
 
-Pick the asset that matches the CI image libc (names are honest):
+Pick the asset that matches the host libc (names are honest):
 
 | Asset | Libc | Use when |
 |---|---|---|
@@ -416,11 +416,19 @@ Pick the asset that matches the CI image libc (names are honest):
 
 ```bash
 TAG=v0.6.0   # pin ≥ the release that ships glibc `sprout-linux-x64` (not v0.5.0)
-ASSET=sprout-linux-x64          # or sprout-linux-x64-musl on Alpine
+
+# glibc hosts
 curl -fsSL -o /usr/local/bin/sprout \
-  "https://github.com/simpros/sprout/releases/download/${TAG}/${ASSET}"
+  "https://github.com/simpros/sprout/releases/download/${TAG}/sprout-linux-x64"
 chmod +x /usr/local/bin/sprout
 sprout --version                # must equal $TAG
+
+# musl / Alpine (Bun 1.4.x embeds still need libstdc++ at runtime)
+# apk add --no-cache libstdc++   # once on the image
+curl -fsSL -o /usr/local/bin/sprout \
+  "https://github.com/simpros/sprout/releases/download/${TAG}/sprout-linux-x64-musl"
+chmod +x /usr/local/bin/sprout
+sprout --version
 ```
 
 CLI environment in CI:

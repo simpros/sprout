@@ -8,10 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "compile:linux-x64": "mkdir -p ../../dist && bun build --compile --target=bun-linux-x64 --define SPROUT_CLI_VERSION=\\\"${SPROUT_CLI_VERSION:-dev}\\\" --outfile ../../dist/sprout-linux-x64 ./src/index.ts",
-    "compile:linux-x64-musl": "mkdir -p ../../dist && bun build --compile --target=bun-linux-x64-musl --define SPROUT_CLI_VERSION=\\\"${SPROUT_CLI_VERSION:-dev}\\\" --outfile ../../dist/sprout-linux-x64-musl ./src/index.ts",
-    "compile": "bun run compile:linux-x64 && bun run compile:linux-x64-musl",
-    "compile:check-assets": "bash ./scripts/check-compile-assets.sh",
+    "compile": "bash ./scripts/compile-linux-assets.sh",
     "test": "bun test"
   },
   "dependencies": {

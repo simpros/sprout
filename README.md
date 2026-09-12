@@ -42,29 +42,10 @@ sweep. Details: [adoption guide](docs/adoption.md), [CONTEXT](CONTEXT.md).
 
 ## Install the CLI
 
-Prebuilt Linux x64 binaries ship on each
-[GitHub release](https://github.com/simpros/sprout/releases). Asset names state
-the libc they need:
-
-| Asset | Libc | Typical hosts |
-|---|---|---|
-| `sprout-linux-x64` | glibc | Debian, Ubuntu, most GitHub-hosted runners |
-| `sprout-linux-x64-musl` | musl | Alpine (DCOS / erntastic CI images) |
-
-```bash
-TAG=v0.6.0   # pin ≥ the release that ships glibc `sprout-linux-x64` (not v0.5.0)
-
-# glibc hosts
-curl -fsSL -o sprout \
-  "https://github.com/simpros/sprout/releases/download/${TAG}/sprout-linux-x64"
-chmod +x sprout && ./sprout --version   # prints $TAG
-
-# musl / Alpine (Bun 1.4.x embeds still need libstdc++ at runtime)
-# apk add --no-cache libstdc++   # once on the image
-curl -fsSL -o sprout \
-  "https://github.com/simpros/sprout/releases/download/${TAG}/sprout-linux-x64-musl"
-chmod +x sprout && ./sprout --version
-```
+Prebuilt Linux x64 binaries (glibc + musl) ship on each
+[GitHub release](https://github.com/simpros/sprout/releases). Asset names,
+curl recipes, and Alpine `libstdc++` notes:
+[Install from a release asset](docs/adoption.md#install-from-a-release-asset).
 
 From a clone (`bun install`), run via `bun run sprout …` (same entry as the
 published binary). Set `SPROUT_URL` (default `http://127.0.0.1:7331`).

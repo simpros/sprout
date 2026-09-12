@@ -93,8 +93,6 @@ jobs:
         env:
           SPROUT_CLI_VERSION: ${{ needs.meta.outputs.tag }}
         run: bun run --filter @sprout/cli compile
-      - name: Check compile asset contract
-        run: bun run --filter @sprout/cli compile:check-assets
       # ubuntu-latest is glibc — proves sprout-linux-x64 runs without musl.
       - name: Smoke-test on glibc (host)
         env:
