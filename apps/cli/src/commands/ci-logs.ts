@@ -1,9 +1,8 @@
 import type { CliContext } from "../context.ts";
-import { authedClient, fail } from "../context.ts";
-import { readEden } from "../eden.ts";
+import { fail } from "../context.ts";
 import { parseFlags } from "../flags.ts";
 import type { CiIdentity } from "./ci-identity.ts";
-import { formatLogs, type LogsResponse } from "./logs.ts";
+import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
 
 /**
  * `sprout ci logs [--tail N]` — preview container logs through the gateway.
@@ -20,30 +19,16 @@ export async function runCiLogs(
     return fail(ctx.deps.io, "usage: sprout ci logs [--tail N]");
   }
 
-  let tail: number | undefined;
-  if (flags.value.tail !== undefined) {
-    const n = Number(flags.value.tail);
-    if (!Number.isInteger(n) || n < 1) {
-      return fail(ctx.deps.io, "--tail must be a positive integer");
-    }
-    tail = n;
-  }
+  const tail = parseTailFlag(flags.value.tail);
+  if (!tail.ok) return fail(ctx.deps.io, tail.error);
 
-  const client = await authedClient(ctx.deps);
-  if (!client.ok) return fail(ctx.deps.io, client.error);
+  const logs = await fetchPreviewLogs(ctx.client, {
+    repo: identity.repo,
+    prId: identity.prId,
+    tail: tail.value,
+  });
+  if (!logs.ok) return fail(ctx.deps.io, logs.error);
 
-  const response = await client.value.v1
-    .previews({ id: String(identity.prId) })
-    .logs.get({
-      query: {
-        canonical_repo_id: identity.repo,
-        ...(tail !== undefined ? { tail: String(tail) } : {}),
-      },
-    });
-
-  const result = readEden<LogsResponse>(response);
-  if (!result.ok) return fail(ctx.deps.io, result.message);
-
-  ctx.deps.io.stdout(formatLogs(result.data).replace(/\n$/, ""));
+  printLogs(ctx.deps.io, logs.value);
   return 0;
 }

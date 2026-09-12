@@ -1,13 +1,8 @@
 import type { CliContext } from "../context.ts";
-import { authedClient, fail } from "../context.ts";
-import { readEden } from "../eden.ts";
+import { fail } from "../context.ts";
 import { parseFlags } from "../flags.ts";
 import type { CiIdentity } from "./ci-identity.ts";
-
-type TeardownResponse = {
-  ok: true;
-  status: string;
-};
+import { teardownPreview } from "./teardown.ts";
 
 /**
  * `sprout ci teardown` — tear down this MR's preview through the gateway.
@@ -31,14 +26,7 @@ export async function runCiTeardown(
     );
   }
 
-  const client = await authedClient(ctx.deps);
-  if (!client.ok) return fail(ctx.deps.io, client.error);
-
-  const response = await client.value.v1.teardown.post({
-    canonical_repo_id: identity.repo,
-    pr_id: identity.prId,
-  });
-  const result = readEden<TeardownResponse>(response);
-  if (!result.ok) return fail(ctx.deps.io, result.message);
+  const result = await teardownPreview(ctx.client, identity);
+  if (!result.ok) return fail(ctx.deps.io, result.error);
   return 0;
 }

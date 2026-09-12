@@ -1,5 +1,5 @@
 import type { CliContext } from "../context.ts";
-import { fail } from "../context.ts";
+import { authedClient, fail } from "../context.ts";
 import {
   type CiIdentity,
   resolveCiIdentity,
@@ -50,6 +50,10 @@ async function dispatchCiSubcommand(
   }
 }
 
+/**
+ * CI group: resolve identity before auth so outside-pipeline errors win over
+ * missing-token. After identity succeeds, auth once and pass a real client.
+ */
 export async function runCi(
   tokens: string[],
   ctx: CliContext,
@@ -67,14 +71,17 @@ export async function runCi(
     return printHelp(ctx);
   }
 
-  if (subcommand === "preview") {
-    const identity = await resolveCiPreviewIdentity(ctx.deps);
-    if (!identity.ok) return fail(ctx.deps.io, identity.error);
-    return dispatchCiSubcommand(subcommand, identity.value, rest, ctx);
-  }
-
-  const identity = await resolveCiIdentity(ctx.deps);
+  const identity =
+    subcommand === "preview"
+      ? await resolveCiPreviewIdentity(ctx.deps)
+      : await resolveCiIdentity(ctx.deps);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
-  return dispatchCiSubcommand(subcommand, identity.value, rest, ctx);
+  const client = await authedClient(ctx.deps);
+  if (!client.ok) return fail(ctx.deps.io, client.error);
+
+  return dispatchCiSubcommand(subcommand, identity.value, rest, {
+    deps: ctx.deps,
+    client: client.value,
+  });
 }

@@ -1,19 +1,14 @@
-import type { PreviewSnapshot } from "@sprout/api-client";
-import { resolveHostnameValue } from "@sprout/preview-env";
-import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
 import type { CliContext } from "../context.ts";
-import { authedClient, fail, loadYaml } from "../context.ts";
-import { readEden } from "../eden.ts";
+import { fail, loadYaml } from "../context.ts";
 import { parseFlags } from "../flags.ts";
-import { hostnameIssueMessage } from "../hostname.ts";
 import type { CiIdentity } from "./ci-identity.ts";
 import { resolveImageRef } from "./ci-identity.ts";
-import { deployOutcome } from "./deploy-outcome.ts";
 import {
-  pollBudgetMs,
-  pollIntervalMs,
-  pollPreviewReady,
-} from "./deploy-poll.ts";
+  applyDeployAppEnv,
+  deployBaseFields,
+  type DeployRequest,
+  postDeployAndWait,
+} from "./deploy-core.ts";
 
 /**
  * `sprout ci reseed` — re-run the seed job against the existing preview
@@ -21,6 +16,8 @@ import {
  * (`CI_REGISTRY_IMAGE` + SHA) and the seed tag from `-s`, so the gateway
  * takes the seed-resume path — rows/sessions created between deploys stay
  * intact and no credential rotates (same yaml + flags in, same env out).
+ *
+ * Does not send `services` — companions stay as last deployed.
  */
 export async function runCiReseed(
   identity: CiIdentity,
@@ -57,40 +54,11 @@ export async function runCiReseed(
     );
   }
 
-  const client = await authedClient(ctx.deps);
-  if (!client.ok) return fail(ctx.deps.io, client.error);
+  const base = deployBaseFields(yaml.value, identity);
+  if (!base.ok) return fail(ctx.deps.io, base.error);
 
-  const hostname = resolveHostnameValue(
-    yaml.value.preview.hostname,
-    identity.prId,
-    "required_template",
-  );
-  if (!hostname.ok)
-    return fail(
-      ctx.deps.io,
-      hostnameIssueMessage("preview.hostname", hostname.issue, {
-        prId: identity.prId,
-      }),
-    );
-
-  const body: {
-    canonical_repo_id: string;
-    pr_id: number;
-    slug: string;
-    hostname: string;
-    app_image: string;
-    health: typeof yaml.value.health;
-    seed_image: string;
-    seed_env?: string[];
-    seed_arg?: string[];
-    app_env?: string[];
-    env?: typeof yaml.value.preview.env;
-    reseed: boolean;
-  } = {
-    canonical_repo_id: identity.repo,
-    pr_id: identity.prId,
-    slug: yaml.value.slug,
-    hostname: hostname.value,
+  const body: DeployRequest = {
+    ...base.value,
     app_image: imageRef.value,
     health: yaml.value.health,
     seed_image: flags.value.seedImage,
@@ -100,64 +68,22 @@ export async function runCiReseed(
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  const dotenvFiles: DotenvFile[] = [];
-  for (const filePath of flags.value.appEnvFile) {
-    const resolved = filePath.startsWith("/")
-      ? filePath
-      : `${ctx.deps.cwd}/${filePath}`;
-    const raw = await ctx.deps.readTextFile(resolved);
-    if (raw === null) {
-      return fail(ctx.deps.io, `cannot read --app-env-file: ${filePath}`);
-    }
-    dotenvFiles.push({ pathLabel: filePath, content: raw });
-  }
-
-  const appEnv = mergeAppEnv(
-    yaml.value.preview.app_env,
-    dotenvFiles,
+  const withEnv = await applyDeployAppEnv(
+    body,
+    ctx.deps,
+    yaml.value,
+    flags.value.appEnvFile,
     flags.value.appEnv,
   );
-  if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);
-  if (appEnv.value) body.app_env = appEnv.value;
+  if (!withEnv.ok) return fail(ctx.deps.io, withEnv.error);
 
-  const response = await client.value.v1.deploy.post(body);
-  const result = readEden<PreviewSnapshot>(response);
-  if (!result.ok) return fail(ctx.deps.io, result.message);
-
-  let data = result.data;
-  const outcome = deployOutcome(data);
-  if (outcome.kind === "failed") return fail(ctx.deps.io, outcome.message);
-
-  if (outcome.kind !== "ready") {
-    const sleep =
-      ctx.deps.sleep ??
-      ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-    const now = ctx.deps.now ?? (() => Date.now());
-    let budgetMs: number;
-    let intervalMs: number;
-    try {
-      budgetMs = pollBudgetMs(yaml.value);
-      intervalMs = pollIntervalMs(yaml.value);
-    } catch (err) {
-      return fail(
-        ctx.deps.io,
-        err instanceof Error ? err.message : "invalid_health_duration",
-      );
-    }
-
-    const poll = await pollPreviewReady<PreviewSnapshot>({
-      client: client.value,
-      repo: identity.repo,
-      prId: identity.prId,
-      budgetMs,
-      intervalMs,
-      sleep,
-      now,
-    });
-    if (!poll.ok) return fail(ctx.deps.io, poll.error);
-    data = poll.value;
-  }
-
-  ctx.deps.io.stdout(`preview_url=${data.preview_url}`);
+  const settled = await postDeployAndWait({
+    client: ctx.client,
+    deps: ctx.deps,
+    yaml: yaml.value,
+    identity,
+    body: withEnv.value,
+  });
+  if (!settled.ok) return fail(ctx.deps.io, settled.error);
   return 0;
 }

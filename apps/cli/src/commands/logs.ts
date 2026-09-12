@@ -1,7 +1,9 @@
-import type { CliContext } from "../context.ts";
+import type { ApiClient } from "@sprout/api-client";
+import type { CliContext, CliIo } from "../context.ts";
 import { fail, resolveRepo } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
+import type { Result } from "../result.ts";
 
 export type LogsResponse = {
   ok: true;
@@ -18,6 +20,36 @@ export function formatLogs(data: LogsResponse): string {
     sections.push(`=== seed ===\n${data.seed.replace(/\n$/, "")}`);
   }
   return `${sections.join("\n")}\n`;
+}
+
+export function parseTailFlag(
+  raw: string | undefined,
+): Result<number | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    return { ok: false, error: "--tail must be a positive integer" };
+  }
+  return { ok: true, value: n };
+}
+
+export async function fetchPreviewLogs(
+  client: ApiClient,
+  opts: { repo: string; prId: number; tail?: number },
+): Promise<Result<LogsResponse>> {
+  const response = await client.v1.previews({ id: String(opts.prId) }).logs.get({
+    query: {
+      canonical_repo_id: opts.repo,
+      ...(opts.tail !== undefined ? { tail: String(opts.tail) } : {}),
+    },
+  });
+  const result = readEden<LogsResponse>(response);
+  if (!result.ok) return { ok: false, error: result.message };
+  return { ok: true, value: result.data };
+}
+
+export function printLogs(io: CliIo, data: LogsResponse): void {
+  io.stdout(formatLogs(data).replace(/\n$/, ""));
 }
 
 export async function runLogs(
@@ -39,30 +71,19 @@ export async function runLogs(
     return fail(ctx.deps.io, "pr_id must be a positive integer");
   }
 
-  let tail: number | undefined;
-  if (flags.value.tail !== undefined) {
-    const n = Number(flags.value.tail);
-    if (!Number.isInteger(n) || n < 1) {
-      return fail(ctx.deps.io, "--tail must be a positive integer");
-    }
-    tail = n;
-  }
+  const tail = parseTailFlag(flags.value.tail);
+  if (!tail.ok) return fail(ctx.deps.io, tail.error);
 
   const repo = resolveRepo(ctx.deps, flags.value.repo);
   if (!repo.ok) return fail(ctx.deps.io, repo.error);
 
-  const response = await ctx.client.v1
-    .previews({ id: String(prId) })
-    .logs.get({
-      query: {
-        canonical_repo_id: repo.value,
-        ...(tail !== undefined ? { tail: String(tail) } : {}),
-      },
-    });
+  const logs = await fetchPreviewLogs(ctx.client, {
+    repo: repo.value,
+    prId,
+    tail: tail.value,
+  });
+  if (!logs.ok) return fail(ctx.deps.io, logs.error);
 
-  const result = readEden<LogsResponse>(response);
-  if (!result.ok) return fail(ctx.deps.io, result.message);
-
-  ctx.deps.io.stdout(formatLogs(result.data).replace(/\n$/, ""));
+  printLogs(ctx.deps.io, logs.value);
   return 0;
 }
