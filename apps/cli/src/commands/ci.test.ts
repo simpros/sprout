@@ -117,7 +117,7 @@ describe("sprout ci", () => {
       }),
     );
     expect(code).toBe(1);
-    expect(stderr[0]).toBe("sprout ci teardown is not implemented yet");
+    expect(stderr[0]).toBe("SPROUT_TOKEN or SPROUT_ADMIN_TOKEN is required");
   });
 
   test("ci preview refuses missing image ref", async () => {

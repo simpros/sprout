@@ -21,6 +21,7 @@ import { hostnameIssueMessage } from "../hostname.ts";
 import { mergeServices, type DeployService } from "../services.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
+import { pollPreviewReady } from "./deploy-poll.ts";
 
 /** Extra budget beyond health.timeout for image pull + replace + optional seed. */
 const DEPLOY_POLL_BUFFER_MS = 180_000;
@@ -225,27 +226,20 @@ export async function runDeploy(
     const now = ctx.deps.now ?? (() => Date.now());
     const health = resolveHealthSpec(yaml.value.health);
     if (!health.ok) return fail(ctx.deps.io, health.issue.code);
-    const deadline = now() + health.value.timeoutMs + DEPLOY_POLL_BUFFER_MS;
-    const interval = Math.max(200, health.value.intervalMs);
+    const budgetMs = health.value.timeoutMs + DEPLOY_POLL_BUFFER_MS;
+    const intervalMs = Math.max(200, health.value.intervalMs);
 
-    while (true) {
-      if (now() >= deadline) {
-        return fail(ctx.deps.io, "deploy_timeout");
-      }
-      const statusResponse = await ctx.client.v1.preview.get({
-        query: {
-          canonical_repo_id: identity.value.repo,
-          pr_id: String(identity.value.prId),
-        },
-      });
-      const statusResult = readEden<PreviewSnapshot>(statusResponse);
-      if (!statusResult.ok) return fail(ctx.deps.io, statusResult.message);
-      data = statusResult.data;
-      outcome = deployOutcome(data);
-      if (outcome.kind === "failed") return fail(ctx.deps.io, outcome.message);
-      if (outcome.kind === "ready") break;
-      await sleep(interval);
-    }
+    const poll = await pollPreviewReady<PreviewSnapshot>({
+      client: ctx.client,
+      repo: identity.value.repo,
+      prId: identity.value.prId,
+      budgetMs,
+      intervalMs,
+      sleep,
+      now,
+    });
+    if (!poll.ok) return fail(ctx.deps.io, poll.error);
+    data = poll.value;
   }
 
   ctx.deps.io.stdout(`preview_url=${data.preview_url}`);
