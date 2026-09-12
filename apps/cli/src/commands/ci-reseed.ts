@@ -2,15 +2,15 @@ import type { PreviewSnapshot } from "@sprout/api-client";
 import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
 import type { CliContext } from "../context.ts";
 import {
+  authedClient,
   fail,
   loadYaml,
-  resolveIdentity,
   substituteHostname,
 } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
-import { mergeServices, type DeployService } from "../services.ts";
-import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
+import type { CiIdentity } from "./ci-identity.ts";
+import { resolveImageRef } from "./ci-identity.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
 import {
   pollBudgetMs,
@@ -18,55 +18,50 @@ import {
   pollPreviewReady,
 } from "./deploy-poll.ts";
 
-export async function runDeploy(
+/**
+ * `sprout ci reseed` — re-run the seed job against the existing preview
+ * database. No image is built: the app tag comes from the pipeline env
+ * (`CI_REGISTRY_IMAGE` + SHA) and the seed tag from `-s`, so the gateway
+ * takes the seed-resume path — rows/sessions created between deploys stay
+ * intact and no credential rotates (same yaml + flags in, same env out).
+ */
+export async function runCiReseed(
+  identity: CiIdentity,
   tokens: string[],
   ctx: CliContext,
 ): Promise<number> {
   const flags = parseFlags(tokens, [
-    "-i",
     "-s",
     "--seed-env",
     "--seed-arg",
     "--app-env",
     "--app-env-file",
-    "--service",
-    "--reseed",
-    "--clear-services",
-    "--repo",
   ]);
   if (!flags.ok) return fail(ctx.deps.io, flags.error);
-
-  if (!flags.value.image) {
-    return fail(ctx.deps.io, "deploy requires -i <image>");
-  }
-  if (flags.value.reseed && !flags.value.seedImage) {
-    return fail(ctx.deps.io, "--reseed requires -s <seed-image>");
-  }
-  if (flags.value.clearServices && flags.value.service.length > 0) {
-    return fail(
-      ctx.deps.io,
-      "--clear-services cannot be combined with --service",
-    );
-  }
   if (flags.value.rest.length > 0) {
     return fail(
       ctx.deps.io,
       `unexpected arguments: ${flags.value.rest.join(" ")}`,
     );
   }
+  if (!flags.value.seedImage) {
+    return fail(ctx.deps.io, "ci reseed requires -s <seed-image>");
+  }
+
+  const imageRef = resolveImageRef(ctx.deps.env);
+  if (!imageRef.ok) return fail(ctx.deps.io, imageRef.error);
 
   const yaml = await loadYaml(ctx.deps);
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
-
-  if (flags.value.seedImage && !yaml.value.health) {
+  if (!yaml.value.health) {
     return fail(
       ctx.deps.io,
       "health block required in .sprout.yaml when -s is passed",
     );
   }
 
-  const identity = await resolveIdentity(ctx.deps, flags.value.repo);
-  if (!identity.ok) return fail(ctx.deps.io, identity.error);
+  const client = await authedClient(ctx.deps);
+  if (!client.ok) return fail(ctx.deps.io, client.error);
 
   const body: {
     canonical_repo_id: string;
@@ -74,51 +69,29 @@ export async function runDeploy(
     slug: string;
     hostname: string;
     app_image: string;
-    health?: SproutYaml["health"];
-    seed_image?: string;
+    health: typeof yaml.value.health;
+    seed_image: string;
     seed_env?: string[];
     seed_arg?: string[];
     app_env?: string[];
-    services?: DeployService[];
-    env?: PreviewEnvMap;
-    reseed?: boolean;
+    env?: typeof yaml.value.preview.env;
+    reseed: boolean;
   } = {
-    canonical_repo_id: identity.value.repo,
-    pr_id: identity.value.prId,
+    canonical_repo_id: identity.repo,
+    pr_id: identity.prId,
     slug: yaml.value.slug,
     hostname: substituteHostname(
       yaml.value.preview.hostname,
-      identity.value.prId,
+      identity.prId,
     ),
-    app_image: flags.value.image,
+    app_image: imageRef.value,
+    health: yaml.value.health,
+    seed_image: flags.value.seedImage,
+    reseed: true,
   };
-
-  if (yaml.value.health) body.health = yaml.value.health;
-  if (flags.value.seedImage) body.seed_image = flags.value.seedImage;
   if (flags.value.seedEnv.length > 0) body.seed_env = flags.value.seedEnv;
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
-  if (flags.value.reseed) body.reseed = true;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
-
-  if (flags.value.clearServices) {
-    body.services = [];
-  } else {
-    const services = mergeServices(
-      yaml.value.preview.services,
-      flags.value.service,
-    );
-    if (!services.ok) return fail(ctx.deps.io, services.error);
-    if (services.value) {
-      body.services = services.value.map((svc) => {
-        const entry: DeployService = { name: svc.name, image: svc.image };
-        if (svc.hostname) {
-          entry.hostname = substituteHostname(svc.hostname, identity.value.prId);
-        }
-        if (svc.path) entry.path = svc.path;
-        return entry;
-      });
-    }
-  }
 
   const dotenvFiles: DotenvFile[] = [];
   for (const filePath of flags.value.appEnvFile) {
@@ -140,12 +113,12 @@ export async function runDeploy(
   if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);
   if (appEnv.value) body.app_env = appEnv.value;
 
-  const response = await ctx.client.v1.deploy.post(body);
+  const response = await client.value.v1.deploy.post(body);
   const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return fail(ctx.deps.io, result.message);
 
   let data = result.data;
-  let outcome = deployOutcome(data);
+  const outcome = deployOutcome(data);
   if (outcome.kind === "failed") return fail(ctx.deps.io, outcome.message);
 
   if (outcome.kind !== "ready") {
@@ -166,9 +139,9 @@ export async function runDeploy(
     }
 
     const poll = await pollPreviewReady<PreviewSnapshot>({
-      client: ctx.client,
-      repo: identity.value.repo,
-      prId: identity.value.prId,
+      client: client.value,
+      repo: identity.repo,
+      prId: identity.prId,
       budgetMs,
       intervalMs,
       sleep,

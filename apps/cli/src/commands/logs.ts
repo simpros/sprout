@@ -3,7 +3,7 @@ import { fail, resolveRepo } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
 
-type LogsResponse = {
+export type LogsResponse = {
   ok: true;
   canonical_repo_id: string;
   pr_id: number;
@@ -12,7 +12,7 @@ type LogsResponse = {
   seed: string;
 };
 
-function formatLogs(data: LogsResponse): string {
+export function formatLogs(data: LogsResponse): string {
   const sections = [`=== app ===\n${data.app.replace(/\n$/, "")}`];
   if (data.seed !== "") {
     sections.push(`=== seed ===\n${data.seed.replace(/\n$/, "")}`);
