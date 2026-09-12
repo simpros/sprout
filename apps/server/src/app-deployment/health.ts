@@ -1,25 +1,15 @@
-/** Resolved health poll settings (defaults when yaml/request omits the block). */
-export type HealthSpec = {
-  path: string;
-  intervalMs: number;
-  timeoutMs: number;
-  expectStatus: number;
-};
+/**
+ * Gateway health polling. Request-shape grammar lives in `@sprout/preview-env`.
+ */
+export {
+  DEFAULT_HEALTH,
+  parseDurationMs,
+  resolveHealthSpec,
+  type HealthRequest,
+  type HealthSpec,
+} from "@sprout/preview-env";
 
-export const DEFAULT_HEALTH: HealthSpec = {
-  path: "/health",
-  intervalMs: 2_000,
-  timeoutMs: 120_000,
-  expectStatus: 200,
-};
-
-/** Wire shape of optional `health` on POST /v1/deploy (yaml-shaped durations). */
-export type HealthRequest = {
-  path: string;
-  interval: string;
-  timeout: string;
-  expect: number;
-};
+import type { HealthSpec } from "@sprout/preview-env";
 
 export type HealthProbe = {
   getStatus(url: string): Promise<number>;
@@ -34,45 +24,6 @@ const defaultClock: HealthClock = {
   now: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
-
-/** Parse `"2s"` / `"120s"` style durations into milliseconds. */
-export function parseDurationMs(raw: string): number | null {
-  const match = /^(\d+)s$/.exec(raw.trim());
-  if (!match) return null;
-  return Number(match[1]) * 1000;
-}
-
-export function resolveHealthSpec(
-  input?: HealthRequest,
-): { ok: true; value: HealthSpec } | { ok: false; error: string } {
-  if (!input) return { ok: true, value: { ...DEFAULT_HEALTH } };
-
-  const intervalMs = parseDurationMs(input.interval);
-  if (intervalMs === null || intervalMs <= 0) {
-    return { ok: false, error: "invalid_health_interval" };
-  }
-  const timeoutMs = parseDurationMs(input.timeout);
-  if (timeoutMs === null || timeoutMs <= 0) {
-    return { ok: false, error: "invalid_health_timeout" };
-  }
-  if (!Number.isInteger(input.expect) || input.expect < 100 || input.expect > 599) {
-    return { ok: false, error: "invalid_health_expect" };
-  }
-  const path = input.path.trim();
-  if (!path.startsWith("/")) {
-    return { ok: false, error: "invalid_health_path" };
-  }
-
-  return {
-    ok: true,
-    value: {
-      path,
-      intervalMs,
-      timeoutMs,
-      expectStatus: input.expect,
-    },
-  };
-}
 
 export function healthUrl(ip: string, port: number, path: string): string {
   return `http://${ip}:${port}${path}`;

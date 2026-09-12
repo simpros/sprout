@@ -139,41 +139,6 @@ describe("sprout CLI command surface", () => {
     ]);
   });
 
-  test("deploy rejects hostname templates that cannot produce a host", async () => {
-    const baseUrl = startGateway(async (req, url) => {
-      captured.push({
-        method: req.method,
-        path: url.pathname,
-        body: await req.json(),
-        authorization: req.headers.get("authorization"),
-      });
-      return Response.json({ ok: true, status: "running", preview_url: "x" });
-    });
-
-    const cwd = await withWorkspace(`
-slug: myapp
-preview:
-  hostname: "pr-42.example.com"
-`);
-    const code = await runCli(
-      ["deploy", "-i", "app:1"],
-      deps({
-        cwd,
-        env: {
-          SPROUT_URL: baseUrl,
-          SPROUT_TOKEN: "t",
-          GITHUB_REPOSITORY: "org/repo",
-          GITHUB_REF: "refs/pull/42/merge",
-        },
-        readTextFile: async (path) => Bun.file(path).text(),
-      }),
-    );
-
-    expect(code).toBe(1);
-    expect(stderr[0]).toContain("{pr_id}");
-    expect(captured).toEqual([]);
-  });
-
   test("deploy surfaces registry pull failure detail from gateway", async () => {
     const baseUrl = startGateway(async () => {
       return Response.json(

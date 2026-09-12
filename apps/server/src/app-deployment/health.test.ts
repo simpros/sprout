@@ -7,7 +7,7 @@ import {
   resolveHealthSpec,
 } from "./health.ts";
 
-describe("parseDurationMs", () => {
+describe("parseDurationMs (re-export)", () => {
   test("parses second durations", () => {
     expect(parseDurationMs("2s")).toBe(2000);
     expect(parseDurationMs("120s")).toBe(120_000);
@@ -20,7 +20,7 @@ describe("parseDurationMs", () => {
   });
 });
 
-describe("resolveHealthSpec", () => {
+describe("resolveHealthSpec (re-export)", () => {
   test("defaults when omitted", () => {
     expect(resolveHealthSpec()).toEqual({
       ok: true,

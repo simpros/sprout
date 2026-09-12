@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  resolveHostnameValue,
   substituteHostname,
   validateHostname,
   validateHostnameTemplate,
+  validateHostnameValue,
 } from "./hostname.ts";
 
 describe("validateHostnameTemplate", () => {
@@ -80,5 +82,44 @@ describe("substituteHostname", () => {
     expect(
       substituteHostname("{pr_id}.exa_mple.com", 42),
     ).toMatchObject({ ok: false });
+  });
+});
+
+describe("validateHostnameValue / resolveHostnameValue", () => {
+  test("required_template always requires {pr_id}", () => {
+    expect(validateHostnameValue("static.example.com", "required_template")).toEqual({
+      ok: false,
+      issue: { code: "hostname_template_missing_placeholder" },
+    });
+    expect(
+      resolveHostnameValue("pr-{pr_id}.example.com", 7, "required_template"),
+    ).toEqual({ ok: true, value: "pr-7.example.com" });
+  });
+
+  test("static_or_template accepts static hosts and templates", () => {
+    expect(
+      validateHostnameValue("api.example.com", "static_or_template"),
+    ).toEqual({ ok: true });
+    expect(
+      resolveHostnameValue("api.example.com", 7, "static_or_template"),
+    ).toEqual({ ok: true, value: "api.example.com" });
+    expect(
+      resolveHostnameValue("api-{pr_id}.example.com", 7, "static_or_template"),
+    ).toEqual({ ok: true, value: "api-7.example.com" });
+  });
+
+  test("static_or_template treats stray braces as templates", () => {
+    expect(
+      validateHostnameValue("api-{sha}.example.com", "static_or_template"),
+    ).toEqual({
+      ok: false,
+      issue: { code: "hostname_template_missing_placeholder" },
+    });
+    expect(
+      resolveHostnameValue("api-{sha}.example.com", 7, "static_or_template"),
+    ).toEqual({
+      ok: false,
+      issue: { code: "hostname_template_missing_placeholder" },
+    });
   });
 });

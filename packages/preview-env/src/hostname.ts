@@ -14,6 +14,20 @@ export type HostnameIssue =
   | { code: "invalid_hostname"; detail: string };
 
 /**
+ * How a hostname field may be shaped:
+ * - `required_template` — must contain `{pr_id}` (preview.hostname)
+ * - `static_or_template` — static host, or a `{pr_id}` template (service hostname)
+ */
+export type HostnameMode = "required_template" | "static_or_template";
+
+/** True when the value is treated as a `{pr_id}` template under `mode`. */
+export function isHostnameTemplate(raw: string, mode: HostnameMode): boolean {
+  if (mode === "required_template") return true;
+  // Any brace means "intended template" — reject stray `{`/`}` via template rules.
+  return raw.includes("{") || raw.includes("}");
+}
+
+/**
  * Validate a `.sprout.yaml` hostname template.
  * The template must contain `{pr_id}` exactly for per-PR hosts and must not
  * contain any other placeholder, scheme, path, or whitespace.
@@ -87,6 +101,22 @@ export function validateHostname(
 }
 
 /**
+ * Parse-time shape check for a hostname field (no PR substitution).
+ * Same mode policy as {@link resolveHostnameValue}.
+ */
+export function validateHostnameValue(
+  raw: string,
+  mode: HostnameMode,
+):
+  | { ok: true }
+  | { ok: false; issue: HostnameIssue } {
+  if (isHostnameTemplate(raw, mode)) {
+    return validateHostnameTemplate(raw);
+  }
+  return validateHostname(raw);
+}
+
+/**
  * Substitute `{pr_id}` and validate the resulting host.
  * Rejects templates that cannot produce a host for the given PR.
  */
@@ -102,4 +132,23 @@ export function substituteHostname(
   const hostCheck = validateHostname(host);
   if (!hostCheck.ok) return hostCheck;
   return { ok: true, value: host };
+}
+
+/**
+ * Deploy-time resolve: substitute when the value is a template under `mode`,
+ * otherwise validate and return the static host.
+ */
+export function resolveHostnameValue(
+  raw: string,
+  prId: number,
+  mode: HostnameMode,
+):
+  | { ok: true; value: string }
+  | { ok: false; issue: HostnameIssue } {
+  if (isHostnameTemplate(raw, mode)) {
+    return substituteHostname(raw, prId);
+  }
+  const checked = validateHostname(raw);
+  if (!checked.ok) return checked;
+  return { ok: true, value: raw };
 }

@@ -274,7 +274,7 @@ export function deploy(deps: LifecycleDeps) {
     const health = resolveHealthSpec(body.health);
     if (!health.ok) {
       set.status = 422;
-      return { error: health.error };
+      return { error: health.issue.code };
     }
 
     const input = {
