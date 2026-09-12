@@ -45,16 +45,24 @@ health:
 
 - `slug` — short name used in database names (`sprout_<slug>_pr<id>`) and
   container names. Alphanumeric.
-- `preview.hostname` — per-PR URL host; `{pr_id}` is substituted at deploy time.
+- `preview.hostname` — per-PR URL host template. Must contain `{pr_id}`
+  (only `{pr_id}` is supported — no scheme, port, path, or other
+  placeholders). The CLI owns the substitution, validates the resulting
+  host, and prints `preview_url=` — CI must read the preview URL from that
+  output and never reconstruct the hostname itself.
 - `preview.env` — optional remap of the connection env **names** the
   gateway injects (see below). Unmapped keys stay canonical (`PG*` /
   `PGAPP*`).
 - `preview.app_env` — optional static string map injected into the app
   container (see Extra app env). Prefer `--app-env` / `--app-env-file` for
   secrets.
-- `health` — HTTP poll the gateway runs against the app container IP on the
-  Postgres network. Required when using `-s`; gates the after-healthy seed hook
-  (see below).
+- `health` — optional HTTP poll the gateway runs against the app container
+  IP on the Postgres network. When omitted, the gateway polls `GET /health`
+  every `2s` for up to `120s`, expecting `200`. Add a `health` block only to
+  override those defaults. The block is still **required** when deploying
+  with a seed image (`-s`); it gates the after-healthy seed hook (see
+  below). Malformed durations fail fast at manifest parse time (form is
+  `Ns`, e.g. `2s`).
 - `preview.services` — optional list of companion services (name + optional
   `hostname` / `path` / static `image`). Images are usually supplied with
   repeatable `--service name=image` on deploy (see Multi-image previews).

@@ -112,6 +112,20 @@ describe("POST /v1/deploy", () => {
     expect(fakePreviewDb!.created).toEqual([]);
   });
 
+  test("rejects invalid hostname before SQL", async () => {
+    const { deployToken } = await setup();
+    for (const hostname of [
+      "https://pr-42.example.com",
+      "pr-42.example.com/preview",
+      "-pr-42.example.com",
+    ]) {
+      const res = await postDeploy(deployToken, deployBody({ hostname }));
+      expect(res.settleStatus).toBe(422);
+      expect(res.body).toEqual({ error: "invalid_hostname" });
+    }
+    expect(fakePreviewDb!.created).toEqual([]);
+  });
+
   test("creates preview database and SQLite row", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(deployToken, deployBody());

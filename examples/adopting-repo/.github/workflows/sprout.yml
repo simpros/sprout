@@ -56,6 +56,9 @@ jobs:
         if: github.event.action != 'closed'
         id: deploy
         run: |
+          # The preview URL comes from the CLI's preview_url= output only;
+          # never reconstruct the hostname here (the CLI owns {pr_id}
+          # substitution from .sprout.yaml).
           sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" | tee deploy.log
           line=$(grep '^preview_url=' deploy.log || true)
           if [ -n "$line" ]; then

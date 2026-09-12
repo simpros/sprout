@@ -85,3 +85,11 @@ export function parsePreviewEnvMap(
   }
   return { ok: true, value: env };
 }
+
+export {
+  HOSTNAME_PLACEHOLDER,
+  substituteHostname,
+  validateHostname,
+  validateHostnameTemplate,
+  type HostnameIssue,
+} from "./hostname.ts";

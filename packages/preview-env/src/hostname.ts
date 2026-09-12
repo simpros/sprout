@@ -1,0 +1,105 @@
+/** Preview hostname template + host validation (single grammar for CLI + gateway). */
+
+export const HOSTNAME_PLACEHOLDER = "{pr_id}";
+
+/** Lowercase hostname label: starts/ends alnum, interior hyphens allowed. */
+const HOST_LABEL_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+/** Template may only contain lowercase hostname chars plus the placeholder. */
+const TEMPLATE_CHUNK_RE = /^[a-z0-9.-]*$/;
+
+export type HostnameIssue =
+  | { code: "hostname_template_missing_placeholder" }
+  | { code: "hostname_template_invalid"; detail: string }
+  | { code: "invalid_hostname"; detail: string };
+
+/**
+ * Validate a `.sprout.yaml` hostname template.
+ * The template must contain `{pr_id}` exactly for per-PR hosts and must not
+ * contain any other placeholder, scheme, path, or whitespace.
+ */
+export function validateHostnameTemplate(
+  template: string,
+):
+  | { ok: true }
+  | { ok: false; issue: HostnameIssue } {
+  if (!template.includes(HOSTNAME_PLACEHOLDER)) {
+    return {
+      ok: false,
+      issue: { code: "hostname_template_missing_placeholder" },
+    };
+  }
+  const without = template.split(HOSTNAME_PLACEHOLDER).join("\0");
+  if (without.includes("{") || without.includes("}")) {
+    return {
+      ok: false,
+      issue: {
+        code: "hostname_template_invalid",
+        detail: "only {pr_id} is supported",
+      },
+    };
+  }
+  for (const chunk of without.split("\0")) {
+    if (!TEMPLATE_CHUNK_RE.test(chunk)) {
+      return {
+        ok: false,
+        issue: {
+          code: "hostname_template_invalid",
+          detail: `invalid characters in ${JSON.stringify(chunk)}`,
+        },
+      };
+    }
+  }
+  return { ok: true };
+}
+
+/** Validate a fully-substituted preview host (no scheme, path, or port). */
+export function validateHostname(
+  host: string,
+):
+  | { ok: true }
+  | { ok: false; issue: HostnameIssue } {
+  if (host.length === 0 || host.length > 253) {
+    return {
+      ok: false,
+      issue: { code: "invalid_hostname", detail: "length must be 1-253" },
+    };
+  }
+  const labels = host.split(".");
+  for (const label of labels) {
+    if (label.length === 0 || label.length > 63) {
+      return {
+        ok: false,
+        issue: { code: "invalid_hostname", detail: "empty or long label" },
+      };
+    }
+    if (!HOST_LABEL_RE.test(label)) {
+      return {
+        ok: false,
+        issue: {
+          code: "invalid_hostname",
+          detail: `invalid label ${JSON.stringify(label)}`,
+        },
+      };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Substitute `{pr_id}` and validate the resulting host.
+ * Rejects templates that cannot produce a host for the given PR.
+ */
+export function substituteHostname(
+  template: string,
+  prId: number,
+):
+  | { ok: true; value: string }
+  | { ok: false; issue: HostnameIssue } {
+  const templateCheck = validateHostnameTemplate(template);
+  if (!templateCheck.ok) return templateCheck;
+  const host = template.replaceAll(HOSTNAME_PLACEHOLDER, String(prId));
+  const hostCheck = validateHostname(host);
+  if (!hostCheck.ok) return hostCheck;
+  return { ok: true, value: host };
+}

@@ -4,8 +4,9 @@ import type { CliContext } from "../context.ts";
 import {
   fail,
   loadYaml,
+  resolveHostname,
   resolveIdentity,
-  substituteHostname,
+  resolveServiceHostname,
 } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
@@ -92,6 +93,12 @@ export async function runDeploy(
   const identity = await resolveIdentity(ctx.deps, flags.value.repo);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
+  const hostname = resolveHostname(
+    yaml.value.preview.hostname,
+    identity.value.prId,
+  );
+  if (!hostname.ok) return fail(ctx.deps.io, hostname.error);
+
   const body: {
     canonical_repo_id: string;
     pr_id: number;
@@ -110,10 +117,7 @@ export async function runDeploy(
     canonical_repo_id: identity.value.repo,
     pr_id: identity.value.prId,
     slug: yaml.value.slug,
-    hostname: substituteHostname(
-      yaml.value.preview.hostname,
-      identity.value.prId,
-    ),
+    hostname: hostname.value,
     app_image: flags.value.image,
   };
 
@@ -133,14 +137,21 @@ export async function runDeploy(
     );
     if (!services.ok) return fail(ctx.deps.io, services.error);
     if (services.value) {
-      body.services = services.value.map((svc) => {
+      const mapped: DeployService[] = [];
+      for (const svc of services.value) {
         const entry: DeployService = { name: svc.name, image: svc.image };
         if (svc.hostname) {
-          entry.hostname = substituteHostname(svc.hostname, identity.value.prId);
+          const resolved = resolveServiceHostname(
+            svc.hostname,
+            identity.value.prId,
+          );
+          if (!resolved.ok) return fail(ctx.deps.io, resolved.error);
+          entry.hostname = resolved.value;
         }
         if (svc.path) entry.path = svc.path;
-        return entry;
-      });
+        mapped.push(entry);
+      }
+      body.services = mapped;
     }
   }
 

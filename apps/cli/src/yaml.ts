@@ -1,5 +1,8 @@
 import {
   parsePreviewEnvMap,
+  validateHostname,
+  validateHostnameTemplate,
+  type HostnameIssue,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
 import type { Result } from "./result.ts";
@@ -48,6 +51,53 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function unknownKey(path: string): Result<never> {
   return { ok: false, error: `unknown key: ${path}` };
+}
+
+const DURATION_RE = /^(\d+)s$/;
+
+function hostnameIssueMessage(label: string, issue: HostnameIssue): string {
+  switch (issue.code) {
+    case "hostname_template_missing_placeholder":
+      return `${label} must contain {pr_id}`;
+    case "hostname_template_invalid":
+    case "invalid_hostname":
+      return `${label} is invalid: ${issue.detail}`;
+  }
+}
+
+/** Template validation for preview.hostname (placeholder required). */
+function parseHostnameTemplate(
+  raw: string,
+  label: string,
+): Result<string> {
+  const checked = validateHostnameTemplate(raw);
+  if (!checked.ok) {
+    return { ok: false, error: hostnameIssueMessage(label, checked.issue) };
+  }
+  return { ok: true, value: raw };
+}
+
+/**
+ * Service hostnames may be static or templated: a value containing `{`
+ * must be a valid `{pr_id}` template, otherwise it must already be a host.
+ */
+function parseServiceHostname(raw: string, label: string): Result<string> {
+  if (raw.includes("{") || raw.includes("}")) {
+    return parseHostnameTemplate(raw, label);
+  }
+  const checked = validateHostname(raw);
+  if (!checked.ok) {
+    return { ok: false, error: hostnameIssueMessage(label, checked.issue) };
+  }
+  return { ok: true, value: raw };
+}
+
+function parseDuration(value: string, label: string): Result<string> {
+  const match = DURATION_RE.exec(value.trim());
+  if (!match || Number(match[1]) <= 0) {
+    return { ok: false, error: `${label} is invalid (expected Ns, e.g. 2s)` };
+  }
+  return { ok: true, value: value.trim() };
 }
 
 function requireString(
@@ -162,7 +212,9 @@ function parseServices(
     if (entry.hostname !== undefined) {
       const hostname = requireString(entry.hostname, `${path}.hostname`);
       if (!hostname.ok) return hostname;
-      service.hostname = hostname.value;
+      const parsed = parseServiceHostname(hostname.value, `${path}.hostname`);
+      if (!parsed.ok) return parsed;
+      service.hostname = parsed.value;
     }
     if (entry.path !== undefined) {
       const pathVal = requireString(entry.path, `${path}.path`);
@@ -207,6 +259,8 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   }
   const hostname = requireString(parsed.preview.hostname, "preview.hostname");
   if (!hostname.ok) return hostname;
+  const template = parseHostnameTemplate(hostname.value, "preview.hostname");
+  if (!template.ok) return template;
 
   const env = parsePreviewEnv(parsed.preview.env);
   if (!env.ok) return env;
@@ -234,17 +288,32 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
     }
     const path = requireString(parsed.health.path, "health.path");
     if (!path.ok) return path;
+    if (!path.value.startsWith("/")) {
+      return { ok: false, error: "health.path must start with /" };
+    }
     const interval = requireString(parsed.health.interval, "health.interval");
     if (!interval.ok) return interval;
+    const intervalMs = parseDuration(interval.value, "health.interval");
+    if (!intervalMs.ok) return intervalMs;
     const timeout = requireString(parsed.health.timeout, "health.timeout");
     if (!timeout.ok) return timeout;
-    if (typeof parsed.health.expect !== "number") {
-      return { ok: false, error: "health.expect must be a number" };
+    const timeoutMs = parseDuration(timeout.value, "health.timeout");
+    if (!timeoutMs.ok) return timeoutMs;
+    if (
+      typeof parsed.health.expect !== "number" ||
+      !Number.isInteger(parsed.health.expect) ||
+      parsed.health.expect < 100 ||
+      parsed.health.expect > 599
+    ) {
+      return {
+        ok: false,
+        error: "health.expect must be a number between 100 and 599",
+      };
     }
     value.health = {
       path: path.value,
-      interval: interval.value,
-      timeout: timeout.value,
+      interval: intervalMs.value,
+      timeout: timeoutMs.value,
       expect: parsed.health.expect,
     };
   }

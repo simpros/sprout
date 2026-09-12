@@ -1,4 +1,4 @@
-import { parsePreviewEnvMap } from "@sprout/preview-env";
+import { parsePreviewEnvMap, validateHostname } from "@sprout/preview-env";
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
 import {
@@ -199,7 +199,12 @@ export function resolveServicesRequest(
       return { ok: false, error: "invalid_service_path" };
     }
     const spec: PreviewServiceSpec = { name, image };
-    if (hostname) spec.hostname = hostname;
+    if (hostname) {
+      if (!validateHostname(hostname).ok) {
+        return { ok: false, error: "invalid_service_hostname" };
+      }
+      spec.hostname = hostname;
+    }
     if (path) spec.path = path;
     out.push(spec);
   }
@@ -236,6 +241,10 @@ export function deploy(deps: LifecycleDeps) {
     if (identityErr) {
       set.status = 422;
       return { error: identityErr };
+    }
+    if (!validateHostname(body.hostname.trim()).ok) {
+      set.status = 422;
+      return { error: "invalid_hostname" };
     }
     const connectionEnv = parsePreviewEnvMap(body.env);
     if (!connectionEnv.ok) {

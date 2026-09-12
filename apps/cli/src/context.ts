@@ -1,5 +1,10 @@
 import type { ApiClient } from "@sprout/api-client";
 import {
+  HOSTNAME_PLACEHOLDER,
+  substituteHostname as substitutePreviewHostname,
+  validateHostname,
+} from "@sprout/preview-env";
+import {
   normalizeGitRemoteUrl,
   resolveCanonicalRepoId,
   resolvePrId,
@@ -168,6 +173,66 @@ export async function resolveIdentity(
 
 export function substituteHostname(template: string, prId: number): string {
   return template.replaceAll("{pr_id}", String(prId));
+}
+
+/**
+ * CLI-owned hostname substitution: the CLI is the only source the CI reads
+ * (via `preview_url=`), so a template that cannot produce a host for this
+ * PR fails here instead of reaching the gateway.
+ */
+export function resolveHostname(
+  template: string,
+  prId: number,
+): Result<string> {
+  const resolved = substitutePreviewHostname(template, prId);
+  if (!resolved.ok) {
+    switch (resolved.issue.code) {
+      case "hostname_template_missing_placeholder":
+        return {
+          ok: false,
+          error: `preview.hostname must contain {pr_id} (pr ${prId})`,
+        };
+      case "hostname_template_invalid":
+      case "invalid_hostname":
+        return {
+          ok: false,
+          error: `invalid preview.hostname for pr ${prId}: ${resolved.issue.detail}`,
+        };
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Companion service hostnames may be static or templated: substitute when
+ * the template carries `{pr_id}`, otherwise validate the static host.
+ */
+export function resolveServiceHostname(
+  template: string,
+  prId: number,
+): Result<string> {
+  if (!template.includes(HOSTNAME_PLACEHOLDER)) {
+    const checked = validateHostname(template);
+    if (!checked.ok) {
+      const detail =
+        checked.issue.code === "invalid_hostname"
+          ? checked.issue.detail
+          : "invalid hostname";
+      return {
+        ok: false,
+        error: `invalid service hostname for pr ${prId}: ${detail}`,
+      };
+    }
+    return { ok: true, value: template };
+  }
+  const resolved = resolveHostname(template, prId);
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      error: resolved.error.replace("preview.hostname", "service hostname"),
+    };
+  }
+  return resolved;
 }
 
 export async function authedContext(
