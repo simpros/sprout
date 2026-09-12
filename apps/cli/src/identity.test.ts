@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   normalizeGitRemoteUrl,
   resolveCanonicalRepoId,
+  resolveGithubPrId,
+  resolveGitlabPrId,
   resolvePrId,
+  resolveRepoForForge,
 } from "./identity.ts";
 
 describe("normalizeGitRemoteUrl", () => {
@@ -56,6 +59,74 @@ describe("resolveCanonicalRepoId", () => {
       ok: false,
       error:
         "cannot derive canonical repo id (set GITHUB_REPOSITORY, CI_PROJECT_URL, or git remote)",
+    });
+  });
+});
+
+describe("resolveRepoForForge", () => {
+  test("reads GitLab CI_PROJECT_URL only", () => {
+    expect(
+      resolveRepoForForge("gitlab", {
+        CI_PROJECT_URL: "https://gitlab.com/group/repo.git",
+        GITHUB_REPOSITORY: "org/ignored",
+      }),
+    ).toEqual({ ok: true, value: "https://gitlab.com/group/repo" });
+  });
+
+  test("reads GITHUB_REPOSITORY only", () => {
+    expect(
+      resolveRepoForForge("github", {
+        GITHUB_REPOSITORY: "org/repo",
+        CI_PROJECT_URL: "https://gitlab.com/ignored",
+      }),
+    ).toEqual({ ok: true, value: "https://github.com/org/repo" });
+  });
+
+  test("errors with forge-specific hint", () => {
+    expect(resolveRepoForForge("gitlab", {})).toEqual({
+      ok: false,
+      error: "cannot derive canonical repo id (set CI_PROJECT_URL)",
+    });
+    expect(resolveRepoForForge("github", {})).toEqual({
+      ok: false,
+      error: "cannot derive canonical repo id (set GITHUB_REPOSITORY)",
+    });
+  });
+});
+
+describe("resolveGithubPrId", () => {
+  test("reads pull_request payload and GITHUB_REF", () => {
+    expect(
+      resolveGithubPrId({}, { pull_request: { number: 42 } }),
+    ).toEqual({ ok: true, value: 42 });
+    expect(resolveGithubPrId({ GITHUB_REF: "refs/pull/99/merge" })).toEqual({
+      ok: true,
+      value: 99,
+    });
+  });
+
+  test("ignores CI_MERGE_REQUEST_IID", () => {
+    expect(resolveGithubPrId({ CI_MERGE_REQUEST_IID: "12" })).toEqual({
+      ok: false,
+      error: "cannot derive pr id (GitHub pull_request event or GITHUB_REF)",
+    });
+  });
+});
+
+describe("resolveGitlabPrId", () => {
+  test("reads CI_MERGE_REQUEST_IID only", () => {
+    expect(
+      resolveGitlabPrId({
+        CI_MERGE_REQUEST_IID: "12",
+        GITHUB_REF: "refs/pull/99/merge",
+      }),
+    ).toEqual({ ok: true, value: 12 });
+  });
+
+  test("errors when missing", () => {
+    expect(resolveGitlabPrId({ GITHUB_REF: "refs/pull/99/merge" })).toEqual({
+      ok: false,
+      error: "cannot derive pr id (CI_MERGE_REQUEST_IID)",
     });
   });
 });
