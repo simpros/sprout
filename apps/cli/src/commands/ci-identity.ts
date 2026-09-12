@@ -1,14 +1,12 @@
+import { resolveHostnameValue } from "@sprout/preview-env";
 import type { CliDeps } from "../context.ts";
-import {
-  loadEventPayload,
-  loadYaml,
-  substituteHostname,
-} from "../context.ts";
+import { loadEventPayload, loadYaml } from "../context.ts";
 import {
   resolveGithubPrId,
   resolveGitlabPrId,
   resolveRepoForForge,
 } from "../identity.ts";
+import { hostnameIssueMessage } from "../hostname.ts";
 import type { Result } from "../result.ts";
 
 export type CiPipelineSource =
@@ -156,12 +154,26 @@ export async function resolveCiPreviewIdentity(
   const yaml = await loadYaml(deps);
   if (!yaml.ok) return yaml;
 
+  const hostname = resolveHostnameValue(
+    yaml.value.preview.hostname,
+    base.value.prId,
+    "required_template",
+  );
+  if (!hostname.ok) {
+    return {
+      ok: false,
+      error: hostnameIssueMessage("preview.hostname", hostname.issue, {
+        prId: base.value.prId,
+      }),
+    };
+  }
+
   return {
     ok: true,
     value: {
       ...base.value,
       imageRef: imageRef.value,
-      hostname: substituteHostname(yaml.value.preview.hostname, base.value.prId),
+      hostname: hostname.value,
     },
   };
 }

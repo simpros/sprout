@@ -1,9 +1,16 @@
 import { createHmac } from "node:crypto";
+import { expandBracedPlaceholders } from "./placeholders.ts";
 import type { Result } from "./result.ts";
 import type { AppEnvValue } from "./yaml.ts";
 
-const PLACEHOLDER_RE = /\{([a-z_]+)\}/g;
-const KNOWN_PLACEHOLDERS = new Set(["hostname", "pr_id", "commit_sha"]);
+const PLACEHOLDERS: Record<
+  string,
+  (ctx: AppEnvResolveContext) => string | undefined
+> = {
+  hostname: (c) => c.hostname,
+  pr_id: (c) => String(c.prId),
+  commit_sha: (c) => c.commitSha,
+};
 
 export type AppEnvResolveContext = {
   hostname: string;
@@ -35,9 +42,21 @@ export function resolveAppEnvValues(
       out[key] = expanded.value;
       continue;
     }
-    const secret = stablePerPrSecret(key, ctx);
-    if (!secret.ok) return secret;
-    out[key] = secret.value;
+    switch (value.generate) {
+      case "stable_per_pr": {
+        const secret = stablePerPrSecret(key, ctx);
+        if (!secret.ok) return secret;
+        out[key] = secret.value;
+        break;
+      }
+      default: {
+        const _exhaustive: never = value.generate;
+        return {
+          ok: false,
+          error: `preview.app_env.${key}: unknown generate kind: ${_exhaustive}`,
+        };
+      }
+    }
   }
   return { ok: true, value: out };
 }
@@ -47,33 +66,26 @@ function expandPlaceholders(
   template: string,
   ctx: AppEnvResolveContext,
 ): Result<string> {
-  let unknown: string | undefined;
-  let needsCommitSha = false;
-  const replaced = template.replace(PLACEHOLDER_RE, (match, name: string) => {
-    if (!KNOWN_PLACEHOLDERS.has(name)) {
-      unknown = match;
-      return match;
-    }
-    if (name === "commit_sha") {
-      needsCommitSha = true;
-      return ctx.commitSha ?? match;
-    }
-    if (name === "hostname") return ctx.hostname;
-    return String(ctx.prId);
+  const values: Record<string, string | undefined> = {};
+  for (const [name, resolve] of Object.entries(PLACEHOLDERS)) {
+    values[name] = resolve(ctx);
+  }
+  const expanded = expandBracedPlaceholders(template, values, {
+    unknown: "error",
   });
-  if (unknown) {
+  if (!expanded.ok) {
+    if (expanded.failure.kind === "unknown") {
+      return {
+        ok: false,
+        error: `preview.app_env.${key}: unknown placeholder ${expanded.failure.match}`,
+      };
+    }
     return {
       ok: false,
-      error: `preview.app_env.${key}: unknown placeholder ${unknown}`,
+      error: `preview.app_env.${key}: {${expanded.failure.name}} requires GITHUB_SHA or CI_COMMIT_SHA`,
     };
   }
-  if (needsCommitSha && !ctx.commitSha) {
-    return {
-      ok: false,
-      error: `preview.app_env.${key}: {commit_sha} requires GITHUB_SHA or CI_COMMIT_SHA`,
-    };
-  }
-  return { ok: true, value: replaced };
+  return { ok: true, value: expanded.value };
 }
 
 function stablePerPrSecret(
