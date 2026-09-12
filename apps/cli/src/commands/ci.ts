@@ -1,6 +1,9 @@
 import type { CliContext } from "../context.ts";
-import { fail, loadEventPayload } from "../context.ts";
-import { resolveCiIdentity } from "../identity.ts";
+import { fail } from "../context.ts";
+import {
+  type CiIdentity,
+  resolveCiIdentity,
+} from "./ci-identity.ts";
 
 const CI_HELP = `usage: sprout ci <preview|teardown|reseed|logs> …
 
@@ -17,6 +20,18 @@ const SUBCOMMANDS = new Set(["preview", "teardown", "reseed", "logs"]);
 function printHelp(ctx: CliContext): number {
   ctx.deps.io.stdout(CI_HELP.trimEnd());
   return 0;
+}
+
+/** #120/#122 hang off this seam; identity is resolved once for the group. */
+function dispatchCiSubcommand(
+  subcommand: string,
+  _identity: CiIdentity,
+  ctx: CliContext,
+): number {
+  return fail(
+    ctx.deps.io,
+    `sprout ci ${subcommand} is not implemented yet`,
+  );
 }
 
 export async function runCi(
@@ -36,21 +51,8 @@ export async function runCi(
     return printHelp(ctx);
   }
 
-  const event = await loadEventPayload(ctx.deps);
-  if (!event.ok) return fail(ctx.deps.io, event.error);
-
-  const identity = resolveCiIdentity({
-    env: ctx.deps.env,
-    gitRemoteUrl: ctx.deps.getGitRemoteUrl(),
-    eventPayload: event.value,
-  });
+  const identity = await resolveCiIdentity(ctx.deps);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
-  // Identity is the #119 deliverable; subcommand bodies land in #120/#122.
-  void identity.value;
-
-  return fail(
-    ctx.deps.io,
-    `sprout ci ${subcommand} is not implemented yet`,
-  );
+  return dispatchCiSubcommand(subcommand, identity.value, ctx);
 }
