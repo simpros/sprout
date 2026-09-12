@@ -169,7 +169,7 @@ export async function runDeploy(
     repo: identity.value.repo,
     // HMAC key is SPROUT_TOKEN only (not local admin fallback) so CI and
     // local agree when the same deploy token is used.
-    deployToken: ctx.deps.env.SPROUT_TOKEN?.trim() ?? "",
+    deployToken: ctx.deps.env.SPROUT_TOKEN?.trim(),
   });
   if (!resolvedYamlEnv.ok) return fail(ctx.deps.io, resolvedYamlEnv.error);
 

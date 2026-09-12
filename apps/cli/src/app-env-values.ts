@@ -1,16 +1,8 @@
 import { createHmac } from "node:crypto";
-import { expandBracedPlaceholders } from "./placeholders.ts";
 import type { Result } from "./result.ts";
 import type { AppEnvValue } from "./yaml.ts";
 
-const PLACEHOLDERS: Record<
-  string,
-  (ctx: AppEnvResolveContext) => string | undefined
-> = {
-  hostname: (c) => c.hostname,
-  pr_id: (c) => String(c.prId),
-  commit_sha: (c) => c.commitSha,
-};
+const PLACEHOLDER_RE = /\{([a-z_]+)\}/g;
 
 export type AppEnvResolveContext = {
   hostname: string;
@@ -19,7 +11,7 @@ export type AppEnvResolveContext = {
   commitSha?: string;
   repo: string;
   /** Sprout deploy bearer (`SPROUT_TOKEN`); must stay stable for the MR lifetime. */
-  deployToken: string;
+  deployToken?: string;
 };
 
 /**
@@ -66,26 +58,38 @@ function expandPlaceholders(
   template: string,
   ctx: AppEnvResolveContext,
 ): Result<string> {
-  const values: Record<string, string | undefined> = {};
-  for (const [name, resolve] of Object.entries(PLACEHOLDERS)) {
-    values[name] = resolve(ctx);
-  }
-  const expanded = expandBracedPlaceholders(template, values, {
-    unknown: "error",
-  });
-  if (!expanded.ok) {
-    if (expanded.failure.kind === "unknown") {
+  const values: Record<string, string | undefined> = {
+    hostname: ctx.hostname,
+    pr_id: String(ctx.prId),
+    commit_sha: ctx.commitSha,
+  };
+
+  for (const match of template.matchAll(PLACEHOLDER_RE)) {
+    const name = match[1]!;
+    if (!(name in values)) {
       return {
         ok: false,
-        error: `preview.app_env.${key}: unknown placeholder ${expanded.failure.match}`,
+        error: `preview.app_env.${key}: unknown placeholder ${match[0]}`,
       };
     }
-    return {
-      ok: false,
-      error: `preview.app_env.${key}: {${expanded.failure.name}} requires GITHUB_SHA or CI_COMMIT_SHA`,
-    };
+    if (values[name] === undefined) {
+      if (name === "commit_sha") {
+        return {
+          ok: false,
+          error: `preview.app_env.${key}: {commit_sha} requires GITHUB_SHA or CI_COMMIT_SHA`,
+        };
+      }
+      return {
+        ok: false,
+        error: `preview.app_env.${key}: {${name}} is not available`,
+      };
+    }
   }
-  return { ok: true, value: expanded.value };
+
+  return {
+    ok: true,
+    value: template.replace(PLACEHOLDER_RE, (_m, name: string) => values[name]!),
+  };
 }
 
 function stablePerPrSecret(

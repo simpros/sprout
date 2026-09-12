@@ -105,7 +105,7 @@ describe("resolveAppEnvValues", () => {
     expect(
       resolveAppEnvValues(
         { BETTER_AUTH_SECRET: { generate: "stable_per_pr" } },
-        { ...ctx, deployToken: "" },
+        { ...ctx, deployToken: undefined },
       ),
     ).toEqual({
       ok: false,
