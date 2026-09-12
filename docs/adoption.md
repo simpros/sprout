@@ -53,9 +53,11 @@ health:
 - `preview.env` — optional remap of the connection env **names** the
   gateway injects (see below). Unmapped keys stay canonical (`PG*` /
   `PGAPP*`).
-- `preview.app_env` — optional static string map injected into the app
-  container (see Extra app env). Prefer `--app-env` / `--app-env-file` for
-  secrets.
+- `preview.app_env` — optional adopter env for the app container. String
+  values may interpolate `{hostname}`, `{pr_id}`, `{commit_sha}`; use
+  `{ generate: stable_per_pr }` for a per-MR secret derived from the
+  deploy token (see Extra app env). Prefer `--app-env` / `--app-env-file` for
+  CI secrets.
 - `health` — optional HTTP poll the gateway runs against the app container
   IP on the Postgres network. When omitted, the gateway polls `GET /health`
   every `2s` for up to `120s`, expecting `200`. Add a `health` block only to
@@ -135,9 +137,19 @@ Adopters often need runtime env beyond the connection fields
 (`BETTER_AUTH_SECRET`, app URLs, trusted origins, etc.).
 Pass those as:
 
-- Static map in `.sprout.yaml` under `preview.app_env` (no secrets in git)
+- Map in `.sprout.yaml` under `preview.app_env` (computed defaults; no CI
+  secrets in git)
 - Repeatable `--app-env-file PATH` (dotenv `KEY=VALUE` file; blank/`#` lines skipped)
 - Repeatable `--app-env KEY=VALUE` (secrets or one-offs from CI)
+
+String values may use `{hostname}`, `{pr_id}`, and `{commit_sha}`
+(`{hostname}` is the substituted preview host; `{commit_sha}` needs
+`GITHUB_SHA` or `CI_COMMIT_SHA`). Request a secret that stays identical
+across redeploy and reseed of the same MR with `{ generate: stable_per_pr }`
+— an HMAC of `(canonical_repo_id, pr_id, env_key)` keyed by the sprout
+deploy token (`SPROUT_TOKEN`). Keep that token stable for the MR’s lifetime
+or sessions will invalidate when it rotates. Unknown placeholders and
+malformed values fail before any gateway call and name the offending key.
 
 ```yaml
 slug: myapp
@@ -146,20 +158,23 @@ preview:
   app_env:
     LOG_LEVEL: info
     FEATURE_PREVIEW_BANNER: "1"
+    BETTER_AUTH_URL: "https://{hostname}"
+    BETTER_AUTH_SECRET:
+      generate: stable_per_pr
 ```
 
 ```bash
 sprout deploy -i "$APP_IMAGE" \
-  --app-env-file "$PREVIEW_APP_ENV" \
-  --app-env BETTER_AUTH_URL="https://pr-${PR_ID}.myapp.preview.example.com"
+  --app-env-file "$PREVIEW_APP_ENV"
 ```
 
-CLI merge order: yaml `app_env` first, then each `--app-env-file` in flag
-order, then `--app-env` flags (later wins on duplicate keys; one entry per
-key on the wire). Invalid dotenv lines or flags fail before any gateway
-call. Gateway connection keys replace colliding adopter keys (canonical
-PG* ∪ remapped names) — same policy as seed `--seed-env`. Seed env applies
-only to the seed container.
+CLI merge order: yaml `app_env` (after placeholder / generate expansion)
+first, then each `--app-env-file` in flag order, then `--app-env` flags
+(later wins on duplicate keys; one entry per key on the wire). Invalid
+dotenv lines or flags fail before any gateway call. Gateway connection
+keys replace colliding adopter keys (canonical PG* ∪ remapped names) —
+same policy as seed `--seed-env`. Seed env applies only to the seed
+container.
 
 #### CI: dotenv file from variables
 

@@ -4,8 +4,10 @@ import {
   resolveHostnameValue,
 } from "@sprout/preview-env";
 import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
+import { resolveAppEnvValues } from "../app-env-values.ts";
 import type { CliContext } from "../context.ts";
 import { fail, loadYaml, resolveIdentity } from "../context.ts";
+import { resolveCommitSha } from "../identity.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
 import { hostnameIssueMessage } from "../hostname.ts";
@@ -160,8 +162,19 @@ export async function runDeploy(
     dotenvFiles.push({ pathLabel: filePath, content: raw });
   }
 
+  const resolvedYamlEnv = resolveAppEnvValues(yaml.value.preview.app_env, {
+    hostname: body.hostname,
+    prId: identity.value.prId,
+    commitSha: resolveCommitSha(ctx.deps.env),
+    repo: identity.value.repo,
+    // HMAC key is SPROUT_TOKEN only (not local admin fallback) so CI and
+    // local agree when the same deploy token is used.
+    deployToken: ctx.deps.env.SPROUT_TOKEN?.trim() ?? "",
+  });
+  if (!resolvedYamlEnv.ok) return fail(ctx.deps.io, resolvedYamlEnv.error);
+
   const appEnv = mergeAppEnv(
-    yaml.value.preview.app_env,
+    resolvedYamlEnv.value,
     dotenvFiles,
     flags.value.appEnv,
   );

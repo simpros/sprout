@@ -459,6 +459,133 @@ preview:
     expect(captured[0]?.body).not.toHaveProperty("seed_env");
   });
 
+  test("deploy expands app_env placeholders and stable_per_pr secrets", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-9.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    BETTER_AUTH_URL: "https://{hostname}"
+    REF: "{commit_sha}"
+    BETTER_AUTH_SECRET:
+      generate: stable_per_pr
+`);
+    const code = await runCli(
+      ["deploy", "-i", "app:1"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/9/merge",
+          GITHUB_SHA: "deadbeef",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      app_env: [
+        "BETTER_AUTH_URL=https://pr-9.example.com",
+        "REF=deadbeef",
+        // HMAC-SHA256("t", "sprout-stable-per-pr:https://github.com/org/repo:9:BETTER_AUTH_SECRET")
+        "BETTER_AUTH_SECRET=KrLonl37dtv_WiT_yVTw01CIOI0nfVFcQT4oectt8bE",
+      ],
+    });
+  });
+
+  test("deploy fails stable_per_pr without SPROUT_TOKEN (admin fallback insufficient)", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({ ok: true, status: "running", preview_url: "x" });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    BETTER_AUTH_SECRET:
+      generate: stable_per_pr
+`);
+    const code = await runCli(
+      ["deploy", "-i", "app:1"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_ADMIN_TOKEN: "admin-only",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/9/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe(
+      "preview.app_env.BETTER_AUTH_SECRET: SPROUT_TOKEN required for generate: stable_per_pr",
+    );
+    expect(captured).toEqual([]);
+  });
+
+  test("deploy fails fast on unknown app_env placeholder", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({ ok: true, status: "running", preview_url: "x" });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    ORIGIN: "https://{host}"
+`);
+    const code = await runCli(
+      ["deploy", "-i", "app:1"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/9/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe(
+      "preview.app_env.ORIGIN: unknown placeholder {host}",
+    );
+    expect(captured).toEqual([]);
+  });
+
   test("deploy rejects invalid --app-env before calling the gateway", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({

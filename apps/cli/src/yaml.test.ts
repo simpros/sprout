@@ -227,6 +227,32 @@ preview:
     });
   });
 
+  test("parses preview.app_env generate: stable_per_pr", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    BETTER_AUTH_URL: "https://{hostname}"
+    BETTER_AUTH_SECRET:
+      generate: stable_per_pr
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          app_env: {
+            BETTER_AUTH_URL: "https://{hostname}",
+            BETTER_AUTH_SECRET: { generate: "stable_per_pr" },
+          },
+        },
+      },
+    });
+  });
+
   test("rejects non-string preview.app_env values", () => {
     expect(
       parseSproutYaml(`
@@ -238,7 +264,42 @@ preview:
 `),
     ).toEqual({
       ok: false,
-      error: "preview.app_env.PORT must be a string",
+      error:
+        "preview.app_env.PORT must be a string or { generate: stable_per_pr }",
+    });
+  });
+
+  test("rejects unknown generate kind", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    SECRET:
+      generate: once
+`),
+    ).toEqual({
+      ok: false,
+      error:
+        "preview.app_env.SECRET: unknown generate kind: once",
+    });
+  });
+
+  test("rejects malformed generate object", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    SECRET:
+      generate: stable_per_pr
+      extra: 1
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.app_env.SECRET must be a string or { generate: stable_per_pr }",
     });
   });
 

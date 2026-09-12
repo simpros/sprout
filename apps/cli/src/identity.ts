@@ -139,3 +139,12 @@ export function resolvePrId(input: {
       "cannot derive pr id (GitHub pull_request event, GITHUB_REF, or CI_MERGE_REQUEST_IID)",
   };
 }
+
+/** Short-circuit commit SHA from common CI env vars; absent → undefined. */
+export function resolveCommitSha(env: NodeJS.ProcessEnv): string | undefined {
+  const github = env.GITHUB_SHA?.trim();
+  if (github) return github;
+  const gitlab = env.CI_COMMIT_SHA?.trim();
+  if (gitlab) return gitlab;
+  return undefined;
+}
