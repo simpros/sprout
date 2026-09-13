@@ -28,11 +28,14 @@ export type SproutYamlService = {
   path?: string;
 };
 
-/** Image build config (`sprout ci preview` runs `docker build` + `push`). */
-export type SproutBuild = {
-  /** Dockerfile path relative to the repo root. Defaults to `Dockerfile`. */
+/** Single-dockerfile build block shared by `build` and `seed`. */
+export type SproutDockerfileBlock = {
+  /** Dockerfile path relative to the repo root. */
   dockerfile: string;
 };
+
+/** Image build config (`sprout ci preview` runs `docker build` + `push`). */
+export type SproutBuild = SproutDockerfileBlock;
 
 /**
  * Seed image build config. When present, `sprout ci preview` builds + pushes
@@ -40,9 +43,7 @@ export type SproutBuild = {
  * `-s`. Defaults the Dockerfile to `Dockerfile.seed`.
  * (`seed.env` / `seed.args` land in #124.)
  */
-export type SproutSeed = {
-  dockerfile: string;
-};
+export type SproutSeed = SproutDockerfileBlock;
 
 /**
  * Plain string, a HMAC secret stable for the MR lifetime, or a key that CI must
@@ -239,7 +240,7 @@ function parseDockerfileBlock(
   raw: unknown,
   path: string,
   defaultDockerfile: string,
-): Result<{ dockerfile: string } | undefined> {
+): Result<SproutDockerfileBlock | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!isPlainObject(raw)) {
     return { ok: false, error: `${path} must be a mapping` };

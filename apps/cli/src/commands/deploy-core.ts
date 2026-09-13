@@ -158,7 +158,7 @@ export async function applyDeployEnv<T extends DeployRequest>(
  * One settle contract for `sprout deploy`, `sprout ci reseed`, and
  * `sprout ci preview`. Resolves with the healthy preview URL (printed
  * above) so callers can persist it (e.g. the CI dotenv artifact) — the URL
- * is only returned once the preview is actually healthy.
+ * comes from the `ready` outcome, never from a fallback cast.
  */
 export async function postDeployAndWait(opts: {
   client: ApiClient;
@@ -175,33 +175,124 @@ export async function postDeployAndWait(opts: {
   const outcome = deployOutcome(data);
   if (outcome.kind === "failed") return { ok: false, error: outcome.message };
 
-  if (outcome.kind !== "ready") {
-    const sleep =
-      opts.deps.sleep ??
-      ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-    const now = opts.deps.now ?? (() => Date.now());
-    const health = resolveHealthSpec(opts.yaml.health);
-    if (!health.ok) return { ok: false, error: health.issue.code };
-    const budgetMs = health.value.timeoutMs + DEPLOY_POLL_BUFFER_MS;
-    const intervalMs = Math.max(200, health.value.intervalMs);
-
-    const poll = await pollPreviewReady<PreviewSnapshot>({
-      client: opts.client,
-      repo: opts.identity.repo,
-      prId: opts.identity.prId,
-      budgetMs,
-      intervalMs,
-      sleep,
-      now,
-    });
-    if (!poll.ok) return poll;
-    data = poll.value;
+  if (outcome.kind === "ready") {
+    opts.deps.io.stdout(`preview_url=${outcome.previewUrl}`);
+    return { ok: true, value: outcome.previewUrl };
   }
 
-  opts.deps.io.stdout(`preview_url=${data.preview_url}`);
-  // Ready (immediate or polled) guarantees a non-empty preview_url.
-  const previewUrl = typeof data.preview_url === "string" ? data.preview_url : "";
-  return { ok: true, value: previewUrl };
+  const sleep =
+    opts.deps.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = opts.deps.now ?? (() => Date.now());
+  const health = resolveHealthSpec(opts.yaml.health);
+  if (!health.ok) return { ok: false, error: health.issue.code };
+  const budgetMs = health.value.timeoutMs + DEPLOY_POLL_BUFFER_MS;
+  const intervalMs = Math.max(200, health.value.intervalMs);
+
+  const poll = await pollPreviewReady<PreviewSnapshot>({
+    client: opts.client,
+    repo: opts.identity.repo,
+    prId: opts.identity.prId,
+    budgetMs,
+    intervalMs,
+    sleep,
+    now,
+  });
+  if (!poll.ok) return poll;
+  data = poll.value;
+
+  const settled = deployOutcome(data);
+  if (settled.kind === "failed") return { ok: false, error: settled.message };
+  if (settled.kind !== "ready") {
+    return { ok: false, error: "preview_url missing from ready preview" };
+  }
+  opts.deps.io.stdout(`preview_url=${settled.previewUrl}`);
+  return { ok: true, value: settled.previewUrl };
+}
+
+/** `--clear-services` / `--service` mutual exclusion, shared by all deploy paths. */
+export function checkServiceFlags(inputs: {
+  service: string[];
+  clearServices: boolean;
+}): Result<true> {
+  if (inputs.clearServices && inputs.service.length > 0) {
+    return {
+      ok: false,
+      error: "--clear-services cannot be combined with --service",
+    };
+  }
+  return { ok: true, value: true };
+}
+
+/**
+ * Seed-implies-health gate. `seedSource` names where the seed image came
+ * from so the failure points at the real config: `-s` for CLI flags
+ * (`deploy`, `ci reseed`), `seed` for the `.sprout.yaml` seed block
+ * (`ci preview`).
+ */
+export function requireHealthWhenSeeding(
+  yaml: SproutYaml,
+  opts: { hasSeed: boolean; seedSource: "-s" | "seed" },
+): Result<true> {
+  if (opts.hasSeed && !yaml.health) {
+    return {
+      ok: false,
+      error:
+        opts.seedSource === "-s"
+          ? "health block required in .sprout.yaml when -s is passed"
+          : "health block required in .sprout.yaml when seed block is configured",
+    };
+  }
+  return { ok: true, value: true };
+}
+
+/**
+ * One assembler for the deploy POST body — `deploy` and `ci preview` share
+ * this instead of recopying the pipeline (clear/service + health-when-seed
+ * checks, base fields, health / seed / env / services layering). The next
+ * yaml/wire field lands here once.
+ */
+export type BuildDeployRequestInputs = {
+  appImage: string;
+  seedImage?: string;
+  seedArg: string[];
+  service: string[];
+  clearServices: boolean;
+  reseed?: boolean;
+  seedSource: "-s" | "seed";
+};
+
+export function buildDeployRequest(
+  yaml: SproutYaml,
+  identity: DeployIdentity,
+  inputs: BuildDeployRequestInputs,
+): Result<DeployRequest> {
+  const gate = requireHealthWhenSeeding(yaml, {
+    hasSeed: Boolean(inputs.seedImage),
+    seedSource: inputs.seedSource,
+  });
+  if (!gate.ok) return gate;
+
+  const base = deployBaseFields(yaml, identity);
+  if (!base.ok) return base;
+
+  const body: DeployRequest = {
+    ...base.value,
+    app_image: inputs.appImage,
+  };
+  if (yaml.health) body.health = yaml.health;
+  if (inputs.seedImage) body.seed_image = inputs.seedImage;
+  if (inputs.seedArg.length > 0) body.seed_arg = inputs.seedArg;
+  if (inputs.reseed) body.reseed = true;
+  if (yaml.preview.env) body.env = yaml.preview.env;
+
+  const services = resolveDeployServices(yaml, identity.prId, {
+    service: inputs.service,
+    clearServices: inputs.clearServices,
+  });
+  if (!services.ok) return services;
+  if (services.value) body.services = services.value;
+  return { ok: true, value: body };
 }
 
 /**
@@ -215,6 +306,8 @@ export function resolveDeployServices(
   prId: number,
   inputs: { service: string[]; clearServices: boolean },
 ): Result<DeployService[] | undefined> {
+  const flags = checkServiceFlags(inputs);
+  if (!flags.ok) return flags;
   if (inputs.clearServices) return { ok: true, value: [] };
   const services = mergeServices(yaml.preview.services, inputs.service);
   if (!services.ok) return services;

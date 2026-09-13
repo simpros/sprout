@@ -3,9 +3,9 @@ import { fail, loadYaml, resolveIdentity } from "../context.ts";
 import { parseFlags } from "../flags.ts";
 import {
   applyDeployEnv,
-  deployBaseFields,
-  resolveDeployServices,
-  type DeployRequest,
+  buildDeployRequest,
+  checkServiceFlags,
+  requireHealthWhenSeeding,
   postDeployAndWait,
 } from "./deploy-core.ts";
 
@@ -34,12 +34,11 @@ export async function runDeploy(
   if (flags.value.reseed && !flags.value.seedImage) {
     return fail(ctx.deps.io, "--reseed requires -s <seed-image>");
   }
-  if (flags.value.clearServices && flags.value.service.length > 0) {
-    return fail(
-      ctx.deps.io,
-      "--clear-services cannot be combined with --service",
-    );
-  }
+  const serviceFlags = checkServiceFlags({
+    service: flags.value.service,
+    clearServices: flags.value.clearServices,
+  });
+  if (!serviceFlags.ok) return fail(ctx.deps.io, serviceFlags.error);
   if (flags.value.rest.length > 0) {
     return fail(
       ctx.deps.io,
@@ -50,36 +49,26 @@ export async function runDeploy(
   const yaml = await loadYaml(ctx.deps);
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
 
-  if (flags.value.seedImage && !yaml.value.health) {
-    return fail(
-      ctx.deps.io,
-      "health block required in .sprout.yaml when -s is passed",
-    );
-  }
+  const gate = requireHealthWhenSeeding(yaml.value, {
+    hasSeed: Boolean(flags.value.seedImage),
+    seedSource: "-s",
+  });
+  if (!gate.ok) return fail(ctx.deps.io, gate.error);
 
   const identity = await resolveIdentity(ctx.deps, flags.value.repo);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
-  const base = deployBaseFields(yaml.value, identity.value);
-  if (!base.ok) return fail(ctx.deps.io, base.error);
-
-  const body: DeployRequest = {
-    ...base.value,
-    app_image: flags.value.image,
-  };
-
-  if (yaml.value.health) body.health = yaml.value.health;
-  if (flags.value.seedImage) body.seed_image = flags.value.seedImage;
-  if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
-  if (flags.value.reseed) body.reseed = true;
-  if (yaml.value.preview.env) body.env = yaml.value.preview.env;
-
-  const services = resolveDeployServices(yaml.value, identity.value.prId, {
+  const assembled = buildDeployRequest(yaml.value, identity.value, {
+    appImage: flags.value.image,
+    seedImage: flags.value.seedImage,
+    seedArg: flags.value.seedArg,
     service: flags.value.service,
     clearServices: flags.value.clearServices,
+    reseed: flags.value.reseed,
+    seedSource: "-s",
   });
-  if (!services.ok) return fail(ctx.deps.io, services.error);
-  if (services.value) body.services = services.value;
+  if (!assembled.ok) return fail(ctx.deps.io, assembled.error);
+  const body = assembled.value;
 
   const withEnv = await applyDeployEnv(body, ctx.deps, yaml.value, {
     appEnvFile: flags.value.appEnvFile,

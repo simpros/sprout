@@ -20,8 +20,9 @@ export type PreviewPoller = {
 };
 
 /**
- * Poll GET /v1/preview until the deploy settles. Shared by `sprout deploy`
- * and `sprout ci reseed` — one interpretation of gateway status, one timeout.
+ * Poll GET /v1/preview until the deploy settles. Shared by `sprout deploy`,
+ * `sprout ci reseed`, and `sprout ci preview` — one interpretation of
+ * gateway status, one timeout.
  * Gateway error codes surface verbatim so CI fails with the real cause.
  */
 export async function pollPreviewReady<T extends DeploySnapshotFields>(
