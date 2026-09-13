@@ -80,8 +80,12 @@ _Avoid_: Client repo, tenant repo
 
 **.sprout.yaml**:
 The config-as-code file in an adopting repo: slug, preview hostname template,
-optional health-check settings, and optional companion service routing
-metadata.
+optional health-check settings, optional companion service routing
+metadata, optional `build`/`seed` image blocks (seed-as-manifest: `seed`
+drives `sprout ci preview` image build + after-healthy seed), and computed
+env values (`preview.app_env` / `seed.env` with `{hostname}` / `{pr_id}` /
+`{commit_sha}` interpolation, `{ generate: stable_per_pr }` secrets, and
+`{ required: true }` CI-supplied keys).
 _Avoid_: previewdb.yml, pb config
 
 **Seed image**:
@@ -90,8 +94,10 @@ gateway after the preview app is healthy, to populate the preview database.
 _Avoid_: Seeder image, seed container (use "seed image")
 
 **After-healthy hook**:
-The post-startup timing hook that runs once `health.expect` passes. In v0.1
-the only implementation is the optional seed image (`sprout deploy -s`).
+The post-startup timing hook that runs once `health.expect` passes. The
+adopting-repo path is seed-as-manifest (`seed:` in `.sprout.yaml` →
+`sprout ci preview` builds + pushes the seed image and deploys with it);
+the low-level equivalent is the optional seed image (`sprout deploy -s`).
 _Avoid_: after-startup hook, post-migrate hook (prefer "after-healthy")
 
 ### Clients & access

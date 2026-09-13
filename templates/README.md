@@ -8,8 +8,8 @@ log dump on failure) lives in the CLI — this file contains no reimplementation
 
 ## Adopter quickstart
 
-`.sprout.yaml` at the repo root (see `docs/adoption.md`), two masked CI
-variables, and one include. No adopter shell scripts:
+`.sprout.yaml` at the repo root (see `docs/adoption.md`), two required masked CI
+variables (plus optional `GITLAB_TOKEN` for MR notes), and one include. No adopter shell scripts:
 
 ```yaml
 # .gitlab-ci.yml
@@ -26,7 +26,7 @@ instance. The component declares both jobs:
 - `sprout-stop-preview` — `on_stop` teardown (environment Stop button, MR
   close/merge, `auto_stop_in` expiry).
 
-Required CI variables (project or group settings):
+CI variables (project or group settings):
 
 | Variable | Type | Masked | Purpose |
 |---|---|---|---|
