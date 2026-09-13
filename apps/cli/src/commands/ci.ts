@@ -71,17 +71,16 @@ export async function runCi(
     return printHelp(ctx);
   }
 
-  const identity =
-    subcommand === "preview"
-      ? await resolveCiPreviewIdentity(ctx.deps)
-      : await resolveCiIdentity(ctx.deps);
-  if (!identity.ok) return fail(ctx.deps.io, identity.error);
-
-  // `preview` lands in #120: short-circuit the stub before auth so a valid
-  // MR env without a token still reaches the not-implemented seam.
+  // `preview` lands in #120: resolve its identity, then fail directly
+  // without auth or the real dispatcher so the stub never fake-dispatches.
   if (subcommand === "preview") {
-    return dispatchCiSubcommand(subcommand, identity.value, rest, ctx);
+    const previewIdentity = await resolveCiPreviewIdentity(ctx.deps);
+    if (!previewIdentity.ok) return fail(ctx.deps.io, previewIdentity.error);
+    return fail(ctx.deps.io, "sprout ci preview is not implemented yet");
   }
+
+  const identity = await resolveCiIdentity(ctx.deps);
+  if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
   const client = await authedClient(ctx.deps);
   if (!client.ok) return fail(ctx.deps.io, client.error);

@@ -1,13 +1,10 @@
 import type { ApiClient, PreviewSnapshot } from "@sprout/api-client";
-import {
-  resolveHealthSpec,
-  resolveHostnameValue,
-} from "@sprout/preview-env";
+import { resolveHealthSpec } from "@sprout/preview-env";
 import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
 import { resolveAppEnvValues } from "../app-env-values.ts";
 import type { CliDeps } from "../context.ts";
 import { readEden } from "../eden.ts";
-import { hostnameIssueMessage } from "../hostname.ts";
+import { resolveDeployHostname } from "../hostname.ts";
 import { resolveCommitSha } from "../identity.ts";
 import type { Result } from "../result.ts";
 import type { DeployService } from "../services.ts";
@@ -33,23 +30,6 @@ export type DeployRequest = {
 };
 
 export type DeployIdentity = { repo: string; prId: number };
-
-/** Canonical hostname for `preview.hostname` / service hostnames. */
-export function resolveDeployHostname(
-  raw: string,
-  prId: number,
-  label: string,
-  mode: "required_template" | "static_or_template",
-): { ok: true; value: string } | { ok: false; error: string } {
-  const resolved = resolveHostnameValue(raw, prId, mode);
-  if (!resolved.ok) {
-    return {
-      ok: false,
-      error: hostnameIssueMessage(label, resolved.issue, { prId }),
-    };
-  }
-  return resolved;
-}
 
 /** Identity + yaml slug/hostname fields every deploy POST needs. */
 export function deployBaseFields(

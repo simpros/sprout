@@ -1,13 +1,13 @@
 import type { CliContext } from "../context.ts";
 import { fail, loadYaml, resolveIdentity } from "../context.ts";
 import { parseFlags } from "../flags.ts";
+import { resolveDeployHostname } from "../hostname.ts";
 import { mergeServices, type DeployService } from "../services.ts";
 import {
   applyDeployAppEnv,
   deployBaseFields,
   type DeployRequest,
   postDeployAndWait,
-  resolveDeployHostname,
 } from "./deploy-core.ts";
 
 export async function runDeploy(
