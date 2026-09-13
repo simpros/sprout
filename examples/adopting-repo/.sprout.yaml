@@ -6,3 +6,4 @@ health:
   interval: 2s
   timeout: 120s
   expect: 200
+seed: {}

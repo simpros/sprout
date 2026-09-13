@@ -1,0 +1,3 @@
+include:
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
+    inputs: { stage: deploy }
