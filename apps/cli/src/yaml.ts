@@ -28,13 +28,20 @@ export type SproutYamlService = {
   path?: string;
 };
 
+/** Plain string, or request a HMAC secret stable for the MR lifetime. */
+export type AppEnvValue = string | { generate: "stable_per_pr" };
+
 export type SproutYaml = {
   slug: string;
   preview: {
     hostname: string;
     env?: PreviewEnvMap;
-    /** Static adopter env for the app container (secrets via --app-env / --app-env-file). */
-    app_env?: Record<string, string>;
+    /**
+     * Adopter env for the app container. Strings may use `{hostname}`,
+     * `{pr_id}`, `{commit_sha}`; `{ generate: stable_per_pr }` derives a
+     * secret from the deploy token (secrets via --app-env / --app-env-file).
+     */
+    app_env?: Record<string, AppEnvValue>;
     /** Optional companion services (images usually via `--service`). */
     services?: SproutYamlService[];
   };
@@ -118,31 +125,65 @@ function parsePreviewEnv(
   return { ok: true, value: parsed.value };
 }
 
-/** Absent or empty map → undefined. Values must be strings (no secret store). */
+const APP_ENV_VALUE_HINT =
+  "must be a string or { generate: stable_per_pr }";
+
+/** Absent or empty map → undefined. Strings or `{ generate: stable_per_pr }`. */
 function parseAppEnv(
   raw: unknown,
-): Result<Record<string, string> | undefined> {
+): Result<Record<string, AppEnvValue> | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!isPlainObject(raw)) {
     return { ok: false, error: "preview.app_env must be a mapping" };
   }
-  const out: Record<string, string> = {};
+  const out: Record<string, AppEnvValue> = {};
   for (const [key, value] of Object.entries(raw)) {
     if (key.trim() === "") {
       return { ok: false, error: "preview.app_env key is required" };
     }
-    if (typeof value !== "string") {
-      return {
-        ok: false,
-        error: `preview.app_env.${key} must be a string`,
-      };
-    }
-    out[key] = value;
+    const parsed = parseAppEnvValue(key, value);
+    if (!parsed.ok) return parsed;
+    out[key] = parsed.value;
   }
   if (Object.keys(out).length === 0) {
     return { ok: true, value: undefined };
   }
   return { ok: true, value: out };
+}
+
+function parseAppEnvValue(
+  key: string,
+  value: unknown,
+): Result<AppEnvValue> {
+  if (typeof value === "string") {
+    return { ok: true, value };
+  }
+  if (!isPlainObject(value)) {
+    return {
+      ok: false,
+      error: `preview.app_env.${key} ${APP_ENV_VALUE_HINT}`,
+    };
+  }
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || keys[0] !== "generate") {
+    return {
+      ok: false,
+      error: `preview.app_env.${key} ${APP_ENV_VALUE_HINT}`,
+    };
+  }
+  if (value.generate === "stable_per_pr") {
+    return { ok: true, value: { generate: "stable_per_pr" } };
+  }
+  if (typeof value.generate === "string") {
+    return {
+      ok: false,
+      error: `preview.app_env.${key}: unknown generate kind: ${value.generate}`,
+    };
+  }
+  return {
+    ok: false,
+    error: `preview.app_env.${key} ${APP_ENV_VALUE_HINT}`,
+  };
 }
 
 /** Absent → undefined (leave). Empty list is rejected — use --clear-services. */

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   normalizeGitRemoteUrl,
   resolveCanonicalRepoId,
+  resolveCommitSha,
   resolveGithubPrId,
   resolveGitlabPrId,
   resolvePrId,
@@ -172,5 +173,25 @@ describe("resolvePrId", () => {
       error:
         "cannot derive pr id (GitHub pull_request event, GITHUB_REF, or CI_MERGE_REQUEST_IID)",
     });
+  });
+});
+
+describe("resolveCommitSha", () => {
+  test("reads GITHUB_SHA", () => {
+    expect(resolveCommitSha({ GITHUB_SHA: "abc123" })).toBe("abc123");
+  });
+
+  test("reads CI_COMMIT_SHA when GITHUB_SHA absent", () => {
+    expect(resolveCommitSha({ CI_COMMIT_SHA: "def456" })).toBe("def456");
+  });
+
+  test("prefers GITHUB_SHA over CI_COMMIT_SHA", () => {
+    expect(
+      resolveCommitSha({ GITHUB_SHA: "abc", CI_COMMIT_SHA: "def" }),
+    ).toBe("abc");
+  });
+
+  test("returns undefined when neither is set", () => {
+    expect(resolveCommitSha({})).toBeUndefined();
   });
 });

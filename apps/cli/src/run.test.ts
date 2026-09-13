@@ -424,7 +424,7 @@ slug: myapp
 preview:
   hostname: "pr-{pr_id}.example.com"
   app_env:
-    BETTER_AUTH_URL: "https://pr-static.example.com"
+    BETTER_AUTH_URL: "https://{hostname}"
     SHARED: from-yaml
 `);
     const code = await runCli(
@@ -451,7 +451,7 @@ preview:
     expect(code).toBe(0);
     expect(captured[0]?.body).toMatchObject({
       app_env: expect.arrayContaining([
-        "BETTER_AUTH_URL=https://pr-static.example.com",
+        "BETTER_AUTH_URL=https://pr-9.example.com",
         "BETTER_AUTH_SECRET=sekrit",
         "SHARED=from-cli",
       ]),
