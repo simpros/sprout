@@ -1,0 +1,173 @@
+# sprout `preview` component — thin CLI bootstrapper (GitLab CI/CD component).
+#
+# Adopters include this file and declare two CI variables; all preview logic
+# lives in the CLI (`sprout ci preview` / `sprout ci teardown`). This file
+# only installs the pinned, checksum-verified binary and calls it.
+#
+#   include:
+#     - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
+#       inputs: { stage: deploy }
+#
+# Full reference: templates/README.md. Remote-include fallback (same file,
+# explicit sprout_version): templates/README.md#remote-include-fallback.
+#
+# Conventions (per GitLab component guidance):
+# - no global keywords (`default:`, `variables:` at top level); both jobs
+#   carry their own image/variables via `.sprout-cli`.
+# - no hardcoded stage: both jobs use `inputs.stage`.
+# - `sprout_version` defaults to the release tag shipping this file; the
+#   source carries the sentinel `@SPROUT_COMPONENT_VERSION@`, which the
+#   release pipeline replaces with the tag it publishes, so the
+#   component version and the binary version coincide. Override to pin or
+#   trial a different CLI build.
+spec:
+  inputs:
+    sprout_version:
+      description: "sprout release tag to install (e.g. v0.6.0). The published component pins this to the release shipping the file; override to pin or trial another CLI build. Remote includes must set this explicitly."
+      default: "@SPROUT_COMPONENT_VERSION@"
+    stage:
+      description: "Pipeline stage for both the deploy and the on_stop teardown jobs."
+      default: "deploy"
+    sprout_url:
+      description: "Gateway URL. When empty, $SPROUT_URL (masked CI variable) is used."
+      default: ""
+    app_context:
+      description: "Working directory holding .sprout.yaml; the CLI builds images (docker build … .) and resolves Dockerfiles relative to it."
+      default: "."
+    auto_stop_in:
+      description: "GitLab environment expiry for the preview (e.g. 1 week, 3 days)."
+      default: "1 week"
+    app_env_file:
+      description: "Optional project-root-relative dotenv file passed as --app-env-file (in addition to the SPROUT_APP_ENV file-type variable the CLI reads automatically). Resolved against the project root before cd into app_context."
+      default: ""
+    seed_env_file:
+      description: "Optional project-root-relative seed dotenv file passed as --seed-env-file. Resolved against the project root before cd into app_context."
+      default: ""
+    dotenv_file:
+      description: "Dotenv artifact path (project-root-relative) the CLI writes PREVIEW_URL= to for environment:url."
+      default: "sprout-preview.env"
+    tail:
+      description: "Gateway log lines printed when sprout ci preview fails."
+      default: "200"
+---
+
+# Shared CLI bootstrap: credentials + checksum-verified install. Hidden
+# (dot-prefixed) so it never runs as a job itself. Runs on a minimal Alpine
+# image: teardown is gateway HTTP and never needs a Docker client. Only the
+# preview job gets Docker (it overrides the image and adds the daemon below).
+# Teardown must never pay for dind, a Docker pull, or a registry login.
+.sprout-cli:
+  image: alpine:3.20
+  before_script:
+    - |
+      set -eu
+      SPROUT_VERSION="$[[ inputs.sprout_version ]]"
+      if [ -z "$SPROUT_VERSION" ]; then
+        echo "sprout_version input is empty (remote includes must set it explicitly)" >&2
+        exit 1
+      fi
+      # Unpinned sentinel (remote includes ship the source default verbatim):
+      # anything still wrapped in @…@ was never pinned — fail with a pointer
+      # instead of curling `.../download/@…@/…` into a 404. Matched by shape,
+      # not by the literal sentinel, so the release pin rewrite can never
+      # touch this branch.
+      case "$SPROUT_VERSION" in
+        "@"*@)
+          echo "sprout_version input is unpinned (remote includes must set sprout_version explicitly to the tag in the URL)" >&2
+          exit 1
+          ;;
+      esac
+      # Gateway credentials: explicit input wins, masked CI variables otherwise.
+      INPUT_SPROUT_URL="$[[ inputs.sprout_url ]]"
+      if [ -n "$INPUT_SPROUT_URL" ]; then
+        SPROUT_URL="$INPUT_SPROUT_URL"
+      fi
+      : "${SPROUT_URL:?Set the SPROUT_URL CI variable (masked) or the sprout_url input.}"
+      : "${SPROUT_TOKEN:?Set the SPROUT_TOKEN CI variable (masked).}"
+      export SPROUT_URL
+      # Prerequisites live inside the component: adopters declare no packages.
+      apk add --no-cache curl ca-certificates libstdc++ >/dev/null
+      # Pinned, checksum-verified binary (musl asset: this job image is Alpine).
+      INSTALL_TMP="$(mktemp -d)"
+      curl -fsSL -o "$INSTALL_TMP/sprout" \
+        "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/sprout-linux-x64-musl"
+      curl -fsSL -o "$INSTALL_TMP/SHA256SUMS.txt" \
+        "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/SHA256SUMS.txt"
+      SUM_LINE="$(grep -c ' sprout-linux-x64-musl$' "$INSTALL_TMP/SHA256SUMS.txt" || true)"
+      if [ "$SUM_LINE" != "1" ]; then
+        echo "checksum entry missing for sprout-linux-x64-musl in ${SPROUT_VERSION}/SHA256SUMS.txt (release predates checksum publishing?)" >&2
+        exit 1
+      fi
+      (cd "$INSTALL_TMP" && grep ' sprout-linux-x64-musl$' SHA256SUMS.txt | sha256sum -c -)
+      install -m 0755 "$INSTALL_TMP/sprout" /usr/local/bin/sprout
+      test "$(sprout --version)" = "$SPROUT_VERSION"
+
+# Preview-only Docker shape lives on the only job that needs it: the image
+# builds inside `sprout ci preview` need a client + daemon. The stop job
+# extends `.sprout-cli` directly.
+sprout-preview:
+  extends: .sprout-cli
+  image: docker:24
+  services:
+    - name: docker:24-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  stage: $[[ inputs.stage ]]
+  interruptible: false
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+  artifacts:
+    reports:
+      dotenv: $[[ inputs.dotenv_file ]]
+  environment:
+    name: preview/mr-$CI_MERGE_REQUEST_IID
+    url: $PREVIEW_URL
+    on_stop: sprout-stop-preview
+    auto_stop_in: $[[ inputs.auto_stop_in ]]
+  script:
+    - |
+      set -eu
+      # Predefined registry credentials when the project registry is enabled.
+      # Lives here (not in the shared bootstrap): only the preview build
+      # pushes images, so teardown never pays for a registry login.
+      if [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
+        echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+      fi
+      APP_CONTEXT="$[[ inputs.app_context ]]"
+      DOTENV_FILE="$[[ inputs.dotenv_file ]]"
+      TAIL="$[[ inputs.tail ]]"
+      APP_ENV_FILE="$[[ inputs.app_env_file ]]"
+      SEED_ENV_FILE="$[[ inputs.seed_env_file ]]"
+      # All path-shaped inputs are project-root-relative (same contract as
+      # dotenv_file): resolve them before `cd`, since `cd "$APP_CONTEXT"`
+      # would otherwise relocate relative env paths under app_context.
+      abs() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$CI_PROJECT_DIR/$1" ;; esac; }
+      DOTENV_FILE="$(abs "$DOTENV_FILE")"
+      if [ -n "$APP_ENV_FILE" ]; then APP_ENV_FILE="$(abs "$APP_ENV_FILE")"; fi
+      if [ -n "$SEED_ENV_FILE" ]; then SEED_ENV_FILE="$(abs "$SEED_ENV_FILE")"; fi
+      cd "$APP_CONTEXT"
+      # The preview URL comes from the CLI's dotenv output only; never
+      # reconstruct the hostname here (the CLI owns {pr_id} substitution).
+      set -- --tail "$TAIL" --dotenv-file "$DOTENV_FILE"
+      if [ -n "$APP_ENV_FILE" ]; then set -- "$@" --app-env-file "$APP_ENV_FILE"; fi
+      if [ -n "$SEED_ENV_FILE" ]; then set -- "$@" --seed-env-file "$SEED_ENV_FILE"; fi
+      sprout ci preview "$@"
+
+sprout-stop-preview:
+  extends: .sprout-cli
+  stage: $[[ inputs.stage ]]
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+  environment:
+    name: preview/mr-$CI_MERGE_REQUEST_IID
+    action: stop
+  script:
+    - |
+      set -eu
+      # Teardown takes no flags and runs at $CI_PROJECT_DIR: identity comes
+      # from CI env only, so there is nothing to carry over from the preview
+      # job (no working-directory jump, no dotenv/extra args).
+      sprout ci teardown
