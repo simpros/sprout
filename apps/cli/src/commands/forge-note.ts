@@ -388,7 +388,7 @@ export async function publishPreviewNote(
   identity: CiIdentity,
   previewUrl: string,
 ): Promise<Result<void>> {
-  const sha = resolveCommitSha(deps.env);
+  const sha = resolveCommitSha(deps.env, identity.forge);
   return upsertForgeNote(
     deps,
     identity,
@@ -401,7 +401,7 @@ export async function publishTeardownNote(
   deps: CliDeps,
   identity: CiIdentity,
 ): Promise<Result<void>> {
-  const sha = resolveCommitSha(deps.env);
+  const sha = resolveCommitSha(deps.env, identity.forge);
   return upsertForgeNote(
     deps,
     identity,

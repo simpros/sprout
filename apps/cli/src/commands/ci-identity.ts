@@ -49,13 +49,12 @@ export function requireCiSource(env: NodeJS.ProcessEnv): Result<CiSource> {
     };
   }
 
-  if (githubPositive) {
+  if (githubEvent === "pull_request" || githubEvent === "pull_request_target") {
     return {
       ok: true,
       value: {
         forge: "github",
-        pipelineSource:
-          githubEvent as "pull_request" | "pull_request_target",
+        pipelineSource: githubEvent,
       },
     };
   }

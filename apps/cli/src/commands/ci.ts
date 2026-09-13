@@ -3,8 +3,6 @@ import { authedClient, fail } from "../context.ts";
 import {
   resolveCiIdentity,
   resolveCiPreviewIdentity,
-  type CiIdentity,
-  type CiPreviewIdentity,
 } from "./ci-identity.ts";
 import { runCiLogs } from "./ci-logs.ts";
 import { runCiPreview } from "./ci-preview.ts";
@@ -71,37 +69,32 @@ export async function runCi(
   }
 
   // Identity resolves before auth so outside-pipeline errors win over
-  // missing-token. The token resolves once here and the authed client is
-  // handed down — subcommands never touch token env vars themselves.
-  let identity: CiIdentity;
-  let previewIdentity: CiPreviewIdentity | undefined;
+  // missing-token. The preview path returns early so its identity never
+  // widens to `| undefined` at the call site.
   if (subcommand === "preview") {
     const preview = await resolveCiPreviewIdentity(ctx.deps);
     if (!preview.ok) return fail(ctx.deps.io, preview.error);
-    previewIdentity = preview.value;
-    identity = preview.value;
-  } else {
-    const base = await resolveCiIdentity(ctx.deps);
-    if (!base.ok) return fail(ctx.deps.io, base.error);
-    identity = base.value;
+    const client = await authedClient(ctx.deps);
+    if (!client.ok) return fail(ctx.deps.io, client.error);
+    return runCiPreview(preview.value, rest, {
+      deps: ctx.deps,
+      client: client.value,
+    });
   }
+
+  const identity = await resolveCiIdentity(ctx.deps);
+  if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
   const client = await authedClient(ctx.deps);
   if (!client.ok) return fail(ctx.deps.io, client.error);
 
   const subCtx = { deps: ctx.deps, client: client.value };
   switch (subcommand) {
-    case "preview":
-      return runCiPreview(
-        previewIdentity as CiPreviewIdentity,
-        rest,
-        subCtx,
-      );
     case "teardown":
-      return runCiTeardown(identity, rest, subCtx);
+      return runCiTeardown(identity.value, rest, subCtx);
     case "reseed":
-      return runCiReseed(identity, rest, subCtx);
+      return runCiReseed(identity.value, rest, subCtx);
     case "logs":
-      return runCiLogs(identity, rest, subCtx);
+      return runCiLogs(identity.value, rest, subCtx);
   }
 }

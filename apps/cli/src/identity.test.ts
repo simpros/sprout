@@ -4,6 +4,7 @@ import {
   resolveCanonicalRepoId,
   resolveCommitSha,
   resolvePrId,
+  resolvePrIdAny,
   resolveRepoForForge,
 } from "./identity.ts";
 
@@ -137,47 +138,54 @@ describe("resolvePrId with strict forge", () => {
   });
 });
 
-describe("resolvePrId with forge any (deploy path)", () => {
+describe("resolvePrIdAny (deploy path)", () => {
   test("reads GitHub pull request event payload", () => {
     expect(
-      resolvePrId({
+      resolvePrIdAny({
         env: {},
         eventPayload: { pull_request: { number: 42 } },
-        forge: "any",
       }),
     ).toEqual({ ok: true, value: 42 });
   });
 
   test("reads GitHub issue/PR number from event", () => {
     expect(
-      resolvePrId({
+      resolvePrIdAny({
         env: {},
         eventPayload: { number: 7 },
-        forge: "any",
       }),
     ).toEqual({ ok: true, value: 7 });
   });
 
   test("parses GITHUB_REF pull ref", () => {
     expect(
-      resolvePrId({
+      resolvePrIdAny({
         env: { GITHUB_REF: "refs/pull/99/merge" },
-        forge: "any",
       }),
     ).toEqual({ ok: true, value: 99 });
   });
 
   test("reads GitLab CI_MERGE_REQUEST_IID", () => {
     expect(
-      resolvePrId({
+      resolvePrIdAny({
         env: { CI_MERGE_REQUEST_IID: "12" },
-        forge: "any",
       }),
     ).toEqual({ ok: true, value: 12 });
   });
 
+  test("prefers GitHub over GitLab when both present", () => {
+    expect(
+      resolvePrIdAny({
+        env: {
+          GITHUB_REF: "refs/pull/99/merge",
+          CI_MERGE_REQUEST_IID: "12",
+        },
+      }),
+    ).toEqual({ ok: true, value: 99 });
+  });
+
   test("errors when missing", () => {
-    expect(resolvePrId({ env: {}, forge: "any" })).toEqual({
+    expect(resolvePrIdAny({ env: {} })).toEqual({
       ok: false,
       error:
         "cannot derive pr id (GitHub pull_request event, GITHUB_REF, or CI_MERGE_REQUEST_IID)",
@@ -194,7 +202,7 @@ describe("resolveCommitSha", () => {
     expect(resolveCommitSha({ CI_COMMIT_SHA: "def456" })).toBe("def456");
   });
 
-  test("prefers GITHUB_SHA over CI_COMMIT_SHA", () => {
+  test("prefers GITHUB_SHA over CI_COMMIT_SHA when forge unknown", () => {
     expect(
       resolveCommitSha({ GITHUB_SHA: "abc", CI_COMMIT_SHA: "def" }),
     ).toBe("abc");
@@ -202,5 +210,19 @@ describe("resolveCommitSha", () => {
 
   test("returns undefined when neither is set", () => {
     expect(resolveCommitSha({})).toBeUndefined();
+  });
+
+  test("forge-scoped github ignores CI_COMMIT_SHA", () => {
+    expect(
+      resolveCommitSha({ GITHUB_SHA: "abc", CI_COMMIT_SHA: "def" }, "github"),
+    ).toBe("abc");
+    expect(resolveCommitSha({ CI_COMMIT_SHA: "def" }, "github")).toBeUndefined();
+  });
+
+  test("forge-scoped gitlab ignores GITHUB_SHA", () => {
+    expect(
+      resolveCommitSha({ GITHUB_SHA: "abc", CI_COMMIT_SHA: "def" }, "gitlab"),
+    ).toBe("def");
+    expect(resolveCommitSha({ GITHUB_SHA: "abc" }, "gitlab")).toBeUndefined();
   });
 });
