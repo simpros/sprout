@@ -225,6 +225,24 @@ describe("preview component shell syntax", () => {
     }
   });
 
+  test("checksum verifies the downloaded asset via a single ASSET binding", () => {
+    const base = cliBeforeScript();
+    // Regression (#146): the binary was downloaded as `$INSTALL_TMP/sprout`
+    // but verified as `sprout-linux-x64-musl`, so `sha256sum -c` could never
+    // find the file. The asset basename now lives in exactly one `ASSET=`
+    // assignment; download, checksum, and install all reuse it, so the names
+    // cannot diverge without an explicit second assignment.
+    const assignments = [...base.matchAll(/^ *ASSET=(\S+)/gm)].map((m) => m[1]);
+    expect(assignments).toEqual(["sprout-linux-x64-musl"]);
+    expect(base).toContain('curl -fsSL -o "$INSTALL_TMP/$ASSET"');
+    expect(base).toContain(
+      '"https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/$ASSET"',
+    );
+    expect(base).toContain('grep -c " ${ASSET}$"');
+    expect(base).toContain('grep " ${ASSET}$" SHA256SUMS.txt | sha256sum -c -');
+    expect(base).toContain('install -m 0755 "$INSTALL_TMP/$ASSET"');
+  });
+
   test("unpinned sentinel fails fast with a pointer (remote includes)", async () => {
     const base = cliBeforeScript();
     const start = base.indexOf('case "$SPROUT_VERSION" in');

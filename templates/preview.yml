@@ -88,18 +88,19 @@ spec:
       # Prerequisites live inside the component: adopters declare no packages.
       apk add --no-cache curl ca-certificates libstdc++ >/dev/null
       # Pinned, checksum-verified binary (musl asset: this job image is Alpine).
+      ASSET=sprout-linux-x64-musl
       INSTALL_TMP="$(mktemp -d)"
-      curl -fsSL -o "$INSTALL_TMP/sprout" \
-        "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/sprout-linux-x64-musl"
+      curl -fsSL -o "$INSTALL_TMP/$ASSET" \
+        "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/$ASSET"
       curl -fsSL -o "$INSTALL_TMP/SHA256SUMS.txt" \
         "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/SHA256SUMS.txt"
-      SUM_LINE="$(grep -c ' sprout-linux-x64-musl$' "$INSTALL_TMP/SHA256SUMS.txt" || true)"
+      SUM_LINE="$(grep -c " ${ASSET}$" "$INSTALL_TMP/SHA256SUMS.txt" || true)"
       if [ "$SUM_LINE" != "1" ]; then
-        echo "checksum entry missing for sprout-linux-x64-musl in ${SPROUT_VERSION}/SHA256SUMS.txt (release predates checksum publishing?)" >&2
+        echo "checksum entry missing for $ASSET in ${SPROUT_VERSION}/SHA256SUMS.txt (release predates checksum publishing?)" >&2
         exit 1
       fi
-      (cd "$INSTALL_TMP" && grep ' sprout-linux-x64-musl$' SHA256SUMS.txt | sha256sum -c -)
-      install -m 0755 "$INSTALL_TMP/sprout" /usr/local/bin/sprout
+      (cd "$INSTALL_TMP" && grep " ${ASSET}$" SHA256SUMS.txt | sha256sum -c -)
+      install -m 0755 "$INSTALL_TMP/$ASSET" /usr/local/bin/sprout
       test "$(sprout --version)" = "$SPROUT_VERSION"
 
 # Preview-only Docker shape lives on the only job that needs it: the image
