@@ -67,8 +67,8 @@ Prerequisites on the GitLab side:
 | `sprout_url` | `""` (use `$SPROUT_URL`) | Gateway URL override. |
 | `app_context` | `.` | Directory holding `.sprout.yaml`; the CLI builds (`docker build … .`) and resolves Dockerfiles relative to it. |
 | `auto_stop_in` | `1 week` | `environment:auto_stop_in` for the preview. |
-| `app_env_file` | `""` | Extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). |
-| `seed_env_file` | `""` | Extra seed dotenv file passed as `--seed-env-file` (on top of `SPROUT_SEED_ENV`). |
+| `app_env_file` | `""` | Project-root-relative extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). Resolved before `cd` into `app_context`, same rule as `dotenv_file`. |
+| `seed_env_file` | `""` | Project-root-relative extra seed dotenv file passed as `--seed-env-file` (on top of `SPROUT_SEED_ENV`). Same rule. |
 | `dotenv_file` | `sprout-preview.env` | Project-root-relative dotenv artifact carrying `PREVIEW_URL` to `environment:url`. Parent directories must already exist (a bare filename always works). |
 | `tail` | `200` | Gateway log lines printed when `sprout ci preview` fails. |
 

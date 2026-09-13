@@ -35,18 +35,20 @@ describe("preview component contract", () => {
     expect(spec.inputs.sprout_version.default).toBe("@SPROUT_COMPONENT_VERSION@");
   });
 
-  test("job graph: preview gets docker+dind via the shared base, stop is install-only on alpine", () => {
+  test("job graph: preview carries docker+dind directly, stop is install-only on alpine", () => {
     const { jobs } = componentDocs();
-    expect(jobs[".sprout-preview-base"].extends).toBe(".sprout-cli");
-    expect(jobs["sprout-preview"].extends).toBe(".sprout-preview-base");
+    expect(jobs["sprout-preview"].extends).toBe(".sprout-cli");
     expect(jobs["sprout-stop-preview"].extends).toBe(".sprout-cli");
+    // No single-consumer middle layer: the Docker shape sits on the only job
+    // that needs it.
+    expect(jobs).not.toHaveProperty(".sprout-preview-base");
     // Image boundary: the shared CLI base is a minimal Alpine image so
-    // teardown never pulls a Docker client; only the preview path overrides
+    // teardown never pulls a Docker client; only the preview job overrides
     // to docker:24.
     expect(jobs[".sprout-cli"].image).toBe("alpine:3.20");
-    expect(jobs[".sprout-preview-base"].image).toBe("docker:24");
-    // dind lives only on the preview path: teardown never starts a daemon.
-    expect(jobs[".sprout-preview-base"].services).toEqual([
+    expect(jobs["sprout-preview"].image).toBe("docker:24");
+    // dind lives only on the preview job: teardown never starts a daemon.
+    expect(jobs["sprout-preview"].services).toEqual([
       expect.objectContaining({ name: "docker:24-dind" }),
     ]);
     expect(jobs[".sprout-cli"]).not.toHaveProperty("services");
@@ -62,6 +64,24 @@ describe("preview component contract", () => {
     const stop = stopScript();
     expect(stop).toContain("sprout ci teardown");
     expect(stop).not.toContain("app_context");
+  });
+
+  test("all path-shaped inputs resolve project-root-relative, before cd into app_context", () => {
+    const script = previewScript();
+    // dotenv_file, app_env_file, and seed_env_file share one relativity rule:
+    // an `abs` helper prefixes $CI_PROJECT_DIR, applied before `cd`, so a
+    // relative env path is never relocated under app_context.
+    expect(script).toContain("$CI_PROJECT_DIR/$1");
+    expect(script).toContain('DOTENV_FILE="$(abs "$DOTENV_FILE")"');
+    expect(script).toContain('APP_ENV_FILE="$(abs "$APP_ENV_FILE")"');
+    expect(script).toContain('SEED_ENV_FILE="$(abs "$SEED_ENV_FILE")"');
+    // Resolution happens before the working-directory jump. (Match the `cd`
+    // command at line start: the comment above it quotes the same text.)
+    expect(script.indexOf('DOTENV_FILE="$(abs')).toBeLessThan(
+      script.indexOf('\ncd "$APP_CONTEXT"'),
+    );
+    expect(script).toContain("--app-env-file");
+    expect(script).toContain("--seed-env-file");
   });
 
   test("deploy job runs sprout ci preview; stop job runs teardown", () => {
@@ -173,14 +193,13 @@ function interpolateInputs(script: string): string {
 describe("preview component shell syntax", () => {
   test("preview.yml parses as multi-doc YAML with all three scripts", () => {
     const { jobs } = componentDocs();
-    // .sprout-cli before_script + preview script + stop script. The
-    // preview-only base carries services/extends but no shell of its own —
-    // locking that split keeps teardown off the dind path.
+    // .sprout-cli before_script + preview script + stop script. The preview
+    // job carries its own Docker image/services/variables directly (no
+    // single-consumer middle layer) so teardown stays off the dind path.
     expect(Object.keys(jobs).sort()).toEqual(
-      [".sprout-cli", ".sprout-preview-base", "sprout-preview", "sprout-stop-preview"].sort(),
+      [".sprout-cli", "sprout-preview", "sprout-stop-preview"].sort(),
     );
-    expect(jobs[".sprout-preview-base"]).not.toHaveProperty("before_script");
-    expect(jobs[".sprout-preview-base"]).not.toHaveProperty("script");
+    expect(jobs["sprout-preview"]).toHaveProperty("services");
     cliBeforeScript();
     previewScript();
     stopScript();

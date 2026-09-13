@@ -38,10 +38,10 @@ spec:
       description: "GitLab environment expiry for the preview (e.g. 1 week, 3 days)."
       default: "1 week"
     app_env_file:
-      description: "Optional extra dotenv file passed as --app-env-file (in addition to the SPROUT_APP_ENV file-type variable the CLI reads automatically)."
+      description: "Optional project-root-relative dotenv file passed as --app-env-file (in addition to the SPROUT_APP_ENV file-type variable the CLI reads automatically). Resolved against the project root before cd into app_context."
       default: ""
     seed_env_file:
-      description: "Optional extra seed dotenv file passed as --seed-env-file."
+      description: "Optional project-root-relative seed dotenv file passed as --seed-env-file. Resolved against the project root before cd into app_context."
       default: ""
     dotenv_file:
       description: "Dotenv artifact path (project-root-relative) the CLI writes PREVIEW_URL= to for environment:url."
@@ -54,9 +54,8 @@ spec:
 # Shared CLI bootstrap: credentials + checksum-verified install. Hidden
 # (dot-prefixed) so it never runs as a job itself. Runs on a minimal Alpine
 # image: teardown is gateway HTTP and never needs a Docker client. Only the
-# preview job gets Docker (via `.sprout-preview-base` below, which overrides
-# the image and adds the daemon). Teardown must never pay for dind, a Docker
-# pull, or a registry login.
+# preview job gets Docker (it overrides the image and adds the daemon below).
+# Teardown must never pay for dind, a Docker pull, or a registry login.
 .sprout-cli:
   image: alpine:3.20
   before_script:
@@ -103,9 +102,10 @@ spec:
       install -m 0755 "$INSTALL_TMP/sprout" /usr/local/bin/sprout
       test "$(sprout --version)" = "$SPROUT_VERSION"
 
-# Preview-only shape: Docker client + daemon for the image builds inside
-# `sprout ci preview`. The stop job extends `.sprout-cli` directly.
-.sprout-preview-base:
+# Preview-only Docker shape lives on the only job that needs it: the image
+# builds inside `sprout ci preview` need a client + daemon. The stop job
+# extends `.sprout-cli` directly.
+sprout-preview:
   extends: .sprout-cli
   image: docker:24
   services:
@@ -114,9 +114,6 @@ spec:
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
-
-sprout-preview:
-  extends: .sprout-preview-base
   stage: $[[ inputs.stage ]]
   interruptible: false
   rules:
@@ -143,11 +140,17 @@ sprout-preview:
       TAIL="$[[ inputs.tail ]]"
       APP_ENV_FILE="$[[ inputs.app_env_file ]]"
       SEED_ENV_FILE="$[[ inputs.seed_env_file ]]"
+      # All path-shaped inputs are project-root-relative (same contract as
+      # dotenv_file): resolve them before `cd`, since `cd "$APP_CONTEXT"`
+      # would otherwise relocate relative env paths under app_context.
+      abs() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$CI_PROJECT_DIR/$1" ;; esac; }
+      DOTENV_FILE="$(abs "$DOTENV_FILE")"
+      if [ -n "$APP_ENV_FILE" ]; then APP_ENV_FILE="$(abs "$APP_ENV_FILE")"; fi
+      if [ -n "$SEED_ENV_FILE" ]; then SEED_ENV_FILE="$(abs "$SEED_ENV_FILE")"; fi
       cd "$APP_CONTEXT"
       # The preview URL comes from the CLI's dotenv output only; never
       # reconstruct the hostname here (the CLI owns {pr_id} substitution).
-      # --dotenv-file is absolute so app_context never moves the artifact.
-      set -- --tail "$TAIL" --dotenv-file "$CI_PROJECT_DIR/$DOTENV_FILE"
+      set -- --tail "$TAIL" --dotenv-file "$DOTENV_FILE"
       if [ -n "$APP_ENV_FILE" ]; then set -- "$@" --app-env-file "$APP_ENV_FILE"; fi
       if [ -n "$SEED_ENV_FILE" ]; then set -- "$@" --seed-env-file "$SEED_ENV_FILE"; fi
       sprout ci preview "$@"
