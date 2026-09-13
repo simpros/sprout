@@ -36,6 +36,16 @@ export type DeployRequest = {
   reseed?: boolean;
 };
 
+/**
+ * `ci reseed` body: wire `services` has three meanings (absent = leave
+ * companions, `[]` = clear, `[...]` = replace) and reseed must always
+ * leave. A type that cannot carry `services` makes "leave" the default
+ * instead of a forgotten field plus a comment.
+ */
+export type ReseedRequest = Omit<DeployRequest, "services"> & {
+  reseed: true;
+};
+
 export type DeployIdentity = { repo: string; prId: number };
 
 /** Identity + yaml slug/hostname fields every deploy POST needs. */
@@ -85,12 +95,12 @@ export type DeployEnvInputs = {
  * (`expandAppEnvValue`); `{ required: true }` keys missing after all layers
  * fail naming the key. Returns a new body; `body` is treated as read-only.
  */
-export async function applyDeployAppEnv(
-  body: DeployRequest,
+export async function applyDeployEnv<T extends DeployRequest>(
+  body: T,
   deps: CliDeps,
   yaml: SproutYaml,
   inputs: DeployEnvInputs,
-): Promise<Result<DeployRequest>> {
+): Promise<Result<T>> {
   const [appEnvFiles, seedEnvFiles] = await Promise.all([
     readEnvFiles(deps, "SPROUT_APP_ENV", inputs.appEnvFile, "--app-env-file"),
     readEnvFiles(

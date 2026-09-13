@@ -1,7 +1,6 @@
 import type { CliContext } from "../context.ts";
 import { authedClient, fail } from "../context.ts";
 import {
-  type CiIdentity,
   resolveCiIdentity,
   resolveCiPreviewIdentity,
 } from "./ci-identity.ts";
@@ -21,41 +20,23 @@ CI command group — infers repo, PR/MR id, and pipeline source from the CI env.
             sprout ci logs [--tail N]
 `;
 
-const SUBCOMMANDS = new Set(["preview", "teardown", "reseed", "logs"]);
+type CiSubcommand = "preview" | "teardown" | "reseed" | "logs";
 
-/** Subcommands with real handlers. `preview` early-returns as a stub in runCi. */
-type ImplementedCiSubcommand = "teardown" | "reseed" | "logs";
-
-function isImplemented(
-  subcommand: string,
-): subcommand is ImplementedCiSubcommand {
-  return (
-    subcommand === "teardown" ||
-    subcommand === "reseed" ||
-    subcommand === "logs"
-  );
+function parseCiSubcommand(token: string): CiSubcommand | null {
+  switch (token) {
+    case "preview":
+    case "teardown":
+    case "reseed":
+    case "logs":
+      return token;
+    default:
+      return null;
+  }
 }
 
 function printHelp(ctx: CliContext): number {
   ctx.deps.io.stdout(CI_HELP.trimEnd());
   return 0;
-}
-
-/** Implemented handlers only — `preview` never reaches here (stub in runCi). */
-async function dispatchCiSubcommand(
-  subcommand: ImplementedCiSubcommand,
-  identity: CiIdentity,
-  tokens: string[],
-  ctx: CliContext,
-): Promise<number> {
-  switch (subcommand) {
-    case "teardown":
-      return runCiTeardown(identity, tokens, ctx);
-    case "reseed":
-      return runCiReseed(identity, tokens, ctx);
-    case "logs":
-      return runCiLogs(identity, tokens, ctx);
-  }
 }
 
 /**
@@ -66,12 +47,17 @@ export async function runCi(
   tokens: string[],
   ctx: CliContext,
 ): Promise<number> {
-  const [subcommand = "", ...rest] = tokens;
-  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+  const [subcommandToken = "", ...rest] = tokens;
+  if (
+    !subcommandToken ||
+    subcommandToken === "--help" ||
+    subcommandToken === "-h"
+  ) {
     return printHelp(ctx);
   }
 
-  if (!SUBCOMMANDS.has(subcommand)) {
+  const subcommand = parseCiSubcommand(subcommandToken);
+  if (!subcommand) {
     return fail(ctx.deps.io, CI_HELP.trimEnd());
   }
 
@@ -80,17 +66,11 @@ export async function runCi(
   }
 
   // `preview` lands in #120: resolve its identity, then fail directly
-  // without auth or the real dispatcher so the stub never fake-dispatches.
+  // without auth so the stub never fake-dispatches.
   if (subcommand === "preview") {
     const previewIdentity = await resolveCiPreviewIdentity(ctx.deps);
     if (!previewIdentity.ok) return fail(ctx.deps.io, previewIdentity.error);
     return fail(ctx.deps.io, "sprout ci preview is not implemented yet");
-  }
-
-  if (!isImplemented(subcommand)) {
-    // Unreachable: SUBCOMMANDS admitted only preview plus the implemented
-    // handlers, and preview returned above. Stay total for the type guard.
-    return fail(ctx.deps.io, CI_HELP.trimEnd());
   }
 
   const identity = await resolveCiIdentity(ctx.deps);
@@ -99,8 +79,13 @@ export async function runCi(
   const client = await authedClient(ctx.deps);
   if (!client.ok) return fail(ctx.deps.io, client.error);
 
-  return dispatchCiSubcommand(subcommand, identity.value, rest, {
-    deps: ctx.deps,
-    client: client.value,
-  });
+  const subCtx = { deps: ctx.deps, client: client.value };
+  switch (subcommand) {
+    case "teardown":
+      return runCiTeardown(identity.value, rest, subCtx);
+    case "reseed":
+      return runCiReseed(identity.value, rest, subCtx);
+    case "logs":
+      return runCiLogs(identity.value, rest, subCtx);
+  }
 }

@@ -4,9 +4,9 @@ import { parseFlags } from "../flags.ts";
 import type { CiIdentity } from "./ci-identity.ts";
 import { resolveImageRef } from "./ci-identity.ts";
 import {
-  applyDeployAppEnv,
+  applyDeployEnv,
   deployBaseFields,
-  type DeployRequest,
+  type ReseedRequest,
   postDeployAndWait,
 } from "./deploy-core.ts";
 
@@ -17,7 +17,8 @@ import {
  * takes the seed-resume path — rows/sessions created between deploys stay
  * intact and no credential rotates (same yaml + flags in, same env out).
  *
- * Does not send `services` — companions stay as last deployed.
+ * The body is a `ReseedRequest`, which cannot carry `services` — companions
+ * stay as last deployed by construction, not by remembering to omit a field.
  */
 export async function runCiReseed(
   identity: CiIdentity,
@@ -58,7 +59,7 @@ export async function runCiReseed(
   const base = deployBaseFields(yaml.value, identity);
   if (!base.ok) return fail(ctx.deps.io, base.error);
 
-  const body: DeployRequest = {
+  const body: ReseedRequest = {
     ...base.value,
     app_image: imageRef.value,
     health: yaml.value.health,
@@ -68,7 +69,7 @@ export async function runCiReseed(
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  const withEnv = await applyDeployAppEnv(body, ctx.deps, yaml.value, {
+  const withEnv = await applyDeployEnv(body, ctx.deps, yaml.value, {
     appEnvFile: flags.value.appEnvFile,
     appEnv: flags.value.appEnv,
     seedEnvFile: flags.value.seedEnvFile,

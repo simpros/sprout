@@ -4,7 +4,7 @@ import { parseFlags } from "../flags.ts";
 import { resolveDeployHostname } from "../hostname.ts";
 import { mergeServices, type DeployService } from "../services.ts";
 import {
-  applyDeployAppEnv,
+  applyDeployEnv,
   deployBaseFields,
   type DeployRequest,
   postDeployAndWait,
@@ -104,7 +104,7 @@ export async function runDeploy(
     }
   }
 
-  const withEnv = await applyDeployAppEnv(body, ctx.deps, yaml.value, {
+  const withEnv = await applyDeployEnv(body, ctx.deps, yaml.value, {
     appEnvFile: flags.value.appEnvFile,
     appEnv: flags.value.appEnv,
     seedEnvFile: flags.value.seedEnvFile,
