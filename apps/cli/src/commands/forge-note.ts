@@ -242,6 +242,12 @@ type ForgeAdapter = {
   writeUrl: (existingId: number | null) => string;
   writeMethod: (existingId: number | null) => "POST" | "PUT" | "PATCH";
   writeHeaders: Record<string, string>;
+  /**
+   * Forge-specific pagination policy: GitLab signals via `x-next-page`,
+   * GitHub via `Link: rel="next"`. A short page ends the walk; a full page
+   * with no headers still advances (page-loop fallback, bounded by the cap).
+   */
+  hasMorePages: (headers: Headers, pageLength: number) => boolean;
 };
 
 function adapterForTarget(target: ForgeTarget): ForgeAdapter {
@@ -259,6 +265,13 @@ function adapterForTarget(target: ForgeTarget): ForgeAdapter {
         existingId === null ? collection : `${collection}/${existingId}`,
       writeMethod: (existingId) => (existingId === null ? "POST" : "PUT"),
       writeHeaders: { "Content-Type": "application/json", ...auth },
+      hasMorePages: (headers, pageLength) => {
+        if (pageLength < NOTES_PER_PAGE) return false;
+        const next = headers.get("x-next-page");
+        if (next === null) return true;
+        const trimmed = next.trim();
+        return trimmed !== "" && trimmed !== "0";
+      },
     };
   }
   const headers = {
@@ -279,6 +292,12 @@ function adapterForTarget(target: ForgeTarget): ForgeAdapter {
         : `${target.base}/repos/${target.repoPath}/comments/${existingId}`,
     writeMethod: (existingId) => (existingId === null ? "POST" : "PATCH"),
     writeHeaders: { "Content-Type": "application/json", ...headers },
+    hasMorePages: (headers, pageLength) => {
+      if (pageLength < NOTES_PER_PAGE) return false;
+      const link = headers.get("link");
+      if (link === null) return true;
+      return linkHeaderHasNext(link);
+    },
   };
 }
 
@@ -292,17 +311,15 @@ function linkHeaderHasNext(link: string | null): boolean {
 }
 
 /**
- * All notes/comments across pages. Marker discovery must see past page one
- * or a busy MR would silently stack a second sprout note. A full page with
- * no pagination headers still advances (page-loop fallback); both forges
- * signal their last page via `Link: rel="next"` (GitHub) or `x-next-page`
- * (GitLab), and the page cap bounds header-less mocks.
+ * The sprout note's id, or null when no page carries the hidden marker.
+ * Stops at the first page containing the marker so a busy MR never loads
+ * the whole thread; a full last page without pagination headers still
+ * advances (page-loop fallback) up to the page cap.
  */
-async function listNotes(
+async function findMarkedNoteId(
   doFetch: (url: string, init?: RequestInit) => Promise<Response>,
   adapter: ForgeAdapter,
-): Promise<Result<ForgeNote[]>> {
-  const all: ForgeNote[] = [];
+): Promise<Result<number | null>> {
   for (let page = 1; page <= MAX_NOTE_PAGES; page++) {
     const res = await forgeRequest(
       doFetch,
@@ -313,21 +330,15 @@ async function listNotes(
     if (!res.ok) return res;
     const parsed = await parseNotesJson(adapter.listOp, res.value);
     if (!parsed.ok) return parsed;
-    all.push(...parsed.value);
-    if (parsed.value.length < NOTES_PER_PAGE) return { ok: true, value: all };
-    const headers = res.value.headers;
-    const gitlabNext = headers.get("x-next-page");
-    if (gitlabNext !== null) {
-      if (gitlabNext.trim() !== "" && gitlabNext.trim() !== "0") continue;
-      return { ok: true, value: all };
-    }
-    const link = headers.get("link");
-    if (link !== null) {
-      if (linkHeaderHasNext(link)) continue;
-      return { ok: true, value: all };
+    const marked = parsed.value.find((n) =>
+      n.body.includes(SPROUT_NOTE_MARKER),
+    );
+    if (marked) return { ok: true, value: marked.id };
+    if (!adapter.hasMorePages(res.value.headers, parsed.value.length)) {
+      return { ok: true, value: null };
     }
   }
-  return { ok: true, value: all };
+  return { ok: true, value: null };
 }
 
 async function writeNote(
@@ -363,10 +374,9 @@ export async function upsertForgeNote(
 
   const doFetch = fetchFn(deps);
   const adapter = adapterForTarget(resolved.value.target);
-  const listed = await listNotes(doFetch, adapter);
-  if (!listed.ok) return listed;
-  const existing = listed.value.find((n) => n.body.includes(SPROUT_NOTE_MARKER));
-  return writeNote(doFetch, adapter, existing?.id ?? null, body);
+  const existing = await findMarkedNoteId(doFetch, adapter);
+  if (!existing.ok) return existing;
+  return writeNote(doFetch, adapter, existing.value, body);
 }
 
 /** Preview success → create-or-update the MR note (non-fatal on failure). */
