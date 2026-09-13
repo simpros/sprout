@@ -4,17 +4,16 @@ import {
   resolveHostnameValue,
 } from "@sprout/preview-env";
 import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
+import { resolveAppEnvValues } from "../app-env-values.ts";
 import type { CliDeps } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { hostnameIssueMessage } from "../hostname.ts";
+import { resolveCommitSha } from "../identity.ts";
 import type { Result } from "../result.ts";
 import type { DeployService } from "../services.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
-import { pollPreviewReady } from "./deploy-poll.ts";
-
-/** Extra budget beyond health.timeout for image pull + replace + optional seed. */
-const DEPLOY_POLL_BUFFER_MS = 180_000;
+import { DEPLOY_POLL_BUFFER_MS, pollPreviewReady } from "./deploy-poll.ts";
 
 /** Shared POST /v1/deploy body — one contract for `deploy` and `ci reseed`. */
 export type DeployRequest = {
@@ -79,7 +78,11 @@ export function deployBaseFields(
 
 /**
  * Merge yaml `preview.app_env` with `--app-env-file` / `--app-env` into
- * `body.app_env`. Shared so deploy and ci reseed cannot drift.
+ * `app_env`. Owns the full yaml→wire pipeline so deploy and ci reseed
+ * cannot drift: yaml templates (`{hostname}` / `{pr_id}` / `{commit_sha}`)
+ * and `generate: stable_per_pr` (HMAC via `SPROUT_TOKEN`) resolve first,
+ * then dotenv files and `--app-env` flags overwrite. Returns a new body;
+ * `body` is treated as read-only.
  */
 export async function applyDeployAppEnv(
   body: DeployRequest,
@@ -100,10 +103,24 @@ export async function applyDeployAppEnv(
     dotenvFiles.push({ pathLabel: filePath, content: raw });
   }
 
-  const merged = mergeAppEnv(yaml.preview.app_env, dotenvFiles, appEnv);
-  if (!merged.ok) return merged;
-  if (merged.value) body.app_env = merged.value;
-  return { ok: true, value: body };
+  const resolvedYamlEnv = resolveAppEnvValues(yaml.preview.app_env, {
+    hostname: body.hostname,
+    prId: body.pr_id,
+    commitSha: resolveCommitSha(deps.env),
+    repo: body.canonical_repo_id,
+    // HMAC key is SPROUT_TOKEN only (not local admin fallback) so CI and
+    // local agree when the same deploy token is used.
+    deployToken: deps.env.SPROUT_TOKEN?.trim(),
+  });
+  if (!resolvedYamlEnv.ok) {
+    return { ok: false, error: resolvedYamlEnv.error };
+  }
+
+  const merged = mergeAppEnv(resolvedYamlEnv.value, dotenvFiles, appEnv);
+  if (!merged.ok) return { ok: false, error: merged.error };
+  const next = { ...body };
+  if (merged.value) next.app_env = merged.value;
+  return { ok: true, value: next };
 }
 
 /**

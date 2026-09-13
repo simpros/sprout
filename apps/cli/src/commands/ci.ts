@@ -77,6 +77,12 @@ export async function runCi(
       : await resolveCiIdentity(ctx.deps);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
+  // `preview` lands in #120: short-circuit the stub before auth so a valid
+  // MR env without a token still reaches the not-implemented seam.
+  if (subcommand === "preview") {
+    return dispatchCiSubcommand(subcommand, identity.value, rest, ctx);
+  }
+
   const client = await authedClient(ctx.deps);
   if (!client.ok) return fail(ctx.deps.io, client.error);
 

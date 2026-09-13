@@ -1,8 +1,6 @@
 import type { ApiClient } from "@sprout/api-client";
-import { resolveHealthSpec } from "@sprout/preview-env";
 import { readEden } from "../eden.ts";
 import type { Result } from "../result.ts";
-import type { SproutYaml } from "../yaml.ts";
 import {
   deployOutcome,
   type DeploySnapshotFields,
@@ -10,35 +8,6 @@ import {
 
 /** Extra budget beyond health.timeout for image pull + replace + optional seed. */
 export const DEPLOY_POLL_BUFFER_MS = 180_000;
-const DEFAULT_HEALTH_TIMEOUT_MS = 120_000;
-const DEFAULT_POLL_INTERVAL_MS = 2_000;
-
-/** Parse `Ns` durations; missing uses fallback. Malformed throws (no silent default). */
-export function parseSecondsMs(
-  raw: string | undefined,
-  fallback: number,
-): number {
-  if (!raw) return fallback;
-  const match = /^(\d+)s$/.exec(raw.trim());
-  if (!match) {
-    throw new Error(`invalid duration (expected Ns): ${raw}`);
-  }
-  return Number(match[1]) * 1000;
-}
-
-function resolvedHealthOrThrow(yaml: SproutYaml) {
-  const health = resolveHealthSpec(yaml.health);
-  if (!health.ok) throw new Error(health.issue.code);
-  return health.value;
-}
-
-export function pollBudgetMs(yaml: SproutYaml): number {
-  return resolvedHealthOrThrow(yaml).timeoutMs + DEPLOY_POLL_BUFFER_MS;
-}
-
-export function pollIntervalMs(yaml: SproutYaml): number {
-  return Math.max(200, resolvedHealthOrThrow(yaml).intervalMs);
-}
 
 export type PreviewPoller = {
   client: ApiClient;

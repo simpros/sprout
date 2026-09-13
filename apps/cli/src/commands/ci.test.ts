@@ -107,7 +107,7 @@ describe("sprout ci", () => {
     expect(stderr[0]).toBe("sprout ci preview is not implemented yet");
   });
 
-  test("ci preview with valid MR env but no token fails auth after identity", async () => {
+  test("ci preview with valid MR env but no token reaches not-implemented seam", async () => {
     const code = await runCli(
       ["ci", "preview"],
       deps({
@@ -121,7 +121,7 @@ describe("sprout ci", () => {
       }),
     );
     expect(code).toBe(1);
-    expect(stderr[0]).toBe("SPROUT_TOKEN or SPROUT_ADMIN_TOKEN is required");
+    expect(stderr[0]).toBe("sprout ci preview is not implemented yet");
   });
 
   test("ci teardown does not require image ref", async () => {
