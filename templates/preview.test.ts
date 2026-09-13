@@ -225,6 +225,29 @@ describe("preview component shell syntax", () => {
     }
   });
 
+  test("checksum verifies the downloaded filename (download -o target == grep pattern)", () => {
+    const base = cliBeforeScript();
+    // Regression (#146): the binary was downloaded as `$INSTALL_TMP/sprout`
+    // but verified as `sprout-linux-x64-musl`, so `sha256sum -c` could never
+    // find the file. The download target, the checksum entry, and the
+    // install source must name the same release asset.
+    const downloadTargets = [...base.matchAll(/-o "\$INSTALL_TMP\/([^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    const grepNames = [...base.matchAll(/grep ' ([^']+)\$'/g)].map((m) => m[1]);
+    expect(grepNames.length).toBeGreaterThan(0);
+    for (const name of grepNames) {
+      expect(downloadTargets).toContain(name);
+    }
+    const installSrc = base.match(
+      /install -m 0755 "\$INSTALL_TMP\/([^"]+)"/,
+    )?.[1];
+    expect(installSrc).toBeDefined();
+    expect(downloadTargets).toContain(installSrc!);
+    expect(new Set(grepNames).size).toBe(1);
+    expect(installSrc).toBe(grepNames[0]);
+  });
+
   test("unpinned sentinel fails fast with a pointer (remote includes)", async () => {
     const base = cliBeforeScript();
     const start = base.indexOf('case "$SPROUT_VERSION" in');
