@@ -105,38 +105,45 @@ describe("requireCiSource", () => {
 });
 
 describe("resolveImageRef", () => {
-  test("builds registry:sha from GitLab env", () => {
+  test("builds registry:sha from the locked GitLab SHA", () => {
     expect(
       resolveImageRef(
-        {
-          CI_REGISTRY_IMAGE: "registry.example/app",
-          CI_COMMIT_SHA: "abc",
-        },
-        "gitlab",
+        { CI_REGISTRY_IMAGE: "registry.example/app" },
+        { forge: "gitlab", commitSha: "abc" },
       ),
     ).toEqual({ ok: true, value: "registry.example/app:abc" });
   });
 
-  test("builds registry:sha from GitHub env", () => {
+  test("builds registry:sha from the locked GitHub SHA", () => {
     expect(
       resolveImageRef(
-        {
-          CI_REGISTRY_IMAGE: "ghcr.io/org/repo",
-          GITHUB_SHA: "def",
-        },
-        "github",
+        { CI_REGISTRY_IMAGE: "ghcr.io/org/repo" },
+        { forge: "github", commitSha: "def" },
       ),
     ).toEqual({ ok: true, value: "ghcr.io/org/repo:def" });
   });
 
-  test("gitlab forge ignores GITHUB_SHA", () => {
+  test("uses the locked SHA even when the other forge's var is set", () => {
+    expect(
+      resolveImageRef(
+        {
+          CI_REGISTRY_IMAGE: "registry.example/app",
+          CI_COMMIT_SHA: "aaa",
+          GITHUB_SHA: "bbb",
+        },
+        { forge: "gitlab", commitSha: "aaa" },
+      ),
+    ).toEqual({ ok: true, value: "registry.example/app:aaa" });
+  });
+
+  test("gitlab forge names CI_COMMIT_SHA when the locked SHA is missing", () => {
     expect(
       resolveImageRef(
         {
           CI_REGISTRY_IMAGE: "registry.example/app",
           GITHUB_SHA: "def",
         },
-        "gitlab",
+        { forge: "gitlab", commitSha: undefined },
       ),
     ).toEqual({
       ok: false,
@@ -144,14 +151,14 @@ describe("resolveImageRef", () => {
     });
   });
 
-  test("github forge ignores CI_COMMIT_SHA", () => {
+  test("github forge names GITHUB_SHA when the locked SHA is missing", () => {
     expect(
       resolveImageRef(
         {
           CI_REGISTRY_IMAGE: "ghcr.io/org/repo",
           CI_COMMIT_SHA: "abc",
         },
-        "github",
+        { forge: "github", commitSha: undefined },
       ),
     ).toEqual({
       ok: false,
@@ -160,7 +167,12 @@ describe("resolveImageRef", () => {
   });
 
   test("errors when registry missing", () => {
-    expect(resolveImageRef({ CI_COMMIT_SHA: "abc" }, "gitlab")).toEqual({
+    expect(
+      resolveImageRef(
+        { CI_COMMIT_SHA: "abc" },
+        { forge: "gitlab", commitSha: "abc" },
+      ),
+    ).toEqual({
       ok: false,
       error: "cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA)",
     });

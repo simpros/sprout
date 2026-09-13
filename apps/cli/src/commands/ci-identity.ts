@@ -5,7 +5,6 @@ import {
   resolveCommitSha,
   resolvePrId,
   resolveRepoForForge,
-  type Forge,
 } from "../identity.ts";
 import { resolveDeployHostname } from "../hostname.ts";
 import type { Result } from "../result.ts";
@@ -89,14 +88,20 @@ export function requireCiSource(env: NodeJS.ProcessEnv): Result<CiSource> {
   };
 }
 
+/**
+ * Image ref from the registry plus the SHA locked on `CiIdentity` at
+ * `resolveCiIdentity` time. Reads no SHA env itself — preview and reseed
+ * pass the identity through, so the tag cannot disagree with `{commit_sha}`
+ * under mixed envs. `forge` only names the missing var in the error.
+ */
 export function resolveImageRef(
   env: NodeJS.ProcessEnv,
-  forge: Forge,
+  identity: Pick<CiIdentity, "forge" | "commitSha">,
 ): Result<string> {
   const registry = env.CI_REGISTRY_IMAGE?.trim();
-  const sha = resolveCommitSha(env, forge);
+  const sha = identity.commitSha;
   if (!registry || !sha) {
-    const shaVar = commitShaEnvVar(forge);
+    const shaVar = commitShaEnvVar(identity.forge);
     return {
       ok: false,
       error: `cannot derive image ref (set CI_REGISTRY_IMAGE and ${shaVar})`,
@@ -154,7 +159,7 @@ export async function resolveCiPreviewIdentity(
   const base = await resolveCiIdentity(deps);
   if (!base.ok) return base;
 
-  const imageRef = resolveImageRef(deps.env, base.value.forge);
+  const imageRef = resolveImageRef(deps.env, base.value);
   if (!imageRef.ok) return imageRef;
 
   const yaml = await loadYaml(deps);

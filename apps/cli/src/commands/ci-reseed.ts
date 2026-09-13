@@ -45,7 +45,7 @@ export async function runCiReseed(
     return fail(ctx.deps.io, "ci reseed requires -s <seed-image>");
   }
 
-  const imageRef = resolveImageRef(ctx.deps.env, identity.forge);
+  const imageRef = resolveImageRef(ctx.deps.env, identity);
   if (!imageRef.ok) return fail(ctx.deps.io, imageRef.error);
 
   const yaml = await loadYaml(ctx.deps);
