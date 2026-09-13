@@ -45,9 +45,10 @@ Prerequisites on the GitLab side:
 - Merge-request pipelines (`CI_PIPELINE_SOURCE=merge_request_event`; the jobs
   gate on `$CI_MERGE_REQUEST_IID`). Branch pipelines are refused by the CLI
   with a named error.
-- A runner that can run privileged `docker:dind` (the preview job declares
-  its own `docker:24` image + `docker:24-dind` service; the stop/teardown
-  job shares only the CLI install and needs no Docker daemon). To override
+- A runner that can run privileged `docker:dind` (the preview job runs on
+  `docker:24` + a `docker:24-dind` service; the stop/teardown job runs on
+  `alpine:3.20` and shares only the CLI install — no Docker daemon, no
+  Docker client pull). To override
   the image
   (e.g. a mirrored registry), redefine the job's `image:`/`services:` in
   your `.gitlab-ci.yml` — job names merge by name. Keep it Alpine-based:

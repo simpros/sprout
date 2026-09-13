@@ -35,15 +35,20 @@ describe("preview component contract", () => {
     expect(spec.inputs.sprout_version.default).toBe("@SPROUT_COMPONENT_VERSION@");
   });
 
-  test("job graph: preview gets dind via the shared base, stop is install-only", () => {
+  test("job graph: preview gets docker+dind via the shared base, stop is install-only on alpine", () => {
     const { jobs } = componentDocs();
     expect(jobs[".sprout-preview-base"].extends).toBe(".sprout-cli");
     expect(jobs["sprout-preview"].extends).toBe(".sprout-preview-base");
     expect(jobs["sprout-stop-preview"].extends).toBe(".sprout-cli");
+    // Image boundary: the shared CLI base is a minimal Alpine image so
+    // teardown never pulls a Docker client; only the preview path overrides
+    // to docker:24.
+    expect(jobs[".sprout-cli"].image).toBe("alpine:3.20");
+    expect(jobs[".sprout-preview-base"].image).toBe("docker:24");
     // dind lives only on the preview path: teardown never starts a daemon.
-    expect(JSON.stringify(jobs[".sprout-preview-base"].services)).toContain(
-      "docker:24-dind",
-    );
+    expect(jobs[".sprout-preview-base"].services).toEqual([
+      expect.objectContaining({ name: "docker:24-dind" }),
+    ]);
     expect(jobs[".sprout-cli"]).not.toHaveProperty("services");
     expect(jobs["sprout-stop-preview"]).not.toHaveProperty("services");
     // Only the preview path logs in: teardown pushes no images.
@@ -51,6 +56,12 @@ describe("preview component contract", () => {
     expect(cliBase).not.toContain("docker login");
     expect(stopScript()).not.toContain("docker login");
     expect(previewScript()).toContain("docker login");
+  });
+
+  test("stop runs teardown at the project dir with no app_context coupling", () => {
+    const stop = stopScript();
+    expect(stop).toContain("sprout ci teardown");
+    expect(stop).not.toContain("app_context");
   });
 
   test("deploy job runs sprout ci preview; stop job runs teardown", () => {
@@ -70,24 +81,6 @@ describe("preview component contract", () => {
     expect(jobs["sprout-preview"].environment.auto_stop_in).toBe(
       "$[[ inputs.auto_stop_in ]]",
     );
-  });
-
-  test("dind service and apk prerequisites live inside the component", () => {
-    const { jobs } = componentDocs();
-    expect(JSON.stringify(jobs[".sprout-preview-base"].services)).toContain(
-      "docker:24-dind",
-    );
-    const base = cliBeforeScript();
-    expect(base).toContain("apk add");
-    expect(base).toContain("libstdc++");
-  });
-
-  test("binary install is pinned and checksum-verified", () => {
-    const base = cliBeforeScript();
-    expect(base).toContain("sprout-linux-x64-musl");
-    expect(base).toContain("SHA256SUMS.txt");
-    expect(base).toContain("sha256sum -c");
-    expect(base).toContain('test "$(sprout --version)" = "$SPROUT_VERSION"');
   });
 
   test("self-contained: no spec:include, no global keywords", () => {
@@ -198,8 +191,13 @@ describe("preview component shell syntax", () => {
     // Regression: a column-0 comment once ended the `|` block scalar early,
     // silently dropping everything below from the job while the raw text
     // still contained it. Assert on the PARSED block, not the raw file.
+    // This is the single owner of the install guarantee (no duplicate
+    // checksum needle test elsewhere).
     for (const needle of [
+      "apk add",
+      "libstdc++",
       "INSTALL_TMP",
+      "sprout-linux-x64-musl",
       "SHA256SUMS.txt",
       "sha256sum -c",
       'test "$(sprout --version)" = "$SPROUT_VERSION"',

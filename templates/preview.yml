@@ -51,13 +51,14 @@ spec:
       default: "200"
 ---
 
-# Shared CLI bootstrap: image, credentials, checksum-verified install.
-# Hidden (dot-prefixed) so it never runs as a job itself. Both jobs extend
-# this; only the preview job gets a Docker daemon (via
-# `.sprout-preview-base` below). Teardown is gateway HTTP — it must never pay
-# for dind or a registry login.
+# Shared CLI bootstrap: credentials + checksum-verified install. Hidden
+# (dot-prefixed) so it never runs as a job itself. Runs on a minimal Alpine
+# image: teardown is gateway HTTP and never needs a Docker client. Only the
+# preview job gets Docker (via `.sprout-preview-base` below, which overrides
+# the image and adds the daemon). Teardown must never pay for dind, a Docker
+# pull, or a registry login.
 .sprout-cli:
-  image: docker:24
+  image: alpine:3.20
   before_script:
     - |
       set -eu
@@ -102,10 +103,11 @@ spec:
       install -m 0755 "$INSTALL_TMP/sprout" /usr/local/bin/sprout
       test "$(sprout --version)" = "$SPROUT_VERSION"
 
-# Preview-only shape: Docker daemon for the image builds inside
+# Preview-only shape: Docker client + daemon for the image builds inside
 # `sprout ci preview`. The stop job extends `.sprout-cli` directly.
 .sprout-preview-base:
   extends: .sprout-cli
+  image: docker:24
   services:
     - name: docker:24-dind
       alias: docker
@@ -162,7 +164,7 @@ sprout-stop-preview:
   script:
     - |
       set -eu
-      cd "$[[ inputs.app_context ]]"
-      # Teardown takes no flags: identity comes from CI env only, so there is
-      # nothing to carry over from the preview job (dotenv/extra args).
+      # Teardown takes no flags and runs at $CI_PROJECT_DIR: identity comes
+      # from CI env only, so there is nothing to carry over from the preview
+      # job (no working-directory jump, no dotenv/extra args).
       sprout ci teardown

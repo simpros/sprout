@@ -31,6 +31,9 @@
 #   under a frozen tag (workflow_dispatch rebuilds must not green-check while
 #   @vX.Y.Z resolves old content, nor leave a branch/tag split behind).
 #   A tag that already points at HEAD is success ("already points at HEAD").
+# - branch and tag publish together via one `git push --atomic`, so a
+#   mid-flight failure cannot leave the default branch advanced with the
+#   catalog tag missing.
 set -euo pipefail
 
 fail() {
@@ -104,10 +107,9 @@ if ! git diff --cached --quiet; then
   fi
   git -c user.name="sprout-release" -c user.email="sprout-release@local" \
     commit -m "sprout ${TAG}"
-  git push origin HEAD
-  HEAD_SHA="$(git rev-parse HEAD)"
   git tag "$TAG"
-  git push origin "$TAG"
+  git push --atomic origin HEAD "refs/tags/${TAG}"
+  HEAD_SHA="$(git rev-parse HEAD)"
 else
   printf 'component sync: no changes for %s\n' "$TAG"
   HEAD_SHA="$(git rev-parse HEAD)"
@@ -119,7 +121,7 @@ else
     printf 'component sync: tag %s already points at HEAD\n' "$TAG"
   else
     git tag "$TAG"
-    git push origin "$TAG"
+    git push --atomic origin "refs/tags/${TAG}"
   fi
 fi
 
