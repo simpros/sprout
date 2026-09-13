@@ -16,14 +16,15 @@
 #   carries its own image/services/variables via `.sprout-preview-base`.
 # - no hardcoded stage: both jobs use `inputs.stage`.
 # - `sprout_version` defaults to the release tag shipping this file; the
-#   release pipeline rewrites the default to the tag it publishes, so the
+#   source carries the sentinel `@SPROUT_COMPONENT_VERSION@`, which the
+#   release pipeline replaces with the tag it publishes, so the
 #   component version and the binary version coincide. Override to pin or
 #   trial a different CLI build.
 spec:
   inputs:
     sprout_version:
-      description: "sprout release tag to install (e.g. v0.6.0). Defaults to the release shipping this component file; override to pin or trial another CLI build. Remote includes must set this explicitly."
-      default: "v0.6.0"
+      description: "sprout release tag to install (e.g. v0.6.0). The published component pins this to the release shipping the file; override to pin or trial another CLI build. Remote includes must set this explicitly."
+      default: "@SPROUT_COMPONENT_VERSION@"
     stage:
       description: "Pipeline stage for both the deploy and the on_stop teardown jobs."
       default: "deploy"
@@ -33,12 +34,6 @@ spec:
     app_context:
       description: "Working directory holding .sprout.yaml; the CLI builds images (docker build … .) and resolves Dockerfiles relative to it."
       default: "."
-    app_dockerfile:
-      description: "Expected app Dockerfile path relative to app_context. Preflight guard only — .sprout.yaml build.dockerfile stays authoritative and must match."
-      default: "Dockerfile"
-    seed_dockerfile:
-      description: "Expected seed Dockerfile path relative to app_context. Empty disables the guard. .sprout.yaml seed.dockerfile stays authoritative."
-      default: ""
     auto_stop_in:
       description: "GitLab environment expiry for the preview (e.g. 1 week, 3 days)."
       default: "1 week"
@@ -54,9 +49,6 @@ spec:
     tail:
       description: "Gateway log lines printed when sprout ci preview fails."
       default: "200"
-    preview_extra_args:
-      description: "Escape hatch: extra args appended to `sprout ci preview` (e.g. --service api=image --seed-arg --reset). Space-separated, no globbing."
-      default: ""
 ---
 
 # Shared job shape: dind image + service, registry login prerequisites.
@@ -126,24 +118,11 @@ sprout-preview:
   script:
     - |
       set -eu
-      set -f
       APP_CONTEXT="$[[ inputs.app_context ]]"
-      APP_DOCKERFILE="$[[ inputs.app_dockerfile ]]"
-      SEED_DOCKERFILE="$[[ inputs.seed_dockerfile ]]"
       DOTENV_FILE="$[[ inputs.dotenv_file ]]"
       TAIL="$[[ inputs.tail ]]"
       APP_ENV_FILE="$[[ inputs.app_env_file ]]"
       SEED_ENV_FILE="$[[ inputs.seed_env_file ]]"
-      EXTRA_ARGS="$[[ inputs.preview_extra_args ]]"
-      # Preflight guards name the file instead of failing inside docker build.
-      if [ ! -f "$APP_CONTEXT/$APP_DOCKERFILE" ]; then
-        echo "app dockerfile not found: $APP_CONTEXT/$APP_DOCKERFILE (must match .sprout.yaml build.dockerfile)" >&2
-        exit 1
-      fi
-      if [ -n "$SEED_DOCKERFILE" ] && [ ! -f "$APP_CONTEXT/$SEED_DOCKERFILE" ]; then
-        echo "seed dockerfile not found: $APP_CONTEXT/$SEED_DOCKERFILE (must match .sprout.yaml seed.dockerfile)" >&2
-        exit 1
-      fi
       cd "$APP_CONTEXT"
       # The preview URL comes from the CLI's dotenv output only; never
       # reconstruct the hostname here (the CLI owns {pr_id} substitution).
@@ -151,10 +130,7 @@ sprout-preview:
       set -- --tail "$TAIL" --dotenv-file "$CI_PROJECT_DIR/$DOTENV_FILE"
       if [ -n "$APP_ENV_FILE" ]; then set -- "$@" --app-env-file "$APP_ENV_FILE"; fi
       if [ -n "$SEED_ENV_FILE" ]; then set -- "$@" --seed-env-file "$SEED_ENV_FILE"; fi
-      # EXTRA_ARGS word-split is intentional (documented escape hatch); globbing
-      # stays off via `set -f` above.
-      # shellcheck disable=SC2086
-      sprout ci preview "$@" $EXTRA_ARGS
+      sprout ci preview "$@"
 
 sprout-stop-preview:
   extends: .sprout-preview-base

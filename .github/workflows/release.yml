@@ -129,7 +129,8 @@ jobs:
 
   # Publishes the matching GitLab `preview` component version automatically
   # (issue #127): pushes templates/ to the component project and tags
-  # v<version> there. Skips gracefully when the project/token is unconfigured
+  # v<version> there. Skips gracefully when the project is unconfigured;
+  # fails when the project is set but the token/tag is missing
   # (see templates/README.md#publishing-maintainers).
   component:
     needs: [meta, cli]

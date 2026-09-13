@@ -12,14 +12,11 @@ const REQUIRED_INPUTS = [
   "stage",
   "sprout_url",
   "app_context",
-  "app_dockerfile",
-  "seed_dockerfile",
   "auto_stop_in",
   "app_env_file",
   "seed_env_file",
   "dotenv_file",
   "tail",
-  "preview_extra_args",
 ] as const;
 
 describe("preview component contract", () => {
@@ -31,11 +28,19 @@ describe("preview component contract", () => {
     }
   });
 
-  test("default sprout_version is a release tag (release job pins it to the tag)", () => {
-    const match = /sprout_version:\n(?:.*\n)*?\s+default:\s*"([^"]+)"/.exec(
-      COMPONENT,
-    );
-    expect(match?.[1]).toMatch(/^v\d+\.\d+\.\d+(-\S+)?$/);
+  test("sprout_version default is the release sentinel (release job pins it to the tag)", () => {
+    expect(COMPONENT).toContain('default: "@SPROUT_COMPONENT_VERSION@"');
+  });
+
+  test("spec inputs are exactly the contract set (no dockerfile guards, no extra-args hatch)", () => {
+    const specBlock = /spec:\n([\s\S]*?)\n---/.exec(COMPONENT)?.[1] ?? "";
+    const names = [...specBlock.matchAll(/^ {4}([a-z_]+):/gm)].map((m) => m[1]);
+    expect([...names].sort()).toEqual([...REQUIRED_INPUTS].sort());
+    for (const gone of ["app_dockerfile", "seed_dockerfile", "preview_extra_args"]) {
+      expect(COMPONENT).not.toContain(gone);
+    }
+    expect(COMPONENT).not.toContain("EXTRA_ARGS");
+    expect(COMPONENT).not.toContain("SC2086");
   });
 
   test("deploy job bootstraps then runs sprout ci preview; stop job runs teardown", () => {
@@ -115,14 +120,11 @@ const INPUT_INTERPOLATION_FIXTURES: Record<string, string> = {
   stage: "deploy",
   sprout_url: "",
   app_context: ".",
-  app_dockerfile: "Dockerfile",
-  seed_dockerfile: "",
   auto_stop_in: "1 week",
   app_env_file: "",
   seed_env_file: "",
   dotenv_file: "sprout-preview.env",
   tail: "200",
-  preview_extra_args: "",
 };
 
 function interpolateInputs(script: string): string {

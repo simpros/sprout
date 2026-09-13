@@ -59,22 +59,21 @@ Prerequisites on the GitLab side:
 
 | Input | Default | Purpose |
 |---|---|---|
-| `sprout_version` | release tag shipping the file (e.g. `v0.6.0`) | CLI release to install. Defaults to the matching binary — component version and binary version coincide. Override to pin or trial another build. |
+| `sprout_version` | release tag shipping the file (e.g. `v0.6.0`) | CLI release to install. The source carries the sentinel `@SPROUT_COMPONENT_VERSION@`, which the release pipeline replaces with the published tag — component version and binary version coincide. Override to pin or trial another build. |
 | `stage` | `deploy` | Stage for both jobs. |
 | `sprout_url` | `""` (use `$SPROUT_URL`) | Gateway URL override. |
 | `app_context` | `.` | Directory holding `.sprout.yaml`; the CLI builds (`docker build … .`) and resolves Dockerfiles relative to it. |
-| `app_dockerfile` | `Dockerfile` | Preflight guard — must exist under `app_context` and match `.sprout.yaml` `build.dockerfile` (authoritative). |
-| `seed_dockerfile` | `""` (no guard) | When set, must exist under `app_context` and match `.sprout.yaml` `seed.dockerfile` (authoritative). |
 | `auto_stop_in` | `1 week` | `environment:auto_stop_in` for the preview. |
 | `app_env_file` | `""` | Extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). |
 | `seed_env_file` | `""` | Extra seed dotenv file passed as `--seed-env-file` (on top of `SPROUT_SEED_ENV`). |
 | `dotenv_file` | `sprout-preview.env` | Project-root-relative dotenv artifact carrying `PREVIEW_URL` to `environment:url`. Parent directories must already exist (a bare filename always works). |
 | `tail` | `200` | Gateway log lines printed when `sprout ci preview` fails. |
-| `preview_extra_args` | `""` | Escape hatch appended to `sprout ci preview` (e.g. `--service api=image --seed-arg --reset`). Space-separated; globbing disabled. |
 
 Image builds are driven by `.sprout.yaml` (`build.dockerfile`,
-`seed.dockerfile` + `seed.env`/`seed.args`); the dockerfile inputs above are
-existence guards that fail fast with a named error, not build configuration.
+`seed.dockerfile` + `seed.env`/`seed.args`); the CLI owns Dockerfile
+resolution — the component passes no Dockerfile paths and no free-form
+extra args. Gaps belong behind explicit typed inputs (or CLI flags), not
+shell guards or argv appenders.
 
 ## Remote-include fallback
 
@@ -102,10 +101,12 @@ automatically — no manual step:
 1. The GitHub `release` workflow builds `SHA256SUMS.txt` alongside the
    binaries (the component verifies the musl asset against it) and uploads
    all three to the release.
-2. The workflow's `component` job rewrites the `sprout_version` default in a
-   copy of `templates/preview.yml` to the release tag and pushes
-   `templates/` to the configured GitLab component project, tagging
-   `v<version>` there (`scripts/sync-gitlab-component.sh`).
+2. The workflow's `component` job copies `templates/preview.yml` to the
+   configured GitLab component project, replacing the
+   `@SPROUT_COMPONENT_VERSION@` sentinel with the release tag, and tags
+   `v<version>` there (`scripts/sync-gitlab-component.sh`). Staging uses
+   `git add -A` so deletions enter the commit; an existing tag that does
+   not point at `HEAD` fails the job instead of leaving `@vX.Y.Z` stale.
 3. The pushed tag triggers the component project's own tag pipeline, which
    creates the GitLab Release (catalog version).
 
@@ -115,7 +116,7 @@ Configuration (GitHub repo secrets):
 |---|---|
 | `SPROUT_GITLAB_HOST` | GitLab instance FQDN (default `gitlab.com`). Repository variable. |
 | `SPROUT_COMPONENT_PROJECT` | Component project path (e.g. `<group>/sprout-ci`). Repository variable. |
-| `SPROUT_GITLAB_SYNC_TOKEN` | Token with `write_repository` on the component project. Secret. Absent token ⇒ the job logs a skip and succeeds. |
+| `SPROUT_GITLAB_SYNC_TOKEN` | Token with `write_repository` on the component project. Secret. Unset project ⇒ the job logs a skip and succeeds (forks); set project with missing token ⇒ the job fails. |
 
 One-time setup of the component project itself (operator, on the GitLab
 instance):
