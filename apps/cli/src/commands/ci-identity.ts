@@ -22,6 +22,7 @@ export type CiSource =
 
 /** Common to all `sprout ci *` subcommands. */
 export type CiIdentity = {
+  forge: "gitlab" | "github";
   repo: string;
   prId: number;
   pipelineSource: CiPipelineSource;
@@ -111,6 +112,7 @@ export async function resolveCiIdentity(
     return {
       ok: true,
       value: {
+        forge: source.value.forge,
         repo: repo.value,
         prId: prId.value,
         pipelineSource: source.value.pipelineSource,
@@ -133,6 +135,7 @@ export async function resolveCiIdentity(
   return {
     ok: true,
     value: {
+      forge: source.value.forge,
       repo: repo.value,
       prId: prId.value,
       pipelineSource: source.value.pipelineSource,

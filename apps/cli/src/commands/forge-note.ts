@@ -1,4 +1,4 @@
-import type { CliDeps } from "../context.ts";
+import type { CliDeps, CliIo } from "../context.ts";
 import { resolveCommitSha } from "../identity.ts";
 import type { Result } from "../result.ts";
 import type { CiIdentity } from "./ci-identity.ts";
@@ -28,7 +28,6 @@ export function buildPreviewNote(input: {
   previewUrl: string;
   sha?: string;
   prId: number;
-  health?: string;
 }): string {
   const lines = [
     SPROUT_NOTE_MARKER,
@@ -38,7 +37,7 @@ export function buildPreviewNote(input: {
   ];
   const short = shortSha(input.sha);
   if (short) lines.push(`- Commit: \`${short}\``);
-  lines.push(`- Health: ${input.health ?? "healthy"}`);
+  lines.push("- Health: healthy");
   lines.push("");
   lines.push(`Logs: \`sprout ci logs ${input.prId}\``);
   return lines.join("\n");
@@ -68,6 +67,8 @@ type GitlabTarget = {
   project: string;
   iid: number;
   token: string;
+  /** Which header carries the token — set by which env var won. */
+  tokenHeader: "JOB-TOKEN" | "PRIVATE-TOKEN";
 };
 
 type GithubTarget = {
@@ -80,6 +81,14 @@ type GithubTarget = {
 
 type ForgeTarget = GitlabTarget | GithubTarget;
 
+/**
+ * Explicit skip/target outcome: no forge token is a skip (local runs),
+ * never a null smuggled inside the success type.
+ */
+export type ForgeTargetResolution =
+  | { skipped: true }
+  | { skipped: false; target: ForgeTarget };
+
 function repoPathFromCanonical(repo: string, host: string): string | null {
   try {
     const url = new URL(repo);
@@ -91,50 +100,60 @@ function repoPathFromCanonical(repo: string, host: string): string | null {
 }
 
 /**
- * Forge target from the already-resolved CI identity plus CI env.
- * GitLab prefers `CI_PROJECT_ID` (numeric, no encoding pitfalls) and falls
- * back to the URL-encoded project path (`CI_PROJECT_PATH` or the canonical
- * repo id). GitHub prefers `GITHUB_REPOSITORY` and falls back to the
- * canonical repo id. Missing forge token → skipped (no warning): local runs
- * without a job token are not failures.
+ * Forge target from the already-resolved CI identity plus CI env. Switches
+ * on `identity.forge` — the discriminant `requireCiSource` already proved —
+ * never re-guesses the forge from the pipeline source.
+ *
+ * GitLab needs `CI_PROJECT_ID` (numeric, no encoding pitfalls) or
+ * `CI_PROJECT_PATH`; there is no host-guessing fallback. GitHub prefers
+ * `GITHUB_REPOSITORY` and falls back to the canonical repo id. Missing forge
+ * token → skipped (no warning): local runs without a job token are not
+ * failures.
  */
 export function resolveForgeTarget(
   env: NodeJS.ProcessEnv,
   identity: CiIdentity,
-): Result<ForgeTarget | null> {
-  if (identity.pipelineSource === "merge_request_event") {
+): Result<ForgeTargetResolution> {
+  if (identity.forge === "gitlab") {
     const jobToken = env.CI_JOB_TOKEN?.trim();
     const pat = env.GITLAB_TOKEN?.trim();
     const token = jobToken || pat || "";
-    if (!token) return { ok: true, value: null };
+    if (!token) return { ok: true, value: { skipped: true } };
     const base = stripTrailingSlash(
       env.CI_API_V4_URL?.trim() || "https://gitlab.com/api/v4",
     );
     const projectId = env.CI_PROJECT_ID?.trim();
+    const projectPath = env.CI_PROJECT_PATH?.trim();
     let project: string | null = null;
     if (projectId) {
       project = projectId;
+    } else if (projectPath) {
+      project = encodeURIComponent(projectPath);
     } else {
-      const path =
-        env.CI_PROJECT_PATH?.trim() ||
-        repoPathFromCanonical(identity.repo, "gitlab.com") ||
-        repoPathFromCanonical(identity.repo, new URL(base).hostname || "");
-      if (!path) {
-        return {
-          ok: false,
-          error: "cannot derive GitLab project path (set CI_PROJECT_ID)",
-        };
-      }
-      project = encodeURIComponent(path);
+      return {
+        ok: false,
+        error:
+          "cannot derive GitLab project path (set CI_PROJECT_ID or CI_PROJECT_PATH)",
+      };
     }
     return {
       ok: true,
-      value: { forge: "gitlab", base, project, iid: identity.prId, token },
+      value: {
+        skipped: false,
+        target: {
+          forge: "gitlab",
+          base,
+          project,
+          iid: identity.prId,
+          token,
+          tokenHeader: jobToken ? "JOB-TOKEN" : "PRIVATE-TOKEN",
+        },
+      },
     };
   }
 
   const token = env.GITHUB_TOKEN?.trim() || "";
-  if (!token) return { ok: true, value: null };
+  if (!token) return { ok: true, value: { skipped: true } };
   const base = stripTrailingSlash(
     env.GITHUB_API_URL?.trim() || "https://api.github.com",
   );
@@ -149,7 +168,10 @@ export function resolveForgeTarget(
   }
   return {
     ok: true,
-    value: { forge: "github", base, repoPath, prId: identity.prId, token },
+    value: {
+      skipped: false,
+      target: { forge: "github", base, repoPath, prId: identity.prId, token },
+    },
   };
 }
 
@@ -165,30 +187,35 @@ async function readErrorBody(res: Response): Promise<string> {
 
 type ForgeNote = { id: number; body: string };
 
-async function listGitlabNotes(
+/**
+ * One forge request: network errors and non-2xx (with the forge's error
+ * body, never the token) are errors. `op` names the operation for messages
+ * (e.g. "GitLab notes list").
+ */
+async function forgeRequest(
   doFetch: (url: string, init?: RequestInit) => Promise<Response>,
-  target: GitlabTarget,
-): Promise<Result<ForgeNote[]>> {
-  const url =
-    `${target.base}/projects/${target.project}` +
-    `/merge_requests/${target.iid}/notes?per_page=100`;
+  op: string,
+  url: string,
+  init: RequestInit,
+): Promise<Result<Response>> {
   let res: Response;
   try {
-    res = await doFetch(url, {
-      method: "GET",
-      headers: {
-        "JOB-TOKEN": target.token,
-        "PRIVATE-TOKEN": target.token,
-      },
-    });
+    res = await doFetch(url, init);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `GitLab notes list failed: ${detail}` };
+    return { ok: false, error: `${op} failed: ${detail}` };
   }
   if (!res.ok) {
     const body = await readErrorBody(res);
     return { ok: false, error: `${res.status} ${body}` };
   }
+  return { ok: true, value: res };
+}
+
+async function parseNotesJson(
+  op: string,
+  res: Response,
+): Promise<Result<ForgeNote[]>> {
   try {
     const data = (await res.json()) as Array<{ id?: unknown; body?: unknown }>;
     if (!Array.isArray(data)) return { ok: true, value: [] };
@@ -201,158 +228,145 @@ async function listGitlabNotes(
       ),
     };
   } catch {
-    return { ok: false, error: "GitLab notes list returned invalid JSON" };
+    return { ok: false, error: `${op} returned invalid JSON` };
   }
 }
 
-async function writeGitlabNote(
-  doFetch: (url: string, init?: RequestInit) => Promise<Response>,
-  target: GitlabTarget,
-  existingId: number | null,
-  body: string,
-): Promise<Result<void>> {
-  const headers = {
-    "Content-Type": "application/json",
-    "JOB-TOKEN": target.token,
-    "PRIVATE-TOKEN": target.token,
-  };
-  const url = existingId === null
-    ? `${target.base}/projects/${target.project}/merge_requests/${target.iid}/notes`
-    : `${target.base}/projects/${target.project}/merge_requests/${target.iid}/notes/${existingId}`;
-  let res: Response;
-  try {
-    res = await doFetch(url, {
-      method: existingId === null ? "POST" : "PUT",
-      headers,
-      body: JSON.stringify({ body }),
-    });
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `GitLab note write failed: ${detail}` };
-  }
-  if (!res.ok) {
-    const errBody = await readErrorBody(res);
-    return { ok: false, error: `${res.status} ${errBody}` };
-  }
-  return { ok: true, value: undefined };
-}
+/** Forge-specific request shape over one shared upsert (no parallel stacks). */
+type ForgeAdapter = {
+  listOp: string;
+  writeOp: string;
+  /** List URL without the `page` param (already carries `per_page`). */
+  listBaseUrl: string;
+  listHeaders: Record<string, string>;
+  writeUrl: (existingId: number | null) => string;
+  writeMethod: (existingId: number | null) => "POST" | "PUT" | "PATCH";
+  writeHeaders: Record<string, string>;
+};
 
-async function listGithubComments(
-  doFetch: (url: string, init?: RequestInit) => Promise<Response>,
-  target: GithubTarget,
-): Promise<Result<ForgeNote[]>> {
-  const url =
-    `${target.base}/repos/${target.repoPath}` +
-    `/issues/${target.prId}/comments?per_page=100`;
-  let res: Response;
-  try {
-    res = await doFetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${target.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `GitHub comments list failed: ${detail}` };
-  }
-  if (!res.ok) {
-    const body = await readErrorBody(res);
-    return { ok: false, error: `${res.status} ${body}` };
-  }
-  try {
-    const data = (await res.json()) as Array<{ id?: unknown; body?: unknown }>;
-    if (!Array.isArray(data)) return { ok: true, value: [] };
+function adapterForTarget(target: ForgeTarget): ForgeAdapter {
+  if (target.forge === "gitlab") {
+    const auth = { [target.tokenHeader]: target.token };
+    const collection =
+      `${target.base}/projects/${target.project}` +
+      `/merge_requests/${target.iid}/notes`;
     return {
-      ok: true,
-      value: data.flatMap((c) =>
-        typeof c.id === "number" && typeof c.body === "string"
-          ? [{ id: c.id, body: c.body }]
-          : [],
-      ),
+      listOp: "GitLab notes list",
+      writeOp: "GitLab note write",
+      listBaseUrl: `${collection}?per_page=${NOTES_PER_PAGE}`,
+      listHeaders: { ...auth },
+      writeUrl: (existingId) =>
+        existingId === null ? collection : `${collection}/${existingId}`,
+      writeMethod: (existingId) => (existingId === null ? "POST" : "PUT"),
+      writeHeaders: { "Content-Type": "application/json", ...auth },
     };
-  } catch {
-    return { ok: false, error: "GitHub comments list returned invalid JSON" };
   }
-}
-
-async function writeGithubComment(
-  doFetch: (url: string, init?: RequestInit) => Promise<Response>,
-  target: GithubTarget,
-  existingId: number | null,
-  body: string,
-): Promise<Result<void>> {
   const headers = {
-    "Content-Type": "application/json",
     Authorization: `Bearer ${target.token}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
   };
-  const url = existingId === null
-    ? `${target.base}/repos/${target.repoPath}/issues/${target.prId}/comments`
-    : `${target.base}/repos/${target.repoPath}/comments/${existingId}`;
-  let res: Response;
-  try {
-    res = await doFetch(url, {
-      method: existingId === null ? "POST" : "PATCH",
-      headers,
-      body: JSON.stringify({ body }),
-    });
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `GitHub comment write failed: ${detail}` };
+  const collection =
+    `${target.base}/repos/${target.repoPath}/issues/${target.prId}/comments`;
+  return {
+    listOp: "GitHub comments list",
+    writeOp: "GitHub comment write",
+    listBaseUrl: `${collection}?per_page=${NOTES_PER_PAGE}`,
+    listHeaders: { ...headers },
+    writeUrl: (existingId) =>
+      existingId === null
+        ? collection
+        : `${target.base}/repos/${target.repoPath}/comments/${existingId}`,
+    writeMethod: (existingId) => (existingId === null ? "POST" : "PATCH"),
+    writeHeaders: { "Content-Type": "application/json", ...headers },
+  };
+}
+
+const NOTES_PER_PAGE = 100;
+/** Cap on list pages: 1000 notes is far past any real MR thread. */
+const MAX_NOTE_PAGES = 10;
+
+function linkHeaderHasNext(link: string | null): boolean {
+  if (!link) return false;
+  return link.split(",").some((part) => /rel\s*=\s*"next"/.test(part));
+}
+
+/**
+ * All notes/comments across pages. Marker discovery must see past page one
+ * or a busy MR would silently stack a second sprout note. A full page with
+ * no pagination headers still advances (page-loop fallback); both forges
+ * signal their last page via `Link: rel="next"` (GitHub) or `x-next-page`
+ * (GitLab), and the page cap bounds header-less mocks.
+ */
+async function listNotes(
+  doFetch: (url: string, init?: RequestInit) => Promise<Response>,
+  adapter: ForgeAdapter,
+): Promise<Result<ForgeNote[]>> {
+  const all: ForgeNote[] = [];
+  for (let page = 1; page <= MAX_NOTE_PAGES; page++) {
+    const res = await forgeRequest(
+      doFetch,
+      adapter.listOp,
+      `${adapter.listBaseUrl}&page=${page}`,
+      { method: "GET", headers: adapter.listHeaders },
+    );
+    if (!res.ok) return res;
+    const parsed = await parseNotesJson(adapter.listOp, res.value);
+    if (!parsed.ok) return parsed;
+    all.push(...parsed.value);
+    if (parsed.value.length < NOTES_PER_PAGE) return { ok: true, value: all };
+    const headers = res.value.headers;
+    const gitlabNext = headers.get("x-next-page");
+    if (gitlabNext !== null) {
+      if (gitlabNext.trim() !== "" && gitlabNext.trim() !== "0") continue;
+      return { ok: true, value: all };
+    }
+    const link = headers.get("link");
+    if (link !== null) {
+      if (linkHeaderHasNext(link)) continue;
+      return { ok: true, value: all };
+    }
   }
-  if (!res.ok) {
-    const errBody = await readErrorBody(res);
-    return { ok: false, error: `${res.status} ${errBody}` };
-  }
+  return { ok: true, value: all };
+}
+
+async function writeNote(
+  doFetch: (url: string, init?: RequestInit) => Promise<Response>,
+  adapter: ForgeAdapter,
+  existingId: number | null,
+  body: string,
+): Promise<Result<void>> {
+  const res = await forgeRequest(doFetch, adapter.writeOp, adapter.writeUrl(existingId), {
+    method: adapter.writeMethod(existingId),
+    headers: adapter.writeHeaders,
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) return res;
   return { ok: true, value: undefined };
 }
 
 /**
  * Upsert one sprout note on the MR: create it when no note carries the
- * hidden marker, otherwise edit the existing one in place. Returns
- * `skipped: true` when no forge token is configured (local runs); hard
- * misconfiguration and forge rejections are errors carrying the forge's
- * error body. Never includes the token in any message.
+ * hidden marker, otherwise edit the existing one in place. Skip (no forge
+ * token on local runs) is success; hard misconfiguration and forge
+ * rejections are errors carrying the forge's error body. Never includes the
+ * token in any message.
  */
 export async function upsertForgeNote(
   deps: CliDeps,
   identity: CiIdentity,
   body: string,
-): Promise<Result<{ skipped: boolean }>> {
-  const target = resolveForgeTarget(deps.env, identity);
-  if (!target.ok) return target;
-  if (target.value === null) return { ok: true, value: { skipped: true } };
+): Promise<Result<void>> {
+  const resolved = resolveForgeTarget(deps.env, identity);
+  if (!resolved.ok) return resolved;
+  if (resolved.value.skipped) return { ok: true, value: undefined };
 
   const doFetch = fetchFn(deps);
-  if (target.value.forge === "gitlab") {
-    const listed = await listGitlabNotes(doFetch, target.value);
-    if (!listed.ok) return listed;
-    const existing = listed.value.find((n) => n.body.includes(SPROUT_NOTE_MARKER));
-    const written = await writeGitlabNote(
-      doFetch,
-      target.value,
-      existing?.id ?? null,
-      body,
-    );
-    if (!written.ok) return written;
-    return { ok: true, value: { skipped: false } };
-  }
-
-  const listed = await listGithubComments(doFetch, target.value);
+  const adapter = adapterForTarget(resolved.value.target);
+  const listed = await listNotes(doFetch, adapter);
   if (!listed.ok) return listed;
-  const existing = listed.value.find((c) => c.body.includes(SPROUT_NOTE_MARKER));
-  const written = await writeGithubComment(
-    doFetch,
-    target.value,
-    existing?.id ?? null,
-    body,
-  );
-  if (!written.ok) return written;
-  return { ok: true, value: { skipped: false } };
+  const existing = listed.value.find((n) => n.body.includes(SPROUT_NOTE_MARKER));
+  return writeNote(doFetch, adapter, existing?.id ?? null, body);
 }
 
 /** Preview success → create-or-update the MR note (non-fatal on failure). */
@@ -360,7 +374,7 @@ export async function publishPreviewNote(
   deps: CliDeps,
   identity: CiIdentity,
   previewUrl: string,
-): Promise<Result<{ skipped: boolean }>> {
+): Promise<Result<void>> {
   const sha = resolveCommitSha(deps.env);
   return upsertForgeNote(
     deps,
@@ -373,11 +387,20 @@ export async function publishPreviewNote(
 export async function publishTeardownNote(
   deps: CliDeps,
   identity: CiIdentity,
-): Promise<Result<{ skipped: boolean }>> {
+): Promise<Result<void>> {
   const sha = resolveCommitSha(deps.env);
   return upsertForgeNote(
     deps,
     identity,
     buildTeardownNote({ prId: identity.prId, sha }),
   );
+}
+
+/**
+ * Non-fatal forge-note policy in one place: gateway success owns the exit
+ * code, note failures only warn (with the forge's error body, never the
+ * token).
+ */
+export function warnForgeNote(io: CliIo, result: Result<void>): void {
+  if (!result.ok) io.stderr(`warning: MR note update failed: ${result.error}`);
 }

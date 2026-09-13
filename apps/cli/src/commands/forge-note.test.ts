@@ -39,12 +39,14 @@ function baseDeps(
 }
 
 const GITLAB_IDENTITY = {
+  forge: "gitlab" as const,
   repo: "https://gitlab.com/group/repo",
   prId: 17,
   pipelineSource: "merge_request_event" as const,
 };
 
 const GITHUB_IDENTITY = {
+  forge: "github" as const,
   repo: "https://github.com/org/repo",
   prId: 42,
   pipelineSource: "pull_request" as const,
@@ -97,7 +99,7 @@ describe("upsertForgeNote (GitLab)", () => {
       GITLAB_IDENTITY,
       buildPreviewNote({ previewUrl: "https://x", prId: 17 }),
     );
-    expect(result).toEqual({ ok: true, value: { skipped: false } });
+    expect(result).toEqual({ ok: true, value: undefined });
     expect(calls).toHaveLength(2);
     expect(calls[0]?.method).toBe("GET");
     expect(calls[0]?.url).toContain("/projects/99/merge_requests/17/notes");
@@ -175,7 +177,7 @@ describe("upsertForgeNote (GitLab)", () => {
       GITLAB_IDENTITY,
       "body",
     );
-    expect(result).toEqual({ ok: true, value: { skipped: true } });
+    expect(result).toEqual({ ok: true, value: undefined });
     expect(called).toBe(false);
   });
 
@@ -188,6 +190,81 @@ describe("upsertForgeNote (GitLab)", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).not.toContain("super-secret-token");
+  });
+
+  test("finds the marker past page one instead of stacking a note", async () => {
+    const calls: FetchCall[] = [];
+    const pageOne = Array.from({ length: 100 }, (_, i) => ({
+      id: 1000 + i,
+      body: `filler ${i}`,
+    }));
+    const fetchFn = async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ url, method, body: init?.body ?? null });
+      if (method === "GET") {
+        if (url.endsWith("page=1")) {
+          return new Response(JSON.stringify(pageOne), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "x-next-page": "2",
+            },
+          });
+        }
+        return jsonResponse([{ id: 7, body: `${SPROUT_NOTE_MARKER}\nold` }]);
+      }
+      return jsonResponse({ id: 7 });
+    };
+    const result = await upsertForgeNote(
+      baseDeps({ CI_JOB_TOKEN: "t", CI_PROJECT_ID: "99" }, fetchFn),
+      GITLAB_IDENTITY,
+      `${SPROUT_NOTE_MARKER}\nnew`,
+    );
+    expect(result.ok).toBe(true);
+    const writes = calls.filter((c) => c.method !== "GET");
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.method).toBe("PUT");
+    expect(String(writes[0]?.url)).toContain("/notes/7");
+  });
+
+  test("job token travels in JOB-TOKEN only, PAT in PRIVATE-TOKEN only", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const fetchFn = async (_url: string, init?: RequestInit) => {
+      seen.push({ ...(init?.headers as Record<string, string>) });
+      if ((init?.method ?? "GET") === "GET") return jsonResponse([]);
+      return jsonResponse({ id: 1 });
+    };
+    await upsertForgeNote(
+      baseDeps({ CI_JOB_TOKEN: "job-token", CI_PROJECT_ID: "99" }, fetchFn),
+      GITLAB_IDENTITY,
+      "body",
+    );
+    expect(seen[0]?.["JOB-TOKEN"]).toBe("job-token");
+    expect(seen[0]?.["PRIVATE-TOKEN"]).toBeUndefined();
+
+    seen.length = 0;
+    await upsertForgeNote(
+      baseDeps({ GITLAB_TOKEN: "glpat-x", CI_PROJECT_ID: "99" }, fetchFn),
+      GITLAB_IDENTITY,
+      "body",
+    );
+    expect(seen[0]?.["PRIVATE-TOKEN"]).toBe("glpat-x");
+    expect(seen[0]?.["JOB-TOKEN"]).toBeUndefined();
+  });
+
+  test("fails fast without host guessing when project ids are absent", async () => {
+    let called = false;
+    const result = await upsertForgeNote(
+      baseDeps({ CI_JOB_TOKEN: "t" }, async () => {
+        called = true;
+        return jsonResponse([]);
+      }),
+      GITLAB_IDENTITY,
+      "body",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("CI_PROJECT_ID");
+    expect(called).toBe(false);
   });
 });
 
@@ -213,7 +290,7 @@ describe("upsertForgeNote (GitHub)", () => {
       GITHUB_IDENTITY,
       buildPreviewNote({ previewUrl: "https://x", prId: 42 }),
     );
-    expect(result).toEqual({ ok: true, value: { skipped: false } });
+    expect(result).toEqual({ ok: true, value: undefined });
     expect(calls[0]?.url).toContain("/repos/org/repo/issues/42/comments");
     expect(calls[1]?.method).toBe("POST");
   });
@@ -257,8 +334,46 @@ describe("upsertForgeNote (GitHub)", () => {
       GITHUB_IDENTITY,
       "body",
     );
-    expect(result).toEqual({ ok: true, value: { skipped: true } });
+    expect(result).toEqual({ ok: true, value: undefined });
     expect(called).toBe(false);
+  });
+
+  test("follows Link rel=next to the marked comment", async () => {
+    const calls: FetchCall[] = [];
+    const pageOne = Array.from({ length: 100 }, (_, i) => ({
+      id: 2000 + i,
+      body: `filler ${i}`,
+    }));
+    const fetchFn = async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ url, method, body: init?.body ?? null });
+      if (method === "GET") {
+        if (url.endsWith("page=1")) {
+          return new Response(JSON.stringify(pageOne), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              Link: `<https://api.github.com/repos/org/repo/issues/42/comments?per_page=100&page=2>; rel="next"`,
+            },
+          });
+        }
+        return jsonResponse([{ id: 9, body: `${SPROUT_NOTE_MARKER}\nold` }]);
+      }
+      return jsonResponse({ id: 9 });
+    };
+    const result = await upsertForgeNote(
+      baseDeps(
+        { GITHUB_TOKEN: "gh-token", GITHUB_REPOSITORY: "org/repo" },
+        fetchFn,
+      ),
+      GITHUB_IDENTITY,
+      buildTeardownNote({ prId: 42 }),
+    );
+    expect(result.ok).toBe(true);
+    const writes = calls.filter((c) => c.method !== "GET");
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.method).toBe("PATCH");
+    expect(String(writes[0]?.url)).toContain("/comments/9");
   });
 });
 
