@@ -88,26 +88,76 @@ describe("sprout ci", () => {
     expect(stderr[0]).toContain("merge-request or pull-request");
   });
 
-  test("ci preview with valid MR env reaches not-implemented seam", async () => {
-    const code = await runCli(
-      ["ci", "preview"],
-      deps({
-        env: {
-          CI_PROJECT_URL: "https://gitlab.com/group/repo",
-          CI_MERGE_REQUEST_IID: "9",
-          CI_PIPELINE_SOURCE: "merge_request_event",
-          CI_REGISTRY_IMAGE: "registry.gitlab.com/group/repo",
-          CI_COMMIT_SHA: "deadbeef",
-          SPROUT_TOKEN: "tok",
-          SPROUT_URL: "http://127.0.0.1:9",
-        },
-      }),
+  test("ci preview builds, pushes, and deploys from MR env", async () => {
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "sprout-ci-preview-"));
+    await Bun.write(
+      join(dir, ".sprout.yaml"),
+      `slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`,
     );
-    expect(code).toBe(1);
-    expect(stderr[0]).toBe("sprout ci preview is not implemented yet");
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        Response.json({
+          ok: true,
+          status: "running",
+          preview_url: "https://pr-9.example.com",
+        }),
+    });
+    const dockerCalls: string[][] = [];
+    const written: Record<string, string> = {};
+    try {
+      const code = await runCli(
+        ["ci", "preview"],
+        deps({
+          cwd: dir,
+          env: {
+            SPROUT_URL: `http://127.0.0.1:${server.port}`,
+            SPROUT_TOKEN: "tok",
+            CI_PROJECT_URL: "https://gitlab.com/group/repo",
+            CI_MERGE_REQUEST_IID: "9",
+            CI_PIPELINE_SOURCE: "merge_request_event",
+            CI_REGISTRY_IMAGE: "registry.gitlab.com/group/repo",
+            CI_COMMIT_SHA: "deadbeef",
+          },
+          readTextFile: async (path) => Bun.file(path).text(),
+          runCommand: async (argv) => {
+            dockerCalls.push(argv);
+            return { exitCode: 0 };
+          },
+          writeTextFile: async (path, content) => {
+            written[path] = content;
+          },
+        }),
+      );
+      expect(code).toBe(0);
+      expect(stdout).toEqual(["preview_url=https://pr-9.example.com"]);
+      expect(dockerCalls).toEqual([
+        [
+          "docker",
+          "build",
+          "-f",
+          "Dockerfile",
+          "-t",
+          "registry.gitlab.com/group/repo:deadbeef",
+          ".",
+        ],
+        ["docker", "push", "registry.gitlab.com/group/repo:deadbeef"],
+      ]);
+      expect(written).toEqual({
+        [`${dir}/sprout-preview.env`]: "PREVIEW_URL=https://pr-9.example.com\n",
+      });
+    } finally {
+      server.stop(true);
+    }
   });
 
-  test("ci preview with valid MR env but no token reaches not-implemented seam", async () => {
+  test("ci preview with valid MR env but no token fails on auth", async () => {
     const code = await runCli(
       ["ci", "preview"],
       deps({
@@ -121,7 +171,7 @@ describe("sprout ci", () => {
       }),
     );
     expect(code).toBe(1);
-    expect(stderr[0]).toBe("sprout ci preview is not implemented yet");
+    expect(stderr[0]).toBe("SPROUT_TOKEN or SPROUT_ADMIN_TOKEN is required");
   });
 
   test("ci teardown does not require image ref", async () => {

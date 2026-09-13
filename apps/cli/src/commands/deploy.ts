@@ -1,11 +1,10 @@
 import type { CliContext } from "../context.ts";
 import { fail, loadYaml, resolveIdentity } from "../context.ts";
 import { parseFlags } from "../flags.ts";
-import { resolveDeployHostname } from "../hostname.ts";
-import { mergeServices, type DeployService } from "../services.ts";
 import {
   applyDeployEnv,
   deployBaseFields,
+  resolveDeployServices,
   type DeployRequest,
   postDeployAndWait,
 } from "./deploy-core.ts";
@@ -75,34 +74,12 @@ export async function runDeploy(
   if (flags.value.reseed) body.reseed = true;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  if (flags.value.clearServices) {
-    body.services = [];
-  } else {
-    const services = mergeServices(
-      yaml.value.preview.services,
-      flags.value.service,
-    );
-    if (!services.ok) return fail(ctx.deps.io, services.error);
-    if (services.value) {
-      const mapped: DeployService[] = [];
-      for (const svc of services.value) {
-        const entry: DeployService = { name: svc.name, image: svc.image };
-        if (svc.hostname) {
-          const resolved = resolveDeployHostname(
-            svc.hostname,
-            identity.value.prId,
-            "service hostname",
-            "static_or_template",
-          );
-          if (!resolved.ok) return fail(ctx.deps.io, resolved.error);
-          entry.hostname = resolved.value;
-        }
-        if (svc.path) entry.path = svc.path;
-        mapped.push(entry);
-      }
-      body.services = mapped;
-    }
-  }
+  const services = resolveDeployServices(yaml.value, identity.value.prId, {
+    service: flags.value.service,
+    clearServices: flags.value.clearServices,
+  });
+  if (!services.ok) return fail(ctx.deps.io, services.error);
+  if (services.value) body.services = services.value;
 
   const withEnv = await applyDeployEnv(body, ctx.deps, yaml.value, {
     appEnvFile: flags.value.appEnvFile,

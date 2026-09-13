@@ -14,7 +14,7 @@ import { readEden } from "../eden.ts";
 import { resolveDeployHostname } from "../hostname.ts";
 import { resolveCommitSha } from "../identity.ts";
 import type { Result } from "../result.ts";
-import type { DeployService } from "../services.ts";
+import { mergeServices, type DeployService } from "../services.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
 import { DEPLOY_POLL_BUFFER_MS, pollPreviewReady } from "./deploy-poll.ts";
@@ -155,7 +155,10 @@ export async function applyDeployEnv<T extends DeployRequest>(
 
 /**
  * POST /v1/deploy, settle (poll if needed), print `preview_url=`.
- * One settle contract for `sprout deploy` and `sprout ci reseed`.
+ * One settle contract for `sprout deploy`, `sprout ci reseed`, and
+ * `sprout ci preview`. Resolves with the healthy preview URL (printed
+ * above) so callers can persist it (e.g. the CI dotenv artifact) — the URL
+ * is only returned once the preview is actually healthy.
  */
 export async function postDeployAndWait(opts: {
   client: ApiClient;
@@ -163,7 +166,7 @@ export async function postDeployAndWait(opts: {
   yaml: SproutYaml;
   identity: DeployIdentity;
   body: DeployRequest;
-}): Promise<Result<true>> {
+}): Promise<Result<string>> {
   const response = await opts.client.v1.deploy.post(opts.body);
   const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return { ok: false, error: result.message };
@@ -196,5 +199,41 @@ export async function postDeployAndWait(opts: {
   }
 
   opts.deps.io.stdout(`preview_url=${data.preview_url}`);
-  return { ok: true, value: true };
+  // Ready (immediate or polled) guarantees a non-empty preview_url.
+  const previewUrl = typeof data.preview_url === "string" ? data.preview_url : "";
+  return { ok: true, value: previewUrl };
+}
+
+/**
+ * Companion services for a deploy POST from yaml `preview.services` plus
+ * `--service` / `--clear-services`. Shared by `sprout deploy` and
+ * `sprout ci preview` so the leave/clear/replace contract cannot drift:
+ * undefined = leave companions, `[]` = clear, `[...]` = replace.
+ */
+export function resolveDeployServices(
+  yaml: SproutYaml,
+  prId: number,
+  inputs: { service: string[]; clearServices: boolean },
+): Result<DeployService[] | undefined> {
+  if (inputs.clearServices) return { ok: true, value: [] };
+  const services = mergeServices(yaml.preview.services, inputs.service);
+  if (!services.ok) return services;
+  if (!services.value) return { ok: true, value: undefined };
+  const mapped: DeployService[] = [];
+  for (const svc of services.value) {
+    const entry: DeployService = { name: svc.name, image: svc.image };
+    if (svc.hostname) {
+      const resolved = resolveDeployHostname(
+        svc.hostname,
+        prId,
+        "service hostname",
+        "static_or_template",
+      );
+      if (!resolved.ok) return resolved;
+      entry.hostname = resolved.value;
+    }
+    if (svc.path) entry.path = svc.path;
+    mapped.push(entry);
+  }
+  return { ok: true, value: mapped };
 }

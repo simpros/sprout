@@ -529,4 +529,63 @@ preview:
       error: "health.expect must be a number between 100 and 599",
     });
   });
+
+  test("parses build and seed dockerfile blocks", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+build:
+  dockerfile: docker/Dockerfile
+seed:
+  dockerfile: Dockerfile.seed
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+        build: { dockerfile: "docker/Dockerfile" },
+        seed: { dockerfile: "Dockerfile.seed" },
+      },
+    });
+  });
+
+  test("empty build and seed blocks take conventional defaults", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+build: {}
+seed: {}
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+        build: { dockerfile: "Dockerfile" },
+        seed: { dockerfile: "Dockerfile.seed" },
+      },
+    });
+  });
+
+  test("rejects malformed build and seed blocks", () => {
+    const base = (extra: string) =>
+      parseSproutYaml(
+        `slug: myapp\npreview:\n  hostname: "pr-{pr_id}.example.com"\n${extra}`,
+      );
+    expect(base("build: Dockerfile\n")).toEqual({
+      ok: false,
+      error: "build must be a mapping",
+    });
+    expect(base("seed:\n  dockerfile: ''\n")).toEqual({
+      ok: false,
+      error: "seed.dockerfile is required",
+    });
+    expect(base("seed:\n  dockerfile: Dockerfile.seed\n  env: {}\n")).toEqual({
+      ok: false,
+      error: "unknown key: seed.env",
+    });
+  });
 });

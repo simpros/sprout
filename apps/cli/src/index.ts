@@ -6,6 +6,7 @@ import {
   resolveGatewayUrl,
   runCli,
 } from "./run.ts";
+import { defaultRunCommand, defaultWriteTextFile } from "./context.ts";
 
 export { resolveGatewayUrl };
 
@@ -16,6 +17,8 @@ if (import.meta.main) {
     readTextFile,
     getGitRemoteUrl: readGitRemoteUrl,
     createClient: createDefaultClient,
+    runCommand: defaultRunCommand,
+    writeTextFile: defaultWriteTextFile,
     io: {
       stdout: (line) => console.log(line),
       stderr: (line) => console.error(line),

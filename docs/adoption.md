@@ -69,6 +69,14 @@ health:
 - `preview.services` — optional list of companion services (name + optional
   `hostname` / `path` / static `image`). Images are usually supplied with
   repeatable `--service name=image` on deploy (see Multi-image previews).
+- `build.dockerfile` — optional Dockerfile path for `sprout ci preview`
+  (default `Dockerfile`). An empty `build: {}` takes the default.
+- `seed.dockerfile` — optional seed-image Dockerfile for
+  `sprout ci preview` (default `Dockerfile.seed`). When present, the command
+  builds + pushes the seed image (tag = app tag with a `-seed` suffix) and
+  deploys with `-s`; the `health` block is required, same as `deploy -s`.
+  (`seed.env` / `seed.args` arrive separately — pass `--seed-env` /
+  `--seed-arg` until then.)
 
 ## App image: migrate at startup
 
@@ -502,6 +510,39 @@ env:
 Canonical repo id is derived from `GITHUB_REPOSITORY` automatically.
 
 Use `-i` only (no `-s`) when you do not need a seed image.
+
+### One-command previews: `sprout ci preview`
+
+On GitLab (and GitHub) MR pipelines, one command replaces the build / push /
+deploy script path end to end: it builds + pushes the app image
+(`build.dockerfile`, tag = registry + commit SHA), builds + pushes the seed
+image when `.sprout.yaml` configures `seed`, deploys with the resolved env
+and `-s`, and reuses the async-deploy poll — no second deploy
+implementation. The docker CLI inherits the job env, so dind
+(`DOCKER_HOST`) and registry auth work unchanged.
+
+```yaml
+# .gitlab-ci.yml (merge-request pipeline)
+preview:
+  script:
+    - sprout ci preview
+  artifacts:
+    reports:
+      dotenv: sprout-preview.env
+  environment:
+    name: preview/mr-$CI_MERGE_REQUEST_IID
+    url: $PREVIEW_URL
+    on_stop: stop-preview
+```
+
+- On success it prints `preview_url=` **and** writes `PREVIEW_URL=<url>` to
+  `sprout-preview.env` (override with `--dotenv-file PATH`) — the dotenv
+  artifact feeds `environment:url`. Both are emitted only once the preview
+  is actually healthy.
+- On failure it prints the preview container log tail from the gateway
+  (`--tail N`, default 200) before exiting with the deploy error — no bare
+  exit code. Secrets still come from `SPROUT_APP_ENV` / `--app-env` /
+  `--seed-env` / `--seed-arg` / `--service` as with `sprout deploy`.
 
 ## Deploy token setup
 

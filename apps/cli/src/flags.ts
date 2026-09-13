@@ -16,6 +16,7 @@ type FlagBag = {
   slug?: string;
   scope?: string;
   tail?: string;
+  dotenvFile?: string;
   rest: string[];
 };
 
@@ -94,6 +95,7 @@ const FLAG_DEFS = [
   { flag: "--slug", field: "slug", kind: "string" },
   { flag: "--scope", field: "scope", kind: "string" },
   { flag: "--tail", field: "tail", kind: "string" },
+  { flag: "--dotenv-file", field: "dotenvFile", kind: "string" },
 ] as const satisfies readonly ArgvFlagDef[];
 
 type FlagName = (typeof FLAG_DEFS)[number]["flag"];
