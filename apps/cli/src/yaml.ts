@@ -1,7 +1,11 @@
 import {
   parsePreviewEnvMap,
+  resolveHealthSpec,
+  validateHostnameValue,
+  type HealthIssue,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
+import { hostnameIssueMessage } from "./hostname.ts";
 import type { Result } from "./result.ts";
 import { SERVICE_NAME_RE } from "./service-name.ts";
 
@@ -48,6 +52,31 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function unknownKey(path: string): Result<never> {
   return { ok: false, error: `unknown key: ${path}` };
+}
+
+function healthIssueMessage(issue: HealthIssue): string {
+  switch (issue.code) {
+    case "invalid_health_path":
+      return "health.path must start with /";
+    case "invalid_health_interval":
+      return "health.interval is invalid (expected Ns, e.g. 2s)";
+    case "invalid_health_timeout":
+      return "health.timeout is invalid (expected Ns, e.g. 2s)";
+    case "invalid_health_expect":
+      return "health.expect must be a number between 100 and 599";
+  }
+}
+
+function parseHostnameField(
+  raw: string,
+  label: string,
+  mode: "required_template" | "static_or_template",
+): Result<string> {
+  const checked = validateHostnameValue(raw, mode);
+  if (!checked.ok) {
+    return { ok: false, error: hostnameIssueMessage(label, checked.issue) };
+  }
+  return { ok: true, value: raw };
 }
 
 function requireString(
@@ -162,7 +191,13 @@ function parseServices(
     if (entry.hostname !== undefined) {
       const hostname = requireString(entry.hostname, `${path}.hostname`);
       if (!hostname.ok) return hostname;
-      service.hostname = hostname.value;
+      const parsed = parseHostnameField(
+        hostname.value,
+        `${path}.hostname`,
+        "static_or_template",
+      );
+      if (!parsed.ok) return parsed;
+      service.hostname = parsed.value;
     }
     if (entry.path !== undefined) {
       const pathVal = requireString(entry.path, `${path}.path`);
@@ -207,6 +242,12 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   }
   const hostname = requireString(parsed.preview.hostname, "preview.hostname");
   if (!hostname.ok) return hostname;
+  const template = parseHostnameField(
+    hostname.value,
+    "preview.hostname",
+    "required_template",
+  );
+  if (!template.ok) return template;
 
   const env = parsePreviewEnv(parsed.preview.env);
   if (!env.ok) return env;
@@ -239,10 +280,22 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
     const timeout = requireString(parsed.health.timeout, "health.timeout");
     if (!timeout.ok) return timeout;
     if (typeof parsed.health.expect !== "number") {
-      return { ok: false, error: "health.expect must be a number" };
+      return {
+        ok: false,
+        error: "health.expect must be a number between 100 and 599",
+      };
+    }
+    const resolved = resolveHealthSpec({
+      path: path.value,
+      interval: interval.value,
+      timeout: timeout.value,
+      expect: parsed.health.expect,
+    });
+    if (!resolved.ok) {
+      return { ok: false, error: healthIssueMessage(resolved.issue) };
     }
     value.health = {
-      path: path.value,
+      path: resolved.value.path,
       interval: interval.value,
       timeout: timeout.value,
       expect: parsed.health.expect,

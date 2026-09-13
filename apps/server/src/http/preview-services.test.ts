@@ -134,6 +134,25 @@ describe("POST /v1/deploy services", () => {
     expect(fakePreviewDb!.created).toEqual([]);
   });
 
+  test("rejects invalid service hostnames before SQL", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        services: [
+          {
+            name: "api",
+            image: "img:1",
+            hostname: "https://api-pr-42.example.com",
+          },
+        ],
+      }),
+    );
+    expect(res.settleStatus).toBe(422);
+    expect(res.body).toEqual({ error: "invalid_service_hostname" });
+    expect(fakePreviewDb!.created).toEqual([]);
+  });
+
   test("companion deploy failure keeps healthy app containerId", async () => {
     const SVC = "ghcr.io/org/api:sha";
     const { deployToken } = await setup({

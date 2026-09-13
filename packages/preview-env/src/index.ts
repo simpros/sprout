@@ -1,3 +1,10 @@
+/**
+ * Preview wire grammar shared by CLI and gateway:
+ * - connection-env remap (`preview.env`, ADR-0007)
+ * - hostname template / host validation
+ * - health request-shape (durations, path, expect)
+ */
+
 /** Owner / primary connection env names (single-role surfaces). */
 export const OWNER_ENV_KEYS = [
   "PGHOST",
@@ -85,3 +92,19 @@ export function parsePreviewEnvMap(
   }
   return { ok: true, value: env };
 }
+
+export {
+  resolveHostnameValue,
+  validateHostname,
+  validateHostnameValue,
+  type HostnameIssue,
+  type HostnameMode,
+} from "./hostname.ts";
+
+export {
+  DEFAULT_HEALTH,
+  resolveHealthSpec,
+  type HealthIssue,
+  type HealthRequest,
+  type HealthSpec,
+} from "./health.ts";

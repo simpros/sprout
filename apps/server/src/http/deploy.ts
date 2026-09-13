@@ -1,10 +1,11 @@
-import { parsePreviewEnvMap } from "@sprout/preview-env";
+import {
+  parsePreviewEnvMap,
+  resolveHealthSpec,
+  validateHostname,
+  type HealthRequest,
+} from "@sprout/preview-env";
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
-import {
-  resolveHealthSpec,
-  type HealthRequest,
-} from "../app-deployment/health.ts";
 import type { PreviewServiceSpec } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
@@ -199,7 +200,12 @@ export function resolveServicesRequest(
       return { ok: false, error: "invalid_service_path" };
     }
     const spec: PreviewServiceSpec = { name, image };
-    if (hostname) spec.hostname = hostname;
+    if (hostname) {
+      if (!validateHostname(hostname).ok) {
+        return { ok: false, error: "invalid_service_hostname" };
+      }
+      spec.hostname = hostname;
+    }
     if (path) spec.path = path;
     out.push(spec);
   }
@@ -237,6 +243,11 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: identityErr };
     }
+    const hostname = body.hostname.trim();
+    if (!validateHostname(hostname).ok) {
+      set.status = 422;
+      return { error: "invalid_hostname" };
+    }
     const connectionEnv = parsePreviewEnvMap(body.env);
     if (!connectionEnv.ok) {
       set.status = 422;
@@ -265,14 +276,14 @@ export function deploy(deps: LifecycleDeps) {
     const health = resolveHealthSpec(body.health);
     if (!health.ok) {
       set.status = 422;
-      return { error: health.error };
+      return { error: health.issue.code };
     }
 
     const input = {
       repo: repo.value,
       prId: body.pr_id,
       slug: body.slug,
-      hostname: body.hostname,
+      hostname,
       appImage: body.app_image,
       health: health.value,
       seed: seed.value,

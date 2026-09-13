@@ -357,4 +357,76 @@ preview:
         "preview.services: empty list; omit the key to leave companions, or pass --clear-services",
     });
   });
+
+  test("rejects hostname templates without {pr_id}", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-42.example.com"
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.hostname must contain {pr_id}",
+    });
+  });
+
+  test("rejects hostname templates with scheme, path, or placeholders", () => {
+    for (const hostname of [
+      "https://pr-{pr_id}.example.com",
+      "pr-{pr_id}.example.com/preview",
+      "pr-{pr_id}.example.com:8080",
+      "pr-{pr_id}-{sha}.example.com",
+    ]) {
+      const result = parseSproutYaml(
+        `slug: myapp\npreview:\n  hostname: "${hostname}"\n`,
+      );
+      expect(result.ok).toBe(false);
+    }
+    expect(
+      parseSproutYaml(
+        `slug: myapp\npreview:\n  hostname: "https://pr-{pr_id}.example.com"\n`,
+      ),
+    ).toMatchObject({ ok: false, error: expect.stringContaining("preview.hostname") });
+  });
+
+  test("rejects invalid service hostnames", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  services:
+    - name: api
+      image: api:1
+      hostname: "https://api.example.com"
+`),
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("preview.services[0].hostname"),
+    });
+  });
+
+  test("rejects malformed health durations, path, and expect", () => {
+    const base = (health: string) =>
+      parseSproutYaml(
+        `slug: myapp\npreview:\n  hostname: "pr-{pr_id}.example.com"\nhealth:\n${health}`,
+      );
+    expect(base("  path: health\n  interval: 2s\n  timeout: 120s\n  expect: 200\n")).toEqual({
+      ok: false,
+      error: "health.path must start with /",
+    });
+    expect(base("  path: /health\n  interval: 2x\n  timeout: 120s\n  expect: 200\n")).toEqual({
+      ok: false,
+      error: "health.interval is invalid (expected Ns, e.g. 2s)",
+    });
+    expect(base("  path: /health\n  interval: 2s\n  timeout: 0s\n  expect: 200\n")).toEqual({
+      ok: false,
+      error: "health.timeout is invalid (expected Ns, e.g. 2s)",
+    });
+    expect(base("  path: /health\n  interval: 2s\n  timeout: 120s\n  expect: 99\n")).toEqual({
+      ok: false,
+      error: "health.expect must be a number between 100 and 599",
+    });
+  });
 });

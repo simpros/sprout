@@ -166,10 +166,6 @@ export async function resolveIdentity(
   return { ok: true, value: { repo: repo.value, prId: prId.value } };
 }
 
-export function substituteHostname(template: string, prId: number): string {
-  return template.replaceAll("{pr_id}", String(prId));
-}
-
 export async function authedContext(
   deps: CliDeps,
 ): Promise<Result<CliContext>> {

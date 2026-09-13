@@ -1,10 +1,10 @@
+import type { HealthSpec } from "@sprout/preview-env";
 import {
   defaultHealthProbe,
   pollHealth,
   healthUrl,
   type HealthClock,
   type HealthProbe,
-  type HealthSpec,
 } from "./health.ts";
 import { removePreviewFleet } from "./preview-containers.ts";
 import {

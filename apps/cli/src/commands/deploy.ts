@@ -1,45 +1,35 @@
 import type { PreviewSnapshot } from "@sprout/api-client";
+import {
+  resolveHealthSpec,
+  resolveHostnameValue,
+} from "@sprout/preview-env";
 import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
 import type { CliContext } from "../context.ts";
-import {
-  fail,
-  loadYaml,
-  resolveIdentity,
-  substituteHostname,
-} from "../context.ts";
+import { fail, loadYaml, resolveIdentity } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
+import { hostnameIssueMessage } from "../hostname.ts";
 import { mergeServices, type DeployService } from "../services.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
 
 /** Extra budget beyond health.timeout for image pull + replace + optional seed. */
 const DEPLOY_POLL_BUFFER_MS = 180_000;
-const DEFAULT_HEALTH_TIMEOUT_MS = 120_000;
-const DEFAULT_POLL_INTERVAL_MS = 2_000;
 
-/** Parse `Ns` durations; missing uses fallback. Malformed throws (no silent default). */
-function parseSecondsMs(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
-  const match = /^(\d+)s$/.exec(raw.trim());
-  if (!match) {
-    throw new Error(`invalid duration (expected Ns): ${raw}`);
+function resolveDeployHostname(
+  raw: string,
+  prId: number,
+  label: string,
+  mode: "required_template" | "static_or_template",
+): { ok: true; value: string } | { ok: false; error: string } {
+  const resolved = resolveHostnameValue(raw, prId, mode);
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      error: hostnameIssueMessage(label, resolved.issue, { prId }),
+    };
   }
-  return Number(match[1]) * 1000;
-}
-
-function pollBudgetMs(yaml: SproutYaml): number {
-  return (
-    parseSecondsMs(yaml.health?.timeout, DEFAULT_HEALTH_TIMEOUT_MS) +
-    DEPLOY_POLL_BUFFER_MS
-  );
-}
-
-function pollIntervalMs(yaml: SproutYaml): number {
-  return Math.max(
-    200,
-    parseSecondsMs(yaml.health?.interval, DEFAULT_POLL_INTERVAL_MS),
-  );
+  return resolved;
 }
 
 export async function runDeploy(
@@ -92,6 +82,14 @@ export async function runDeploy(
   const identity = await resolveIdentity(ctx.deps, flags.value.repo);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
+  const hostname = resolveDeployHostname(
+    yaml.value.preview.hostname,
+    identity.value.prId,
+    "preview.hostname",
+    "required_template",
+  );
+  if (!hostname.ok) return fail(ctx.deps.io, hostname.error);
+
   const body: {
     canonical_repo_id: string;
     pr_id: number;
@@ -110,10 +108,7 @@ export async function runDeploy(
     canonical_repo_id: identity.value.repo,
     pr_id: identity.value.prId,
     slug: yaml.value.slug,
-    hostname: substituteHostname(
-      yaml.value.preview.hostname,
-      identity.value.prId,
-    ),
+    hostname: hostname.value,
     app_image: flags.value.image,
   };
 
@@ -133,14 +128,23 @@ export async function runDeploy(
     );
     if (!services.ok) return fail(ctx.deps.io, services.error);
     if (services.value) {
-      body.services = services.value.map((svc) => {
+      const mapped: DeployService[] = [];
+      for (const svc of services.value) {
         const entry: DeployService = { name: svc.name, image: svc.image };
         if (svc.hostname) {
-          entry.hostname = substituteHostname(svc.hostname, identity.value.prId);
+          const resolved = resolveDeployHostname(
+            svc.hostname,
+            identity.value.prId,
+            "service hostname",
+            "static_or_template",
+          );
+          if (!resolved.ok) return fail(ctx.deps.io, resolved.error);
+          entry.hostname = resolved.value;
         }
         if (svc.path) entry.path = svc.path;
-        return entry;
-      });
+        mapped.push(entry);
+      }
+      body.services = mapped;
     }
   }
 
@@ -177,17 +181,10 @@ export async function runDeploy(
       ctx.deps.sleep ??
       ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     const now = ctx.deps.now ?? (() => Date.now());
-    let deadline: number;
-    let interval: number;
-    try {
-      deadline = now() + pollBudgetMs(yaml.value);
-      interval = pollIntervalMs(yaml.value);
-    } catch (err) {
-      return fail(
-        ctx.deps.io,
-        err instanceof Error ? err.message : "invalid_health_duration",
-      );
-    }
+    const health = resolveHealthSpec(yaml.value.health);
+    if (!health.ok) return fail(ctx.deps.io, health.issue.code);
+    const deadline = now() + health.value.timeoutMs + DEPLOY_POLL_BUFFER_MS;
+    const interval = Math.max(200, health.value.intervalMs);
 
     while (true) {
       if (now() >= deadline) {

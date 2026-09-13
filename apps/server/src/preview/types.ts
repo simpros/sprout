@@ -1,5 +1,5 @@
 import type { PreviewEnvMap } from "@sprout/preview-env";
-import type { HealthSpec } from "../app-deployment/health.ts";
+import type { HealthSpec } from "@sprout/preview-env";
 import type {
   PreviewAppOps,
   PreviewServiceSpec,
