@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>sprout — per-PR preview databases</title>
+  <meta name="description" content="sprout gives every pull request an isolated Postgres database and optional preview app, orchestrated by a self-hosted gateway." />
+  <style>
+    :root {
+      --bg: #0f1419;
+      --bg-elev: #1a222c;
+      --bg-code: #121820;
+      --border: #2a3542;
+      --text: #e7ecf1;
+      --muted: #9aa8b6;
+      --accent: #3dcf8e;
+      --accent-dim: #2a9a68;
+      --link: #6ec8ff;
+      --warn: #e8b84a;
+      --mono: "IBM Plex Mono", "SF Mono", "Consolas", ui-monospace, monospace;
+      --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      --max: 52rem;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1a3d2e 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #1a2a3d 0%, transparent 50%),
+        var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 1.05rem;
+    }
+
+    a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 0.15em; }
+    a:hover { color: #9ad8ff; }
+
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 1.25rem 4rem; }
+
+    header.hero {
+      padding: 3.5rem 0 2.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2.5rem;
+    }
+    .brand {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 1rem;
+    }
+    h1 {
+      font-size: clamp(1.85rem, 4vw, 2.6rem);
+      line-height: 1.15;
+      font-weight: 650;
+      margin: 0 0 0.85rem;
+      letter-spacing: -0.02em;
+    }
+    .lede {
+      font-size: 1.15rem;
+      color: var(--muted);
+      max-width: 40rem;
+      margin: 0 0 1.5rem;
+    }
+    .cta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .cta a {
+      display: inline-block;
+      padding: 0.55rem 1rem;
+      border-radius: 6px;
+      font-weight: 560;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      background: var(--bg-elev);
+      color: var(--text);
+    }
+    .cta a.primary {
+      background: var(--accent);
+      border-color: var(--accent-dim);
+      color: #062014;
+    }
+    .cta a:hover { filter: brightness(1.08); }
+
+    nav.toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1.1rem;
+      padding: 0.85rem 0 0;
+      font-size: 0.92rem;
+    }
+    nav.toc a { color: var(--muted); text-decoration: none; }
+    nav.toc a:hover { color: var(--text); }
+
+    section { margin: 2.75rem 0; }
+    h2 {
+      font-size: 1.45rem;
+      margin: 0 0 0.85rem;
+      letter-spacing: -0.015em;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1.75rem;
+    }
+    section:first-of-type h2 { border-top: 0; padding-top: 0; }
+    h3 {
+      font-size: 1.08rem;
+      margin: 1.5rem 0 0.5rem;
+      color: var(--text);
+    }
+    p { margin: 0.65rem 0; color: var(--muted); }
+    p strong, li strong { color: var(--text); }
+    ul, ol { color: var(--muted); padding-left: 1.25rem; }
+    li { margin: 0.35rem 0; }
+    code, .mono {
+      font-family: var(--mono);
+      font-size: 0.9em;
+    }
+    :not(pre) > code {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+      color: #d5e4f0;
+    }
+
+    pre {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.95rem 1.05rem;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.84rem;
+      line-height: 1.5;
+      color: #d7e2ec;
+      margin: 0.85rem 0;
+    }
+    pre .c { color: #6d7f90; }
+    pre .k { color: var(--accent); }
+    pre .s { color: #e8b84a; }
+
+    .diagram {
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.1rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.45;
+      white-space: pre;
+      overflow-x: auto;
+      color: #c5d3e0;
+      margin: 1rem 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+      margin: 0.85rem 0;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.55rem 0.65rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { color: var(--text); font-weight: 600; }
+    td { color: var(--muted); }
+    td:first-child { color: var(--text); font-family: var(--mono); font-size: 0.88rem; white-space: nowrap; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+      gap: 0.85rem;
+      margin: 1rem 0;
+    }
+    .card {
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.95rem 1rem;
+    }
+    .card h3 { margin: 0 0 0.35rem; font-size: 1rem; }
+    .card p { margin: 0; font-size: 0.92rem; }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 560px) {
+      header.hero { padding-top: 2.25rem; }
+      td:first-child { white-space: normal; }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;560;650&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <p class="brand">sprout</p>
+      <h1>Per-PR preview databases for self-hosted deploys</h1>
+      <p class="lede">
+        Every pull request gets an isolated Postgres database on a shared
+        instance — plus an optional preview app behind Traefik. CI drives the
+        lifecycle with the <code>sprout</code> CLI; no forge webhooks.
+      </p>
+      <div class="cta">
+        <a class="primary" href="#quickstart">Quickstart</a>
+        <a href="#cli">CLI reference</a>
+        <a href="https://github.com/simpros/sprout">GitHub</a>
+      </div>
+      <nav class="toc" aria-label="On this page">
+        <a href="#how">How it works</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="#cli">CLI</a>
+        <a href="#config">Config</a>
+        <a href="#operator">Operator</a>
+        <a href="#faq">FAQ</a>
+        <a href="#links">Links</a>
+      </nav>
+    </header>
+
+    <section id="how">
+      <h2>How it works</h2>
+      <p>
+        An <strong>operator</strong> deploys Postgres + the sprout gateway + Traefik once.
+        An <strong>adopting repo</strong> adds <code>.sprout.yaml</code> and calls the CLI from CI.
+      </p>
+      <div class="diagram" role="img" aria-label="Preview lifecycle diagram">create → migrate (app) → seed (optional) → hand over → drop
+
+  PR opened / synchronize              PR closed
+         │                                  │
+         ▼                                  ▼
+    sprout deploy ──────────────────► sprout teardown
+         │                                  │
+         ├─ CREATE DATABASE                 ├─ stop app / seed / services
+         │   sprout_&lt;slug&gt;_pr&lt;id&gt;           └─ DROP DATABASE
+         ├─ start app container
+         │   + Traefik Host labels
+         └─ optional seed image
+                (after health check)
+                       │
+                       ▼
+              https://pr-{id}.your.app</div>
+      <div class="grid">
+        <div class="card">
+          <h3>1. Create</h3>
+          <p>Gateway creates a logical DB on the shared Postgres instance.</p>
+        </div>
+        <div class="card">
+          <h3>2. Migrate</h3>
+          <p>Your app image waits for Postgres, runs migrations, then starts.</p>
+        </div>
+        <div class="card">
+          <h3>3. Seed</h3>
+          <p>Optional one-shot seed image runs after the app health check passes.</p>
+        </div>
+        <div class="card">
+          <h3>4. Hand over</h3>
+          <p>Preview URL is live. Synchronize re-deploys keep the same DB.</p>
+        </div>
+        <div class="card">
+          <h3>5. Drop</h3>
+          <p>On PR close, CI calls teardown. Sweep cleans up if CI missed it.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="quickstart">
+      <h2>Quickstart</h2>
+
+      <h3>Operator — deploy the gateway once</h3>
+      <pre><span class="c"># from the sprout repo</span>
+cp compose.env.example compose.env
+<span class="c"># edit POSTGRES_PASSWORD, SPROUT_PREVIEW_POSTGRES_URL, SPROUT_PG_PASSWORD</span>
+
+docker compose --env-file compose.env up -d --build
+curl -sf http://127.0.0.1:7331/healthz</pre>
+      <p>Full operator guide: <a href="../deploy.md">docs/deploy.md</a>.</p>
+
+      <h3>Adopter — wire your repo</h3>
+      <pre><span class="c"># .sprout.yaml</span>
+<span class="k">slug:</span> myapp
+<span class="k">preview:</span>
+  <span class="k">hostname:</span> <span class="s">"pr-{pr_id}.myapp.preview.example.com"</span></pre>
+      <pre><span class="c"># CI (GitHub Actions) — secrets: SPROUT_URL, SPROUT_TOKEN</span>
+<span class="c"># Install CLI from a release asset, then:</span>
+sprout deploy -i "$APP_IMAGE"          <span class="c"># optional: -s "$SEED_IMAGE"</span>
+sprout teardown                        <span class="c"># on pull_request closed</span></pre>
+      <p>
+        Copy-paste starter: <a href="../../examples/adopting-repo/README.md">examples/adopting-repo/</a>.
+        Full adopter guide: <a href="../adoption.md">docs/adoption.md</a>.
+        GitLab: use the published <code>preview</code> component
+        (<a href="https://github.com/simpros/sprout/issues/127">#127</a>).
+      </p>
+    </section>
+
+    <section id="cli">
+      <h2>CLI reference</h2>
+      <p>
+        Install a release binary (glibc: <code>sprout-linux-x64</code>; Alpine:
+        <code>sprout-linux-x64-musl</code>) or run from this monorepo via
+        <code>bun run --cwd apps/cli</code>. Auth: set <code>SPROUT_URL</code> and
+        <code>SPROUT_TOKEN</code> (except <code>health</code>).
+      </p>
+      <table>
+        <thead>
+          <tr><th>Command</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>sprout deploy -i &lt;image&gt; [-s &lt;seed&gt;]</td>
+            <td>Create or synchronize a preview (DB + app; optional seed / services).</td>
+          </tr>
+          <tr>
+            <td>sprout teardown</td>
+            <td>Remove the current PR’s preview (idempotent).</td>
+          </tr>
+          <tr>
+            <td>sprout drop &lt;pr_id&gt; [--yes]</td>
+            <td>Operator drop of a specific PR preview (confirmation unless <code>--yes</code>).</td>
+          </tr>
+          <tr>
+            <td>sprout list</td>
+            <td>List registered previews (JSON).</td>
+          </tr>
+          <tr>
+            <td>sprout health</td>
+            <td>Hit gateway <code>/healthz</code> (no token).</td>
+          </tr>
+          <tr>
+            <td>sprout doctor</td>
+            <td>Gateway self-check (networks, Postgres, forge, drift).</td>
+          </tr>
+          <tr>
+            <td>sprout logs &lt;pr_id&gt;</td>
+            <td>Fetch preview container logs for debugging.</td>
+          </tr>
+          <tr>
+            <td>sprout admin token …</td>
+            <td>Create / list / revoke deploy tokens (admin token required).</td>
+          </tr>
+          <tr>
+            <td>sprout ci &lt;preview&#124;teardown&#124;reseed&#124;logs&gt;</td>
+            <td>CI helper: build/push/deploy, teardown, reseed, or logs from CI env.</td>
+          </tr>
+          <tr>
+            <td>sprout worktree-db &lt;provision&#124;drop&gt;</td>
+            <td>Local per-worktree Postgres DB (no gateway).</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>Identity (repo + PR id) is inferred from CI env or git remote; override with <code>--repo</code> where supported. Full flags per command: <code>sprout &lt;command&gt; --help</code>; CI details: <a href="../adoption.md">docs/adoption.md</a>.</p>
+    </section>
+
+    <section id="config">
+      <h2>Adopting-repo config reference</h2>
+      <p>Root file: <code>.sprout.yaml</code>. Unknown keys are rejected.</p>
+      <table>
+        <thead>
+          <tr><th>Key</th><th>Required</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>slug</td>
+            <td>yes</td>
+            <td>Short alphanumeric name used in DB and container names.</td>
+          </tr>
+          <tr>
+            <td>preview.hostname</td>
+            <td>yes</td>
+            <td>Host template; <code>{pr_id}</code> substituted at deploy time.</td>
+          </tr>
+          <tr>
+            <td>preview.env</td>
+            <td>no</td>
+            <td>Remap connection env injection names (see ADR 0007).</td>
+          </tr>
+          <tr>
+            <td>preview.app_env</td>
+            <td>no</td>
+            <td>Extra app env; supports <code>{hostname}</code>, <code>{pr_id}</code>, <code>{commit_sha}</code>, <code>generate</code>, <code>required</code>.</td>
+          </tr>
+          <tr>
+            <td>preview.services</td>
+            <td>no</td>
+            <td>Companion containers (workers, secondary APIs).</td>
+          </tr>
+          <tr>
+            <td>health</td>
+            <td>for seed</td>
+            <td><code>path</code>, <code>interval</code>, <code>timeout</code>, <code>expect</code> — required when seeding.</td>
+          </tr>
+          <tr>
+            <td>build</td>
+            <td>no</td>
+            <td><code>dockerfile</code> for <code>sprout ci preview</code> (default <code>Dockerfile</code>).</td>
+          </tr>
+          <tr>
+            <td>seed</td>
+            <td>no</td>
+            <td>Seed dockerfile / env / args; enables seed build+deploy in CI helper.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        The gateway injects connection env into app/seed containers by default as
+        <code>PGHOST</code>, <code>PGPORT</code>, <code>PGUSER</code>, <code>PGPASSWORD</code>, <code>PGDATABASE</code>
+        (names remappable via <code>preview.env</code>).
+        Details: <a href="../adoption.md">docs/adoption.md</a>.
+      </p>
+    </section>
+
+    <section id="operator">
+      <h2>Operator deploy reference</h2>
+      <p>
+        Reference stack: <code>docker-compose.yml</code> — Postgres, gateway, Traefik.
+        The gateway mounts the Docker socket and joins both the Traefik and Postgres networks.
+      </p>
+      <ul>
+        <li><strong>Local smoke:</strong> <code>docker compose --env-file compose.env up -d --build</code></li>
+        <li><strong>Health:</strong> <code>GET /healthz</code> on the gateway host port (default <code>7331</code>)</li>
+        <li><strong>Bootstrap admin token:</strong> see <a href="../deploy.md#bootstrap-admin-token">deploy.md</a></li>
+        <li><strong>Registry pull:</strong> configure gateway registry auths; image host comes from the deploy image ref</li>
+        <li><strong>Sweep:</strong> periodic reconcile of previews vs Postgres, containers, and open PRs</li>
+      </ul>
+      <p>Full env table and Coolify / Traefik notes: <a href="../deploy.md">docs/deploy.md</a>.</p>
+    </section>
+
+    <section id="faq">
+      <h2>FAQ</h2>
+      <h3>Does sprout replace my PaaS?</h3>
+      <p>
+        No. It provisions per-PR databases and optional preview containers next to
+        your existing Traefik (including Coolify-managed). CI still builds and pushes images.
+      </p>
+      <h3>Do I need forge webhooks?</h3>
+      <p>
+        No. Symmetric CI on PR open / synchronize / close drives deploy and teardown
+        (ADR 0004). Sweep recovers if teardown is missed.
+      </p>
+      <h3>Where does seed data come from?</h3>
+      <p>
+        From a user-built one-shot seed image (ADR 0003). The gateway does not clone your repo.
+      </p>
+      <h3>Can two PRs share a database?</h3>
+      <p>
+        No. Each PR gets <code>sprout_&lt;slug&gt;_pr&lt;id&gt;</code> on the shared instance.
+        Synchronize re-deploys keep that same database.
+      </p>
+      <h3>GitHub and GitLab?</h3>
+      <p>
+        Yes. GitHub Actions example in <code>examples/adopting-repo/</code>.
+        GitLab: published <code>preview</code> CI component (issue <a href="https://github.com/simpros/sprout/issues/127">#127</a>).
+      </p>
+    </section>
+
+    <section id="links">
+      <h2>Links</h2>
+      <ul>
+        <li><a href="../../README.md">README</a> — short front door</li>
+        <li><a href="../adoption.md">Adoption guide</a></li>
+        <li><a href="../deploy.md">Operator deploy</a></li>
+        <li><a href="../../examples/adopting-repo/README.md">Adopting-repo examples</a></li>
+        <li><a href="../../CONTEXT.md">CONTEXT.md</a> — domain vocabulary</li>
+        <li><a href="../adr/README.md">Architecture decision records</a></li>
+        <li><a href="../../e2e/README.md">E2E harness</a> — <code>bun run test:e2e</code></li>
+        <li><a href="https://github.com/simpros/sprout">simpros/sprout</a> on GitHub</li>
+      </ul>
+    </section>
+
+    <footer>
+      <p>
+        Preview this page locally with <code>bun run docs:preview</code>
+        (links checked via <code>bun run docs:check</code>).
+        No separate hosting required — static HTML under <code>docs/site/</code>.
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

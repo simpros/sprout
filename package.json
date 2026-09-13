@@ -8,9 +8,11 @@
   ],
   "scripts": {
     "dev": "turbo dev --filter=@sprout/server",
-    "build": "turbo build",
+    "build": "turbo build && bun run docs:check",
+    "docs:check": "bun run docs/site/check.ts",
+    "docs:preview": "bun run docs/site/preview.ts",
     "test": "turbo test",
-    "typecheck": "turbo build",
+    "typecheck": "turbo build && bun run docs:check",
     "test:e2e": "bun run e2e/run.ts",
     "sprout": "bun run apps/cli/src/index.ts",
     "db:generate": "bun run --cwd apps/server db:generate",
