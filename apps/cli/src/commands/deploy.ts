@@ -3,8 +3,15 @@ import {
   resolveHealthSpec,
   resolveHostnameValue,
 } from "@sprout/preview-env";
-import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
-import { resolveAppEnvValues } from "../app-env-values.ts";
+import {
+  mergeAppEnv,
+  mergeSeedEnv,
+  readEnvFiles,
+} from "../app-env.ts";
+import {
+  expandAppEnvValue,
+  resolveAppEnvValues,
+} from "../app-env-values.ts";
 import type { CliContext } from "../context.ts";
 import { fail, loadYaml, resolveIdentity } from "../context.ts";
 import { resolveCommitSha } from "../identity.ts";
@@ -42,6 +49,7 @@ export async function runDeploy(
     "-i",
     "-s",
     "--seed-env",
+    "--seed-env-file",
     "--seed-arg",
     "--app-env",
     "--app-env-file",
@@ -116,7 +124,6 @@ export async function runDeploy(
 
   if (yaml.value.health) body.health = yaml.value.health;
   if (flags.value.seedImage) body.seed_image = flags.value.seedImage;
-  if (flags.value.seedEnv.length > 0) body.seed_env = flags.value.seedEnv;
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (flags.value.reseed) body.reseed = true;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
@@ -150,36 +157,58 @@ export async function runDeploy(
     }
   }
 
-  const dotenvFiles: DotenvFile[] = [];
-  for (const filePath of flags.value.appEnvFile) {
-    const resolved = filePath.startsWith("/")
-      ? filePath
-      : `${ctx.deps.cwd}/${filePath}`;
-    const raw = await ctx.deps.readTextFile(resolved);
-    if (raw === null) {
-      return fail(ctx.deps.io, `cannot read --app-env-file: ${filePath}`);
-    }
-    dotenvFiles.push({ pathLabel: filePath, content: raw });
-  }
+  const [appEnvFiles, seedEnvFiles] = await Promise.all([
+    readEnvFiles(
+      ctx.deps,
+      "SPROUT_APP_ENV",
+      flags.value.appEnvFile,
+      "--app-env-file",
+    ),
+    readEnvFiles(
+      ctx.deps,
+      "SPROUT_SEED_ENV",
+      flags.value.seedEnvFile,
+      "--seed-env-file",
+    ),
+  ]);
+  if (!appEnvFiles.ok) return fail(ctx.deps.io, appEnvFiles.error);
+  if (!seedEnvFiles.ok) return fail(ctx.deps.io, seedEnvFiles.error);
 
-  const resolvedYamlEnv = resolveAppEnvValues(yaml.value.preview.app_env, {
+  const resolveCtx = {
     hostname: body.hostname,
     prId: identity.value.prId,
     commitSha: resolveCommitSha(ctx.deps.env),
     repo: identity.value.repo,
     // HMAC key is SPROUT_TOKEN only (not local admin fallback) so CI and
     // local agree when the same deploy token is used.
-    deployToken: ctx.deps.env.SPROUT_TOKEN?.trim(),
-  });
+    deployToken: ctx.deps.env.SPROUT_TOKEN?.trim() ?? "",
+  };
+
+  const resolvedYamlEnv = resolveAppEnvValues(
+    yaml.value.preview.app_env,
+    resolveCtx,
+  );
   if (!resolvedYamlEnv.ok) return fail(ctx.deps.io, resolvedYamlEnv.error);
 
+  const expandValue = (value: string) => expandAppEnvValue(value, resolveCtx);
+
   const appEnv = mergeAppEnv(
-    resolvedYamlEnv.value,
-    dotenvFiles,
+    resolvedYamlEnv.value.values,
+    resolvedYamlEnv.value.requiredKeys,
+    appEnvFiles.value,
     flags.value.appEnv,
+    expandValue,
   );
   if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);
   if (appEnv.value) body.app_env = appEnv.value;
+
+  const seedEnv = mergeSeedEnv(
+    seedEnvFiles.value,
+    flags.value.seedEnv,
+    expandValue,
+  );
+  if (!seedEnv.ok) return fail(ctx.deps.io, seedEnv.error);
+  if (seedEnv.value) body.seed_env = seedEnv.value;
 
   const response = await ctx.client.v1.deploy.post(body);
   const result = readEden<PreviewSnapshot>(response);

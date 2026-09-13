@@ -3,6 +3,7 @@ import type { Result } from "./result.ts";
 import type { AppEnvValue } from "./yaml.ts";
 
 const PLACEHOLDER_RE = /\{([a-z_]+)\}/g;
+const KNOWN_PLACEHOLDERS = new Set(["hostname", "pr_id", "commit_sha"]);
 
 export type AppEnvResolveContext = {
   hostname: string;
@@ -14,81 +15,94 @@ export type AppEnvResolveContext = {
   deployToken?: string;
 };
 
+/** Manifest layer for {@link mergeAppEnv}: templates unexpanded, generates materialized. */
+export type ResolvedAppEnv = {
+  values: Record<string, string> | undefined;
+  requiredKeys: string[];
+};
+
 /**
- * Expand `preview.app_env` templates and materialize `generate: stable_per_pr`
- * secrets into plain strings for {@link mergeAppEnv}.
+ * Expand `{hostname}` / `{pr_id}` / `{commit_sha}` in one value. The error is a
+ * bare reason with no key prefix so merge can label with the final key.
+ */
+export function expandAppEnvValue(
+  value: string,
+  ctx: AppEnvResolveContext,
+): Result<string> {
+  let unknown: string | undefined;
+  let needsCommitSha = false;
+  const replaced = value.replace(PLACEHOLDER_RE, (match, name: string) => {
+    if (!KNOWN_PLACEHOLDERS.has(name)) {
+      unknown = match;
+      return match;
+    }
+    if (name === "commit_sha") {
+      needsCommitSha = true;
+      return ctx.commitSha ?? match;
+    }
+    if (name === "hostname") return ctx.hostname;
+    return String(ctx.prId);
+  });
+  if (unknown) {
+    return { ok: false, error: `unknown placeholder ${unknown}` };
+  }
+  if (needsCommitSha && !ctx.commitSha) {
+    return {
+      ok: false,
+      error: "{commit_sha} requires GITHUB_SHA or CI_COMMIT_SHA",
+    };
+  }
+  return { ok: true, value: replaced };
+}
+
+/**
+ * Materialize `generate: stable_per_pr` secrets and collect `{ required: true }`
+ * keys. String templates pass through **unexpanded** — {@link mergeAppEnv}
+ * expands each final value once after CI layers merge.
  */
 export function resolveAppEnvValues(
   appEnv: Record<string, AppEnvValue> | undefined,
   ctx: AppEnvResolveContext,
-): Result<Record<string, string> | undefined> {
+): Result<ResolvedAppEnv> {
   if (!appEnv || Object.keys(appEnv).length === 0) {
-    return { ok: true, value: undefined };
+    return { ok: true, value: { values: undefined, requiredKeys: [] } };
   }
 
   const out: Record<string, string> = {};
+  const requiredKeys: string[] = [];
   for (const [key, value] of Object.entries(appEnv)) {
     if (typeof value === "string") {
-      const expanded = expandPlaceholders(key, value, ctx);
-      if (!expanded.ok) return expanded;
-      out[key] = expanded.value;
+      out[key] = value;
       continue;
     }
-    switch (value.generate) {
-      case "stable_per_pr": {
-        const secret = stablePerPrSecret(key, ctx);
-        if (!secret.ok) return secret;
-        out[key] = secret.value;
-        break;
+    if ("generate" in value) {
+      switch (value.generate) {
+        case "stable_per_pr": {
+          const secret = stablePerPrSecret(key, ctx);
+          if (!secret.ok) return secret;
+          out[key] = secret.value;
+          break;
+        }
+        default: {
+          const _exhaustive: never = value.generate;
+          return {
+            ok: false,
+            error: `preview.app_env.${key}: unknown generate kind: ${_exhaustive}`,
+          };
+        }
       }
-      default: {
-        const _exhaustive: never = value.generate;
-        return {
-          ok: false,
-          error: `preview.app_env.${key}: unknown generate kind: ${_exhaustive}`,
-        };
-      }
+      continue;
+    }
+    if (value.required === true) {
+      requiredKeys.push(key);
     }
   }
-  return { ok: true, value: out };
-}
-
-function expandPlaceholders(
-  key: string,
-  template: string,
-  ctx: AppEnvResolveContext,
-): Result<string> {
-  const values: Record<string, string | undefined> = {
-    hostname: ctx.hostname,
-    pr_id: String(ctx.prId),
-    commit_sha: ctx.commitSha,
-  };
-
-  for (const match of template.matchAll(PLACEHOLDER_RE)) {
-    const name = match[1]!;
-    if (!(name in values)) {
-      return {
-        ok: false,
-        error: `preview.app_env.${key}: unknown placeholder ${match[0]}`,
-      };
-    }
-    if (values[name] === undefined) {
-      if (name === "commit_sha") {
-        return {
-          ok: false,
-          error: `preview.app_env.${key}: {commit_sha} requires GITHUB_SHA or CI_COMMIT_SHA`,
-        };
-      }
-      return {
-        ok: false,
-        error: `preview.app_env.${key}: {${name}} is not available`,
-      };
-    }
-  }
-
   return {
     ok: true,
-    value: template.replace(PLACEHOLDER_RE, (_m, name: string) => values[name]!),
+    value: {
+      values: Object.keys(out).length === 0 ? undefined : out,
+      requiredKeys,
+    },
   };
 }
 

@@ -253,6 +253,44 @@ preview:
     });
   });
 
+  test("parses preview.app_env required: true", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    STRIPE_API_KEY:
+      required: true
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          app_env: { STRIPE_API_KEY: { required: true } },
+        },
+      },
+    });
+  });
+
+  test("rejects required: false", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  app_env:
+    STRIPE_API_KEY:
+      required: false
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.app_env.STRIPE_API_KEY: required must be true",
+    });
+  });
+
   test("rejects non-string preview.app_env values", () => {
     expect(
       parseSproutYaml(`
@@ -265,7 +303,7 @@ preview:
     ).toEqual({
       ok: false,
       error:
-        "preview.app_env.PORT must be a string or { generate: stable_per_pr }",
+        "preview.app_env.PORT must be a string, { generate: stable_per_pr }, or { required: true }",
     });
   });
 
@@ -299,7 +337,8 @@ preview:
 `),
     ).toEqual({
       ok: false,
-      error: "preview.app_env.SECRET must be a string or { generate: stable_per_pr }",
+      error:
+        "preview.app_env.SECRET must be a string, { generate: stable_per_pr }, or { required: true }",
     });
   });
 
