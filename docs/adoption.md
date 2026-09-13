@@ -1,37 +1,25 @@
 # Adopting repo guide
 
-Wire your repository to a running sprout gateway. CI builds and pushes
-container images; `sprout` calls the gateway API. CI never touches Postgres
-admin credentials or the Docker socket.
+The one-include flow: one component include, one `.sprout.yaml`, two CI
+variables — a working seeded preview with no adopter shell scripts. CI never
+touches Postgres admin credentials.
 
-Copy-paste files live in [`examples/adopting-repo/`](../examples/adopting-repo/).
+- New adopter? Read [Quickstart](#quickstart-gitlab-component) only.
+- Need an exact key or flag? See [Reference](#reference).
+- On a hand-rolled `curl` / `docker build` / `sprout deploy` script? See
+  [Migration](#migration-from-a-hand-rolled-script).
+- Red pipeline? See [Troubleshooting](#troubleshooting).
 
-## Prerequisites
+Copy-paste app files (Dockerfiles, entrypoints, seed script) live in
+[`examples/adopting-repo/`](../examples/adopting-repo/).
 
-- Operator has deployed the [operator compose stack](deploy.md) (or an
-  equivalent gateway against external Postgres/Traefik). The gateway needs an
-  admin Postgres DSN with `CREATEROLE` (or superuser); it creates the preview
-  login itself — adopting repos never run SQL.
-- A **deploy token** scoped to your repo's canonical id
-  (`https://github.com/<org>/<repo>`).
-- CI secrets: `SPROUT_URL`, `SPROUT_TOKEN`.
-- Pull credentials on the gateway (`SPROUT_REGISTRY_AUTHS_JSON` per host, or legacy `SPROUT_REGISTRY_USER`/`PASSWORD`; empty = anonymous); image host comes from the deploy `app_image`.
+## Quickstart (GitLab component)
 
-## `.sprout.yaml`
+Three artifacts, nothing else. Takes a repo with a `Dockerfile` and a
+`Dockerfile.seed` to a seeded preview on every merge request.
 
-Add at the repo root. The CLI reads this file locally and sends parsed values
-to the gateway. Unknown keys are rejected.
-
-Minimal (app only, default health checks):
-
-```yaml
-slug: myapp
-preview:
-  hostname: "pr-{pr_id}.myapp.preview.example.com"
-```
-
-With seeding (`health` block **required** when the `seed` block is
-configured or `-s` is passed):
+**1. `.sprout.yaml` at the repo root** — seeded preview (health block is
+required whenever `seed` is configured):
 
 ```yaml
 slug: myapp
@@ -46,55 +34,240 @@ seed:
   dockerfile: Dockerfile.seed
   env:
     FIXTURE_SET: demo
-    SEED_URL: "https://{hostname}"
-  args:
-    - --reset
 ```
 
-- `slug` — short name used in database names (`sprout_<slug>_pr<id>`) and
-  container names. Alphanumeric.
-- `preview.hostname` — per-PR URL host template. Must contain `{pr_id}`
-  (only `{pr_id}` is supported — no scheme, port, path, or other
-  placeholders). The CLI owns the substitution, validates the resulting
-  host, and prints `preview_url=` — CI must read the preview URL from that
-  output and never reconstruct the hostname itself.
-- `preview.env` — optional remap of the connection env **names** the
-  gateway injects (see below). Unmapped keys stay canonical (`PG*` /
-  `PGAPP*`).
-- `preview.app_env` — optional adopter env for the app container. String
-  values may interpolate `{hostname}`, `{pr_id}`, `{commit_sha}`; use
-  `{ generate: stable_per_pr }` for a per-MR secret derived from the
-  deploy token and `{ required: true }` for a key CI must supply (see Extra app
-  env). CI secrets still come via `SPROUT_APP_ENV` / `--app-env-file` /
-  `--app-env`.
-- `health` — optional HTTP poll the gateway runs against the app container
-  IP on the Postgres network. When omitted, the gateway polls `GET /health`
-  every `2s` for up to `120s`, expecting `200`. Add a `health` block only to
-  override those defaults. The block is still **required** when a `seed`
-  block is configured (`sprout ci preview`) or when deploying with a seed
-  image (`-s`); it gates the after-healthy seed hook (see below).
-  Malformed durations fail fast at manifest parse time (form is `Ns`, e.g.
-  `2s`).
-- `preview.services` — optional list of companion services (name + optional
-  `hostname` / `path` / static `image`). Images are usually supplied with
-  repeatable `--service name=image` on deploy (see Multi-image previews).
-- `build.dockerfile` — optional Dockerfile path for `sprout ci preview`
-  (default `Dockerfile`). An empty `build: {}` takes the default.
-- `seed` — optional seed-image block for `sprout ci preview`. When present,
-  the command builds + pushes the seed image (tag = app tag + a `-seed`
-  suffix, same repository) and deploys with `-s`; the `health` block is required, same as
-  `deploy -s`. Subkeys:
-  - `dockerfile` — optional seed Dockerfile path (default
-    `Dockerfile.seed`). An empty `seed: {}` takes the default.
-  - `env` — optional seed-only env, same value grammar and templating as
-    `preview.app_env`: strings may interpolate `{hostname}`, `{pr_id}`,
-    `{commit_sha}`; `{ generate: stable_per_pr }` derives a per-MR secret
-    from the deploy token; `{ required: true }` must be supplied by CI via
-    `SPROUT_SEED_ENV` / `--seed-env-file` / `--seed-env`. Merge order: yaml
-    `seed.env` first, then `SPROUT_SEED_ENV` / each `--seed-env-file` in
-    order, then `--seed-env` flags (later wins per key).
-  - `args` — optional list of seed container args. Yaml entries come first,
-    then repeatable `--seed-arg` flags are appended.
+Omit the `seed:` block for an app-only preview (the `health:` block can go
+too — the gateway defaults to `GET /health` every `2s` for up to `120s`,
+expecting `200`).
+
+**2. Two masked CI variables** (project or group settings):
+
+| Variable | Type | Purpose |
+|---|---|---|
+| `SPROUT_URL` | Variable, masked | Gateway URL (or pass the `sprout_url` input instead) |
+| `SPROUT_TOKEN` | Variable, masked | Deploy token scoped to the repo's canonical id (see [Deploy token setup](#deploy-token-setup)) |
+
+Optional: `SPROUT_APP_ENV` / `SPROUT_SEED_ENV` as masked **File** variables
+holding dotenv blobs for app / seed secrets (see
+[Extra app env](#extra-app-env-non-connection)). The CLI reads the file path
+from the variable automatically.
+
+**3. `.gitlab-ci.yml`** — one include, no scripts:
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
+    inputs: { stage: deploy }
+```
+
+Replace `<group>/sprout-ci` with the component project path on your GitLab
+instance and `v0.6.0` with the sprout release you adopt. Where the component
+project is unavailable on your instance, use the `include: remote` fallback
+documented in [`templates/README.md`](../templates/README.md)
+(remote includes must set `sprout_version` explicitly to the tag in the URL).
+
+What you get:
+
+- `sprout-preview` job (merge-request pipelines only): installs the pinned,
+  checksum-verified `sprout` binary (version = component version), builds +
+  pushes the app image (`CI_REGISTRY_IMAGE:<SHA>`) and the seed image (same
+  repository, `<SHA>-seed` tag suffix), deploys, writes `PREVIEW_URL=` to the
+  `sprout-preview.env` dotenv artifact that feeds `environment:url`, and
+  posts/updates the MR note with the preview URL. The URL comes from the
+  CLI's output only — never reconstruct the hostname in CI.
+- `sprout-stop-preview` job (`on_stop`, Stop button / MR close / merge /
+  `auto_stop_in` expiry): `sprout ci teardown` (idempotent — exit 0 when
+  already gone).
+- Prerequisites owned by the component: dind service, registry login,
+  `apk` packages. Adopters declare no packages and no Docker setup.
+
+Prerequisites on the GitLab side: merge-request pipelines
+(`CI_PIPELINE_SOURCE=merge_request_event`; branch pipelines are refused with
+a named error) and a runner that can run privileged `docker:dind`. The
+operator must have deployed the [operator compose stack](deploy.md) and
+minted the deploy token. Pull credentials on the gateway follow the deploy
+`app_image` host (`SPROUT_REGISTRY_AUTHS_JSON` per host, empty = anonymous).
+
+## Reference
+
+### Manifest keys (`.sprout.yaml`)
+
+The CLI reads this file locally and sends parsed values to the gateway.
+Unknown keys are rejected (`unknown key: <path>`). Coverage is manifest
+parsing in `apps/cli/src/yaml.test.ts` unless noted.
+
+| Key | Required | Default | Purpose | Covered by |
+|---|---|---|---|---|
+| `slug` | yes | — | Short name used in database names (`sprout_<slug>_pr<id>`) and container names. Alphanumeric. | `yaml.test.ts` requires slug |
+| `preview.hostname` | yes | — | Per-PR host template. Must contain `{pr_id}`; no scheme, port, path, or other placeholders. The CLI owns substitution, validates the host, and prints `preview_url=` — CI reads the URL from that output and never reconstructs it. | `yaml.test.ts` hostname templates; e2e deploy uses the substituted host (`e2e/lifecycle.test.ts`) |
+| `preview.env` | no | canonical `PG*` / `PGAPP*` | Remap of the connection env **names** the gateway injects (see [App image](#app-image-migrate-at-startup)). Unmapped keys stay canonical; remapping replaces the name (no dual alias). | `yaml.test.ts` preview.env remap; `e2e/lifecycle.test.ts` asserts adopter names on the app container |
+| `preview.app_env` | no | — | Adopter env for the app container. Value grammar: plain string, `{ generate: stable_per_pr }`, or `{ required: true }`. Strings may interpolate `{hostname}`, `{pr_id}`, `{commit_sha}` (`{commit_sha}` follows the forge SHA, `CI_COMMIT_SHA` on GitLab / `GITHUB_SHA` on GitHub). `generate` derives a per-MR secret (HMAC of repo, MR, key, keyed by the deploy token — keep the token stable for the MR lifetime). `required` must be supplied by CI (`SPROUT_APP_ENV` / `--app-env-file` / `--app-env`); missing keys fail before the gateway call naming the key. Merge order: yaml first, then `SPROUT_APP_ENV` / each `--app-env-file` in order, then `--app-env` flags (later wins per key). | `yaml.test.ts` app_env values; `app-env.test.ts`, `app-env-values.test.ts`, `deploy-env.test.ts`; `ci-preview.test.ts` mixed-SHA test |
+| `preview.services` | no | leave companions | Companion services: list of `{ name, image?, hostname?, path? }`. `hostname` gives a distinct `Host()` rule (supports `{pr_id}`); `path` gives a `PathPrefix()` on the app hostname; combined with `&&`. Static `image` pins the image; `--service name=image` overlays it — every service needs an image after merge. Omitting `--service` leaves companions in place; `--clear-services` removes all. An empty list is rejected (omit the key, or `--clear-services`). | `yaml.test.ts` services; `services.test.ts`; `deploy.test.ts` leave/clear/replace contract |
+| `preview.services[].name` | per entry | — | Service name (validated, unique). | `yaml.test.ts` invalid entries / duplicates |
+| `preview.services[].image` | per entry unless `--service` | — | Pinned image for the service. | `yaml.test.ts` services; `ci-preview.test.ts` service flags reach the deploy body |
+| `preview.services[].hostname` | no | internal-only | Distinct `Host()` for the service. | `yaml.test.ts` invalid service hostnames |
+| `preview.services[].path` | no | internal-only | `PathPrefix()` for the service (must start with `/`). | `yaml.test.ts` invalid entries |
+| `health.path` | when seeding | `/health` | HTTP path the gateway polls on the Postgres-network container IP. | `yaml.test.ts` health durations/path/expect |
+| `health.interval` | when seeding | `2s` | Poll interval (`Ns` form, e.g. `2s`; malformed durations fail at manifest parse). | `yaml.test.ts` malformed durations |
+| `health.timeout` | when seeding | `120s` | How long the gateway polls before `health_timeout`. Never starts the seed. | `yaml.test.ts`; `ci-preview.test.ts` health-timeout log dump |
+| `health.expect` | when seeding | `200` | Expected status (100–599). Gates the after-healthy seed hook. | `yaml.test.ts`; `ci-preview.test.ts` seed-requires-health |
+| `build.dockerfile` | no | `Dockerfile` | App Dockerfile for `sprout ci preview`. An empty `build: {}` takes the default. | `yaml.test.ts` build/seed blocks; `ci-preview.test.ts` builds only the app without a seed block |
+| `seed.dockerfile` | when `seed:` present | `Dockerfile.seed` | Seed Dockerfile. An empty `seed: {}` takes the default and enables seeding. | `yaml.test.ts` defaults; `ci-preview.test.ts` builds + pushes app and seed, deploys with `-s` |
+| `seed.env` | no | — | Seed-only env, same value grammar and templating as `preview.app_env`. `required` keys come from `SPROUT_SEED_ENV` / `--seed-env-file` / `--seed-env`. Merge order: yaml first, then blob / files in order, then flags. | `yaml.test.ts` seed env/args; `ci-preview.test.ts` manifest seed env/args reach the deploy body |
+| `seed.args` | no | — | Seed container args. Yaml entries first, then `--seed-arg` flags appended. | `yaml.test.ts`; `ci-preview.test.ts` |
+
+Minimal app-only manifest (defaults apply):
+
+```yaml
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+```
+
+Seeded manifest (as in the quickstart): add `health:` + `seed:` as shown
+above. `seed: {}` alone enables seeding with the conventional
+`Dockerfile.seed`.
+
+### CLI `ci` commands
+
+`usage: sprout ci <preview|teardown|reseed|logs> …` — repo, MR id, and
+pipeline source are inferred from CI env (`CI_PROJECT_URL` /
+`CI_MERGE_REQUEST_IID` / `CI_PIPELINE_SOURCE` on GitLab;
+`GITHUB_REPOSITORY` + event payload on GitHub). Identity resolves before
+auth so outside-pipeline errors win over missing-token. Covered by
+`apps/cli/src/commands/ci.test.ts` and `ci-identity.test.ts`.
+
+| Command | Flags | Purpose | Covered by |
+|---|---|---|---|
+| `sprout ci preview` | `--app-env KEY=VALUE` (repeat) | One-off app env (highest precedence). | `ci-preview.test.ts` env layering via `deploy-env.test.ts` |
+| | `--app-env-file PATH` (repeat) | Explicit dotenv file(s) for the app, on top of `SPROUT_APP_ENV`. | `deploy-env.test.ts`; component `app_env_file` input passes one through (`templates/preview.test.ts`) |
+| | `--seed-env KEY=VALUE` (repeat) | One-off seed env. | `ci-preview.test.ts` |
+| | `--seed-env-file PATH` (repeat) | Explicit dotenv file(s) for the seed, on top of `SPROUT_SEED_ENV`. | `deploy-env.test.ts`; component `seed_env_file` input passes one through |
+| | `--seed-arg ARG` (repeat) | Extra seed container args (appended after yaml `seed.args`; values may start with `-`). | `ci-preview.test.ts` manifest + flag args reach the body |
+| | `--service name=image` (repeat) | Create/refresh companion services (see [Multi-image previews](#multi-image-previews-app--services)). | `services.test.ts`; `deploy.test.ts` |
+| | `--clear-services` | Remove all companions (`services: []` on the API). Cannot combine with `--service`. | `deploy.test.ts` |
+| | `--tail N` | Gateway log lines printed when the deploy fails (default `200`; must be a positive integer, checked before building). | `ci-preview.test.ts` custom tail, non-positive tail, timeout/failed-deploy dumps |
+| | `--dotenv-file PATH` | Dotenv artifact the CLI writes `PREVIEW_URL=` to (default `sprout-preview.env`, relative to the workspace root). Emitted only once the preview is healthy. | `ci-preview.test.ts` custom dotenv path; `templates/preview.test.ts` dotenv feeds `environment:url` |
+| `sprout ci teardown` | *(no flags — extra args are rejected)* | Tear down this MR's preview. Idempotent; rewrites the MR note in place ("preview was removed"). Note failures only warn so gateway success owns the exit code. | `ci-teardown-reseed-logs.test.ts` Stop-button shape, already-removed success, gateway error |
+| `sprout ci reseed` | `-s <seed-image>` (required) | Re-run the seed job against the existing database (no image build; app tag from `CI_REGISTRY_IMAGE` + SHA). Body is a reseed request, so companions stay as last deployed by construction. | `ci-teardown-reseed-logs.test.ts` requires `-s`, reseed body, layering like deploy |
+| | `--seed-env`, `--seed-env-file`, `--seed-arg`, `--app-env`, `--app-env-file` | Same env layering as `preview` (yaml + blob + files + flags). | `ci-teardown-reseed-logs.test.ts` blob/file layering |
+| `sprout ci logs` | `--tail N` | Preview container logs through the gateway (app, then seed when available). | `ci-teardown-reseed-logs.test.ts` tail forwarding, non-positive tail |
+
+On success `sprout ci preview` prints `preview_url=` to stdout (and writes
+the dotenv file); on failure it prints the gateway log tail first, then the
+deploy error exits non-zero. The MR note is best-effort in both directions
+(forge failures warn with the forge's error body, never the token) —
+covered by `ci-note-wiring.test.ts` and `forge-note.test.ts`.
+
+Low-level equivalents (`sprout deploy -i … -s …`, `sprout teardown`,
+`sprout logs`) still work for GitHub Actions and laptops — see
+[CI workflow (GitHub Actions)](#ci-workflow-github-actions) and
+[Debugging](#debugging). Their env/seed/service flags mirror the `ci`
+surface (`-i`, `-s`, `--reseed`, `--service`, `--clear-services`,
+`--app-env[-file]`, `--seed-env[-file]`, `--seed-arg`), covered by
+`deploy.test.ts` and `logs.test.ts`.
+
+### Component inputs (`templates/preview.yml`)
+
+Full prose reference: [`templates/README.md`](../templates/README.md).
+Contract tests: `templates/preview.test.ts` (inputs are exactly this set —
+no Dockerfile guards, no extra-args hatch; self-contained, no
+`spec:include`, no global keywords).
+
+| Input | Default | Purpose |
+|---|---|---|
+| `sprout_version` | release tag shipping the file (sentinel replaced at publish) | CLI release to install (checksum-verified). Override to pin or trial another build. Remote includes must set it explicitly to the tag in the URL. |
+| `stage` | `deploy` | Stage for both jobs. |
+| `sprout_url` | `""` (use `$SPROUT_URL`) | Gateway URL override. |
+| `app_context` | `.` | Directory holding `.sprout.yaml`; the CLI builds (`docker build … .`) and resolves Dockerfiles relative to it. |
+| `auto_stop_in` | `1 week` | `environment:auto_stop_in` for the preview. |
+| `app_env_file` | `""` | Project-root-relative extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). Resolved before `cd` into `app_context`. |
+| `seed_env_file` | `""` | Project-root-relative extra seed dotenv file passed as `--seed-env-file`. Same rule. |
+| `dotenv_file` | `sprout-preview.env` | Project-root-relative dotenv artifact carrying `PREVIEW_URL` to `environment:url`. Parent directories must already exist. |
+| `tail` | `200` | Gateway log lines printed when `sprout ci preview` fails. |
+
+## Migration from a hand-rolled script
+
+If your `.gitlab-ci.yml` currently installs the CLI, builds/pushes images,
+and calls `sprout deploy` by hand, replace the whole job with the component.
+Concretely, delete:
+
+1. The `curl` install block (version pin, asset selection, `chmod`,
+   `libstdc++` handling) — the component installs the pinned,
+   checksum-verified binary matching the component version.
+2. The `docker build` / `docker push` steps and registry-login script — the
+   component owns the dind service and login; `sprout ci preview` builds and
+   pushes the app image and, when `.sprout.yaml` configures `seed`, the seed
+   image.
+3. The `sprout deploy -i … -s …` invocation, `preview_url=` scraping, dotenv
+   writing, and `sprout teardown` script — the component calls
+   `sprout ci preview` / `sprout ci teardown`, writes the dotenv artifact,
+   and posts the MR note.
+4. Any reconstruction of the preview hostname in CI (string munging
+   `pr-<id>.host`) — read `PREVIEW_URL` / `preview_url=` from the CLI output
+   instead.
+
+Worked diff (GitLab, seeded preview). Before:
+
+```yaml
+preview:
+  image: docker:24
+  services: [{ name: docker:24-dind, alias: docker }]
+  variables: { DOCKER_HOST: tcp://docker:2375, DOCKER_TLS_CERTDIR: "" }
+  script:
+    - apk add --no-cache curl ca-certificates libstdc++
+    - curl -fsSL -o /usr/local/bin/sprout "https://github.com/simpros/sprout/releases/download/v0.6.0/sprout-linux-x64-musl"
+    - chmod +x /usr/local/bin/sprout
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - docker build -f Dockerfile.seed -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-seed" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-seed"
+    - sprout deploy -i "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" -s "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-seed" | tee deploy.log
+  artifacts:
+    reports: { dotenv: sprout-preview.env }
+  environment:
+    name: preview/mr-$CI_MERGE_REQUEST_IID
+    url: $PREVIEW_URL
+    on_stop: stop-preview
+```
+
+After (move the image coordinates into `.sprout.yaml` `build:`/`seed:`
+blocks; keep only the include):
+
+```yaml
+include:
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
+    inputs: { stage: deploy }
+```
+
+After the migration no adopter shell script remains: the component declares
+both jobs (`sprout-preview`, `sprout-stop-preview`), and every behavior the
+old script hand-built (install, build/push, deploy, dotenv, MR note, log
+dump on failure) is owned by `sprout ci preview` / `sprout ci teardown`.
+The `.sprout.yaml` `seed:` block replaces the `-s` plumbing: when present,
+the CLI builds + pushes the seed image and deploys with it; the hand-written
+`-s` flag disappears from CI entirely.
+
+## Troubleshooting
+
+Every entry names the exact CLI error. None of these print env values —
+parse errors name the key or file without echoing the value.
+
+| Symptom | Error (stderr) | Fix |
+|---|---|---|
+| Job runs on a branch pipeline, not an MR | `sprout ci refuses detached/non-MR pipelines (CI_PIPELINE_SOURCE=…); run from a merge-request pipeline` (GitHub: `GITHUB_EVENT_NAME=…`) | Gate the jobs on `$CI_MERGE_REQUEST_IID` (the component does this) or run from a `pull_request` workflow. Running both forges' claims at once is refused as ambiguous. |
+| Registry/SHA missing so the image tag cannot be built | `cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA)` | Run on a runner with the container registry enabled; on GitLab the component logs in with `CI_REGISTRY_USER`/`CI_REGISTRY_PASSWORD` automatically. |
+| Remote include without a version | `sprout_version input is empty/unpinned (remote includes must set sprout_version explicitly …)` | Set `sprout_version` to the tag in the `remote:` URL. Component includes pin it automatically. |
+| Downloaded release fails verification | `checksum entry missing for <asset> in <tag>/SHA256SUMS.txt …` or a `sha256sum -c` mismatch; `test "$(sprout --version)" = "…"` fails | Pin to a release that ships checksums (≥ the release that publishes `SHA256SUMS.txt`); do not hand-edit the install — the component verifies the downloaded asset. |
+| Hostname template rejected | `preview.hostname … must contain {pr_id}` / scheme/port/path/placeholder errors; service `preview.services[i].hostname` / `.path must start with /` | Keep the template a bare host with `{pr_id}` (`pr-{pr_id}.app.example.com`). Read the URL from `preview_url=` / `PREVIEW_URL` — never reconstruct it in CI. |
+| Unknown manifest key | `unknown key: <path>` (top-level, `preview.*`, `health.*`, `seed.*`, `preview.env.*`) | Rename to a key in the [manifest table](#manifest-keys-sproutyaml); check `preview.env` against the canonical `PG*` set and services against `name/image/hostname/path`. |
+| Seed configured without health | `health block required in .sprout.yaml when seed block is configured` (or `when -s is passed`) | Add the `health:` block (quickstart snippet). The gate runs before any `docker build`. |
+| Secret not supplied | deploy fails before the gateway call naming the key (declared `{ required: true }`, no file/flag provided it) | Provide it via the `SPROUT_APP_ENV` / `SPROUT_SEED_ENV` file-type variable or `--app-env[-file]` / `--seed-env[-file]`. Never commit the secret to the manifest. |
+| Invalid dotenv line or flag | names the offending key or file, value never echoed | Fix the `KEY=value` line (blank lines, `#` comments, optional `export ` prefix; values may contain `=`); check `--tail` is a positive integer (`--tail must be a positive integer`). |
+| Deploy never becomes healthy | `health_timeout` (gateway log tail printed first), `deploy_timeout` on poll expiry | Pull `sprout logs <mr_id> --tail 200`: app crash-loop (migrations, missing env, wrong port) is the usual cause. Reviewers may see brief 502s while the app migrates — Traefik routes exist before the app is healthy. |
+| Seed fails | `seed_failed` (exit code or `timeout` in `last_error_detail`); app **stays up** and routable, `seeded_at` unset | Fix the seed image and redeploy with `-s` (resume path — no Traefik replace when image + hostname are unchanged). Seed wall-clock is `SPROUT_SEED_TIMEOUT` (default `180s`); health timeout is separate and never starts the seed. |
+| `sprout ci reseed` without an image | `ci reseed requires -s <seed-image>` | Pass `-s` with the seed image; reseed runs against the existing database without rebuilding. |
 
 ## App image: migrate at startup
 
@@ -174,11 +347,11 @@ Pass those as:
 - Repeatable `--app-env KEY=VALUE` / `--seed-env KEY=VALUE` (one-offs from CI)
 
 String values may use `{hostname}`, `{pr_id}`, and `{commit_sha}`
-(`{hostname}` is the substituted preview host; `{commit_sha}` needs
-`GITHUB_SHA` or `CI_COMMIT_SHA`). Request a secret that stays identical
+(`{hostname}` is the substituted preview host; `{commit_sha}` follows the
+forge SHA). Request a secret that stays identical
 across redeploy and reseed of the same MR with `{ generate: stable_per_pr }`
 — an HMAC of `(canonical_repo_id, pr_id, env_key)` keyed by the sprout
-deploy token (`SPROUT_TOKEN`). Keep that token stable for the MR’s lifetime
+deploy token (`SPROUT_TOKEN`). Keep that token stable for the MR's lifetime
 or sessions will invalidate when it rotates.
 
 Declare a key that CI must supply (never the manifest) with
@@ -200,44 +373,12 @@ preview:
 
 Placeholders expand in **every** layer (manifest, file blob, and
 `--app-env`), so a blob entry like `BETTER_AUTH_URL=https://{hostname}`
-works. The file-type CI variable is read automatically:
-
-```bash
-sprout deploy -i "$APP_IMAGE"
-```
-
-CLI merge order: yaml `app_env` (after placeholder / generate expansion)
-first, then `SPROUT_APP_ENV` / each `--app-env-file` in order, then
-`--app-env` flags (later wins on duplicate keys; one entry per key on the
-wire). Yaml `seed.env` / `SPROUT_SEED_ENV` / `--seed-env-file` /
-`--seed-env` follow the same order for the seed container, and yaml
-`seed.args` come first with `--seed-arg` flags appended. Required keys are
-checked after all layers.
-Invalid dotenv lines or flags fail before any gateway call and name the
-offending key or file **without echoing the value**. Gateway connection
-keys replace colliding adopter keys (canonical PG* ∪ remapped names) —
-same policy as seed env.
-
-#### CI: one masked file-type variable
-
-Store the app secrets as a single dotenv blob in `SPROUT_APP_ENV` (and, when
-seeding, `SPROUT_SEED_ENV`). The blob supports `.env` syntax: blank lines,
-`#` comments, an optional `export ` prefix, and `KEY=value` (values may
-contain `=`; keys are trimmed and matching surrounding quotes are stripped).
-Placeholders such as `{hostname}` expand per value.
+works.
 
 **GitLab** — create a CI/CD variable named `SPROUT_APP_ENV`, type **File**,
 marked **Masked**. GitLab writes the blob to a temp file and exports its path;
-the CLI reads it automatically:
-
-```yaml
-script:
-  - sprout deploy -i "$APP_IMAGE"
-```
-
-**Masked** keeps the value out of job logs; **File** means only the temp path
-is exported to the job. The CLI never prints env values, and its parse errors
-never echo a line.
+the CLI reads it automatically (the component passes nothing extra unless
+you set the `app_env_file` / `seed_env_file` inputs for additional files).
 
 **GitHub Actions** — no file-type secrets; write the multiline secret to a
 temp file and point `SPROUT_APP_ENV` at it:
@@ -298,25 +439,11 @@ preview app passes `health.expect`, an optional **seed image** runs. That is
 how you sequence "migrate in the app, then seed" with zero API-code changes —
 no `wait-for-postgres` / sleep loops in the seed path to wait for migrations.
 
-Express it with `.sprout.yaml` health + `seed` settings plus deploy flags:
-
-```yaml
-# .sprout.yaml — health block required when the seed block is configured or -s is passed
-slug: myapp
-preview:
-  hostname: "pr-{pr_id}.myapp.preview.example.com"
-health:
-  path: /health
-  interval: 2s
-  timeout: 120s
-  expect: 200
-seed:
-  dockerfile: Dockerfile.seed
-  env:
-    FIXTURE_SET: demo
-  args:
-    - --reset
-```
+With the component you declare it once in `.sprout.yaml` (quickstart) and
+never pass `-s` in CI — `sprout ci preview` builds + pushes the seed image
+(tag = app tag + a `-seed` suffix, same repository) and deploys with it.
+The low-level equivalent is `sprout deploy -i … -s …` with
+`--seed-env` / `--seed-arg`:
 
 ```bash
 sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" \
@@ -327,15 +454,14 @@ sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" \
 [`examples/adopting-repo/Dockerfile.seed`](../examples/adopting-repo/Dockerfile.seed)
 shows a minimal seed image: install deps, copy seed script, entrypoint runs
 `bun run seed` with the same connection env the gateway injects (default
-`PG*`, or remapped names from `preview.env` — see
-`docker-seed-entrypoint.sh`).
+`PG*`, or remapped names from `preview.env`).
 
 ### Ordering contract
 
 1. App container starts (entrypoint waits for Postgres, runs migrations, serves).
 2. Gateway polls `health.path` on the Postgres-network container IP until
    `health.expect` (default 200) or `health.timeout`.
-3. **After healthy:** if `-s` / `seed_image` was provided and this PR has never
+3. **After healthy:** if a seed image was provided and this PR has never
    seeded successfully (`seeded_at` unset), the gateway runs the seed image once
    with the same connection-env remap as the app, plus `seed.env` /
    `--seed-env` and `seed.args` / `--seed-arg`. `--reseed` clears `seeded_at` after a healthy attach (replace)
@@ -343,9 +469,8 @@ shows a minimal seed image: install deps, copy seed script, entrypoint runs
 4. Preview status becomes `running` with `seeded_at` set.
 
 On later synchronize deploys, seeding is skipped when `seeded_at` is already
-set (pass `-s` only when you intend to seed or resume). Clients may omit `-s`
-on sync to avoid an unused seed-image pull. To force a re-seed against the
-**existing** database without tearing down, pass `--reseed` with `-s`:
+set. To force a re-seed against the **existing** database without tearing down,
+pass `--reseed` with `-s` (or `sprout ci reseed -s …`):
 
 ```bash
 sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" --reseed
@@ -391,8 +516,10 @@ seed image and redeploy.
 ## Multi-image previews (app + services)
 
 Full-stack previews often need more than one long-lived container sharing the
-same preview database (API + worker, web + secondary service, etc.). Pass
-repeatable `--service name=image` alongside `-i`:
+same preview database (API + worker, web + secondary service, etc.). With
+`sprout ci preview` pass repeatable `--service name=image` (or add the
+component inputs when they cover your case); low-level deploys use the same
+flag:
 
 ```bash
 sprout deploy -i "$APP_IMAGE" \
@@ -506,10 +633,10 @@ Pick the asset that matches the host libc (names are honest):
 | Asset | Libc | Use when |
 |---|---|---|
 | `sprout-linux-x64` | glibc | Debian/Ubuntu runners (GitHub-hosted `ubuntu-*`) |
-| `sprout-linux-x64-musl` | musl | Alpine runners (DCOS / erntastic); install `libstdc++` |
+| `sprout-linux-x64-musl` | musl | Alpine runners; install `libstdc++` |
 
 ```bash
-TAG=v0.6.0   # pin ≥ the release that ships glibc `sprout-linux-x64` (not v0.5.0)
+TAG=v0.6.0   # pin ≥ the release that ships glibc `sprout-linux-x64`
 
 # glibc hosts
 curl -fsSL -o /usr/local/bin/sprout \
@@ -537,60 +664,15 @@ Canonical repo id is derived from `GITHUB_REPOSITORY` automatically.
 
 Use `-i` only (no `-s`) when you do not need a seed image.
 
-### One-command previews: `sprout ci preview`
-
-On GitLab (and GitHub) MR pipelines, one command replaces the build / push /
-deploy script path end to end: it builds + pushes the app image
-(`build.dockerfile`, tag = registry + commit SHA), builds + pushes the seed
-image when `.sprout.yaml` configures `seed`, deploys with the resolved env
-and `-s`, and reuses the async-deploy poll — no second deploy
-implementation. The docker CLI inherits the job env, so dind
-(`DOCKER_HOST`) and registry auth work unchanged.
-
-The shortest GitLab adoption is the published `preview` component — one
-include, no adopter shell at all (full input reference, remote-include
-fallback, and publishing notes: [`templates/README.md`](../templates/README.md)):
-
-```yaml
-# .gitlab-ci.yml
-include:
-  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
-    inputs: { stage: deploy }
-```
-
-Set two masked CI variables (`SPROUT_URL`, `SPROUT_TOKEN`) plus the optional
-masked file-type `SPROUT_APP_ENV` blob. The component installs the pinned,
-checksum-verified CLI (version = component version), runs
-`sprout ci preview` in the deploy job and `sprout ci teardown` in the
-`on_stop` job, and owns the dind service, registry login, and `apk`
-prerequisites. Where the component project is unavailable on your instance,
-use the documented `include: remote` fallback at the tagged raw template
-(same file, explicit `sprout_version`).
-
-The equivalent hand-written job (when you cannot use the component):
-
-```yaml
-# .gitlab-ci.yml (merge-request pipeline)
-preview:
-  script:
-    - sprout ci preview
-  artifacts:
-    reports:
-      dotenv: sprout-preview.env
-  environment:
-    name: preview/mr-$CI_MERGE_REQUEST_IID
-    url: $PREVIEW_URL
-    on_stop: stop-preview
-```
-
-- On success it prints `preview_url=` **and** writes `PREVIEW_URL=<url>` to
-  `sprout-preview.env` (override with `--dotenv-file PATH`) — the dotenv
-  artifact feeds `environment:url`. Both are emitted only once the preview
-  is actually healthy.
-- On failure it prints the preview container log tail from the gateway
-  (`--tail N`, default 200) before exiting with the deploy error — no bare
-  exit code. Secrets still come from `SPROUT_APP_ENV` / `--app-env` /
-  `--seed-env` / `--seed-arg` / `--service` as with `sprout deploy`.
+GitLab repos should prefer the [component quickstart](#quickstart-gitlab-component)
+over this hand-written shape: `sprout ci preview` replaces the build / push /
+deploy script path end to end (builds + pushes both images from
+`build.dockerfile` / `seed.dockerfile`, deploys with the resolved env and
+`-s`, reuses the async-deploy poll), and on success prints `preview_url=`
+**and** writes `PREVIEW_URL=<url>` to the dotenv artifact (override with
+`--dotenv-file PATH`) once the preview is actually healthy. On failure it
+prints the gateway log tail (`--tail N`, default 200) before exiting with
+the deploy error.
 
 ## Deploy token setup
 

@@ -80,8 +80,12 @@ _Avoid_: Client repo, tenant repo
 
 **.sprout.yaml**:
 The config-as-code file in an adopting repo: slug, preview hostname template,
-optional health-check settings, and optional companion service routing
-metadata.
+optional health-check settings, optional companion service routing
+metadata, optional `build`/`seed` image blocks (seed-as-manifest: `seed`
+drives `sprout ci preview` image build + after-healthy seed), and computed
+env values (`preview.app_env` / `seed.env` with `{hostname}` / `{pr_id}` /
+`{commit_sha}` interpolation, `{ generate: stable_per_pr }` secrets, and
+`{ required: true }` CI-supplied keys).
 _Avoid_: previewdb.yml, pb config
 
 **Seed image**:
