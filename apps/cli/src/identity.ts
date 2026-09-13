@@ -168,21 +168,24 @@ export function resolvePrIdAny(input: {
   };
 }
 
-/**
- * Commit SHA for note/deploy metadata. Pass `forge` when the caller already
- * knows it (CI paths) so mixed envs cannot disagree with the forge-scoped
- * image ref; omit it only for forge-blind callers (`sprout deploy` env
- * templating) where either forge's SHA is better than none.
- */
+function commitShaForForge(
+  env: NodeJS.ProcessEnv,
+  forge: Forge,
+): string | undefined {
+  return forge === "gitlab"
+    ? env.CI_COMMIT_SHA?.trim() || undefined
+    : env.GITHUB_SHA?.trim() || undefined;
+}
+
+/** Strict commit SHA: reads only the given forge's var. CI callers pass the forge from identity. */
 export function resolveCommitSha(
   env: NodeJS.ProcessEnv,
-  forge?: Forge,
+  forge: Forge,
 ): string | undefined {
-  if (forge === "gitlab") return env.CI_COMMIT_SHA?.trim() || undefined;
-  if (forge === "github") return env.GITHUB_SHA?.trim() || undefined;
-  const github = env.GITHUB_SHA?.trim();
-  if (github) return github;
-  const gitlab = env.CI_COMMIT_SHA?.trim();
-  if (gitlab) return gitlab;
-  return undefined;
+  return commitShaForForge(env, forge);
+}
+
+/** Deploy path: forge-blind, GitHub first then GitLab (old aggregator order). */
+export function resolveCommitShaAny(env: NodeJS.ProcessEnv): string | undefined {
+  return commitShaForForge(env, "github") ?? commitShaForForge(env, "gitlab");
 }

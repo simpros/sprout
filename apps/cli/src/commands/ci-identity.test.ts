@@ -302,8 +302,7 @@ describe("resolveCiIdentity", () => {
       ),
     ).toEqual({
       ok: false,
-      error:
-        "sprout ci must run in a merge-request pipeline (set CI_MERGE_REQUEST_IID)",
+      error: "cannot derive pr id (CI_MERGE_REQUEST_IID)",
     });
   });
 
@@ -342,8 +341,7 @@ describe("resolveCiIdentity", () => {
       ),
     ).toEqual({
       ok: false,
-      error:
-        "sprout ci must run in a pull-request workflow (GitHub pull_request event or GITHUB_REF)",
+      error: "cannot derive pr id (GitHub pull_request event or GITHUB_REF)",
     });
   });
 

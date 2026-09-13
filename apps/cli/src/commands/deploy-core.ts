@@ -12,7 +12,7 @@ import {
 import type { CliDeps } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { resolveDeployHostname } from "../hostname.ts";
-import { resolveCommitSha } from "../identity.ts";
+import { resolveCommitShaAny } from "../identity.ts";
 import type { Result } from "../result.ts";
 import { mergeServices, type DeployService } from "../services.ts";
 import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
@@ -76,12 +76,16 @@ export function deployBaseFields(
 /**
  * Env inputs for a deploy POST. `deploy` takes these from flags;
  * `ci reseed` takes the same flags (image comes from pipeline env instead).
+ * CI callers pass the forge-scoped `commitSha` so `{commit_sha}` cannot
+ * disagree with the image ref under mixed envs; `sprout deploy` omits it
+ * and keeps the forge-blind fallback.
  */
 export type DeployEnvInputs = {
   appEnvFile: string[];
   appEnv: string[];
   seedEnvFile: string[];
   seedEnv: string[];
+  commitSha?: string;
 };
 
 /**
@@ -116,7 +120,7 @@ export async function applyDeployEnv<T extends DeployRequest>(
   const resolveCtx = {
     hostname: body.hostname,
     prId: body.pr_id,
-    commitSha: resolveCommitSha(deps.env),
+    commitSha: inputs.commitSha ?? resolveCommitShaAny(deps.env),
     repo: body.canonical_repo_id,
     // HMAC key is SPROUT_TOKEN only (not local admin fallback) so CI and
     // local agree when the same deploy token is used.

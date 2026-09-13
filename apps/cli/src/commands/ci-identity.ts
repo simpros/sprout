@@ -1,6 +1,7 @@
 import type { CliDeps } from "../context.ts";
 import { loadEventPayload, loadYaml } from "../context.ts";
 import {
+  resolveCommitSha,
   resolvePrId,
   resolveRepoForForge,
   type Forge,
@@ -85,10 +86,7 @@ export function resolveImageRef(
   forge: Forge,
 ): Result<string> {
   const registry = env.CI_REGISTRY_IMAGE?.trim();
-  const sha =
-    forge === "gitlab"
-      ? env.CI_COMMIT_SHA?.trim()
-      : env.GITHUB_SHA?.trim();
+  const sha = resolveCommitSha(env, forge);
   if (!registry || !sha) {
     const shaVar = forge === "gitlab" ? "CI_COMMIT_SHA" : "GITHUB_SHA";
     return {
@@ -99,15 +97,11 @@ export function resolveImageRef(
   return { ok: true, value: `${registry}:${sha}` };
 }
 
-function ciPrIdError(forge: Forge): string {
-  return forge === "gitlab"
-    ? "sprout ci must run in a merge-request pipeline (set CI_MERGE_REQUEST_IID)"
-    : "sprout ci must run in a pull-request workflow (GitHub pull_request event or GITHUB_REF)";
-}
-
 /**
  * Group-level CI identity: forge-scoped repo + PR under requireCiSource.
- * Does not require image ref or .sprout.yaml (preview-only).
+ * Does not require image ref or .sprout.yaml (preview-only). PR-id misses
+ * surface the shared resolver's error directly so the CI and deploy paths
+ * share one error vocabulary.
  */
 export async function resolveCiIdentity(
   deps: CliDeps,
@@ -131,7 +125,7 @@ export async function resolveCiIdentity(
     });
   }
   if (!prId.ok) {
-    return { ok: false, error: ciPrIdError(source.value.forge) };
+    return prId;
   }
 
   return {

@@ -3,6 +3,7 @@ import {
   normalizeGitRemoteUrl,
   resolveCanonicalRepoId,
   resolveCommitSha,
+  resolveCommitShaAny,
   resolvePrId,
   resolvePrIdAny,
   resolveRepoForForge,
@@ -193,24 +194,27 @@ describe("resolvePrIdAny (deploy path)", () => {
   });
 });
 
-describe("resolveCommitSha", () => {
+describe("resolveCommitShaAny", () => {
   test("reads GITHUB_SHA", () => {
-    expect(resolveCommitSha({ GITHUB_SHA: "abc123" })).toBe("abc123");
+    expect(resolveCommitShaAny({ GITHUB_SHA: "abc123" })).toBe("abc123");
   });
 
   test("reads CI_COMMIT_SHA when GITHUB_SHA absent", () => {
-    expect(resolveCommitSha({ CI_COMMIT_SHA: "def456" })).toBe("def456");
+    expect(resolveCommitShaAny({ CI_COMMIT_SHA: "def456" })).toBe("def456");
   });
 
   test("prefers GITHUB_SHA over CI_COMMIT_SHA when forge unknown", () => {
     expect(
-      resolveCommitSha({ GITHUB_SHA: "abc", CI_COMMIT_SHA: "def" }),
+      resolveCommitShaAny({ GITHUB_SHA: "abc", CI_COMMIT_SHA: "def" }),
     ).toBe("abc");
   });
 
   test("returns undefined when neither is set", () => {
-    expect(resolveCommitSha({})).toBeUndefined();
+    expect(resolveCommitShaAny({})).toBeUndefined();
   });
+});
+
+describe("resolveCommitSha", () => {
 
   test("forge-scoped github ignores CI_COMMIT_SHA", () => {
     expect(
