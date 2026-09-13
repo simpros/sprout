@@ -282,6 +282,29 @@ describe("upsertForgeNote (GitLab)", () => {
     expect(seen[0]?.["JOB-TOKEN"]).toBeUndefined();
   });
 
+  test("explicit GITLAB_TOKEN beats implicit CI_JOB_TOKEN when both are set", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const fetchFn = async (_url: string, init?: RequestInit) => {
+      seen.push({ ...(init?.headers as Record<string, string>) });
+      if ((init?.method ?? "GET") === "GET") return jsonResponse([]);
+      return jsonResponse({ id: 1 });
+    };
+    await upsertForgeNote(
+      baseDeps(
+        {
+          CI_JOB_TOKEN: "job-token",
+          GITLAB_TOKEN: "glpat-x",
+          CI_PROJECT_ID: "99",
+        },
+        fetchFn,
+      ),
+      GITLAB_IDENTITY,
+      "body",
+    );
+    expect(seen[0]?.["PRIVATE-TOKEN"]).toBe("glpat-x");
+    expect(seen[0]?.["JOB-TOKEN"]).toBeUndefined();
+  });
+
   test("fails fast without host guessing when project ids are absent", async () => {
     let called = false;
     const result = await upsertForgeNote(

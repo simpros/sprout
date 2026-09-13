@@ -34,11 +34,9 @@ Required CI variables (project or group settings):
 | `SPROUT_TOKEN` | Variable | yes | Deploy token scoped to the repo's canonical id |
 | `SPROUT_APP_ENV` | File | yes | Optional app secrets as one dotenv blob (read automatically by the CLI) |
 | `SPROUT_SEED_ENV` | File | yes | Optional seed secrets, same shape |
+| `GITLAB_TOKEN` | Variable | yes | Optional MR-note token with note-write (e.g. a project access token). When set, the CLI posts/updates the MR note with it (`PRIVATE-TOKEN`); otherwise it falls back to `CI_JOB_TOKEN` (`JOB-TOKEN`), which can read but not create notes on some instances (401) |
 
-`SPROUT_TOKEN` needs an `api` scope note target only for the MR comment:
-the CLI posts/updates one MR note via `CI_JOB_TOKEN` automatically; no
-extra token is required for that. Secrets never appear in job logs, CLI
-output, or the MR note (the CLI prints only `preview_url=`).
+Secrets never appear in job logs, CLI output, or the MR note (the CLI prints only `preview_url=`).
 
 Prerequisites on the GitLab side:
 
