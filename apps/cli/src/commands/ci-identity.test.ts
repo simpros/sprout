@@ -123,6 +123,7 @@ describe("resolveCiIdentity", () => {
     ).toEqual({
       ok: true,
       value: {
+        forge: "gitlab",
         repo: "https://gitlab.com/group/repo",
         prId: 17,
         pipelineSource: "merge_request_event",
@@ -145,6 +146,7 @@ describe("resolveCiIdentity", () => {
     ).toEqual({
       ok: true,
       value: {
+        forge: "github",
         repo: "https://github.com/org/repo",
         prId: 42,
         pipelineSource: "pull_request",
@@ -164,6 +166,7 @@ describe("resolveCiIdentity", () => {
     ).toEqual({
       ok: true,
       value: {
+        forge: "github",
         repo: "https://github.com/org/repo",
         prId: 8,
         pipelineSource: "pull_request_target",
@@ -222,6 +225,7 @@ describe("resolveCiIdentity", () => {
     ).toEqual({
       ok: true,
       value: {
+        forge: "gitlab",
         repo: "https://gitlab.com/group/repo",
         prId: 5,
         pipelineSource: "merge_request_event",
@@ -306,6 +310,7 @@ describe("resolveCiPreviewIdentity", () => {
     ).toEqual({
       ok: true,
       value: {
+        forge: "gitlab",
         repo: "https://gitlab.com/group/repo",
         prId: 17,
         pipelineSource: "merge_request_event",
@@ -329,6 +334,7 @@ describe("resolveCiPreviewIdentity", () => {
     ).toEqual({
       ok: true,
       value: {
+        forge: "github",
         repo: "https://github.com/org/repo",
         prId: 42,
         pipelineSource: "pull_request",

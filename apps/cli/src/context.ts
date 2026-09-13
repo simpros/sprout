@@ -38,6 +38,12 @@ export type CliDeps = {
   ) => Promise<CommandResult>;
   /** Test seam for writing the preview dotenv file. */
   writeTextFile?: (path: string, content: string) => Promise<void>;
+  /**
+   * Test seam for forge MR-note calls (`sprout ci preview` / `teardown`
+   * post one note via the GitLab / GitHub API). Defaults to global fetch.
+   * The forge token travels in headers only and is never logged.
+   */
+  fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
 };
 
 /** Shared runtime for a single command invocation. */

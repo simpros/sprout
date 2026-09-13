@@ -16,6 +16,7 @@ import {
   type BuildDeployRequestInputs,
 } from "./deploy-core.ts";
 import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
+import { publishPreviewNote, warnForgeNote } from "./forge-note.ts";
 
 /** Log lines dumped from the gateway on a failed deploy. */
 export const DEFAULT_CI_PREVIEW_TAIL = 200;
@@ -196,6 +197,9 @@ export async function runCiPreview(
   }
 
   const write = ctx.deps.writeTextFile ?? defaultWriteTextFile;
+  // The MR note is best-effort: gateway success owns the exit code, forge
+  // failures only warn (with the forge's error body, never the token).
+  warnForgeNote(ctx.deps.io, await publishPreviewNote(ctx.deps, identity, settled.value));
   try {
     await write(dotenvPath, `PREVIEW_URL=${settled.value}\n`);
   } catch (err) {
