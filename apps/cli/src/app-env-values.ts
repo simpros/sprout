@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import type { Result } from "./result.ts";
-import type { AppEnvValue } from "./yaml.ts";
+import type { ManifestEnvValue } from "./yaml.ts";
 
 const PLACEHOLDER_RE = /\{([a-z_]+)\}/g;
 const KNOWN_PLACEHOLDERS = new Set(["hostname", "pr_id", "commit_sha"]);
@@ -15,7 +15,7 @@ export type AppEnvResolveContext = {
   deployToken?: string;
 };
 
-/** Manifest layer for {@link mergeAppEnv}: templates unexpanded, generates materialized. */
+/** Manifest layer for {@link mergeEnvSurface}: templates unexpanded, generates materialized. */
 export type ResolvedAppEnv = {
   values: Record<string, string> | undefined;
   requiredKeys: string[];
@@ -57,14 +57,14 @@ export function expandAppEnvValue(
 
 /**
  * Materialize `generate: stable_per_pr` secrets and collect `{ required: true }`
- * keys. String templates pass through **unexpanded** — {@link mergeAppEnv}
+ * keys. String templates pass through **unexpanded** — {@link mergeEnvSurface}
  * expands each final value once after CI layers merge. `prefix` labels errors
- * (`preview.app_env.` or `seed.env.`).
+ * and is always explicit (`preview.app_env.` or `seed.env.`).
  */
 export function resolveAppEnvValues(
-  appEnv: Record<string, AppEnvValue> | undefined,
+  appEnv: Record<string, ManifestEnvValue> | undefined,
   ctx: AppEnvResolveContext,
-  prefix = "preview.app_env.",
+  prefix: string,
 ): Result<ResolvedAppEnv> {
   if (!appEnv || Object.keys(appEnv).length === 0) {
     return { ok: true, value: { values: undefined, requiredKeys: [] } };

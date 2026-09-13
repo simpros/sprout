@@ -47,18 +47,23 @@ export type SproutBuild = SproutDockerfileBlock;
  * `--seed-arg` flags).
  */
 export type SproutSeed = SproutDockerfileBlock & {
-  env?: Record<string, AppEnvValue>;
+  env?: Record<string, ManifestEnvValue>;
   args?: string[];
 };
 
 /**
  * Plain string, a HMAC secret stable for the MR lifetime, or a key that CI must
- * supply via `--app-env-file` / `SPROUT_APP_ENV` / `--app-env`.
+ * supply via `--app-env-file` / `SPROUT_APP_ENV` / `--app-env` (or the seed
+ * counterparts for `seed.env`). Shared value grammar for `preview.app_env`
+ * and `seed.env`.
  */
-export type AppEnvValue =
+export type ManifestEnvValue =
   | string
   | { generate: "stable_per_pr" }
   | { required: true };
+
+/** Back-compat alias for the shared manifest env value grammar. */
+export type AppEnvValue = ManifestEnvValue;
 
 export type SproutYaml = {
   slug: string;
@@ -71,7 +76,7 @@ export type SproutYaml = {
      * secret from the deploy token; `{ required: true }` must be supplied by
      * CI (secrets via --app-env / --app-env-file / SPROUT_APP_ENV).
      */
-    app_env?: Record<string, AppEnvValue>;
+    app_env?: Record<string, ManifestEnvValue>;
     /** Optional companion services (images usually via `--service`). */
     services?: SproutYamlService[];
   };
@@ -168,12 +173,12 @@ const APP_ENV_VALUE_HINT =
 function parseAppEnv(
   raw: unknown,
   path: string,
-): Result<Record<string, AppEnvValue> | undefined> {
+): Result<Record<string, ManifestEnvValue> | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!isPlainObject(raw)) {
     return { ok: false, error: `${path} must be a mapping` };
   }
-  const out: Record<string, AppEnvValue> = {};
+  const out: Record<string, ManifestEnvValue> = {};
   for (const [key, value] of Object.entries(raw)) {
     if (key.trim() === "") {
       return { ok: false, error: `${path} key is required` };
@@ -192,7 +197,7 @@ function parseAppEnvValue(
   path: string,
   key: string,
   value: unknown,
-): Result<AppEnvValue> {
+): Result<ManifestEnvValue> {
   if (typeof value === "string") {
     return { ok: true, value };
   }
@@ -241,6 +246,22 @@ function parseAppEnvValue(
 }
 
 /**
+ * One dockerfile field: absent → the conventional default (`Dockerfile` for
+ * `build`, `Dockerfile.seed` for `seed`). Shared by `parseDockerfileBlock`
+ * and `parseSeedBlock` so the convention is owned once.
+ */
+function parseDockerfileField(
+  rawDockerfile: unknown,
+  path: string,
+  defaultDockerfile: string,
+): Result<string> {
+  if (rawDockerfile === undefined) {
+    return { ok: true, value: defaultDockerfile };
+  }
+  return requireString(rawDockerfile, `${path}.dockerfile`);
+}
+
+/**
  * Absent block → undefined. Present without `dockerfile` → the conventional
  * default (`Dockerfile` for `build`, `Dockerfile.seed` for `seed`), so
  * `seed: {}` enables seeding without spelling out the convention.
@@ -257,10 +278,11 @@ function parseDockerfileBlock(
   for (const key of Object.keys(raw)) {
     if (!DOCKERFILE_KEYS.has(key)) return unknownKey(`${path}.${key}`);
   }
-  if (raw.dockerfile === undefined) {
-    return { ok: true, value: { dockerfile: defaultDockerfile } };
-  }
-  const dockerfile = requireString(raw.dockerfile, `${path}.dockerfile`);
+  const dockerfile = parseDockerfileField(
+    raw.dockerfile,
+    path,
+    defaultDockerfile,
+  );
   if (!dockerfile.ok) return dockerfile;
   return { ok: true, value: { dockerfile: dockerfile.value } };
 }
@@ -294,11 +316,11 @@ function parseSeedBlock(raw: unknown): Result<SproutSeed | undefined> {
   for (const key of Object.keys(raw)) {
     if (!SEED_KEYS.has(key)) return unknownKey(`seed.${key}`);
   }
-  const dockerfileRaw = raw.dockerfile;
-  const dockerfile =
-    dockerfileRaw === undefined
-      ? { ok: true as const, value: "Dockerfile.seed" }
-      : requireString(dockerfileRaw, "seed.dockerfile");
+  const dockerfile = parseDockerfileField(
+    raw.dockerfile,
+    "seed",
+    "Dockerfile.seed",
+  );
   if (!dockerfile.ok) return dockerfile;
   const env = parseAppEnv(raw.env, "seed.env");
   if (!env.ok) return env;

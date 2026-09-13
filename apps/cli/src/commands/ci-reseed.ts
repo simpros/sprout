@@ -5,9 +5,7 @@ import type { CiIdentity } from "./ci-identity.ts";
 import { resolveImageRef } from "./ci-identity.ts";
 import {
   applyDeployEnv,
-  deployBaseFields,
-  requireHealthWhenSeeding,
-  type ReseedRequest,
+  buildReseedRequest,
   postDeployAndWait,
 } from "./deploy-core.ts";
 
@@ -50,25 +48,17 @@ export async function runCiReseed(
 
   const yaml = await loadYaml(ctx.deps);
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
-  const gate = requireHealthWhenSeeding(yaml.value, {
-    hasSeed: true,
-    seedSource: "-s",
+
+  // Body via the shared deploy assembler (same base fields, health gate, and
+  // yaml seed layering as `deploy`); companions stay as last deployed because
+  // `ReseedRequest` cannot carry `services`.
+  const assembled = buildReseedRequest(yaml.value, identity, {
+    appImage: imageRef.value,
+    seedImage: flags.value.seedImage,
+    seedArg: flags.value.seedArg,
   });
-  if (!gate.ok) return fail(ctx.deps.io, gate.error);
-
-  const base = deployBaseFields(yaml.value, identity);
-  if (!base.ok) return fail(ctx.deps.io, base.error);
-
-  const body: ReseedRequest = {
-    ...base.value,
-    app_image: imageRef.value,
-    health: yaml.value.health,
-    seed_image: flags.value.seedImage,
-    reseed: true,
-  };
-  const seedArgs = [...(yaml.value.seed?.args ?? []), ...flags.value.seedArg];
-  if (seedArgs.length > 0) body.seed_arg = seedArgs;
-  if (yaml.value.preview.env) body.env = yaml.value.preview.env;
+  if (!assembled.ok) return fail(ctx.deps.io, assembled.error);
+  const body = assembled.value;
 
   const withEnv = await applyDeployEnv(body, ctx.deps, yaml.value, {
     appEnvFile: flags.value.appEnvFile,
