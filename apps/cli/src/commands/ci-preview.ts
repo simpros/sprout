@@ -28,8 +28,11 @@ export const DEFAULT_CI_PREVIEW_TAIL = 200;
 export const DEFAULT_PREVIEW_DOTENV_FILE = "sprout-preview.env";
 
 /**
- * Derive the seed tag from the app tag: `<registry-path>-seed:<sha>`.
- * The app tag always comes from the pipeline convention
+ * Derive the seed tag from the app tag: `<registry-path>:<sha>-seed`
+ * (same repository, distinct tag). Scoped push credentials (GitLab
+ * `CI_JOB_TOKEN`, least-privilege registry credentials) can only write
+ * under the project's own repository, so a sibling `-seed` repository
+ * path is denied. The app tag always comes from the pipeline convention
  * (`CI_REGISTRY_IMAGE` + SHA), so it always carries a `:tag` suffix.
  */
 export function resolveSeedImageRef(appImageRef: string): Result<string> {
@@ -42,7 +45,7 @@ export function resolveSeedImageRef(appImageRef: string): Result<string> {
   }
   return {
     ok: true,
-    value: `${appImageRef.slice(0, cut)}-seed${appImageRef.slice(cut)}`,
+    value: `${appImageRef}-seed`,
   };
 }
 

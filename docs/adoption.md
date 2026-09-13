@@ -81,8 +81,8 @@ seed:
 - `build.dockerfile` — optional Dockerfile path for `sprout ci preview`
   (default `Dockerfile`). An empty `build: {}` takes the default.
 - `seed` — optional seed-image block for `sprout ci preview`. When present,
-  the command builds + pushes the seed image (tag = app tag with a `-seed`
-  suffix) and deploys with `-s`; the `health` block is required, same as
+  the command builds + pushes the seed image (tag = app tag + a `-seed`
+  suffix, same repository) and deploys with `-s`; the `health` block is required, same as
   `deploy -s`. Subkeys:
   - `dockerfile` — optional seed Dockerfile path (default
     `Dockerfile.seed`). An empty `seed: {}` takes the default.

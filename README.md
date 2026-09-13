@@ -60,7 +60,7 @@ published binary). Set `SPROUT_URL` (default `http://127.0.0.1:7331`).
 export SPROUT_TOKEN=<deploy-token>
 
 sprout deploy -i ghcr.io/org/app:sha
-sprout deploy -i ghcr.io/org/app:sha -s ghcr.io/org/app-seed:sha \
+sprout deploy -i ghcr.io/org/app:sha -s ghcr.io/org/app:sha-seed \
   --seed-env FIXTURE_SET=demo
 sprout teardown
 sprout health                        # GET /healthz (no token)
