@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, cpSync, appendFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, cpSync, appendFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +54,14 @@ function showFile(gitDir: string, rev: string, path: string) {
   return proc.stdout.toString();
 }
 
+function hasFile(gitDir: string, rev: string, path: string): boolean {
+  const proc = Bun.spawnSync(
+    ["git", "--git-dir", gitDir, "cat-file", "-e", `${rev}:${path}`],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  return proc.exitCode === 0;
+}
+
 /** Seed a bare remote with one commit so `git clone --depth 1` works. */
 function initBareRemote(): string {
   const base = mkdtempSync(join(tmpdir(), "sprout-component-"));
@@ -106,19 +114,31 @@ describe("sync-gitlab-component.sh", () => {
     expect(proc.stderr.toString()).toMatch(/VERSION_TAG/);
   });
 
-  test("pins the sentinel, pushes, and refuses to leave a stale tag", () => {
+  test("pins the sentinel, clears orphans, pushes, and refuses to leave a stale tag", () => {
     const remote = initBareRemote();
     const src = makeSrcDir();
     const tag = "v9.9.9-test";
+    // file:// keeps --depth semantics (plain local paths make git ignore
+    // --depth with a warning), matching the HTTPS shallow clones in release.
     const baseEnv = {
       SPROUT_COMPONENT_PROJECT: "group/sprout-ci",
       VERSION_TAG: tag,
       SPROUT_GITLAB_SYNC_TOKEN: "dummy",
-      SPROUT_COMPONENT_GIT_URL: remote,
+      SPROUT_COMPONENT_GIT_URL: `file://${remote}`,
       SOURCE_TEMPLATES_DIR: src,
     };
 
-    // First sync: pins + tags.
+    // Seed an orphan template on the remote: sync must clear it so the tag
+    // carries exactly one file under templates/.
+    const orphanSeed = mkdtempSync(join(tmpdir(), "sprout-orphan-"));
+    git(orphanSeed, ["clone", "-q", remote, "work"]);
+    mkdirSync(join(orphanSeed, "work", "templates"), { recursive: true });
+    writeFileSync(join(orphanSeed, "work", "templates", "legacy.yml"), "legacy\n");
+    git(join(orphanSeed, "work"), ["add", "templates/legacy.yml"]);
+    git(join(orphanSeed, "work"), ["commit", "-qm", "orphan"]);
+    git(join(orphanSeed, "work"), ["push", "-q", "origin", "HEAD"]);
+
+    // First sync: pins + clears the orphan + tags.
     const first = runScript(baseEnv);
     expect(`${first.stdout.toString()} ${first.stderr.toString()}`).toContain(
       "component sync ok",
@@ -127,6 +147,7 @@ describe("sync-gitlab-component.sh", () => {
     const published = showFile(remote, tag, "templates/preview.yml");
     expect(published).toContain(`default: "${tag}"`);
     expect(published).not.toContain("@SPROUT_COMPONENT_VERSION@");
+    expect(hasFile(remote, tag, "templates/legacy.yml")).toBe(false);
 
     // Second sync without changes: tag already points at HEAD, still success.
     const second = runScript(baseEnv);

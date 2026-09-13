@@ -62,7 +62,11 @@ CLONE_URL="${SPROUT_COMPONENT_GIT_URL:-https://oauth2:${TOKEN}@${HOST}/${PROJECT
 git clone --depth 1 "$CLONE_URL" "$WORK/repo"
 cd "$WORK/repo"
 
-# One file + root README: no rsync mirror, no cp/rsync fork.
+# One file + root README: no rsync mirror, no cp/rsync fork. Clear the
+# directory first so orphans from earlier syncs cannot linger on disk and
+# survive staging into future tags — `git add -A` only stages deletions for
+# files it can see are gone.
+rm -rf templates
 mkdir -p templates
 cp "${SRC}/preview.yml" templates/preview.yml
 
@@ -91,12 +95,17 @@ else
   git push origin HEAD
 fi
 
-if git rev-parse "$TAG" >/dev/null 2>&1; then
-  EXISTING="$(git rev-parse "$TAG")"
-  HEAD_SHA="$(git rev-parse HEAD)"
-  if [ "$EXISTING" != "$HEAD_SHA" ]; then
-    fail "component sync: tag ${TAG} already exists at ${EXISTING} (HEAD is ${HEAD_SHA}); refusing to leave @${TAG} on stale content"
+# Resolve the tag on the REMOTE, never via local refs: the clone above is
+# `--depth 1`, so tags that do not point at the fetched tip are usually
+# absent locally and a `git rev-parse "$TAG"` check would miss the stale-tag
+# case (degrading to a raw `git push` rejection with a vaguer message).
+HEAD_SHA="$(git rev-parse HEAD)"
+REMOTE_SHA="$(git ls-remote --tags origin "refs/tags/${TAG}" | awk '{print $1}')"
+if [ -n "$REMOTE_SHA" ]; then
+  if [ "$REMOTE_SHA" != "$HEAD_SHA" ]; then
+    fail "component sync: tag ${TAG} already exists at ${REMOTE_SHA} (HEAD is ${HEAD_SHA}); refusing to leave @${TAG} on stale content"
   fi
+  git rev-parse "$TAG" >/dev/null 2>&1 || git tag "$TAG"
   printf 'component sync: tag %s already points at HEAD\n' "$TAG"
 else
   git tag "$TAG"

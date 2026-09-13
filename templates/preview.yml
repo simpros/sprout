@@ -80,9 +80,6 @@ spec:
       # Prerequisites live inside the component: adopters declare no packages.
       apk add --no-cache curl ca-certificates libstdc++ >/dev/null
       # Pinned, checksum-verified binary (musl asset: this job image is Alpine).
-# Trust boundary: both files come from the same GitHub release over TLS —
-# the checksum proves the download matches what the release published
-# (tamper-evident transit + version pinning), not an out-of-band signature.
       INSTALL_TMP="$(mktemp -d)"
       curl -fsSL -o "$INSTALL_TMP/sprout" \
         "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/sprout-linux-x64-musl"

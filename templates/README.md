@@ -104,8 +104,8 @@ automatically — no manual step:
 2. The workflow's `component` job copies `templates/preview.yml` to the
    configured GitLab component project, replacing the
    `@SPROUT_COMPONENT_VERSION@` sentinel with the release tag, and tags
-   `v<version>` there (`scripts/sync-gitlab-component.sh`). Staging uses
-   `git add -A` so deletions enter the commit; an existing tag that does
+   `v<version>` there (`scripts/sync-gitlab-component.sh`). The sync clears `templates/` first, so staging with `git add -A` also removes orphans;
+   an existing tag that does
    not point at `HEAD` fails the job instead of leaving `@vX.Y.Z` stale.
 3. The pushed tag triggers the component project's own tag pipeline, which
    creates the GitLab Release (catalog version).
@@ -150,7 +150,8 @@ instance):
 
 Static checks in this repo (`templates/preview.test.ts`: required inputs,
 both CLI entrypoints, dotenv/`on_stop`/`auto_stop_in` wiring, dind service,
-registry login, checksum verification, shell-syntax check of both scripts):
+registry login, checksum verification, YAML-parse of the component plus
+shell-syntax check of all three embedded scripts):
 
 - [x] verified via `bun test templates/preview.test.ts`.
 

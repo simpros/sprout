@@ -86,33 +86,23 @@ describe("preview component contract", () => {
 });
 
 /**
- * Extract `script:` / `before_script:` literal blocks (`- |` items) so both
- * embedded shell programs can be syntax-checked after input interpolation.
+ * Parse `preview.yml` as multi-document YAML (spec doc + jobs doc) and return
+ * the three embedded shell programs. A hand-rolled indent scraper used to live
+ * here; it truncated `before_script` at the first column-0 comment and
+ * green-checked a file GitLab could not parse, so structure now comes from a
+ * real YAML parse — if the file stops parsing, every test below fails.
  */
-function extractScripts(yaml: string): string[] {
-  const lines = yaml.split("\n");
-  const scripts: string[] = [];
-  let collecting = false;
-  let current: string[] = [];
-  for (const line of lines) {
-    if (/^\s+-\s+\|\s*$/.test(line)) {
-      collecting = true;
-      current = [];
-      continue;
-    }
-    if (collecting) {
-      if (line.trim() === "" || /^ {6}\S/.test(line) || /^ {6} /.test(line)) {
-        // Block lines are indented 6 spaces; strip that prefix. Blank lines
-        // belong to the block.
-        current.push(line.startsWith("      ") ? line.slice(6) : line);
-        continue;
-      }
-      collecting = false;
-      scripts.push(current.join("\n"));
-    }
-  }
-  if (collecting) scripts.push(current.join("\n"));
-  return scripts.filter((s) => s.trim().length > 0);
+function jobScripts(): { base: string[]; preview: string[]; stop: string[] } {
+  const docs = Bun.YAML.parse(COMPONENT, { multiDocument: true }) as Array<
+    Record<string, { before_script?: string[]; script?: string[] }>
+  >;
+  const jobs = docs.find((d) => ".sprout-preview-base" in d);
+  if (!jobs) throw new Error("jobs document missing from preview.yml");
+  return {
+    base: jobs[".sprout-preview-base"].before_script ?? [],
+    preview: jobs["sprout-preview"].script ?? [],
+    stop: jobs["sprout-stop-preview"].script ?? [],
+  };
 }
 
 const INPUT_INTERPOLATION_FIXTURES: Record<string, string> = {
@@ -135,14 +125,32 @@ function interpolateInputs(script: string): string {
 }
 
 describe("preview component shell syntax", () => {
-  test("both jobs contribute script blocks", () => {
-    const scripts = extractScripts(COMPONENT);
+  test("preview.yml parses as multi-doc YAML with all three scripts", () => {
+    const { base, preview, stop } = jobScripts();
     // .sprout-preview-base before_script + preview script + stop script.
-    expect(scripts.length).toBe(3);
+    expect(base.length).toBe(1);
+    expect(preview.length).toBe(1);
+    expect(stop.length).toBe(1);
+  });
+
+  test("before_script carries the full install/checksum sequence", () => {
+    const { base } = jobScripts();
+    // Regression: a column-0 comment once ended the `|` block scalar early,
+    // silently dropping everything below from the job while the raw text
+    // still contained it. Assert on the PARSED block, not the raw file.
+    for (const needle of [
+      "INSTALL_TMP",
+      "SHA256SUMS.txt",
+      "sha256sum -c",
+      'test "$(sprout --version)" = "$SPROUT_VERSION"',
+    ]) {
+      expect(base[0]).toContain(needle);
+    }
   });
 
   test("every embedded script passes sh -n after input interpolation", async () => {
-    const scripts = extractScripts(COMPONENT);
+    const { base, preview, stop } = jobScripts();
+    const scripts = [...base, ...preview, ...stop];
     for (const [i, script] of scripts.entries()) {
       const interpolated = interpolateInputs(script);
       expect(interpolated).not.toContain("$[[");
