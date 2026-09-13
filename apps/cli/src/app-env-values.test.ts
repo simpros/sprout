@@ -9,6 +9,9 @@ const ctx = {
   deployToken: "test-token",
 };
 
+const APP_PREFIX = "preview.app_env.";
+const SEED_PREFIX = "seed.env.";
+
 describe("resolveAppEnvValues", () => {
   test("string templates pass through unexpanded; required keys collected", () => {
     expect(
@@ -20,6 +23,7 @@ describe("resolveAppEnvValues", () => {
           STRIPE_API_KEY: { required: true },
         },
         ctx,
+        APP_PREFIX,
       ),
     ).toEqual({
       ok: true,
@@ -35,11 +39,11 @@ describe("resolveAppEnvValues", () => {
   });
 
   test("undefined / empty → no values, no required", () => {
-    expect(resolveAppEnvValues(undefined, ctx)).toEqual({
+    expect(resolveAppEnvValues(undefined, ctx, APP_PREFIX)).toEqual({
       ok: true,
       value: { values: undefined, requiredKeys: [] },
     });
-    expect(resolveAppEnvValues({}, ctx)).toEqual({
+    expect(resolveAppEnvValues({}, ctx, APP_PREFIX)).toEqual({
       ok: true,
       value: { values: undefined, requiredKeys: [] },
     });
@@ -49,10 +53,12 @@ describe("resolveAppEnvValues", () => {
     const first = resolveAppEnvValues(
       { BETTER_AUTH_SECRET: { generate: "stable_per_pr" } },
       ctx,
+      APP_PREFIX,
     );
     const second = resolveAppEnvValues(
       { BETTER_AUTH_SECRET: { generate: "stable_per_pr" } },
       ctx,
+      APP_PREFIX,
     );
     expect(first).toEqual({
       ok: true,
@@ -71,14 +77,17 @@ describe("resolveAppEnvValues", () => {
     const a = resolveAppEnvValues(
       { SECRET_A: { generate: "stable_per_pr" } },
       ctx,
+      APP_PREFIX,
     );
     const b = resolveAppEnvValues(
       { SECRET_B: { generate: "stable_per_pr" } },
       ctx,
+      APP_PREFIX,
     );
     const otherPr = resolveAppEnvValues(
       { SECRET_A: { generate: "stable_per_pr" } },
       { ...ctx, prId: 99 },
+      APP_PREFIX,
     );
     expect(a.ok && b.ok && otherPr.ok).toBe(true);
     if (!a.ok || !b.ok || !otherPr.ok) return;
@@ -91,6 +100,7 @@ describe("resolveAppEnvValues", () => {
       resolveAppEnvValues(
         { BETTER_AUTH_SECRET: { generate: "stable_per_pr" } },
         { ...ctx, deployToken: undefined },
+        APP_PREFIX,
       ),
     ).toEqual({
       ok: false,
@@ -99,9 +109,27 @@ describe("resolveAppEnvValues", () => {
     });
   });
 
+  test("seed prefix labels errors with the seed surface", () => {
+    expect(
+      resolveAppEnvValues(
+        { SEED_SECRET: { generate: "stable_per_pr" } },
+        { ...ctx, deployToken: undefined },
+        SEED_PREFIX,
+      ),
+    ).toEqual({
+      ok: false,
+      error:
+        "seed.env.SEED_SECRET: SPROUT_TOKEN required for generate: stable_per_pr",
+    });
+  });
+
   test("only required entries → no values, keys listed", () => {
     expect(
-      resolveAppEnvValues({ STRIPE_API_KEY: { required: true } }, ctx),
+      resolveAppEnvValues(
+        { STRIPE_API_KEY: { required: true } },
+        ctx,
+        APP_PREFIX,
+      ),
     ).toEqual({
       ok: true,
       value: { values: undefined, requiredKeys: ["STRIPE_API_KEY"] },
@@ -117,6 +145,7 @@ describe("resolveAppEnvValues", () => {
         D: { required: true },
       },
       ctx,
+      APP_PREFIX,
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;

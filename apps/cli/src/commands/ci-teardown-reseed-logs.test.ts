@@ -352,6 +352,85 @@ health:
     });
   });
 
+  test("reseed layers yaml seed.env/seed.args like deploy (no drift)", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      if (url.pathname === "/v1/deploy" && req.method === "POST") {
+        captured.push({
+          method: req.method,
+          path: url.pathname,
+          body: await req.json(),
+          authorization: req.headers.get("authorization"),
+        });
+        return Response.json({
+          ok: true,
+          status: "starting",
+          preview_url: "https://pr-17.myapp.preview.example.com",
+          canonical_repo_id: "https://gitlab.com/group/repo",
+          pr_id: 17,
+          slug: "myapp",
+          db_name: "sprout_myapp_pr17",
+          hostname: "pr-17.myapp.preview.example.com",
+        });
+      }
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-17.myapp.preview.example.com",
+        canonical_repo_id: "https://gitlab.com/group/repo",
+        pr_id: 17,
+        slug: "myapp",
+        db_name: "sprout_myapp_pr17",
+        hostname: "pr-17.myapp.preview.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(`slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+seed:
+  dockerfile: Dockerfile.seed
+  env:
+    FIXTURE_SET: yaml
+    SEED_URL: "https://{hostname}"
+  args:
+    - --reset
+`);
+    const code = await runCli(
+      [
+        "ci",
+        "reseed",
+        "-s",
+        "registry.gitlab.com/group/repo-seed:abc123",
+        "--seed-arg",
+        "--fixtures=demo",
+        "--seed-env",
+        "FIXTURE_SET=flag",
+      ],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      reseed: true,
+      seed_arg: ["--reset", "--fixtures=demo"],
+    });
+    const body = captured[0]?.body as { seed_env: string[] };
+    expect(body.seed_env).toContain("FIXTURE_SET=flag");
+    expect(body.seed_env).toContain(
+      "SEED_URL=https://pr-17.myapp.preview.example.com",
+    );
+    expect(captured[0]?.body).not.toHaveProperty("services");
+  });
+
   test("requires -s <seed-image> before any network call", async () => {
     const baseUrl = startGateway(async () => {
       captured.push({

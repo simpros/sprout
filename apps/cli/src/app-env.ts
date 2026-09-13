@@ -184,10 +184,78 @@ function mergeLayers(input: MergeLayersInput): Result<Map<string, string>> {
 }
 
 /**
+ * Label set for one manifest env surface (`preview.app_env` or `seed.env`).
+ * The merge pipeline is identical; only error text differs.
+ */
+export type EnvSurfaceLabels = {
+  /** Flag label, e.g. `--app-env`. */
+  flagLabel: string;
+  /** File-flag label, e.g. `--app-env-file`. */
+  fileFlagLabel: string;
+  /** Prefix for expansion errors, e.g. `preview.app_env.`. */
+  expandKeyPrefix: string;
+  /** Surface path for required-key errors, e.g. `preview.app_env`. */
+  requiredPrefix: string;
+  /** Supply hint for required-key errors, without the `supply it via` lead. */
+  requiredHint: string;
+};
+
+/**
+ * Merge manifest values, then dotenv files in order, then flags for one env
+ * surface. Later layers overwrite duplicate keys. Required keys missing after
+ * all layers fail with a surface-specific error. Invalid flags / file lines
+ * fail before any network call.
+ */
+export function mergeEnvSurface(
+  yamlValues: Record<string, string> | undefined,
+  required: string[] | undefined,
+  dotenvFiles: DotenvFile[],
+  flags: string[],
+  expand: EnvValueExpander | undefined,
+  labels: EnvSurfaceLabels,
+): Result<string[] | undefined> {
+  const merged = mergeLayers({
+    yamlValues,
+    files: dotenvFiles,
+    flags,
+    flagLabel: labels.flagLabel,
+    fileFlagLabel: labels.fileFlagLabel,
+    expand,
+    expandKeyPrefix: labels.expandKeyPrefix,
+  });
+  if (!merged.ok) return merged;
+
+  for (const key of required ?? []) {
+    if (!merged.value.has(key)) {
+      return {
+        ok: false,
+        error: `${labels.requiredPrefix}.${key}: required value missing (supply it via ${labels.requiredHint})`,
+      };
+    }
+  }
+
+  return { ok: true, value: serializeEnv(merged.value) };
+}
+
+const APP_ENV_LABELS: EnvSurfaceLabels = {
+  flagLabel: "--app-env",
+  fileFlagLabel: "--app-env-file",
+  expandKeyPrefix: "preview.app_env.",
+  requiredPrefix: "preview.app_env",
+  requiredHint: "--app-env-file, SPROUT_APP_ENV, or --app-env",
+};
+
+const SEED_ENV_LABELS: EnvSurfaceLabels = {
+  flagLabel: "--seed-env",
+  fileFlagLabel: "--seed-env-file",
+  expandKeyPrefix: "seed.env.",
+  requiredPrefix: "seed.env",
+  requiredHint: "--seed-env-file, SPROUT_SEED_ENV, or --seed-env",
+};
+
+/**
  * Merge `preview.app_env`, then `--app-env-file` / `SPROUT_APP_ENV` contents,
- * then `--app-env` flags. Later layers overwrite duplicate keys. Required keys
- * missing after all layers fail with an app-surface error. Invalid flags /
- * file lines fail before any network call.
+ * then `--app-env` flags. See {@link mergeEnvSurface} for the pipeline.
  */
 export function mergeAppEnv(
   yamlValues: Record<string, string> | undefined,
@@ -196,46 +264,33 @@ export function mergeAppEnv(
   flags: string[],
   expand?: EnvValueExpander,
 ): Result<string[] | undefined> {
-  const merged = mergeLayers({
+  return mergeEnvSurface(
     yamlValues,
-    files: dotenvFiles,
+    required,
+    dotenvFiles,
     flags,
-    flagLabel: "--app-env",
-    fileFlagLabel: "--app-env-file",
     expand,
-    expandKeyPrefix: "preview.app_env.",
-  });
-  if (!merged.ok) return merged;
-
-  for (const key of required ?? []) {
-    if (!merged.value.has(key)) {
-      return {
-        ok: false,
-        error: `preview.app_env.${key}: required value missing (supply it via --app-env-file, SPROUT_APP_ENV, or --app-env)`,
-      };
-    }
-  }
-
-  return { ok: true, value: serializeEnv(merged.value) };
+    APP_ENV_LABELS,
+  );
 }
 
 /**
- * Merge `--seed-env-file` / `SPROUT_SEED_ENV` contents, then `--seed-env` flags.
- * Seed has no manifest layer until the `seed.env` block lands (#124).
+ * Merge `seed.env`, then `--seed-env-file` / `SPROUT_SEED_ENV` contents, then
+ * `--seed-env` flags. See {@link mergeEnvSurface} for the pipeline.
  */
 export function mergeSeedEnv(
+  yamlValues: Record<string, string> | undefined,
+  required: string[] | undefined,
   dotenvFiles: DotenvFile[],
   flags: string[],
   expand?: EnvValueExpander,
 ): Result<string[] | undefined> {
-  const merged = mergeLayers({
-    files: dotenvFiles,
+  return mergeEnvSurface(
+    yamlValues,
+    required,
+    dotenvFiles,
     flags,
-    flagLabel: "--seed-env",
-    fileFlagLabel: "--seed-env-file",
     expand,
-    expandKeyPrefix: "--seed-env ",
-  });
-  if (!merged.ok) return merged;
-  return { ok: true, value: serializeEnv(merged.value) };
+    SEED_ENV_LABELS,
+  );
 }

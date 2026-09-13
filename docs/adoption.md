@@ -30,7 +30,8 @@ preview:
   hostname: "pr-{pr_id}.myapp.preview.example.com"
 ```
 
-With seeding (`health` block **required** when using `-s`):
+With seeding (`health` block **required** when the `seed` block is
+configured or `-s` is passed):
 
 ```yaml
 slug: myapp
@@ -41,6 +42,13 @@ health:
   interval: 2s
   timeout: 120s
   expect: 200
+seed:
+  dockerfile: Dockerfile.seed
+  env:
+    FIXTURE_SET: demo
+    SEED_URL: "https://{hostname}"
+  args:
+    - --reset
 ```
 
 - `slug` — short name used in database names (`sprout_<slug>_pr<id>`) and
@@ -62,21 +70,31 @@ health:
 - `health` — optional HTTP poll the gateway runs against the app container
   IP on the Postgres network. When omitted, the gateway polls `GET /health`
   every `2s` for up to `120s`, expecting `200`. Add a `health` block only to
-  override those defaults. The block is still **required** when deploying
-  with a seed image (`-s`); it gates the after-healthy seed hook (see
-  below). Malformed durations fail fast at manifest parse time (form is
-  `Ns`, e.g. `2s`).
+  override those defaults. The block is still **required** when a `seed`
+  block is configured (`sprout ci preview`) or when deploying with a seed
+  image (`-s`); it gates the after-healthy seed hook (see below).
+  Malformed durations fail fast at manifest parse time (form is `Ns`, e.g.
+  `2s`).
 - `preview.services` — optional list of companion services (name + optional
   `hostname` / `path` / static `image`). Images are usually supplied with
   repeatable `--service name=image` on deploy (see Multi-image previews).
 - `build.dockerfile` — optional Dockerfile path for `sprout ci preview`
   (default `Dockerfile`). An empty `build: {}` takes the default.
-- `seed.dockerfile` — optional seed-image Dockerfile for
-  `sprout ci preview` (default `Dockerfile.seed`). When present, the command
-  builds + pushes the seed image (tag = app tag with a `-seed` suffix) and
-  deploys with `-s`; the `health` block is required, same as `deploy -s`.
-  (`seed.env` / `seed.args` arrive separately — pass `--seed-env` /
-  `--seed-arg` until then.)
+- `seed` — optional seed-image block for `sprout ci preview`. When present,
+  the command builds + pushes the seed image (tag = app tag with a `-seed`
+  suffix) and deploys with `-s`; the `health` block is required, same as
+  `deploy -s`. Subkeys:
+  - `dockerfile` — optional seed Dockerfile path (default
+    `Dockerfile.seed`). An empty `seed: {}` takes the default.
+  - `env` — optional seed-only env, same value grammar and templating as
+    `preview.app_env`: strings may interpolate `{hostname}`, `{pr_id}`,
+    `{commit_sha}`; `{ generate: stable_per_pr }` derives a per-MR secret
+    from the deploy token; `{ required: true }` must be supplied by CI via
+    `SPROUT_SEED_ENV` / `--seed-env-file` / `--seed-env`. Merge order: yaml
+    `seed.env` first, then `SPROUT_SEED_ENV` / each `--seed-env-file` in
+    order, then `--seed-env` flags (later wins per key).
+  - `args` — optional list of seed container args. Yaml entries come first,
+    then repeatable `--seed-arg` flags are appended.
 
 ## App image: migrate at startup
 
@@ -147,7 +165,7 @@ Adopters often need runtime env beyond the connection fields
 Pass those as:
 
 - Map in `.sprout.yaml` under `preview.app_env` (computed defaults; no CI
-  secrets in git)
+  secrets in git) or `seed.env` (seed-only computed defaults)
 - One masked, **file-type** CI variable holding a dotenv blob —
   `SPROUT_APP_ENV` (app) and `SPROUT_SEED_ENV` (seed); the CLI reads the file
   path from the variable automatically
@@ -191,8 +209,10 @@ sprout deploy -i "$APP_IMAGE"
 CLI merge order: yaml `app_env` (after placeholder / generate expansion)
 first, then `SPROUT_APP_ENV` / each `--app-env-file` in order, then
 `--app-env` flags (later wins on duplicate keys; one entry per key on the
-wire). `--seed-env-file` / `SPROUT_SEED_ENV` / `--seed-env` follow the same
-order for the seed container. Required keys are checked after all layers.
+wire). Yaml `seed.env` / `SPROUT_SEED_ENV` / `--seed-env-file` /
+`--seed-env` follow the same order for the seed container, and yaml
+`seed.args` come first with `--seed-arg` flags appended. Required keys are
+checked after all layers.
 Invalid dotenv lines or flags fail before any gateway call and name the
 offending key or file **without echoing the value**. Gateway connection
 keys replace colliding adopter keys (canonical PG* ∪ remapped names) —
@@ -278,10 +298,10 @@ preview app passes `health.expect`, an optional **seed image** runs. That is
 how you sequence "migrate in the app, then seed" with zero API-code changes —
 no `wait-for-postgres` / sleep loops in the seed path to wait for migrations.
 
-Express it with `.sprout.yaml` health settings plus deploy flags:
+Express it with `.sprout.yaml` health + `seed` settings plus deploy flags:
 
 ```yaml
-# .sprout.yaml — health block required when using -s
+# .sprout.yaml — health block required when the seed block is configured or -s is passed
 slug: myapp
 preview:
   hostname: "pr-{pr_id}.myapp.preview.example.com"
@@ -290,6 +310,12 @@ health:
   interval: 2s
   timeout: 120s
   expect: 200
+seed:
+  dockerfile: Dockerfile.seed
+  env:
+    FIXTURE_SET: demo
+  args:
+    - --reset
 ```
 
 ```bash
@@ -311,8 +337,8 @@ shows a minimal seed image: install deps, copy seed script, entrypoint runs
    `health.expect` (default 200) or `health.timeout`.
 3. **After healthy:** if `-s` / `seed_image` was provided and this PR has never
    seeded successfully (`seeded_at` unset), the gateway runs the seed image once
-   with the same connection-env remap as the app, plus `--seed-env` /
-   `--seed-arg`. `--reseed` clears `seeded_at` after a healthy attach (replace)
+   with the same connection-env remap as the app, plus `seed.env` /
+   `--seed-env` and `seed.args` / `--seed-arg`. `--reseed` clears `seeded_at` after a healthy attach (replace)
    or on seed-phase entry (seed-only), so the same after-healthy gate re-runs.
 4. Preview status becomes `running` with `seeded_at` set.
 

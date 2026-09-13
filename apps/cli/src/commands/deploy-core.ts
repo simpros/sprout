@@ -14,7 +14,7 @@ import { readEden } from "../eden.ts";
 import { resolveDeployHostname } from "../hostname.ts";
 import type { Result } from "../result.ts";
 import { mergeServices, type DeployService } from "../services.ts";
-import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
+import type { ManifestEnvValue, PreviewEnvMap, SproutYaml } from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
 import { DEPLOY_POLL_BUFFER_MS, pollPreviewReady } from "./deploy-poll.ts";
 
@@ -89,13 +89,37 @@ export type DeployEnvInputs = {
 };
 
 /**
+ * Single owner of the omit-`-s`-on-sync policy: yaml `seed.env` / `seed.args`
+ * ride only on seed deploys (`seeding`), while explicit `--seed-arg` flags
+ * always pass through so a stray seed flag without `-s` fails server-side.
+ * `buildDeployRequest`, `buildReseedRequest`, and `applyDeployEnv` all read
+ * the yaml seed layers through here so deploy, preview, and reseed cannot
+ * drift.
+ */
+export function layerSeedWireOptions(
+  yaml: SproutYaml,
+  seeding: boolean,
+  flagArgs: string[],
+): {
+  yamlEnv?: Record<string, ManifestEnvValue>;
+  seed_arg?: string[];
+} {
+  const yamlEnv = seeding ? yaml.seed?.env : undefined;
+  const seedArgs = [...(seeding ? (yaml.seed?.args ?? []) : []), ...flagArgs];
+  return {
+    yamlEnv,
+    ...(seedArgs.length > 0 ? { seed_arg: seedArgs } : {}),
+  };
+}
+
+/**
  * Merge yaml `preview.app_env` with `SPROUT_APP_ENV` / `--app-env-file` /
- * `--app-env` into `app_env`, and `SPROUT_SEED_ENV` / `--seed-env-file` /
- * `--seed-env` into `seed_env`. Owns the full yaml→wire pipeline so deploy
- * and ci reseed cannot drift: yaml templates (`{hostname}` / `{pr_id}` /
- * `{commit_sha}`) and `generate: stable_per_pr` (HMAC via `SPROUT_TOKEN`)
- * resolve first via `resolveAppEnvValues`, then dotenv files and flags
- * overwrite per key, with one placeholder expansion after merge
+ * `--app-env` into `app_env`, and yaml `seed.env` with `SPROUT_SEED_ENV` /
+ * `--seed-env-file` / `--seed-env` into `seed_env`. Owns the full yaml→wire
+ * pipeline so deploy and ci reseed cannot drift: yaml templates (`{hostname}`
+ * / `{pr_id}` / `{commit_sha}`) and `generate: stable_per_pr` (HMAC via
+ * `SPROUT_TOKEN`) resolve first via `resolveAppEnvValues`, then dotenv files
+ * and flags overwrite per key, with one placeholder expansion after merge
  * (`expandAppEnvValue`); `{ required: true }` keys missing after all layers
  * fail naming the key. Returns a new body; `body` is treated as read-only.
  */
@@ -130,8 +154,25 @@ export async function applyDeployEnv<T extends DeployRequest>(
   const resolvedYamlEnv = resolveAppEnvValues(
     yaml.preview.app_env,
     resolveCtx,
+    "preview.app_env.",
   );
   if (!resolvedYamlEnv.ok) return resolvedYamlEnv;
+
+  // Yaml seed env via the shared seed-options owner: omitted on sync deploys
+  // (keeping the same database without re-seeding). Explicit `--seed-env` /
+  // file layers still pass through so a stray seed flag without `-s` fails
+  // server-side exactly as today.
+  const { yamlEnv: seedYamlEnv } = layerSeedWireOptions(
+    yaml,
+    Boolean(body.seed_image),
+    [],
+  );
+  const resolvedYamlSeedEnv = resolveAppEnvValues(
+    seedYamlEnv,
+    resolveCtx,
+    "seed.env.",
+  );
+  if (!resolvedYamlSeedEnv.ok) return resolvedYamlSeedEnv;
 
   const expandValue = (value: string) => expandAppEnvValue(value, resolveCtx);
 
@@ -145,6 +186,8 @@ export async function applyDeployEnv<T extends DeployRequest>(
   if (!appEnv.ok) return appEnv;
 
   const seedEnv = mergeSeedEnv(
+    resolvedYamlSeedEnv.value.values,
+    resolvedYamlSeedEnv.value.requiredKeys,
     seedEnvFiles.value,
     inputs.seedEnv,
     expandValue,
@@ -250,7 +293,8 @@ export function requireHealthWhenSeeding(
  * One assembler for the deploy POST body — `deploy` and `ci preview` share
  * this instead of recopying the pipeline (clear/service + health-when-seed
  * checks, base fields, health / seed / env / services layering). The next
- * yaml/wire field lands here once.
+ * yaml/wire field lands here once. Seed options flow through
+ * `layerSeedWireOptions` (yaml `seed.args` first, then `--seed-arg` flags).
  */
 export type BuildDeployRequestInputs = {
   appImage: string;
@@ -285,7 +329,12 @@ export function buildDeployRequest(
   };
   if (yaml.health) body.health = yaml.health;
   if (inputs.seedImage) body.seed_image = inputs.seedImage;
-  if (inputs.seedArg.length > 0) body.seed_arg = inputs.seedArg;
+  const seed = layerSeedWireOptions(
+    yaml,
+    Boolean(inputs.seedImage),
+    inputs.seedArg,
+  );
+  if (seed.seed_arg) body.seed_arg = seed.seed_arg;
   if (inputs.reseed) body.reseed = true;
   if (yaml.preview.env) body.env = yaml.preview.env;
 
@@ -296,6 +345,31 @@ export function buildDeployRequest(
   if (!services.ok) return services;
   if (services.value) body.services = services.value;
   return { ok: true, value: body };
+}
+
+/**
+ * `ci reseed` body via the shared deploy assembler: same base fields,
+ * health-when-seed gate, and seed layering as `deploy`, minus `services`
+ * (companions stay as last deployed). Reseed never hand-rolls yaml seed
+ * args so the two paths cannot drift.
+ */
+export function buildReseedRequest(
+  yaml: SproutYaml,
+  identity: DeployIdentity,
+  inputs: { appImage: string; seedImage: string; seedArg: string[] },
+): Result<ReseedRequest> {
+  const assembled = buildDeployRequest(yaml, identity, {
+    appImage: inputs.appImage,
+    seedImage: inputs.seedImage,
+    seedSource: "-s",
+    seedArg: inputs.seedArg,
+    service: [],
+    clearServices: false,
+    reseed: true,
+  });
+  if (!assembled.ok) return assembled;
+  const { services: _leave, ...rest } = assembled.value;
+  return { ok: true, value: { ...rest, reseed: true as const } };
 }
 
 /**
