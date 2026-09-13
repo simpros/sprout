@@ -66,7 +66,8 @@ export async function runCiReseed(
     seed_image: flags.value.seedImage,
     reseed: true,
   };
-  if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
+  const seedArgs = [...(yaml.value.seed?.args ?? []), ...flags.value.seedArg];
+  if (seedArgs.length > 0) body.seed_arg = seedArgs;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
   const withEnv = await applyDeployEnv(body, ctx.deps, yaml.value, {

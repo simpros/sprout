@@ -290,9 +290,25 @@ FILE_ONLY=1
 });
 
 describe("mergeSeedEnv", () => {
+  test("yaml then file then flags; later wins", () => {
+    expect(
+      mergeSeedEnv(
+        { FROM_YAML: "yaml", SHARED: "yaml" },
+        undefined,
+        [{ pathLabel: "seed.env", content: "A=file\nSHARED=file\n" }],
+        ["SHARED=flag"],
+      ),
+    ).toEqual({
+      ok: true,
+      value: ["FROM_YAML=yaml", "SHARED=flag", "A=file"],
+    });
+  });
+
   test("file then flags; later wins", () => {
     expect(
       mergeSeedEnv(
+        undefined,
+        undefined,
         [{ pathLabel: "seed.env", content: "A=file\nSHARED=file\n" }],
         ["SHARED=flag"],
       ),
@@ -300,28 +316,78 @@ describe("mergeSeedEnv", () => {
   });
 
   test("uses seed-specific labels in errors", () => {
-    expect(mergeSeedEnv([], ["NOTAKEY"])).toEqual({
+    expect(mergeSeedEnv(undefined, undefined, [], ["NOTAKEY"])).toEqual({
       ok: false,
       error: "invalid --seed-env (expected KEY=VALUE)",
     });
     expect(
-      mergeSeedEnv([{ pathLabel: "seed.env", content: "NOTAKEY\n" }], []),
+      mergeSeedEnv(
+        undefined,
+        undefined,
+        [{ pathLabel: "seed.env", content: "NOTAKEY\n" }],
+        [],
+      ),
     ).toEqual({
       ok: false,
       error: "invalid --seed-env-file seed.env:1: expected KEY=VALUE",
     });
   });
 
-  test("expander errors use the seed flag label", () => {
+  test("expander errors use the seed manifest label", () => {
     const expand = (value: string) =>
       value.includes("{host}")
         ? ({ ok: false, error: "unknown placeholder {host}" }) as const
         : ({ ok: true, value }) as const;
     expect(
-      mergeSeedEnv([{ pathLabel: "seed.env", content: "ORIGIN={host}\n" }], [], expand),
+      mergeSeedEnv(
+        undefined,
+        undefined,
+        [{ pathLabel: "seed.env", content: "ORIGIN={host}\n" }],
+        [],
+        expand,
+      ),
     ).toEqual({
       ok: false,
-      error: "--seed-env ORIGIN: unknown placeholder {host}",
+      error: "seed.env.ORIGIN: unknown placeholder {host}",
+    });
+  });
+
+  test("required key missing fails naming the key (seed-surface only)", () => {
+    expect(
+      mergeSeedEnv(
+        undefined,
+        ["SEED_SECRET"],
+        [{ pathLabel: "seed.env", content: "OTHER=1\n" }],
+        [],
+      ),
+    ).toEqual({
+      ok: false,
+      error:
+        "seed.env.SEED_SECRET: required value missing (supply it via --seed-env-file, SPROUT_SEED_ENV, or --seed-env)",
+    });
+  });
+
+  test("required key satisfied by yaml, file, or flag passes", () => {
+    expect(
+      mergeSeedEnv({ SEED_SECRET: "yaml" }, ["SEED_SECRET"], [], []),
+    ).toEqual({ ok: true, value: ["SEED_SECRET=yaml"] });
+    expect(
+      mergeSeedEnv(
+        undefined,
+        ["SEED_SECRET"],
+        [{ pathLabel: "seed.env", content: "SEED_SECRET=file\n" }],
+        [],
+      ),
+    ).toEqual({ ok: true, value: ["SEED_SECRET=file"] });
+    expect(
+      mergeSeedEnv(undefined, ["SEED_SECRET"], [], ["SEED_SECRET=flag"]),
+    ).toEqual({ ok: true, value: ["SEED_SECRET=flag"] });
+  });
+
+  test("empty yaml, files, and flags → omit", () => {
+    expect(mergeSeedEnv(undefined, undefined, [], [])).toEqual({
+      ok: true,
+      value: undefined,
     });
   });
 });

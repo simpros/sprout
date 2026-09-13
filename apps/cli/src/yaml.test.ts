@@ -583,9 +583,77 @@ preview:
       ok: false,
       error: "seed.dockerfile is required",
     });
-    expect(base("seed:\n  dockerfile: Dockerfile.seed\n  env: {}\n")).toEqual({
+    expect(base("seed:\n  dockerfile: Dockerfile.seed\n  bogus: 1\n")).toEqual({
       ok: false,
-      error: "unknown key: seed.env",
+      error: "unknown key: seed.bogus",
+    });
+    expect(base("seed:\n  args: not-a-list\n")).toEqual({
+      ok: false,
+      error: "seed.args must be a list",
+    });
+    expect(base("seed:\n  args:\n    - ''\n")).toEqual({
+      ok: false,
+      error: "seed.args[0] is required",
+    });
+    expect(base("seed:\n  env:\n    SECRET:\n      generate: once\n")).toEqual({
+      ok: false,
+      error: "seed.env.SECRET: unknown generate kind: once",
+    });
+  });
+
+  test("parses seed env and args", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+seed:
+  dockerfile: Dockerfile.seed
+  env:
+    FIXTURE_SET: demo
+    SEED_URL: "https://{hostname}"
+    SEED_SECRET:
+      generate: stable_per_pr
+    API_KEY:
+      required: true
+  args:
+    - --reset
+    - --fixtures=demo
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+        seed: {
+          dockerfile: "Dockerfile.seed",
+          env: {
+            FIXTURE_SET: "demo",
+            SEED_URL: "https://{hostname}",
+            SEED_SECRET: { generate: "stable_per_pr" },
+            API_KEY: { required: true },
+          },
+          args: ["--reset", "--fixtures=demo"],
+        },
+      },
+    });
+  });
+
+  test("empty seed env and args are absent", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+seed:
+  env: {}
+  args: []
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+        seed: { dockerfile: "Dockerfile.seed" },
+      },
     });
   });
 });

@@ -40,10 +40,16 @@ export type SproutBuild = SproutDockerfileBlock;
 /**
  * Seed image build config. When present, `sprout ci preview` builds + pushes
  * the seed image (tag = app tag with a `-seed` suffix) and deploys with
- * `-s`. Defaults the Dockerfile to `Dockerfile.seed`.
- * (`seed.env` / `seed.args` land in #124.)
+ * `-s`. Defaults the Dockerfile to `Dockerfile.seed`. `env` uses the same
+ * value grammar as `preview.app_env` (strings with `{hostname}` /
+ * `{pr_id}` / `{commit_sha}`, `{ generate: stable_per_pr }`, `{ required:
+ * true }`); `args` are extra seed container args (yaml first, then
+ * `--seed-arg` flags).
  */
-export type SproutSeed = SproutDockerfileBlock;
+export type SproutSeed = SproutDockerfileBlock & {
+  env?: Record<string, AppEnvValue>;
+  args?: string[];
+};
 
 /**
  * Plain string, a HMAC secret stable for the MR lifetime, or a key that CI must
@@ -81,6 +87,7 @@ const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 const SERVICE_KEYS = new Set(["name", "image", "hostname", "path"]);
 const DOCKERFILE_KEYS = new Set(["dockerfile"]);
+const SEED_KEYS = new Set(["dockerfile", "env", "args"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -160,17 +167,18 @@ const APP_ENV_VALUE_HINT =
 /** Absent or empty map → undefined. Strings or `{ generate: stable_per_pr }`. */
 function parseAppEnv(
   raw: unknown,
+  path: string,
 ): Result<Record<string, AppEnvValue> | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!isPlainObject(raw)) {
-    return { ok: false, error: "preview.app_env must be a mapping" };
+    return { ok: false, error: `${path} must be a mapping` };
   }
   const out: Record<string, AppEnvValue> = {};
   for (const [key, value] of Object.entries(raw)) {
     if (key.trim() === "") {
-      return { ok: false, error: "preview.app_env key is required" };
+      return { ok: false, error: `${path} key is required` };
     }
-    const parsed = parseAppEnvValue(key, value);
+    const parsed = parseAppEnvValue(path, key, value);
     if (!parsed.ok) return parsed;
     out[key] = parsed.value;
   }
@@ -181,6 +189,7 @@ function parseAppEnv(
 }
 
 function parseAppEnvValue(
+  path: string,
   key: string,
   value: unknown,
 ): Result<AppEnvValue> {
@@ -190,14 +199,14 @@ function parseAppEnvValue(
   if (!isPlainObject(value)) {
     return {
       ok: false,
-      error: `preview.app_env.${key} ${APP_ENV_VALUE_HINT}`,
+      error: `${path}.${key} ${APP_ENV_VALUE_HINT}`,
     };
   }
   const keys = Object.keys(value);
   if (keys.length !== 1) {
     return {
       ok: false,
-      error: `preview.app_env.${key} ${APP_ENV_VALUE_HINT}`,
+      error: `${path}.${key} ${APP_ENV_VALUE_HINT}`,
     };
   }
   const kind = keys[0];
@@ -208,12 +217,12 @@ function parseAppEnvValue(
     if (typeof value.generate === "string") {
       return {
         ok: false,
-        error: `preview.app_env.${key}: unknown generate kind: ${value.generate}`,
+        error: `${path}.${key}: unknown generate kind: ${value.generate}`,
       };
     }
     return {
       ok: false,
-      error: `preview.app_env.${key} ${APP_ENV_VALUE_HINT}`,
+      error: `${path}.${key} ${APP_ENV_VALUE_HINT}`,
     };
   }
   if (kind === "required") {
@@ -222,12 +231,12 @@ function parseAppEnvValue(
     }
     return {
       ok: false,
-      error: `preview.app_env.${key}: required must be true`,
+      error: `${path}.${key}: required must be true`,
     };
   }
   return {
     ok: false,
-    error: `preview.app_env.${key} ${APP_ENV_VALUE_HINT}`,
+    error: `${path}.${key} ${APP_ENV_VALUE_HINT}`,
   };
 }
 
@@ -254,6 +263,51 @@ function parseDockerfileBlock(
   const dockerfile = requireString(raw.dockerfile, `${path}.dockerfile`);
   if (!dockerfile.ok) return dockerfile;
   return { ok: true, value: { dockerfile: dockerfile.value } };
+}
+
+/** Absent or empty list → undefined. Each entry must be a non-empty string. */
+function parseSeedArgs(raw: unknown): Result<string[] | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (!Array.isArray(raw)) {
+    return { ok: false, error: "seed.args must be a list" };
+  }
+  if (raw.length === 0) return { ok: true, value: undefined };
+  const out: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const arg = requireString(raw[i], `seed.args[${i}]`);
+    if (!arg.ok) return arg;
+    out.push(arg.value);
+  }
+  return { ok: true, value: out };
+}
+
+/**
+ * Absent block → undefined. Present without `dockerfile` → the conventional
+ * `Dockerfile.seed` default, so `seed: {}` enables seeding without spelling
+ * out the convention.
+ */
+function parseSeedBlock(raw: unknown): Result<SproutSeed | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: "seed must be a mapping" };
+  }
+  for (const key of Object.keys(raw)) {
+    if (!SEED_KEYS.has(key)) return unknownKey(`seed.${key}`);
+  }
+  const dockerfileRaw = raw.dockerfile;
+  const dockerfile =
+    dockerfileRaw === undefined
+      ? { ok: true as const, value: "Dockerfile.seed" }
+      : requireString(dockerfileRaw, "seed.dockerfile");
+  if (!dockerfile.ok) return dockerfile;
+  const env = parseAppEnv(raw.env, "seed.env");
+  if (!env.ok) return env;
+  const args = parseSeedArgs(raw.args);
+  if (!args.ok) return args;
+  const value: SproutSeed = { dockerfile: dockerfile.value };
+  if (env.value) value.env = env.value;
+  if (args.value) value.args = args.value;
+  return { ok: true, value };
 }
 
 /** Absent → undefined (leave). Empty list is rejected — use --clear-services. */
@@ -363,7 +417,7 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const env = parsePreviewEnv(parsed.preview.env);
   if (!env.ok) return env;
 
-  const appEnv = parseAppEnv(parsed.preview.app_env);
+  const appEnv = parseAppEnv(parsed.preview.app_env, "preview.app_env");
   if (!appEnv.ok) return appEnv;
 
   const services = parseServices(parsed.preview.services);
@@ -372,7 +426,7 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const build = parseDockerfileBlock(parsed.build, "build", "Dockerfile");
   if (!build.ok) return build;
 
-  const seed = parseDockerfileBlock(parsed.seed, "seed", "Dockerfile.seed");
+  const seed = parseSeedBlock(parsed.seed);
   if (!seed.ok) return seed;
 
   const value: SproutYaml = {

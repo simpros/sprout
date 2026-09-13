@@ -452,6 +452,47 @@ preview:
     expect(captured).toEqual([]);
   });
 
+  test("seed env/args from the manifest reach the deploy body", async () => {
+    const baseUrl = healthyGateway();
+    const cwd = await withWorkspace(`slug: myapp
+build:
+  dockerfile: Dockerfile
+seed:
+  dockerfile: Dockerfile.seed
+  env:
+    FIXTURE_SET: demo
+    SEED_URL: "https://{hostname}"
+  args:
+    - --reset
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+`);
+    const code = await runCli(
+      ["ci", "preview", "--seed-arg", "--fixtures=demo"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      app_image: APP_REF,
+      seed_image: SEED_REF,
+      seed_env: [
+        "FIXTURE_SET=demo",
+        "SEED_URL=https://pr-17.myapp.preview.example.com",
+      ],
+      seed_arg: ["--reset", "--fixtures=demo"],
+    });
+  });
+
   test("rejects a non-positive --tail before building", async () => {
     const baseUrl = healthyGateway();
     const cwd = await withWorkspace(MINIMAL_YAML);

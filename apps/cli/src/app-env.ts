@@ -220,22 +220,37 @@ export function mergeAppEnv(
 }
 
 /**
- * Merge `--seed-env-file` / `SPROUT_SEED_ENV` contents, then `--seed-env` flags.
- * Seed has no manifest layer until the `seed.env` block lands (#124).
+ * Merge `seed.env`, then `--seed-env-file` / `SPROUT_SEED_ENV` contents, then
+ * `--seed-env` flags. Later layers overwrite duplicate keys. Required keys
+ * missing after all layers fail with a seed-surface error. Invalid flags /
+ * file lines fail before any network call.
  */
 export function mergeSeedEnv(
+  yamlValues: Record<string, string> | undefined,
+  required: string[] | undefined,
   dotenvFiles: DotenvFile[],
   flags: string[],
   expand?: EnvValueExpander,
 ): Result<string[] | undefined> {
   const merged = mergeLayers({
+    yamlValues,
     files: dotenvFiles,
     flags,
     flagLabel: "--seed-env",
     fileFlagLabel: "--seed-env-file",
     expand,
-    expandKeyPrefix: "--seed-env ",
+    expandKeyPrefix: "seed.env.",
   });
   if (!merged.ok) return merged;
+
+  for (const key of required ?? []) {
+    if (!merged.value.has(key)) {
+      return {
+        ok: false,
+        error: `seed.env.${key}: required value missing (supply it via --seed-env-file, SPROUT_SEED_ENV, or --seed-env)`,
+      };
+    }
+  }
+
   return { ok: true, value: serializeEnv(merged.value) };
 }

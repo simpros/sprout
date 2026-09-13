@@ -574,4 +574,202 @@ preview:
       ],
     });
   });
+
+  test("deploy merges yaml seed.env (templated) then file then flags", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-12.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+seed:
+  dockerfile: Dockerfile.seed
+  env:
+    FIXTURE_SET: yaml
+    SEED_URL: "https://{hostname}"
+    SEED_SECRET:
+      generate: stable_per_pr
+`);
+    const code = await runCli(
+      [
+        "deploy",
+        "-i",
+        "app:1",
+        "-s",
+        "seed:1",
+        "--seed-env",
+        "FIXTURE_SET=flag",
+      ],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/12/merge",
+        },
+        readTextFile: readExisting,
+      }),
+    );
+
+    expect(code).toBe(0);
+    const body = captured[0]?.body as { seed_env: string[] };
+    expect(body.seed_env).toContain("FIXTURE_SET=flag");
+    expect(body.seed_env).toContain(
+      "SEED_URL=https://pr-12.myapp.preview.example.com",
+    );
+    expect(body.seed_env.some((e) => e.startsWith("SEED_SECRET="))).toBe(true);
+  });
+
+  test("deploy fails naming a required seed.env key that CI did not supply", async () => {
+    const baseUrl = startGateway(async () => {
+      return Response.json({ ok: true, status: "running", preview_url: "x" });
+    });
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+seed:
+  dockerfile: Dockerfile.seed
+  env:
+    SEED_SECRET:
+      required: true
+`);
+    const code = await runCli(
+      ["deploy", "-i", "app:1", "-s", "seed:1"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/12/merge",
+        },
+        readTextFile: readExisting,
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr[0]).toBe(
+      "seed.env.SEED_SECRET: required value missing (supply it via --seed-env-file, SPROUT_SEED_ENV, or --seed-env)",
+    );
+    expect(captured).toEqual([]);
+  });
+
+  test("deploy layers yaml seed.args first, then --seed-arg flags", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-12.example.com",
+      });
+    });
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+seed:
+  dockerfile: Dockerfile.seed
+  args:
+    - --reset
+`);
+    const code = await runCli(
+      ["deploy", "-i", "app:1", "-s", "seed:1", "--seed-arg", "--fixtures=demo"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/12/merge",
+        },
+        readTextFile: readExisting,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      seed_arg: ["--reset", "--fixtures=demo"],
+    });
+  });
+
+  test("deploy without -s omits yaml seed env/args (omit-s-on-sync)", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-12.example.com",
+      });
+    });
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+seed:
+  dockerfile: Dockerfile.seed
+  env:
+    FIXTURE_SET: demo
+  args:
+    - --reset
+`);
+    const code = await runCli(
+      ["deploy", "-i", "app:1"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/12/merge",
+        },
+        readTextFile: readExisting,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured[0]?.body).not.toHaveProperty("seed_env");
+    expect(captured[0]?.body).not.toHaveProperty("seed_arg");
+    expect(captured[0]?.body).not.toHaveProperty("seed_image");
+  });
 });

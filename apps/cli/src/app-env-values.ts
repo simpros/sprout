@@ -58,11 +58,13 @@ export function expandAppEnvValue(
 /**
  * Materialize `generate: stable_per_pr` secrets and collect `{ required: true }`
  * keys. String templates pass through **unexpanded** — {@link mergeAppEnv}
- * expands each final value once after CI layers merge.
+ * expands each final value once after CI layers merge. `prefix` labels errors
+ * (`preview.app_env.` or `seed.env.`).
  */
 export function resolveAppEnvValues(
   appEnv: Record<string, AppEnvValue> | undefined,
   ctx: AppEnvResolveContext,
+  prefix = "preview.app_env.",
 ): Result<ResolvedAppEnv> {
   if (!appEnv || Object.keys(appEnv).length === 0) {
     return { ok: true, value: { values: undefined, requiredKeys: [] } };
@@ -78,7 +80,7 @@ export function resolveAppEnvValues(
     if ("generate" in value) {
       switch (value.generate) {
         case "stable_per_pr": {
-          const secret = stablePerPrSecret(key, ctx);
+          const secret = stablePerPrSecret(key, ctx, prefix);
           if (!secret.ok) return secret;
           out[key] = secret.value;
           break;
@@ -87,7 +89,7 @@ export function resolveAppEnvValues(
           const _exhaustive: never = value.generate;
           return {
             ok: false,
-            error: `preview.app_env.${key}: unknown generate kind: ${_exhaustive}`,
+            error: `${prefix}${key}: unknown generate kind: ${_exhaustive}`,
           };
         }
       }
@@ -109,11 +111,12 @@ export function resolveAppEnvValues(
 function stablePerPrSecret(
   envKey: string,
   ctx: AppEnvResolveContext,
+  prefix: string,
 ): Result<string> {
   if (!ctx.deployToken) {
     return {
       ok: false,
-      error: `preview.app_env.${envKey}: SPROUT_TOKEN required for generate: stable_per_pr`,
+      error: `${prefix}${envKey}: SPROUT_TOKEN required for generate: stable_per_pr`,
     };
   }
   const digest = createHmac("sha256", ctx.deployToken)
