@@ -100,8 +100,8 @@ minted the deploy token. Pull credentials on the gateway follow the deploy
 
 The CLI reads this file locally and sends parsed values to the gateway.
 Unknown keys are rejected (`unknown key: <path>`). This table is the
-contract; the notes directly below it (name remap, value grammar, merge
-order, gateway reservation, service images, seed run order) are part of the
+contract; the notes directly below it (connection env, value grammar, merge
+order, service images, seed run order) are part of the
 contract. The later sections (App image, After-healthy, Multi-image,
 Debugging, CI workflow) are examples and flow notes only. Test
 pointers live in [Test coverage](#test-coverage-maintainers).
@@ -110,8 +110,8 @@ pointers live in [Test coverage](#test-coverage-maintainers).
 |---|---|---|---|
 | `slug` | yes | — | Short name used in database names (`sprout_<slug>_pr<id>`) and container names. Alphanumeric. |
 | `preview.hostname` | yes | — | Per-PR host template. Must contain `{pr_id}`; no scheme, port, path, or other placeholders. The CLI owns substitution and prints `preview_url=` — CI never reconstructs it. |
-| `preview.env` | no | canonical `PG*` / `PGAPP*` | Rename injected connection env (see Env name remap). |
-| `preview.app_env` | no | — | Extra app env (see Value grammar, Merge order, Gateway reservation). |
+| `preview.env` | no | canonical `PG*` / `PGAPP*` | Rename injected connection env (see Connection env). |
+| `preview.app_env` | no | — | Extra app env (see Value grammar, Merge order, Connection env reservation). |
 | `preview.services` | no | leave companions | Companion routing entries (see Service images). |
 | `preview.services[].name` | per entry | — | Service name (validated, unique). |
 | `preview.services[].image` | per entry unless `--service` | — | Pinned image for the service. |
@@ -126,12 +126,39 @@ pointers live in [Test coverage](#test-coverage-maintainers).
 | `seed.env` | no | — | Seed-only env (same grammar and layering as `preview.app_env`). |
 | `seed.args` | no | — | Seed container args (yaml first, then `--seed-arg` flags appended). |
 
-#### Env name remap
+#### Connection env: names, roles, reservation, port
 
-`preview.env` renames the gateway-injected connection names (canonical
-`PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE PGAPPUSER PGAPPPASSWORD`).
-Unmapped keys stay canonical; a remap replaces the name (no dual alias).
-The entrypoint must read the adopter names.
+The gateway injects these connection variables into preview app, service,
+and seed containers:
+
+```
+PGHOST  PGPORT  PGUSER  PGPASSWORD  PGDATABASE
+PGAPPUSER  PGAPPPASSWORD
+```
+
+- **Owner** (`PGUSER` / `PGPASSWORD`): the static preview login
+  (`SPROUT_PG_USER`). Owns each preview database — use this for migrations.
+- **Restricted companion** (`PGAPPUSER` / `PGAPPPASSWORD`): a per-preview
+  LOGIN named `<dbName>_app` with `CONNECT` and schema `USAGE` only.
+  Password is derived by the gateway (stable for the life of the preview).
+  Use this for RLS-constrained runtime queries. Do not `CREATE ROLE` — the
+  gateway already provisioned it; `GRANT` table privileges to this role
+  instead.
+
+`preview.env` renames the gateway-injected connection names. Unmapped keys
+stay canonical; a remap replaces the name (no dual alias). The entrypoint
+must read the adopter names.
+
+Gateway connection keys replace colliding adopter keys (canonical `PG*` ∪
+remapped names after `preview.env`) — same policy for app and seed env
+(see `apps/server/src/app-deployment/pg-env.ts`). Do not put `PGHOST` or a
+remapped name into `SPROUT_APP_ENV`: the gateway strips it in favour of
+its own value and the app silently gets the gateway's connection, not
+yours.
+
+Port: the gateway routes to the first `EXPOSE`d port in the app image,
+else `SPROUT_PREVIEW_PORT_DEFAULT`. Teardown drops the database and then
+the companion role.
 
 #### Env value grammar
 
@@ -151,16 +178,7 @@ then `--app-env` flags (later wins per key). Seed: yaml first, then
 flags. Seed args: yaml `seed.args` first, then `--seed-arg` flags
 appended.
 
-#### Gateway env reservation
-
-Gateway connection keys replace colliding adopter keys (canonical `PG*` ∪
-remapped names after `preview.env`) — same policy for app and seed env
-(see `apps/server/src/app-deployment/pg-env.ts`). Do not put `PGHOST` or a
-remapped name into `SPROUT_APP_ENV`: the gateway strips it in favour of
-its own value and the app silently gets the gateway's connection, not
-yours.
-
-#### Service images: merge, leave, clear
+#### Service images: merge, leave, clear, lifecycle
 
 Static `image` in yaml pins the image; `--service name=image` overlays it
 — every service needs an image after merge. Omitting `--service` leaves
@@ -168,6 +186,13 @@ companions in place; `--clear-services` removes all (cannot combine with
 `--service`). An empty list is rejected (omit the key, or
 `--clear-services`). Reseed bodies carry no service list, so companions
 stay as last deployed by construction.
+
+Each service joins the **Traefik** and **Postgres** networks (same as the
+app) and receives the **same connection env** as the app (including any
+`preview.env` remap). Services are force-removed on **teardown** (and on
+replace) with the app. The health gate covers **only the app**: after the
+app passes `health.expect`, seed runs (when configured), then companion
+services start. There is no per-service health poll in this release.
 
 #### Seed run order and resume
 
@@ -317,6 +342,9 @@ preview:
 stop-preview:
   image: docker:24
   script:
+    - apk add --no-cache curl ca-certificates libstdc++
+    - curl -fsSL -o /usr/local/bin/sprout "https://github.com/simpros/sprout/releases/download/v0.6.0/sprout-linux-x64-musl"
+    - chmod +x /usr/local/bin/sprout
     - sprout teardown
   environment:
     name: preview/mr-$CI_MERGE_REQUEST_IID
@@ -382,44 +410,18 @@ parse errors name the key or file without echoing the value.
 ## App image: migrate at startup
 
 Reference above is the contract; this section is entrypoint examples only.
-
-By default the gateway injects these connection variables into preview app,
-service, and seed containers:
-
-```
-PGHOST  PGPORT  PGUSER  PGPASSWORD  PGDATABASE
-PGAPPUSER  PGAPPPASSWORD
-```
-
-- **Owner** (`PGUSER` / `PGPASSWORD`): the static preview login
-  (`SPROUT_PG_USER`). Owns each preview database — use this for migrations.
-- **Restricted companion** (`PGAPPUSER` / `PGAPPPASSWORD`): a per-preview
-  LOGIN named `<dbName>_app` (e.g. `sprout_myapp_pr42_app`) with `CONNECT`
-  and schema `USAGE` only. Password is derived by the gateway (stable for
-  the life of the preview). Use this for RLS-constrained runtime queries.
-
-Remap example (`preview.env` contract in the [Reference](#reference)):
-
-```yaml
-preview:
-  hostname: "pr-{pr_id}.myapp.preview.example.com"
-  env:
-    PGHOST: DATABASE_HOST
-    PGDATABASE: DATABASE_NAME
-```
-
-Snippets below assume the default `PG*` / `PGAPP*` map.
+Connection names, owner/companion roles, and the port rule live in
+[Reference](#reference) (Connection env) — snippets below assume the
+default `PG*` / `PGAPP*` map.
 
 Your app image must:
 
 1. Wait until Postgres accepts connections.
 2. Run migrations as the **owner** against the injected database name
-   (default `PGDATABASE`). Migrations that create an `app_user` role should
-   instead `GRANT` table privileges to the companion role named in
-   `PGAPPUSER` (do not `CREATE ROLE` — the gateway already provisioned it).
-3. Start the web server (expose a port — first `EXPOSE` wins, else gateway uses
-   `SPROUT_PREVIEW_PORT_DEFAULT`), connecting runtime queries as
-   `PGAPPUSER` when you need RLS.
+   (default `PGDATABASE`); `GRANT` to the companion role for RLS instead
+   of creating roles.
+3. Start the web server, connecting runtime queries as `PGAPPUSER` when
+   you need RLS.
 
 There is **no mandatory wrapper image** from sprout. Copy an entrypoint
 that fits your stack.
@@ -432,24 +434,21 @@ previews without cluster `CREATEROLE` on the preview login:
 1. Migrate with `PGUSER` / `PGPASSWORD` (owner).
 2. `GRANT` the needed table/sequence privileges to the role in `PGAPPUSER`
    (and enable RLS / policies as in production).
-3. Open the app pool with `PGAPPUSER` / `PGAPPPASSWORD` (remap to
-   `APP_DATABASE_USER` / `APP_DATABASE_PASSWORD` via `preview.env` if that
-   matches your product env names).
-
-Teardown drops the database and then the companion role.
+3. Open the app pool with `PGAPPUSER` / `PGAPPPASSWORD` (remap via
+   `preview.env` if that matches your product env names — see
+   [Reference](#reference), Connection env).
 
 ### Extra app env (non-connection)
 
-Wiring and one example only — grammar, merge order, and the gateway
-reservation rule live in the [Reference](#reference).
-
-Adopters often need runtime env beyond the connection fields
-(`BETTER_AUTH_SECRET`, app URLs, trusted origins, etc.).
-Pass those as `preview.app_env` / `seed.env` in `.sprout.yaml`, a masked
-file-type `SPROUT_APP_ENV` / `SPROUT_SEED_ENV` dotenv blob (the CLI reads the
-file path from the variable automatically), repeatable `--app-env-file` /
-`--seed-env-file`, or repeatable `--app-env KEY=VALUE` / `--seed-env
-KEY=VALUE`.
+Example only — grammar, merge order, and the gateway reservation rule
+(Connection env) live in the [Reference](#reference). Adopters often need runtime env beyond the
+connection fields (`BETTER_AUTH_SECRET`, app URLs, trusted origins, etc.):
+pass those as `preview.app_env` / `seed.env` in `.sprout.yaml`, a masked
+file-type `SPROUT_APP_ENV` / `SPROUT_SEED_ENV` dotenv blob, repeatable
+`--app-env-file` / `--seed-env-file`, or repeatable `--app-env KEY=VALUE` /
+`--seed-env KEY=VALUE`. Forge File-var wiring lives in
+[`templates/README.md`](../templates/README.md); placeholders expand in
+every layer (see the [Reference](#reference)).
 
 Example:
 
@@ -467,37 +466,6 @@ preview:
 ```
 
 Placeholders expand in every layer — see the [Reference](#reference).
-
-**GitLab** — create a CI/CD variable named `SPROUT_APP_ENV`, type **File**,
-marked **Masked**. GitLab writes the blob to a temp file and exports its path;
-the CLI reads it automatically (the component passes nothing extra unless
-you set the `app_env_file` / `seed_env_file` inputs for additional files).
-
-**GitHub Actions** — no file-type secrets; write the multiline secret to a
-temp file and point `SPROUT_APP_ENV` at it:
-
-```yaml
-- name: Write preview app env
-  env:
-    SPROUT_APP_ENV_BLOB: ${{ secrets.SPROUT_APP_ENV }}
-  run: |
-    printf '%s\n' "$SPROUT_APP_ENV_BLOB" > "$RUNNER_TEMP/preview.app.env"
-    echo "SPROUT_APP_ENV=$RUNNER_TEMP/preview.app.env" >> "$GITHUB_ENV"
-- name: Deploy
-  run: sprout deploy -i "$APP_IMAGE"
-```
-
-Explicit wiring still works: pass `--app-env-file "$PATH"` (or
-`--seed-env-file`) instead of setting the variable.
-
-Secrets stay out of logs by construction: deploy prints only `preview_url=`
-to stdout, parse errors never echo a line, and the MR note carries just the
-URL. Prove it by grepping the captured job log for a sentinel from the blob:
-
-```bash
-sprout deploy -i "$APP_IMAGE" | tee deploy.log
-! grep -q "sk_live" deploy.log
-```
 
 ### Shell entrypoint (any runtime)
 
@@ -562,7 +530,7 @@ sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" --reseed
 
 ## Multi-image previews (app + services)
 
-Routing examples only — merge and leave/clear rules live in the
+Routing examples only — merge, lifecycle, and health-gate rules live in the
 [Reference](#reference).
 
 Full-stack previews often need more than one long-lived container sharing the
@@ -576,16 +544,8 @@ sprout deploy -i "$APP_IMAGE" \
   --service worker=ghcr.io/org/worker:${SHA}
 ```
 
-Each service:
-
-1. Joins the **Traefik** and **Postgres** networks (same as the app).
-2. Receives the **same connection env** as the app (`PGDATABASE` and companions,
-   including any `preview.env` remap).
-3. Is force-removed on **teardown** (and on replace) with the app.
-
-The health gate still covers **only the app**. After the app passes
-`health.expect`, seed runs (when configured), then companion services start.
-There is no per-service health poll in this release.
+Networks, shared connection env, teardown, and the app-only health gate
+live in the [Reference](#reference) (Service images).
 
 ### Routing (optional)
 
@@ -647,13 +607,8 @@ Successful seeds do not keep seed output.
 ## CI workflow (GitHub Actions)
 
 Low-level forge-specific flow (appendix to the [Reference](#reference)):
-symmetric triggers — no forge webhooks on the gateway:
-
-| Event | Action |
-|---|---|
-| `pull_request` opened | `sprout deploy` |
-| `pull_request` synchronize | `sprout deploy` (replaces container, keeps DB) |
-| `pull_request` closed | `sprout teardown` |
+triggers mirror the GitLab component (open → deploy, synchronize →
+re-deploy keeping the DB, close → teardown) — see the canonical workflow.
 
 The **canonical** workflow is
 [`examples/adopting-repo/.github/workflows/sprout.yml`](../examples/adopting-repo/.github/workflows/sprout.yml)
