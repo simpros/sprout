@@ -169,14 +169,26 @@ export async function resolveIdentity(
 export async function authedContext(
   deps: CliDeps,
 ): Promise<Result<CliContext>> {
+  const client = await authedClient(deps);
+  if (!client.ok) return client;
+  return {
+    ok: true,
+    value: { deps, client: client.value },
+  };
+}
+
+/**
+ * Gateway client for commands that resolve identity before auth (e.g.
+ * `sprout ci *`, which must report outside-pipeline usage without a token).
+ */
+export async function authedClient(
+  deps: CliDeps,
+): Promise<Result<ApiClient>> {
   const token = await requireToken(deps);
   if (!token.ok) return token;
   return {
     ok: true,
-    value: {
-      deps,
-      client: deps.createClient(resolveGatewayUrl(deps.env), token.value),
-    },
+    value: deps.createClient(resolveGatewayUrl(deps.env), token.value),
   };
 }
 

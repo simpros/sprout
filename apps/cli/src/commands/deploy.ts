@@ -1,45 +1,14 @@
-import type { PreviewSnapshot } from "@sprout/api-client";
-import {
-  resolveHealthSpec,
-  resolveHostnameValue,
-} from "@sprout/preview-env";
-import {
-  mergeAppEnv,
-  mergeSeedEnv,
-  readEnvFiles,
-} from "../app-env.ts";
-import {
-  expandAppEnvValue,
-  resolveAppEnvValues,
-} from "../app-env-values.ts";
 import type { CliContext } from "../context.ts";
 import { fail, loadYaml, resolveIdentity } from "../context.ts";
-import { resolveCommitSha } from "../identity.ts";
-import { readEden } from "../eden.ts";
 import { parseFlags } from "../flags.ts";
-import { hostnameIssueMessage } from "../hostname.ts";
+import { resolveDeployHostname } from "../hostname.ts";
 import { mergeServices, type DeployService } from "../services.ts";
-import type { PreviewEnvMap, SproutYaml } from "../yaml.ts";
-import { deployOutcome } from "./deploy-outcome.ts";
-
-/** Extra budget beyond health.timeout for image pull + replace + optional seed. */
-const DEPLOY_POLL_BUFFER_MS = 180_000;
-
-function resolveDeployHostname(
-  raw: string,
-  prId: number,
-  label: string,
-  mode: "required_template" | "static_or_template",
-): { ok: true; value: string } | { ok: false; error: string } {
-  const resolved = resolveHostnameValue(raw, prId, mode);
-  if (!resolved.ok) {
-    return {
-      ok: false,
-      error: hostnameIssueMessage(label, resolved.issue, { prId }),
-    };
-  }
-  return resolved;
-}
+import {
+  applyDeployEnv,
+  deployBaseFields,
+  type DeployRequest,
+  postDeployAndWait,
+} from "./deploy-core.ts";
 
 export async function runDeploy(
   tokens: string[],
@@ -92,33 +61,11 @@ export async function runDeploy(
   const identity = await resolveIdentity(ctx.deps, flags.value.repo);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
-  const hostname = resolveDeployHostname(
-    yaml.value.preview.hostname,
-    identity.value.prId,
-    "preview.hostname",
-    "required_template",
-  );
-  if (!hostname.ok) return fail(ctx.deps.io, hostname.error);
+  const base = deployBaseFields(yaml.value, identity.value);
+  if (!base.ok) return fail(ctx.deps.io, base.error);
 
-  const body: {
-    canonical_repo_id: string;
-    pr_id: number;
-    slug: string;
-    hostname: string;
-    app_image: string;
-    health?: SproutYaml["health"];
-    seed_image?: string;
-    seed_env?: string[];
-    seed_arg?: string[];
-    app_env?: string[];
-    services?: DeployService[];
-    env?: PreviewEnvMap;
-    reseed?: boolean;
-  } = {
-    canonical_repo_id: identity.value.repo,
-    pr_id: identity.value.prId,
-    slug: yaml.value.slug,
-    hostname: hostname.value,
+  const body: DeployRequest = {
+    ...base.value,
     app_image: flags.value.image,
   };
 
@@ -157,97 +104,21 @@ export async function runDeploy(
     }
   }
 
-  const [appEnvFiles, seedEnvFiles] = await Promise.all([
-    readEnvFiles(
-      ctx.deps,
-      "SPROUT_APP_ENV",
-      flags.value.appEnvFile,
-      "--app-env-file",
-    ),
-    readEnvFiles(
-      ctx.deps,
-      "SPROUT_SEED_ENV",
-      flags.value.seedEnvFile,
-      "--seed-env-file",
-    ),
-  ]);
-  if (!appEnvFiles.ok) return fail(ctx.deps.io, appEnvFiles.error);
-  if (!seedEnvFiles.ok) return fail(ctx.deps.io, seedEnvFiles.error);
+  const withEnv = await applyDeployEnv(body, ctx.deps, yaml.value, {
+    appEnvFile: flags.value.appEnvFile,
+    appEnv: flags.value.appEnv,
+    seedEnvFile: flags.value.seedEnvFile,
+    seedEnv: flags.value.seedEnv,
+  });
+  if (!withEnv.ok) return fail(ctx.deps.io, withEnv.error);
 
-  const resolveCtx = {
-    hostname: body.hostname,
-    prId: identity.value.prId,
-    commitSha: resolveCommitSha(ctx.deps.env),
-    repo: identity.value.repo,
-    // HMAC key is SPROUT_TOKEN only (not local admin fallback) so CI and
-    // local agree when the same deploy token is used.
-    deployToken: ctx.deps.env.SPROUT_TOKEN?.trim() ?? "",
-  };
-
-  const resolvedYamlEnv = resolveAppEnvValues(
-    yaml.value.preview.app_env,
-    resolveCtx,
-  );
-  if (!resolvedYamlEnv.ok) return fail(ctx.deps.io, resolvedYamlEnv.error);
-
-  const expandValue = (value: string) => expandAppEnvValue(value, resolveCtx);
-
-  const appEnv = mergeAppEnv(
-    resolvedYamlEnv.value.values,
-    resolvedYamlEnv.value.requiredKeys,
-    appEnvFiles.value,
-    flags.value.appEnv,
-    expandValue,
-  );
-  if (!appEnv.ok) return fail(ctx.deps.io, appEnv.error);
-  if (appEnv.value) body.app_env = appEnv.value;
-
-  const seedEnv = mergeSeedEnv(
-    seedEnvFiles.value,
-    flags.value.seedEnv,
-    expandValue,
-  );
-  if (!seedEnv.ok) return fail(ctx.deps.io, seedEnv.error);
-  if (seedEnv.value) body.seed_env = seedEnv.value;
-
-  const response = await ctx.client.v1.deploy.post(body);
-  const result = readEden<PreviewSnapshot>(response);
-  if (!result.ok) return fail(ctx.deps.io, result.message);
-
-  let data = result.data;
-  let outcome = deployOutcome(data);
-  if (outcome.kind === "failed") return fail(ctx.deps.io, outcome.message);
-
-  if (outcome.kind !== "ready") {
-    const sleep =
-      ctx.deps.sleep ??
-      ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-    const now = ctx.deps.now ?? (() => Date.now());
-    const health = resolveHealthSpec(yaml.value.health);
-    if (!health.ok) return fail(ctx.deps.io, health.issue.code);
-    const deadline = now() + health.value.timeoutMs + DEPLOY_POLL_BUFFER_MS;
-    const interval = Math.max(200, health.value.intervalMs);
-
-    while (true) {
-      if (now() >= deadline) {
-        return fail(ctx.deps.io, "deploy_timeout");
-      }
-      const statusResponse = await ctx.client.v1.preview.get({
-        query: {
-          canonical_repo_id: identity.value.repo,
-          pr_id: String(identity.value.prId),
-        },
-      });
-      const statusResult = readEden<PreviewSnapshot>(statusResponse);
-      if (!statusResult.ok) return fail(ctx.deps.io, statusResult.message);
-      data = statusResult.data;
-      outcome = deployOutcome(data);
-      if (outcome.kind === "failed") return fail(ctx.deps.io, outcome.message);
-      if (outcome.kind === "ready") break;
-      await sleep(interval);
-    }
-  }
-
-  ctx.deps.io.stdout(`preview_url=${data.preview_url}`);
+  const settled = await postDeployAndWait({
+    client: ctx.client,
+    deps: ctx.deps,
+    yaml: yaml.value,
+    identity: identity.value,
+    body: withEnv.value,
+  });
+  if (!settled.ok) return fail(ctx.deps.io, settled.error);
   return 0;
 }

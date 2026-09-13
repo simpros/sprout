@@ -1,4 +1,4 @@
-import type { HostnameIssue } from "@sprout/preview-env";
+import { resolveHostnameValue, type HostnameIssue } from "@sprout/preview-env";
 
 /**
  * Single CLI formatter for hostname grammar issues (parse-time and deploy-time).
@@ -17,4 +17,21 @@ export function hostnameIssueMessage(
     case "invalid_hostname":
       return `${label} is invalid: ${issue.detail}${prSuffix}`;
   }
+}
+
+/** Canonical hostname for `preview.hostname` / service hostnames. */
+export function resolveDeployHostname(
+  raw: string,
+  prId: number,
+  label: string,
+  mode: "required_template" | "static_or_template",
+): { ok: true; value: string } | { ok: false; error: string } {
+  const resolved = resolveHostnameValue(raw, prId, mode);
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      error: hostnameIssueMessage(label, resolved.issue, { prId }),
+    };
+  }
+  return resolved;
 }
