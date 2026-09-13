@@ -94,8 +94,10 @@ gateway after the preview app is healthy, to populate the preview database.
 _Avoid_: Seeder image, seed container (use "seed image")
 
 **After-healthy hook**:
-The post-startup timing hook that runs once `health.expect` passes. In v0.1
-the only implementation is the optional seed image (`sprout deploy -s`).
+The post-startup timing hook that runs once `health.expect` passes. The
+adopting-repo path is seed-as-manifest (`seed:` in `.sprout.yaml` →
+`sprout ci preview` builds + pushes the seed image and deploys with it);
+the low-level equivalent is the optional seed image (`sprout deploy -s`).
 _Avoid_: after-startup hook, post-migrate hook (prefer "after-healthy")
 
 ### Clients & access
