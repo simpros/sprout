@@ -13,6 +13,7 @@ import {
   buildDeployRequest,
   postDeployAndWait,
   requireHealthWhenSeeding,
+  type BuildDeployRequestInputs,
 } from "./deploy-core.ts";
 import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
 
@@ -146,14 +147,22 @@ export async function runCiPreview(
     seedImage = ref.value;
   }
 
-  const assembled = buildDeployRequest(yaml.value, identity, {
-    appImage: identity.imageRef,
-    seedImage,
-    seedArg: flags.value.seedArg,
-    service: flags.value.service,
-    clearServices: flags.value.clearServices,
-    seedSource: "seed",
-  });
+  const previewInputs: BuildDeployRequestInputs = seedImage
+    ? {
+        appImage: identity.imageRef,
+        seedImage,
+        seedSource: "seed",
+        seedArg: flags.value.seedArg,
+        service: flags.value.service,
+        clearServices: flags.value.clearServices,
+      }
+    : {
+        appImage: identity.imageRef,
+        seedArg: flags.value.seedArg,
+        service: flags.value.service,
+        clearServices: flags.value.clearServices,
+      };
+  const assembled = buildDeployRequest(yaml.value, identity, previewInputs);
   if (!assembled.ok) return fail(ctx.deps.io, assembled.error);
   const body = assembled.value;
 

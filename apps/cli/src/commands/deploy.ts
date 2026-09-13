@@ -5,6 +5,7 @@ import {
   applyDeployEnv,
   buildDeployRequest,
   postDeployAndWait,
+  type BuildDeployRequestInputs,
 } from "./deploy-core.ts";
 
 export async function runDeploy(
@@ -45,15 +46,24 @@ export async function runDeploy(
   const identity = await resolveIdentity(ctx.deps, flags.value.repo);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
-  const assembled = buildDeployRequest(yaml.value, identity.value, {
-    appImage: flags.value.image,
-    seedImage: flags.value.seedImage,
-    seedArg: flags.value.seedArg,
-    service: flags.value.service,
-    clearServices: flags.value.clearServices,
-    reseed: flags.value.reseed,
-    seedSource: "-s",
-  });
+  const deployInputs: BuildDeployRequestInputs = flags.value.seedImage
+    ? {
+        appImage: flags.value.image,
+        seedImage: flags.value.seedImage,
+        seedSource: "-s",
+        seedArg: flags.value.seedArg,
+        service: flags.value.service,
+        clearServices: flags.value.clearServices,
+        reseed: flags.value.reseed,
+      }
+    : {
+        appImage: flags.value.image,
+        seedArg: flags.value.seedArg,
+        service: flags.value.service,
+        clearServices: flags.value.clearServices,
+        reseed: flags.value.reseed,
+      };
+  const assembled = buildDeployRequest(yaml.value, identity.value, deployInputs);
   if (!assembled.ok) return fail(ctx.deps.io, assembled.error);
   const body = assembled.value;
 

@@ -189,7 +189,7 @@ export async function postDeployAndWait(opts: {
   const budgetMs = health.value.timeoutMs + DEPLOY_POLL_BUFFER_MS;
   const intervalMs = Math.max(200, health.value.intervalMs);
 
-  const poll = await pollPreviewReady<PreviewSnapshot>({
+  const poll = await pollPreviewReady({
     client: opts.client,
     repo: opts.identity.repo,
     prId: opts.identity.prId,
@@ -201,8 +201,8 @@ export async function postDeployAndWait(opts: {
   if (!poll.ok) return poll;
   // The poller only resolves on a `ready` outcome, carrying its URL —
   // no second `deployOutcome` interpretation here.
-  opts.deps.io.stdout(`preview_url=${poll.value.previewUrl}`);
-  return { ok: true, value: poll.value.previewUrl };
+  opts.deps.io.stdout(`preview_url=${poll.value}`);
+  return { ok: true, value: poll.value };
 }
 
 /** `--clear-services` / `--service` mutual exclusion, shared by all deploy paths. */
@@ -250,24 +250,26 @@ export function requireHealthWhenSeeding(
  */
 export type BuildDeployRequestInputs = {
   appImage: string;
-  seedImage?: string;
   seedArg: string[];
   service: string[];
   clearServices: boolean;
   reseed?: boolean;
-  /** Required only when `seedImage` is set; the gate ignores it otherwise. */
-  seedSource?: "-s" | "seed";
-};
+} & (
+  | { seedImage: string; seedSource: "-s" | "seed" }
+  | { seedImage?: undefined; seedSource?: undefined }
+);
 
 export function buildDeployRequest(
   yaml: SproutYaml,
   identity: DeployIdentity,
   inputs: BuildDeployRequestInputs,
 ): Result<DeployRequest> {
-  const gate = requireHealthWhenSeeding(yaml, {
-    hasSeed: Boolean(inputs.seedImage),
-    seedSource: inputs.seedSource,
-  });
+  const gate = requireHealthWhenSeeding(
+    yaml,
+    inputs.seedImage
+      ? { hasSeed: true, seedSource: inputs.seedSource }
+      : { hasSeed: false },
+  );
   if (!gate.ok) return gate;
 
   const base = deployBaseFields(yaml, identity);
