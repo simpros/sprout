@@ -302,7 +302,7 @@ curl -sf http://127.0.0.1:7331/healthz</pre>
 sprout deploy -i "$APP_IMAGE"          <span class="c"># optional: -s "$SEED_IMAGE"</span>
 sprout teardown                        <span class="c"># on pull_request closed</span></pre>
       <p>
-        Copy-paste starter: <a href="../../examples/adopting-repo/">examples/adopting-repo/</a>.
+        Copy-paste starter: <a href="../../examples/adopting-repo/README.md">examples/adopting-repo/</a>.
         Full adopter guide: <a href="../adoption.md">docs/adoption.md</a>.
         GitLab: use the published <code>preview</code> component
         (<a href="https://github.com/simpros/sprout/issues/127">#127</a>).
@@ -347,7 +347,7 @@ sprout teardown                        <span class="c"># on pull_request closed<
             <td>Gateway self-check (networks, Postgres, forge, drift).</td>
           </tr>
           <tr>
-            <td>sprout logs</td>
+            <td>sprout logs &lt;pr_id&gt;</td>
             <td>Fetch preview container logs for debugging.</td>
           </tr>
           <tr>
@@ -355,12 +355,16 @@ sprout teardown                        <span class="c"># on pull_request closed<
             <td>Create / list / revoke deploy tokens (admin token required).</td>
           </tr>
           <tr>
-            <td>sprout ci preview</td>
-            <td>Build, push, and deploy from <code>.sprout.yaml</code> build/seed blocks.</td>
+            <td>sprout ci &lt;preview&#124;teardown&#124;reseed&#124;logs&gt;</td>
+            <td>CI helper: build/push/deploy, teardown, reseed, or logs from CI env.</td>
+          </tr>
+          <tr>
+            <td>sprout worktree-db &lt;provision&#124;drop&gt;</td>
+            <td>Local per-worktree Postgres DB (no gateway).</td>
           </tr>
         </tbody>
       </table>
-      <p>Identity (repo + PR id) is inferred from CI env or git remote; override with <code>--repo</code> where supported.</p>
+      <p>Identity (repo + PR id) is inferred from CI env or git remote; override with <code>--repo</code> where supported. Full flags per command: <code>sprout &lt;command&gt; --help</code>; CI details: <a href="../adoption.md">docs/adoption.md</a>.</p>
     </section>
 
     <section id="config">
@@ -471,10 +475,10 @@ sprout teardown                        <span class="c"># on pull_request closed<
         <li><a href="../../README.md">README</a> — short front door</li>
         <li><a href="../adoption.md">Adoption guide</a></li>
         <li><a href="../deploy.md">Operator deploy</a></li>
-        <li><a href="../../examples/adopting-repo/">Adopting-repo examples</a></li>
+        <li><a href="../../examples/adopting-repo/README.md">Adopting-repo examples</a></li>
         <li><a href="../../CONTEXT.md">CONTEXT.md</a> — domain vocabulary</li>
-        <li><a href="../adr/">Architecture decision records</a></li>
-        <li><a href="../../e2e/">E2E harness</a> — <code>bun run test:e2e</code></li>
+        <li><a href="../adr/README.md">Architecture decision records</a></li>
+        <li><a href="../../e2e/README.md">E2E harness</a> — <code>bun run test:e2e</code></li>
         <li><a href="https://github.com/simpros/sprout">simpros/sprout</a> on GitHub</li>
       </ul>
     </section>
