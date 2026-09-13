@@ -43,6 +43,7 @@ const GITLAB_IDENTITY = {
   repo: "https://gitlab.com/group/repo",
   prId: 17,
   pipelineSource: "merge_request_event" as const,
+  commitSha: undefined as string | undefined,
 };
 
 const GITHUB_IDENTITY = {
@@ -50,6 +51,7 @@ const GITHUB_IDENTITY = {
   repo: "https://github.com/org/repo",
   prId: 42,
   pipelineSource: "pull_request" as const,
+  commitSha: undefined as string | undefined,
 };
 
 describe("buildPreviewNote", () => {

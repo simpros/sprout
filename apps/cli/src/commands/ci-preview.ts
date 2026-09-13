@@ -172,6 +172,7 @@ export async function runCiPreview(
     appEnv: flags.value.appEnv,
     seedEnvFile: flags.value.seedEnvFile,
     seedEnv: flags.value.seedEnv,
+    commitSha: identity.commitSha,
   });
   if (!withEnv.ok) return fail(ctx.deps.io, withEnv.error);
 

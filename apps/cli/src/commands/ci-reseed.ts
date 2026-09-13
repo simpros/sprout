@@ -45,7 +45,7 @@ export async function runCiReseed(
     return fail(ctx.deps.io, "ci reseed requires -s <seed-image>");
   }
 
-  const imageRef = resolveImageRef(ctx.deps.env);
+  const imageRef = resolveImageRef(ctx.deps.env, identity);
   if (!imageRef.ok) return fail(ctx.deps.io, imageRef.error);
 
   const yaml = await loadYaml(ctx.deps);
@@ -74,6 +74,7 @@ export async function runCiReseed(
     appEnv: flags.value.appEnv,
     seedEnvFile: flags.value.seedEnvFile,
     seedEnv: flags.value.seedEnv,
+    commitSha: identity.commitSha,
   });
   if (!withEnv.ok) return fail(ctx.deps.io, withEnv.error);
 

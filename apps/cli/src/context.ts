@@ -2,7 +2,7 @@ import type { ApiClient } from "@sprout/api-client";
 import {
   normalizeGitRemoteUrl,
   resolveCanonicalRepoId,
-  resolvePrId,
+  resolvePrIdAny,
 } from "./identity.ts";
 import type { Result } from "./result.ts";
 import { parseSproutYaml, type SproutYaml } from "./yaml.ts";
@@ -179,7 +179,7 @@ export async function resolveIdentity(
   const event = await loadEventPayload(deps);
   if (!event.ok) return event;
 
-  const prId = resolvePrId({
+  const prId = resolvePrIdAny({
     env: deps.env,
     eventPayload: event.value,
   });

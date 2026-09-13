@@ -1,6 +1,7 @@
 import type { CliContext } from "../context.ts";
 import { fail, loadYaml, resolveIdentity } from "../context.ts";
 import { parseFlags } from "../flags.ts";
+import { resolveCommitShaAny } from "../identity.ts";
 import {
   applyDeployEnv,
   buildDeployRequest,
@@ -72,6 +73,7 @@ export async function runDeploy(
     appEnv: flags.value.appEnv,
     seedEnvFile: flags.value.seedEnvFile,
     seedEnv: flags.value.seedEnv,
+    commitSha: resolveCommitShaAny(ctx.deps.env),
   });
   if (!withEnv.ok) return fail(ctx.deps.io, withEnv.error);
 

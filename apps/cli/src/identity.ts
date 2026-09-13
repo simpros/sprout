@@ -38,6 +38,14 @@ function positiveInt(raw: unknown): number | null {
   return n;
 }
 
+export function stripGitSuffix(url: string): string {
+  return url.replace(/\.git$/, "");
+}
+
+export function githubRepoUrl(slug: string): string {
+  return `https://github.com/${slug}`;
+}
+
 /** Forge-scoped repo URL from CI env (no git-remote fallback). */
 export function resolveRepoForForge(
   forge: Forge,
@@ -46,7 +54,7 @@ export function resolveRepoForForge(
   if (forge === "gitlab") {
     const gitlab = env.CI_PROJECT_URL?.trim();
     if (gitlab) {
-      return { ok: true, value: gitlab.replace(/\.git$/, "") };
+      return { ok: true, value: stripGitSuffix(gitlab) };
     }
     return {
       ok: false,
@@ -56,7 +64,7 @@ export function resolveRepoForForge(
 
   const github = env.GITHUB_REPOSITORY?.trim();
   if (github) {
-    return { ok: true, value: `https://github.com/${github}` };
+    return { ok: true, value: githubRepoUrl(github) };
   }
   return {
     ok: false,
@@ -68,11 +76,15 @@ export function resolveCanonicalRepoId(input: {
   env: NodeJS.ProcessEnv;
   gitRemoteUrl?: string | null;
 }): Result<string> {
-  const github = resolveRepoForForge("github", input.env);
-  if (github.ok) return github;
+  const githubRepo = input.env.GITHUB_REPOSITORY?.trim();
+  if (githubRepo) {
+    return { ok: true, value: githubRepoUrl(githubRepo) };
+  }
 
-  const gitlab = resolveRepoForForge("gitlab", input.env);
-  if (gitlab.ok) return gitlab;
+  const gitlabUrl = input.env.CI_PROJECT_URL?.trim();
+  if (gitlabUrl) {
+    return { ok: true, value: stripGitSuffix(gitlabUrl) };
+  }
 
   if (input.gitRemoteUrl) {
     const normalized = normalizeGitRemoteUrl(input.gitRemoteUrl);
@@ -86,53 +98,69 @@ export function resolveCanonicalRepoId(input: {
   };
 }
 
-export function resolveGithubPrId(
+function readGithubPrId(
   env: NodeJS.ProcessEnv,
   eventPayload?: unknown,
-): Result<number> {
+): number | null {
   if (eventPayload && typeof eventPayload === "object") {
     const record = eventPayload as Record<string, unknown>;
     const fromPr = record.pull_request;
     if (fromPr && typeof fromPr === "object") {
       const n = positiveInt((fromPr as { number?: unknown }).number);
-      if (n !== null) return { ok: true, value: n };
+      if (n !== null) return n;
     }
     const fromNumber = positiveInt(record.number);
-    if (fromNumber !== null) return { ok: true, value: fromNumber };
+    if (fromNumber !== null) return fromNumber;
   }
 
   const ref = env.GITHUB_REF?.trim();
   if (ref) {
     const match = /^refs\/pull\/(\d+)\//.exec(ref);
-    if (match) return { ok: true, value: Number(match[1]) };
+    if (match) return Number(match[1]);
   }
-
-  return {
-    ok: false,
-    error: "cannot derive pr id (GitHub pull_request event or GITHUB_REF)",
-  };
+  return null;
 }
 
-export function resolveGitlabPrId(env: NodeJS.ProcessEnv): Result<number> {
-  const gitlab = positiveInt(env.CI_MERGE_REQUEST_IID);
-  if (gitlab !== null) return { ok: true, value: gitlab };
+function readGitlabPrId(env: NodeJS.ProcessEnv): number | null {
+  return positiveInt(env.CI_MERGE_REQUEST_IID);
+}
+
+/**
+ * Strict PR-id resolver: reads only the given forge's sources. CI callers
+ * pass the forge from `requireCiSource`; the deploy path uses
+ * `resolvePrIdAny` (GitHub first, then GitLab).
+ */
+export function resolvePrId(input: {
+  env: NodeJS.ProcessEnv;
+  eventPayload?: unknown;
+  forge: Forge;
+}): Result<number> {
+  if (input.forge === "github") {
+    const n = readGithubPrId(input.env, input.eventPayload);
+    if (n !== null) return { ok: true, value: n };
+    return {
+      ok: false,
+      error: "cannot derive pr id (GitHub pull_request event or GITHUB_REF)",
+    };
+  }
+
+  const m = readGitlabPrId(input.env);
+  if (m !== null) return { ok: true, value: m };
   return {
     ok: false,
     error: "cannot derive pr id (CI_MERGE_REQUEST_IID)",
   };
 }
 
-/** Deploy/teardown: GitHub reader, then GitLab (forge-blind aggregator). */
-export function resolvePrId(input: {
+/** Deploy path: forge-blind, GitHub first then GitLab (old aggregator order). */
+export function resolvePrIdAny(input: {
   env: NodeJS.ProcessEnv;
   eventPayload?: unknown;
 }): Result<number> {
-  const github = resolveGithubPrId(input.env, input.eventPayload);
-  if (github.ok) return github;
-
-  const gitlab = resolveGitlabPrId(input.env);
-  if (gitlab.ok) return gitlab;
-
+  const github = readGithubPrId(input.env, input.eventPayload);
+  if (github !== null) return { ok: true, value: github };
+  const gitlab = readGitlabPrId(input.env);
+  if (gitlab !== null) return { ok: true, value: gitlab };
   return {
     ok: false,
     error:
@@ -140,11 +168,20 @@ export function resolvePrId(input: {
   };
 }
 
-/** Short-circuit commit SHA from common CI env vars; absent → undefined. */
-export function resolveCommitSha(env: NodeJS.ProcessEnv): string | undefined {
-  const github = env.GITHUB_SHA?.trim();
-  if (github) return github;
-  const gitlab = env.CI_COMMIT_SHA?.trim();
-  if (gitlab) return gitlab;
-  return undefined;
+/** Forge → commit-SHA env var name. One map for strict resolution and error copy. */
+export function commitShaEnvVar(forge: Forge): "CI_COMMIT_SHA" | "GITHUB_SHA" {
+  return forge === "gitlab" ? "CI_COMMIT_SHA" : "GITHUB_SHA";
+}
+
+/** Strict commit SHA: reads only the given forge's var. CI callers pass the forge from identity. */
+export function resolveCommitSha(
+  env: NodeJS.ProcessEnv,
+  forge: Forge,
+): string | undefined {
+  return env[commitShaEnvVar(forge)]?.trim() || undefined;
+}
+
+/** Deploy path: forge-blind, GitHub first then GitLab (old aggregator order). */
+export function resolveCommitShaAny(env: NodeJS.ProcessEnv): string | undefined {
+  return resolveCommitSha(env, "github") ?? resolveCommitSha(env, "gitlab");
 }

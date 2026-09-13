@@ -68,19 +68,18 @@ export async function runCi(
     return printHelp(ctx);
   }
 
-  // `preview` builds + pushes images, then deploys through the shared
-  // settle contract. Identity resolves before auth so outside-pipeline
-  // errors win over missing-token.
+  // Identity resolves before auth so outside-pipeline errors win over
+  // missing-token. The preview path returns early so its identity never
+  // widens to `| undefined` at the call site.
   if (subcommand === "preview") {
-    const previewIdentity = await resolveCiPreviewIdentity(ctx.deps);
-    if (!previewIdentity.ok) return fail(ctx.deps.io, previewIdentity.error);
+    const preview = await resolveCiPreviewIdentity(ctx.deps);
+    if (!preview.ok) return fail(ctx.deps.io, preview.error);
     const client = await authedClient(ctx.deps);
     if (!client.ok) return fail(ctx.deps.io, client.error);
-    return runCiPreview(
-      previewIdentity.value,
-      rest,
-      { deps: ctx.deps, client: client.value },
-    );
+    return runCiPreview(preview.value, rest, {
+      deps: ctx.deps,
+      client: client.value,
+    });
   }
 
   const identity = await resolveCiIdentity(ctx.deps);

@@ -52,6 +52,31 @@ describe("requireCiSource", () => {
     });
   });
 
+  test("prefers GitHub pull_request over stray GitLab push source", () => {
+    expect(
+      requireCiSource({
+        CI_PIPELINE_SOURCE: "push",
+        GITHUB_EVENT_NAME: "pull_request",
+      }),
+    ).toEqual({
+      ok: true,
+      value: { forge: "github", pipelineSource: "pull_request" },
+    });
+  });
+
+  test("refuses ambiguous pipeline claiming both forges", () => {
+    expect(
+      requireCiSource({
+        CI_PIPELINE_SOURCE: "merge_request_event",
+        GITHUB_EVENT_NAME: "pull_request",
+      }),
+    ).toEqual({
+      ok: false,
+      error:
+        "sprout ci refuses ambiguous pipeline (CI_PIPELINE_SOURCE=merge_request_event and GITHUB_EVENT_NAME=pull_request); run in a single merge-request or pull-request pipeline",
+    });
+  });
+
   test("refuses GitLab non-MR pipeline", () => {
     expect(requireCiSource({ CI_PIPELINE_SOURCE: "push" })).toEqual({
       ok: false,
@@ -80,29 +105,76 @@ describe("requireCiSource", () => {
 });
 
 describe("resolveImageRef", () => {
-  test("builds registry:sha from CI env", () => {
+  test("builds registry:sha from the locked GitLab SHA", () => {
     expect(
-      resolveImageRef({
-        CI_REGISTRY_IMAGE: "registry.example/app",
-        CI_COMMIT_SHA: "abc",
-      }),
+      resolveImageRef(
+        { CI_REGISTRY_IMAGE: "registry.example/app" },
+        { forge: "gitlab", commitSha: "abc" },
+      ),
     ).toEqual({ ok: true, value: "registry.example/app:abc" });
   });
 
-  test("uses GITHUB_SHA when CI_COMMIT_SHA absent", () => {
+  test("builds registry:sha from the locked GitHub SHA", () => {
     expect(
-      resolveImageRef({
-        CI_REGISTRY_IMAGE: "ghcr.io/org/repo",
-        GITHUB_SHA: "def",
-      }),
+      resolveImageRef(
+        { CI_REGISTRY_IMAGE: "ghcr.io/org/repo" },
+        { forge: "github", commitSha: "def" },
+      ),
     ).toEqual({ ok: true, value: "ghcr.io/org/repo:def" });
   });
 
-  test("errors when registry or sha missing", () => {
-    expect(resolveImageRef({ CI_MERGE_REQUEST_IID: "1" })).toEqual({
+  test("uses the locked SHA even when the other forge's var is set", () => {
+    expect(
+      resolveImageRef(
+        {
+          CI_REGISTRY_IMAGE: "registry.example/app",
+          CI_COMMIT_SHA: "aaa",
+          GITHUB_SHA: "bbb",
+        },
+        { forge: "gitlab", commitSha: "aaa" },
+      ),
+    ).toEqual({ ok: true, value: "registry.example/app:aaa" });
+  });
+
+  test("gitlab forge names CI_COMMIT_SHA when the locked SHA is missing", () => {
+    expect(
+      resolveImageRef(
+        {
+          CI_REGISTRY_IMAGE: "registry.example/app",
+          GITHUB_SHA: "def",
+        },
+        { forge: "gitlab", commitSha: undefined },
+      ),
+    ).toEqual({
       ok: false,
-      error:
-        "cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA or GITHUB_SHA)",
+      error: "cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA)",
+    });
+  });
+
+  test("github forge names GITHUB_SHA when the locked SHA is missing", () => {
+    expect(
+      resolveImageRef(
+        {
+          CI_REGISTRY_IMAGE: "ghcr.io/org/repo",
+          CI_COMMIT_SHA: "abc",
+        },
+        { forge: "github", commitSha: undefined },
+      ),
+    ).toEqual({
+      ok: false,
+      error: "cannot derive image ref (set CI_REGISTRY_IMAGE and GITHUB_SHA)",
+    });
+  });
+
+  test("errors when registry missing", () => {
+    expect(
+      resolveImageRef(
+        { CI_COMMIT_SHA: "abc" },
+        { forge: "gitlab", commitSha: "abc" },
+      ),
+    ).toEqual({
+      ok: false,
+      error: "cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA)",
     });
   });
 });
@@ -127,6 +199,7 @@ describe("resolveCiIdentity", () => {
         repo: "https://gitlab.com/group/repo",
         prId: 17,
         pipelineSource: "merge_request_event",
+        commitSha: undefined,
       },
     });
   });
@@ -150,6 +223,7 @@ describe("resolveCiIdentity", () => {
         repo: "https://github.com/org/repo",
         prId: 42,
         pipelineSource: "pull_request",
+        commitSha: undefined,
       },
     });
   });
@@ -170,6 +244,7 @@ describe("resolveCiIdentity", () => {
         repo: "https://github.com/org/repo",
         prId: 8,
         pipelineSource: "pull_request_target",
+        commitSha: undefined,
       },
     });
   });
@@ -187,9 +262,47 @@ describe("resolveCiIdentity", () => {
     ).toMatchObject({
       ok: true,
       value: {
+        forge: "gitlab",
         pipelineSource: "merge_request_event",
         prId: 3,
       },
+    });
+  });
+
+  test("succeeds for GitHub PR despite stray CI_PIPELINE_SOURCE=push", async () => {
+    expect(
+      await resolveCiIdentity(
+        deps({
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_REF: "refs/pull/42/merge",
+          CI_PIPELINE_SOURCE: "push",
+        }),
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        forge: "github",
+        pipelineSource: "pull_request",
+        prId: 42,
+      },
+    });
+  });
+
+  test("refuses ambiguous pipeline claiming both forges", async () => {
+    expect(
+      await resolveCiIdentity(
+        deps({
+          CI_PROJECT_URL: "https://gitlab.com/group/repo",
+          CI_MERGE_REQUEST_IID: "3",
+          CI_PIPELINE_SOURCE: "merge_request_event",
+          GITHUB_EVENT_NAME: "pull_request",
+        }),
+      ),
+    ).toEqual({
+      ok: false,
+      error:
+        "sprout ci refuses ambiguous pipeline (CI_PIPELINE_SOURCE=merge_request_event and GITHUB_EVENT_NAME=pull_request); run in a single merge-request or pull-request pipeline",
     });
   });
 
@@ -204,8 +317,7 @@ describe("resolveCiIdentity", () => {
       ),
     ).toEqual({
       ok: false,
-      error:
-        "sprout ci must run in a merge-request pipeline (set CI_MERGE_REQUEST_IID)",
+      error: "cannot derive pr id (CI_MERGE_REQUEST_IID)",
     });
   });
 
@@ -229,6 +341,7 @@ describe("resolveCiIdentity", () => {
         repo: "https://gitlab.com/group/repo",
         prId: 5,
         pipelineSource: "merge_request_event",
+        commitSha: undefined,
       },
     });
   });
@@ -244,8 +357,7 @@ describe("resolveCiIdentity", () => {
       ),
     ).toEqual({
       ok: false,
-      error:
-        "sprout ci must run in a pull-request workflow (GitHub pull_request event or GITHUB_REF)",
+      error: "cannot derive pr id (GitHub pull_request event or GITHUB_REF)",
     });
   });
 
@@ -293,6 +405,53 @@ describe("resolveCiIdentity", () => {
         "sprout ci refuses detached/non-MR pipelines (GITHUB_EVENT_NAME=push); run from a pull_request workflow",
     });
   });
+
+  test("locks the forge-scoped SHA and ignores the other forge's var", async () => {
+    expect(
+      await resolveCiIdentity(
+        deps({
+          CI_PROJECT_URL: "https://gitlab.com/group/repo",
+          CI_MERGE_REQUEST_IID: "17",
+          CI_PIPELINE_SOURCE: "merge_request_event",
+          CI_COMMIT_SHA: "aaa",
+          GITHUB_SHA: "bbb",
+        }),
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: { forge: "gitlab", commitSha: "aaa" },
+    });
+    expect(
+      await resolveCiIdentity(
+        deps({
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_REF: "refs/pull/42/merge",
+          CI_COMMIT_SHA: "aaa",
+          GITHUB_SHA: "bbb",
+        }),
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: { forge: "github", commitSha: "bbb" },
+    });
+  });
+
+  test("leaves commitSha undefined when the forge's var is missing", async () => {
+    expect(
+      await resolveCiIdentity(
+        deps({
+          CI_PROJECT_URL: "https://gitlab.com/group/repo",
+          CI_MERGE_REQUEST_IID: "17",
+          CI_PIPELINE_SOURCE: "merge_request_event",
+          GITHUB_SHA: "bbb",
+        }),
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: { forge: "gitlab", commitSha: undefined },
+    });
+  });
 });
 
 describe("resolveCiPreviewIdentity", () => {
@@ -314,6 +473,7 @@ describe("resolveCiPreviewIdentity", () => {
         repo: "https://gitlab.com/group/repo",
         prId: 17,
         pipelineSource: "merge_request_event",
+        commitSha: "abc123",
         imageRef: "registry.gitlab.com/group/repo:abc123",
         hostname: "pr-17.example.com",
       },
@@ -338,6 +498,7 @@ describe("resolveCiPreviewIdentity", () => {
         repo: "https://github.com/org/repo",
         prId: 42,
         pipelineSource: "pull_request",
+        commitSha: "def456",
         imageRef: "ghcr.io/org/repo:def456",
         hostname: "pr-42.example.com",
       },
@@ -355,8 +516,7 @@ describe("resolveCiPreviewIdentity", () => {
       ),
     ).toEqual({
       ok: false,
-      error:
-        "cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA or GITHUB_SHA)",
+      error: "cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA)",
     });
   });
 
