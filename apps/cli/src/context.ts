@@ -12,6 +12,11 @@ export type CliIo = {
   stderr: (line: string) => void;
 };
 
+/** Result of one spawned process (`sprout ci preview` docker steps). */
+export type CommandResult = {
+  exitCode: number;
+};
+
 export type CliDeps = {
   env: NodeJS.ProcessEnv;
   cwd: string;
@@ -22,6 +27,17 @@ export type CliDeps = {
   /** Test seam for deploy status polling. */
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /**
+   * Test seam for spawning `docker` (`sprout ci preview` build/push steps).
+   * Inherits the process env, so DOCKER_HOST / registry auth for dind works
+   * unchanged. Defaults to streaming child stdio.
+   */
+  runCommand?: (
+    argv: string[],
+    opts: { cwd: string },
+  ) => Promise<CommandResult>;
+  /** Test seam for writing the preview dotenv file. */
+  writeTextFile?: (path: string, content: string) => Promise<void>;
 };
 
 /** Shared runtime for a single command invocation. */
@@ -197,4 +213,32 @@ export function unauthedContext(deps: CliDeps): CliContext {
     deps,
     client: deps.createClient(resolveGatewayUrl(deps.env), ""),
   };
+}
+
+/**
+ * Spawn a child process with inherited stdio (docker build/push stream to
+ * the CI job log). Only the exit code is captured.
+ */
+export async function defaultRunCommand(
+  argv: string[],
+  opts: { cwd: string },
+): Promise<CommandResult> {
+  try {
+    const proc = Bun.spawn(argv, {
+      cwd: opts.cwd,
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    return { exitCode: await proc.exited };
+  } catch {
+    return { exitCode: 127 };
+  }
+}
+
+/** Write a small text file (the preview dotenv artifact). */
+export async function defaultWriteTextFile(
+  path: string,
+  content: string,
+): Promise<void> {
+  await Bun.write(path, content);
 }

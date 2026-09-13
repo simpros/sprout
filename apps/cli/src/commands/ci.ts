@@ -5,6 +5,7 @@ import {
   resolveCiPreviewIdentity,
 } from "./ci-identity.ts";
 import { runCiLogs } from "./ci-logs.ts";
+import { runCiPreview } from "./ci-preview.ts";
 import { runCiReseed } from "./ci-reseed.ts";
 import { runCiTeardown } from "./ci-teardown.ts";
 
@@ -12,7 +13,9 @@ const CI_HELP = `usage: sprout ci <preview|teardown|reseed|logs> …
 
 CI command group — infers repo, PR/MR id, and pipeline source from the CI env.
 
-  preview   Build, push, and deploy a preview for this merge request (also image ref + hostname)
+  preview   Build, push, and deploy a preview for this merge request:
+            sprout ci preview [--tail N] [--dotenv-file PATH]
+              [--app-env K=V …] [--seed-env K=V …] [--seed-arg …]
   teardown  Tear down the preview for this merge request
   reseed    Re-run the seed job against the existing preview database:
             sprout ci reseed -s <seed-image> [--seed-env K=V …] [--seed-arg …]
@@ -65,12 +68,19 @@ export async function runCi(
     return printHelp(ctx);
   }
 
-  // `preview` lands in #120: resolve its identity, then fail directly
-  // without auth so the stub never fake-dispatches.
+  // `preview` builds + pushes images, then deploys through the shared
+  // settle contract. Identity resolves before auth so outside-pipeline
+  // errors win over missing-token.
   if (subcommand === "preview") {
     const previewIdentity = await resolveCiPreviewIdentity(ctx.deps);
     if (!previewIdentity.ok) return fail(ctx.deps.io, previewIdentity.error);
-    return fail(ctx.deps.io, "sprout ci preview is not implemented yet");
+    const client = await authedClient(ctx.deps);
+    if (!client.ok) return fail(ctx.deps.io, client.error);
+    return runCiPreview(
+      previewIdentity.value,
+      rest,
+      { deps: ctx.deps, client: client.value },
+    );
   }
 
   const identity = await resolveCiIdentity(ctx.deps);

@@ -6,6 +6,7 @@ import { resolveImageRef } from "./ci-identity.ts";
 import {
   applyDeployEnv,
   deployBaseFields,
+  requireHealthWhenSeeding,
   type ReseedRequest,
   postDeployAndWait,
 } from "./deploy-core.ts";
@@ -49,12 +50,11 @@ export async function runCiReseed(
 
   const yaml = await loadYaml(ctx.deps);
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
-  if (!yaml.value.health) {
-    return fail(
-      ctx.deps.io,
-      "health block required in .sprout.yaml when -s is passed",
-    );
-  }
+  const gate = requireHealthWhenSeeding(yaml.value, {
+    hasSeed: true,
+    seedSource: "-s",
+  });
+  if (!gate.ok) return fail(ctx.deps.io, gate.error);
 
   const base = deployBaseFields(yaml.value, identity);
   if (!base.ok) return fail(ctx.deps.io, base.error);

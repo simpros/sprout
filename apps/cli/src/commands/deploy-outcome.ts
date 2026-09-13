@@ -7,13 +7,14 @@ export type DeploySnapshotFields = {
 };
 
 export type DeployOutcome =
-  | { kind: "ready" }
+  | { kind: "ready"; previewUrl: string }
   | { kind: "failed"; message: string }
   | { kind: "pending" };
 
 /**
  * Pure deploy settle interpretation: sticky last_error and status=failed are
- * terminal; running + preview_url + no error is ready; else keep polling.
+ * terminal; running + non-empty preview_url + no error is ready (the URL is
+ * carried so callers never re-derive it with a fallback); else keep polling.
  */
 export function deployOutcome(data: DeploySnapshotFields): DeployOutcome {
   if (data.last_error) {
@@ -36,7 +37,7 @@ export function deployOutcome(data: DeploySnapshotFields): DeployOutcome {
     typeof data.preview_url === "string" &&
     data.preview_url.length > 0
   ) {
-    return { kind: "ready" };
+    return { kind: "ready", previewUrl: data.preview_url };
   }
   return { kind: "pending" };
 }

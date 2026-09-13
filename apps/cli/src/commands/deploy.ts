@@ -1,13 +1,11 @@
 import type { CliContext } from "../context.ts";
 import { fail, loadYaml, resolveIdentity } from "../context.ts";
 import { parseFlags } from "../flags.ts";
-import { resolveDeployHostname } from "../hostname.ts";
-import { mergeServices, type DeployService } from "../services.ts";
 import {
   applyDeployEnv,
-  deployBaseFields,
-  type DeployRequest,
+  buildDeployRequest,
   postDeployAndWait,
+  type BuildDeployRequestInputs,
 } from "./deploy-core.ts";
 
 export async function runDeploy(
@@ -35,12 +33,6 @@ export async function runDeploy(
   if (flags.value.reseed && !flags.value.seedImage) {
     return fail(ctx.deps.io, "--reseed requires -s <seed-image>");
   }
-  if (flags.value.clearServices && flags.value.service.length > 0) {
-    return fail(
-      ctx.deps.io,
-      "--clear-services cannot be combined with --service",
-    );
-  }
   if (flags.value.rest.length > 0) {
     return fail(
       ctx.deps.io,
@@ -51,58 +43,29 @@ export async function runDeploy(
   const yaml = await loadYaml(ctx.deps);
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
 
-  if (flags.value.seedImage && !yaml.value.health) {
-    return fail(
-      ctx.deps.io,
-      "health block required in .sprout.yaml when -s is passed",
-    );
-  }
-
   const identity = await resolveIdentity(ctx.deps, flags.value.repo);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
-  const base = deployBaseFields(yaml.value, identity.value);
-  if (!base.ok) return fail(ctx.deps.io, base.error);
-
-  const body: DeployRequest = {
-    ...base.value,
-    app_image: flags.value.image,
-  };
-
-  if (yaml.value.health) body.health = yaml.value.health;
-  if (flags.value.seedImage) body.seed_image = flags.value.seedImage;
-  if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
-  if (flags.value.reseed) body.reseed = true;
-  if (yaml.value.preview.env) body.env = yaml.value.preview.env;
-
-  if (flags.value.clearServices) {
-    body.services = [];
-  } else {
-    const services = mergeServices(
-      yaml.value.preview.services,
-      flags.value.service,
-    );
-    if (!services.ok) return fail(ctx.deps.io, services.error);
-    if (services.value) {
-      const mapped: DeployService[] = [];
-      for (const svc of services.value) {
-        const entry: DeployService = { name: svc.name, image: svc.image };
-        if (svc.hostname) {
-          const resolved = resolveDeployHostname(
-            svc.hostname,
-            identity.value.prId,
-            "service hostname",
-            "static_or_template",
-          );
-          if (!resolved.ok) return fail(ctx.deps.io, resolved.error);
-          entry.hostname = resolved.value;
-        }
-        if (svc.path) entry.path = svc.path;
-        mapped.push(entry);
+  const deployInputs: BuildDeployRequestInputs = flags.value.seedImage
+    ? {
+        appImage: flags.value.image,
+        seedImage: flags.value.seedImage,
+        seedSource: "-s",
+        seedArg: flags.value.seedArg,
+        service: flags.value.service,
+        clearServices: flags.value.clearServices,
+        reseed: flags.value.reseed,
       }
-      body.services = mapped;
-    }
-  }
+    : {
+        appImage: flags.value.image,
+        seedArg: flags.value.seedArg,
+        service: flags.value.service,
+        clearServices: flags.value.clearServices,
+        reseed: flags.value.reseed,
+      };
+  const assembled = buildDeployRequest(yaml.value, identity.value, deployInputs);
+  if (!assembled.ok) return fail(ctx.deps.io, assembled.error);
+  const body = assembled.value;
 
   const withEnv = await applyDeployEnv(body, ctx.deps, yaml.value, {
     appEnvFile: flags.value.appEnvFile,

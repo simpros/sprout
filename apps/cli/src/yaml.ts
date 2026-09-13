@@ -28,6 +28,23 @@ export type SproutYamlService = {
   path?: string;
 };
 
+/** Single-dockerfile build block shared by `build` and `seed`. */
+export type SproutDockerfileBlock = {
+  /** Dockerfile path relative to the repo root. */
+  dockerfile: string;
+};
+
+/** Image build config (`sprout ci preview` runs `docker build` + `push`). */
+export type SproutBuild = SproutDockerfileBlock;
+
+/**
+ * Seed image build config. When present, `sprout ci preview` builds + pushes
+ * the seed image (tag = app tag with a `-seed` suffix) and deploys with
+ * `-s`. Defaults the Dockerfile to `Dockerfile.seed`.
+ * (`seed.env` / `seed.args` land in #124.)
+ */
+export type SproutSeed = SproutDockerfileBlock;
+
 /**
  * Plain string, a HMAC secret stable for the MR lifetime, or a key that CI must
  * supply via `--app-env-file` / `SPROUT_APP_ENV` / `--app-env`.
@@ -53,12 +70,17 @@ export type SproutYaml = {
     services?: SproutYamlService[];
   };
   health?: SproutHealth;
+  /** Optional app image build config for `sprout ci preview`. */
+  build?: SproutBuild;
+  /** Optional seed image build config for `sprout ci preview`. */
+  seed?: SproutSeed;
 };
 
-const TOP_KEYS = new Set(["slug", "preview", "health"]);
+const TOP_KEYS = new Set(["slug", "preview", "health", "build", "seed"]);
 const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 const SERVICE_KEYS = new Set(["name", "image", "hostname", "path"]);
+const DOCKERFILE_KEYS = new Set(["dockerfile"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -209,6 +231,31 @@ function parseAppEnvValue(
   };
 }
 
+/**
+ * Absent block → undefined. Present without `dockerfile` → the conventional
+ * default (`Dockerfile` for `build`, `Dockerfile.seed` for `seed`), so
+ * `seed: {}` enables seeding without spelling out the convention.
+ */
+function parseDockerfileBlock(
+  raw: unknown,
+  path: string,
+  defaultDockerfile: string,
+): Result<SproutDockerfileBlock | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: `${path} must be a mapping` };
+  }
+  for (const key of Object.keys(raw)) {
+    if (!DOCKERFILE_KEYS.has(key)) return unknownKey(`${path}.${key}`);
+  }
+  if (raw.dockerfile === undefined) {
+    return { ok: true, value: { dockerfile: defaultDockerfile } };
+  }
+  const dockerfile = requireString(raw.dockerfile, `${path}.dockerfile`);
+  if (!dockerfile.ok) return dockerfile;
+  return { ok: true, value: { dockerfile: dockerfile.value } };
+}
+
 /** Absent → undefined (leave). Empty list is rejected — use --clear-services. */
 function parseServices(
   raw: unknown,
@@ -322,6 +369,12 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const services = parseServices(parsed.preview.services);
   if (!services.ok) return services;
 
+  const build = parseDockerfileBlock(parsed.build, "build", "Dockerfile");
+  if (!build.ok) return build;
+
+  const seed = parseDockerfileBlock(parsed.seed, "seed", "Dockerfile.seed");
+  if (!seed.ok) return seed;
+
   const value: SproutYaml = {
     slug: slug.value,
     preview: { hostname: hostname.value },
@@ -329,6 +382,8 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   if (env.value) value.preview.env = env.value;
   if (appEnv.value) value.preview.app_env = appEnv.value;
   if (services.value) value.preview.services = services.value;
+  if (build.value) value.build = build.value;
+  if (seed.value) value.seed = seed.value;
 
   if (parsed.health !== undefined) {
     if (!isPlainObject(parsed.health)) {
