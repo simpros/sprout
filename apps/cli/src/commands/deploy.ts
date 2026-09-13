@@ -4,8 +4,6 @@ import { parseFlags } from "../flags.ts";
 import {
   applyDeployEnv,
   buildDeployRequest,
-  checkServiceFlags,
-  requireHealthWhenSeeding,
   postDeployAndWait,
 } from "./deploy-core.ts";
 
@@ -34,11 +32,6 @@ export async function runDeploy(
   if (flags.value.reseed && !flags.value.seedImage) {
     return fail(ctx.deps.io, "--reseed requires -s <seed-image>");
   }
-  const serviceFlags = checkServiceFlags({
-    service: flags.value.service,
-    clearServices: flags.value.clearServices,
-  });
-  if (!serviceFlags.ok) return fail(ctx.deps.io, serviceFlags.error);
   if (flags.value.rest.length > 0) {
     return fail(
       ctx.deps.io,
@@ -48,12 +41,6 @@ export async function runDeploy(
 
   const yaml = await loadYaml(ctx.deps);
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
-
-  const gate = requireHealthWhenSeeding(yaml.value, {
-    hasSeed: Boolean(flags.value.seedImage),
-    seedSource: "-s",
-  });
-  if (!gate.ok) return fail(ctx.deps.io, gate.error);
 
   const identity = await resolveIdentity(ctx.deps, flags.value.repo);
   if (!identity.ok) return fail(ctx.deps.io, identity.error);

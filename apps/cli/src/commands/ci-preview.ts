@@ -11,7 +11,6 @@ import type { CiPreviewIdentity } from "./ci-identity.ts";
 import {
   applyDeployEnv,
   buildDeployRequest,
-  checkServiceFlags,
   postDeployAndWait,
   requireHealthWhenSeeding,
 } from "./deploy-core.ts";
@@ -109,11 +108,6 @@ export async function runCiPreview(
       `unexpected arguments: ${flags.value.rest.join(" ")}`,
     );
   }
-  const serviceFlags = checkServiceFlags({
-    service: flags.value.service,
-    clearServices: flags.value.clearServices,
-  });
-  if (!serviceFlags.ok) return fail(ctx.deps.io, serviceFlags.error);
 
   const tail = parseTailFlag(flags.value.tail);
   if (!tail.ok) return fail(ctx.deps.io, tail.error);
@@ -131,6 +125,9 @@ export async function runCiPreview(
 
   const appDockerfile = yaml.value.build?.dockerfile ?? "Dockerfile";
   const seedDockerfile = yaml.value.seed?.dockerfile;
+  // Intentional preflight: fail before docker build/push. The assembler
+  // re-checks the same gate (keyed off the resolved seed image) as the
+  // canonical owner; service-flag validation lives there too.
   const seedGate = requireHealthWhenSeeding(yaml.value, {
     hasSeed: Boolean(seedDockerfile),
     seedSource: "seed",

@@ -171,7 +171,7 @@ export async function postDeployAndWait(opts: {
   const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return { ok: false, error: result.message };
 
-  let data = result.data;
+  const data = result.data;
   const outcome = deployOutcome(data);
   if (outcome.kind === "failed") return { ok: false, error: outcome.message };
 
@@ -199,15 +199,10 @@ export async function postDeployAndWait(opts: {
     now,
   });
   if (!poll.ok) return poll;
-  data = poll.value;
-
-  const settled = deployOutcome(data);
-  if (settled.kind === "failed") return { ok: false, error: settled.message };
-  if (settled.kind !== "ready") {
-    return { ok: false, error: "preview_url missing from ready preview" };
-  }
-  opts.deps.io.stdout(`preview_url=${settled.previewUrl}`);
-  return { ok: true, value: settled.previewUrl };
+  // The poller only resolves on a `ready` outcome, carrying its URL —
+  // no second `deployOutcome` interpretation here.
+  opts.deps.io.stdout(`preview_url=${poll.value.previewUrl}`);
+  return { ok: true, value: poll.value.previewUrl };
 }
 
 /** `--clear-services` / `--service` mutual exclusion, shared by all deploy paths. */
@@ -228,19 +223,20 @@ export function checkServiceFlags(inputs: {
  * Seed-implies-health gate. `seedSource` names where the seed image came
  * from so the failure points at the real config: `-s` for CLI flags
  * (`deploy`, `ci reseed`), `seed` for the `.sprout.yaml` seed block
- * (`ci preview`).
+ * (`ci preview`). Optional because non-seed deploys have no source to name;
+ * the gate ignores it when `hasSeed` is false.
  */
 export function requireHealthWhenSeeding(
   yaml: SproutYaml,
-  opts: { hasSeed: boolean; seedSource: "-s" | "seed" },
+  opts: { hasSeed: boolean; seedSource?: "-s" | "seed" },
 ): Result<true> {
   if (opts.hasSeed && !yaml.health) {
     return {
       ok: false,
       error:
-        opts.seedSource === "-s"
-          ? "health block required in .sprout.yaml when -s is passed"
-          : "health block required in .sprout.yaml when seed block is configured",
+        opts.seedSource === "seed"
+          ? "health block required in .sprout.yaml when seed block is configured"
+          : "health block required in .sprout.yaml when -s is passed",
     };
   }
   return { ok: true, value: true };
@@ -259,7 +255,8 @@ export type BuildDeployRequestInputs = {
   service: string[];
   clearServices: boolean;
   reseed?: boolean;
-  seedSource: "-s" | "seed";
+  /** Required only when `seedImage` is set; the gate ignores it otherwise. */
+  seedSource?: "-s" | "seed";
 };
 
 export function buildDeployRequest(

@@ -24,10 +24,14 @@ export type PreviewPoller = {
  * `sprout ci reseed`, and `sprout ci preview` — one interpretation of
  * gateway status, one timeout.
  * Gateway error codes surface verbatim so CI fails with the real cause.
+ * Resolves with the snapshot plus its ready URL so callers never re-run
+ * `deployOutcome` on a settled snapshot.
  */
+export type ReadySnapshot<T> = { snapshot: T; previewUrl: string };
+
 export async function pollPreviewReady<T extends DeploySnapshotFields>(
   poller: PreviewPoller,
-): Promise<Result<T>> {
+): Promise<Result<ReadySnapshot<T>>> {
   const deadline = poller.now() + poller.budgetMs;
   while (true) {
     if (poller.now() >= deadline) {
@@ -43,7 +47,11 @@ export async function pollPreviewReady<T extends DeploySnapshotFields>(
     if (!statusResult.ok) return { ok: false, error: statusResult.message };
     const outcome = deployOutcome(statusResult.data);
     if (outcome.kind === "failed") return { ok: false, error: outcome.message };
-    if (outcome.kind === "ready") return { ok: true, value: statusResult.data };
+    if (outcome.kind === "ready")
+      return {
+        ok: true,
+        value: { snapshot: statusResult.data, previewUrl: outcome.previewUrl },
+      };
     await poller.sleep(poller.intervalMs);
   }
 }

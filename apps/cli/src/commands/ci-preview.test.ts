@@ -221,7 +221,7 @@ describe("sprout ci preview", () => {
     );
   });
 
-  test("seed build failure exits before any push or deploy", async () => {
+  test("seed build failure exits after app push, before deploy", async () => {
     const baseUrl = healthyGateway();
     dockerBehavior = (argv) =>
       argv.includes("Dockerfile.seed") ? 1 : 0;
