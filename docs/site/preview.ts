@@ -1,32 +1,26 @@
 /**
- * Build then serve the docs site. Relative links in index.html
- * (`../adoption.md`, `../../examples/…`) collapse to `/adoption.md` /
- * `/examples/…` in the browser; map those onto the repo tree.
+ * Check links, then serve the repo root so docs/site/index.html keeps its
+ * real URL path (/docs/site/index.html; / redirects there). Relative hrefs
+ * (`../adoption.md`, `../../examples/…`) then resolve with ordinary
+ * static-file semantics — no URL remapping.
  */
-import { spawn } from "node:child_process";
 import { dirname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { check } from "./check.ts";
 
 const siteDir = dirname(fileURLToPath(import.meta.url));
-const docsDir = resolve(siteDir, "..");
 const repoRoot = resolve(siteDir, "../..");
-const distDir = join(siteDir, "dist");
-const port = Number(process.env.DOCS_PORT ?? 4173);
 
-async function build(): Promise<void> {
-  await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn("bun", ["run", join(siteDir, "build.ts")], {
-      stdio: "inherit",
-      cwd: repoRoot,
-    });
-    child.on("exit", (code) => {
-      if (code === 0) resolvePromise();
-      else reject(new Error(`docs:build exited ${code}`));
-    });
-  });
+function docsPort(): number {
+  const raw = process.env.DOCS_PORT ?? "4173";
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`invalid DOCS_PORT=${JSON.stringify(raw)} (want 1–65535)`);
+  }
+  return port;
 }
 
-await build();
+await check();
 
 function contentType(path: string): string | undefined {
   if (path.endsWith(".html")) return "text/html; charset=utf-8";
@@ -35,38 +29,44 @@ function contentType(path: string): string | undefined {
   return undefined;
 }
 
-function candidatesFor(pathname: string): string[] {
-  const rel = normalize(pathname.replace(/^\//, "") || "index.html");
-  if (rel.startsWith("..")) return [];
-
-  return [
-    join(distDir, rel),
-    join(siteDir, rel),
-    join(docsDir, rel),
-    join(repoRoot, rel),
-  ];
+async function serveFile(abs: string): Promise<Response | null> {
+  const file = Bun.file(abs);
+  if (await file.exists()) {
+    const type = contentType(abs);
+    return type
+      ? new Response(file, { headers: { "content-type": type } })
+      : new Response(file);
+  }
+  return null;
 }
 
 const server = Bun.serve({
-  port,
+  port: docsPort(),
   async fetch(req) {
     const url = new URL(req.url);
-    let pathname = url.pathname;
-    if (pathname === "/") pathname = "/index.html";
-
-    for (const candidate of candidatesFor(pathname)) {
-      const file = Bun.file(candidate);
-      if (await file.exists()) {
-        const type = contentType(candidate);
-        return type
-          ? new Response(file, { headers: { "content-type": type } })
-          : new Response(file);
-      }
+    if (url.pathname === "/") {
+      return Response.redirect(
+        new URL("/docs/site/index.html", url),
+        302,
+      );
     }
 
-    return new Response("Not found", { status: 404 });
+    const rel = normalize(url.pathname.replace(/^\//, ""));
+    if (!rel || rel === "." || rel.startsWith("..")) {
+      return new Response("Not found", { status: 404 });
+    }
+    const abs = resolve(repoRoot, rel);
+    if (abs !== repoRoot && !abs.startsWith(repoRoot + "/")) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    return (
+      (await serveFile(abs)) ??
+      (await serveFile(join(abs, "index.html"))) ??
+      new Response("Not found", { status: 404 })
+    );
   },
 });
 
-console.log(`docs preview → http://127.0.0.1:${server.port}`);
+console.log(`docs preview → http://127.0.0.1:${server.port}/docs/site/index.html`);
 console.log("Ctrl+C to stop");

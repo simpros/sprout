@@ -6,17 +6,19 @@ Single-page static docs for sprout (no separate hosting).
 
 ```bash
 bun run docs:preview
-# → http://127.0.0.1:4173
+# → http://127.0.0.1:4173/docs/site/index.html
 ```
 
-Override port with `DOCS_PORT=8080 bun run docs:preview`.
+Serves the repo root so the page keeps its real URL path (`/docs/site/index.html`;
+`/` redirects there) and relative links resolve with ordinary static-file
+semantics. Override port with `DOCS_PORT=8080 bun run docs:preview`.
 
-## Build
+## Link check
 
-Included in `bun run build`, or alone:
+Included in `bun run build` and `bun run typecheck`, or alone:
 
 ```bash
-bun run docs:build
+bun run docs:check
 ```
 
-Output: `docs/site/dist/index.html` (link-checked copy of `index.html`).
+Checks local links in `docs/site/index.html` and `README.md`.

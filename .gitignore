@@ -12,4 +12,3 @@ coverage/
 .turbo/
 sprout.db
 sprout.db-*
-docs/site/dist/

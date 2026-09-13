@@ -83,7 +83,7 @@ sprout teardown
 
 ## Docs
 
-- **[Public docs](docs/site/)** — how it works, CLI reference, config, FAQ  
+- **[Public docs](docs/site/index.html)** — how it works, CLI reference, config, FAQ  
   Preview locally: `bun run docs:preview`
 - [Adoption guide](docs/adoption.md) — `.sprout.yaml`, CI, entrypoints
 - [Operator deploy](docs/deploy.md) — compose stack, env, Traefik
@@ -98,5 +98,5 @@ sprout teardown
 bun install
 bun run dev          # gateway watch
 bun test
-bun run build        # typecheck + docs site
+bun run build        # typecheck + docs links
 ```
