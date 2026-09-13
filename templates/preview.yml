@@ -1,0 +1,174 @@
+# sprout `preview` component — thin CLI bootstrapper (GitLab CI/CD component).
+#
+# Adopters include this file and declare two CI variables; all preview logic
+# lives in the CLI (`sprout ci preview` / `sprout ci teardown`). This file
+# only installs the pinned, checksum-verified binary and calls it.
+#
+#   include:
+#     - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
+#       inputs: { stage: deploy }
+#
+# Full reference: templates/README.md. Remote-include fallback (same file,
+# explicit sprout_version): templates/README.md#remote-include-fallback.
+#
+# Conventions (per GitLab component guidance):
+# - no global keywords (`default:`, `variables:` at top level); every job
+#   carries its own image/services/variables via `.sprout-preview-base`.
+# - no hardcoded stage: both jobs use `inputs.stage`.
+# - `sprout_version` defaults to the release tag shipping this file; the
+#   release pipeline rewrites the default to the tag it publishes, so the
+#   component version and the binary version coincide. Override to pin or
+#   trial a different CLI build.
+spec:
+  inputs:
+    sprout_version:
+      description: "sprout release tag to install (e.g. v0.6.0). Defaults to the release shipping this component file; override to pin or trial another CLI build. Remote includes must set this explicitly."
+      default: "v0.6.0"
+    stage:
+      description: "Pipeline stage for both the deploy and the on_stop teardown jobs."
+      default: "deploy"
+    sprout_url:
+      description: "Gateway URL. When empty, $SPROUT_URL (masked CI variable) is used."
+      default: ""
+    app_context:
+      description: "Working directory holding .sprout.yaml; the CLI builds images (docker build … .) and resolves Dockerfiles relative to it."
+      default: "."
+    app_dockerfile:
+      description: "Expected app Dockerfile path relative to app_context. Preflight guard only — .sprout.yaml build.dockerfile stays authoritative and must match."
+      default: "Dockerfile"
+    seed_dockerfile:
+      description: "Expected seed Dockerfile path relative to app_context. Empty disables the guard. .sprout.yaml seed.dockerfile stays authoritative."
+      default: ""
+    auto_stop_in:
+      description: "GitLab environment expiry for the preview (e.g. 1 week, 3 days)."
+      default: "1 week"
+    app_env_file:
+      description: "Optional extra dotenv file passed as --app-env-file (in addition to the SPROUT_APP_ENV file-type variable the CLI reads automatically)."
+      default: ""
+    seed_env_file:
+      description: "Optional extra seed dotenv file passed as --seed-env-file."
+      default: ""
+    dotenv_file:
+      description: "Dotenv artifact path (project-root-relative) the CLI writes PREVIEW_URL= to for environment:url."
+      default: "sprout-preview.env"
+    tail:
+      description: "Gateway log lines printed when sprout ci preview fails."
+      default: "200"
+    preview_extra_args:
+      description: "Escape hatch: extra args appended to `sprout ci preview` (e.g. --service api=image --seed-arg --reset). Space-separated, no globbing."
+      default: ""
+---
+
+# Shared job shape: dind image + service, registry login prerequisites.
+# Hidden (dot-prefixed) so it never runs as a job itself.
+.sprout-preview-base:
+  image: docker:24
+  services:
+    - name: docker:24-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - |
+      set -eu
+      SPROUT_VERSION="$[[ inputs.sprout_version ]]"
+      if [ -z "$SPROUT_VERSION" ]; then
+        echo "sprout_version input is empty (remote includes must set it explicitly)" >&2
+        exit 1
+      fi
+      # Gateway credentials: explicit input wins, masked CI variables otherwise.
+      INPUT_SPROUT_URL="$[[ inputs.sprout_url ]]"
+      if [ -n "$INPUT_SPROUT_URL" ]; then
+        SPROUT_URL="$INPUT_SPROUT_URL"
+      fi
+      : "${SPROUT_URL:?Set the SPROUT_URL CI variable (masked) or the sprout_url input.}"
+      : "${SPROUT_TOKEN:?Set the SPROUT_TOKEN CI variable (masked).}"
+      export SPROUT_URL
+      # Prerequisites live inside the component: adopters declare no packages.
+      apk add --no-cache curl ca-certificates libstdc++ >/dev/null
+      # Pinned, checksum-verified binary (musl asset: this job image is Alpine).
+# Trust boundary: both files come from the same GitHub release over TLS —
+# the checksum proves the download matches what the release published
+# (tamper-evident transit + version pinning), not an out-of-band signature.
+      INSTALL_TMP="$(mktemp -d)"
+      curl -fsSL -o "$INSTALL_TMP/sprout" \
+        "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/sprout-linux-x64-musl"
+      curl -fsSL -o "$INSTALL_TMP/SHA256SUMS.txt" \
+        "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/SHA256SUMS.txt"
+      SUM_LINE="$(grep -c ' sprout-linux-x64-musl$' "$INSTALL_TMP/SHA256SUMS.txt" || true)"
+      if [ "$SUM_LINE" != "1" ]; then
+        echo "checksum entry missing for sprout-linux-x64-musl in ${SPROUT_VERSION}/SHA256SUMS.txt (release predates checksum publishing?)" >&2
+        exit 1
+      fi
+      (cd "$INSTALL_TMP" && grep ' sprout-linux-x64-musl$' SHA256SUMS.txt | sha256sum -c -)
+      install -m 0755 "$INSTALL_TMP/sprout" /usr/local/bin/sprout
+      test "$(sprout --version)" = "$SPROUT_VERSION"
+      # Predefined registry credentials when the project registry is enabled.
+      if [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
+        echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+      fi
+
+sprout-preview:
+  extends: .sprout-preview-base
+  stage: $[[ inputs.stage ]]
+  interruptible: false
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+  artifacts:
+    reports:
+      dotenv: $[[ inputs.dotenv_file ]]
+  environment:
+    name: preview/mr-$CI_MERGE_REQUEST_IID
+    url: $PREVIEW_URL
+    on_stop: sprout-stop-preview
+    auto_stop_in: $[[ inputs.auto_stop_in ]]
+  script:
+    - |
+      set -eu
+      set -f
+      APP_CONTEXT="$[[ inputs.app_context ]]"
+      APP_DOCKERFILE="$[[ inputs.app_dockerfile ]]"
+      SEED_DOCKERFILE="$[[ inputs.seed_dockerfile ]]"
+      DOTENV_FILE="$[[ inputs.dotenv_file ]]"
+      TAIL="$[[ inputs.tail ]]"
+      APP_ENV_FILE="$[[ inputs.app_env_file ]]"
+      SEED_ENV_FILE="$[[ inputs.seed_env_file ]]"
+      EXTRA_ARGS="$[[ inputs.preview_extra_args ]]"
+      # Preflight guards name the file instead of failing inside docker build.
+      if [ ! -f "$APP_CONTEXT/$APP_DOCKERFILE" ]; then
+        echo "app dockerfile not found: $APP_CONTEXT/$APP_DOCKERFILE (must match .sprout.yaml build.dockerfile)" >&2
+        exit 1
+      fi
+      if [ -n "$SEED_DOCKERFILE" ] && [ ! -f "$APP_CONTEXT/$SEED_DOCKERFILE" ]; then
+        echo "seed dockerfile not found: $APP_CONTEXT/$SEED_DOCKERFILE (must match .sprout.yaml seed.dockerfile)" >&2
+        exit 1
+      fi
+      cd "$APP_CONTEXT"
+      # The preview URL comes from the CLI's dotenv output only; never
+      # reconstruct the hostname here (the CLI owns {pr_id} substitution).
+      # --dotenv-file is absolute so app_context never moves the artifact.
+      set -- --tail "$TAIL" --dotenv-file "$CI_PROJECT_DIR/$DOTENV_FILE"
+      if [ -n "$APP_ENV_FILE" ]; then set -- "$@" --app-env-file "$APP_ENV_FILE"; fi
+      if [ -n "$SEED_ENV_FILE" ]; then set -- "$@" --seed-env-file "$SEED_ENV_FILE"; fi
+      # EXTRA_ARGS word-split is intentional (documented escape hatch); globbing
+      # stays off via `set -f` above.
+      # shellcheck disable=SC2086
+      sprout ci preview "$@" $EXTRA_ARGS
+
+sprout-stop-preview:
+  extends: .sprout-preview-base
+  stage: $[[ inputs.stage ]]
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+  environment:
+    name: preview/mr-$CI_MERGE_REQUEST_IID
+    action: stop
+  script:
+    - |
+      set -eu
+      cd "$[[ inputs.app_context ]]"
+      # Teardown takes no flags: identity comes from CI env only, so there is
+      # nothing to carry over from the preview job (dotenv/extra args).
+      sprout ci teardown

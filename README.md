@@ -43,7 +43,9 @@ sweep. Details: [adoption guide](docs/adoption.md), [CONTEXT](CONTEXT.md).
 ## Install the CLI
 
 Prebuilt Linux x64 binaries (glibc + musl) ship on each
-[GitHub release](https://github.com/simpros/sprout/releases). Asset names,
+[GitHub release](https://github.com/simpros/sprout/releases) alongside
+`SHA256SUMS.txt` (verify with `sha256sum -c`; the GitLab `preview` component
+in [`templates/`](templates/) does this automatically). Asset names,
 curl recipes, and Alpine `libstdc++` notes:
 [Install from a release asset](docs/adoption.md#install-from-a-release-asset).
 

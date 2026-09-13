@@ -107,6 +107,12 @@ jobs:
             -v "$PWD/dist/sprout-linux-x64-musl:/sprout:ro" \
             alpine:3.20 \
             sh -c 'apk add --no-cache libstdc++ >/dev/null && test "$(/sprout --version)" = "'"$TAG"'"'
+      # The GitLab `preview` component (templates/preview.yml) installs the
+      # musl asset only after verifying it against this checksum file.
+      - name: Publish checksums
+        run: |
+          (cd dist && sha256sum sprout-linux-x64 sprout-linux-x64-musl > SHA256SUMS.txt)
+          (cd dist && sha256sum -c SHA256SUMS.txt)
       - name: Upload CLI binaries to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -118,4 +124,24 @@ jobs:
           gh release upload "$TAG" \
             dist/sprout-linux-x64 \
             dist/sprout-linux-x64-musl \
+            dist/SHA256SUMS.txt \
             --clobber
+
+  # Publishes the matching GitLab `preview` component version automatically
+  # (issue #127): pushes templates/ to the component project and tags
+  # v<version> there. Skips gracefully when the project/token is unconfigured
+  # (see templates/README.md#publishing-maintainers).
+  component:
+    needs: [meta, cli]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - name: Sync templates to GitLab component project
+        env:
+          SPROUT_COMPONENT_PROJECT: ${{ vars.SPROUT_COMPONENT_PROJECT }}
+          SPROUT_GITLAB_HOST: ${{ vars.SPROUT_GITLAB_HOST }}
+          SPROUT_GITLAB_SYNC_TOKEN: ${{ secrets.SPROUT_GITLAB_SYNC_TOKEN }}
+          VERSION_TAG: ${{ needs.meta.outputs.tag }}
+        run: bash scripts/sync-gitlab-component.sh

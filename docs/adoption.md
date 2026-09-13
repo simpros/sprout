@@ -547,6 +547,28 @@ and `-s`, and reuses the async-deploy poll — no second deploy
 implementation. The docker CLI inherits the job env, so dind
 (`DOCKER_HOST`) and registry auth work unchanged.
 
+The shortest GitLab adoption is the published `preview` component — one
+include, no adopter shell at all (full input reference, remote-include
+fallback, and publishing notes: [`templates/README.md`](../templates/README.md)):
+
+```yaml
+# .gitlab-ci.yml
+include:
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
+    inputs: { stage: deploy }
+```
+
+Set two masked CI variables (`SPROUT_URL`, `SPROUT_TOKEN`) plus the optional
+masked file-type `SPROUT_APP_ENV` blob. The component installs the pinned,
+checksum-verified CLI (version = component version), runs
+`sprout ci preview` in the deploy job and `sprout ci teardown` in the
+`on_stop` job, and owns the dind service, registry login, and `apk`
+prerequisites. Where the component project is unavailable on your instance,
+use the documented `include: remote` fallback at the tagged raw template
+(same file, explicit `sprout_version`).
+
+The equivalent hand-written job (when you cannot use the component):
+
 ```yaml
 # .gitlab-ci.yml (merge-request pipeline)
 preview:
