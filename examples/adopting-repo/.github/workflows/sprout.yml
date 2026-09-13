@@ -42,7 +42,7 @@ jobs:
         if: github.event.action != 'closed'
         run: |
           APP_IMAGE="${{ vars.REGISTRY }}/demoapp:${{ github.sha }}"
-          SEED_IMAGE="${{ vars.REGISTRY }}/demoapp-seed:${{ github.sha }}"
+          SEED_IMAGE="${{ vars.REGISTRY }}/demoapp:${{ github.sha }}-seed"
           docker build -t "$APP_IMAGE" .
           docker build -f Dockerfile.seed -t "$SEED_IMAGE" .
           docker push "$APP_IMAGE"

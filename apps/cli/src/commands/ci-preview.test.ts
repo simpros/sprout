@@ -114,7 +114,7 @@ const GITLAB_MR_ENV = {
 };
 
 const APP_REF = "registry.gitlab.com/group/repo:abc123";
-const SEED_REF = "registry.gitlab.com/group/repo-seed:abc123";
+const SEED_REF = "registry.gitlab.com/group/repo:abc123-seed";
 
 function healthyGateway() {
   return startGateway(async (req, url) => {
@@ -140,7 +140,7 @@ function healthyGateway() {
 }
 
 describe("resolveSeedImageRef", () => {
-  test("suffixes the repo with -seed before the tag", () => {
+  test("suffixes the tag with -seed in the same repository", () => {
     expect(resolveSeedImageRef(APP_REF)).toEqual({
       ok: true,
       value: SEED_REF,
@@ -150,7 +150,7 @@ describe("resolveSeedImageRef", () => {
   test("handles a registry with a port", () => {
     expect(resolveSeedImageRef("localhost:5000/app:sha")).toEqual({
       ok: true,
-      value: "localhost:5000/app-seed:sha",
+      value: "localhost:5000/app:sha-seed",
     });
   });
 

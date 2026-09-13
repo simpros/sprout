@@ -39,8 +39,8 @@ export type SproutBuild = SproutDockerfileBlock;
 
 /**
  * Seed image build config. When present, `sprout ci preview` builds + pushes
- * the seed image (tag = app tag with a `-seed` suffix) and deploys with
- * `-s`. Defaults the Dockerfile to `Dockerfile.seed`. `env` uses the same
+ * the seed image (tag = app tag + a `-seed` suffix, same repository) and
+ * deploys with `-s`. Defaults the Dockerfile to `Dockerfile.seed`. `env` uses the same
  * value grammar as `preview.app_env` (strings with `{hostname}` /
  * `{pr_id}` / `{commit_sha}`, `{ generate: stable_per_pr }`, `{ required:
  * true }`); `args` are extra seed container args (yaml first, then
