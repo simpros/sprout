@@ -1,6 +1,8 @@
 # Public docs site
 
-Single-page static docs for sprout (no separate hosting).
+Single-page static docs for sprout.
+
+**Live:** https://simpros.github.io/sprout/
 
 ## Preview
 
@@ -21,4 +23,12 @@ Included in `bun run build` and `bun run typecheck`, or alone:
 bun run docs:check
 ```
 
-Checks local links in `docs/site/index.html` and `README.md`.
+Checks local links in `docs/site/index.html`, `README.md`, and `docs/deploy.md`.
+
+## GitHub Pages
+
+`.github/workflows/docs.yml` publishes `docs/site/` (plus linked markdown
+targets so relative hrefs keep working) on pushes to `main` that touch those
+paths, or via `workflow_dispatch`.
+
+Repo setting: **Settings → Pages → Source = GitHub Actions**.

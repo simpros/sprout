@@ -1,15 +1,31 @@
 /**
- * Link checker for the public docs site and the README front door.
- * There is no build output: preview serves the source files directly.
+ * Link checker for the public docs site, README front door, and operator
+ * deploy guide. There is no build output: preview serves the source files
+ * directly.
  */
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const siteDir = dirname(fileURLToPath(import.meta.url));
-const rootDir = resolve(siteDir, "../..");
-const srcHtml = join(siteDir, "index.html");
-const readmeMd = join(rootDir, "README.md");
+const defaultRootDir = resolve(siteDir, "../..");
+
+export type CheckPaths = {
+  rootDir: string;
+  htmlFiles: string[];
+  markdownFiles: string[];
+};
+
+export function defaultCheckPaths(rootDir = defaultRootDir): CheckPaths {
+  return {
+    rootDir,
+    htmlFiles: [join(rootDir, "docs/site/index.html")],
+    markdownFiles: [
+      join(rootDir, "README.md"),
+      join(rootDir, "docs/deploy.md"),
+    ],
+  };
+}
 
 async function localTargetExists(path: string): Promise<boolean> {
   try {
@@ -23,9 +39,9 @@ async function localTargetExists(path: string): Promise<boolean> {
 /**
  * Preview serves files (Bun.file), not directories: a bare directory 404s
  * unless it contains an index.html. HTML hrefs must satisfy the same rule
- * or docs:check goes green while docs:preview 404s. README links keep the
- * lenient rule — that surface is browsed on GitHub, where directory links
- * render as folder listings.
+ * or docs:check goes green while docs:preview 404s. README / markdown links
+ * keep the lenient rule — those surfaces are browsed on GitHub (or as
+ * static .md on Pages), where directory links are acceptable.
  */
 async function htmlTargetExists(path: string): Promise<boolean> {
   try {
@@ -61,8 +77,8 @@ async function assertHref(
   }
 }
 
-/** README destinations: files or directories (GitHub renders dirs). */
-async function assertReadmeHref(href: string, fromFile: string): Promise<void> {
+/** Markdown destinations: files or directories (GitHub renders dirs). */
+async function assertMarkdownHref(href: string, fromFile: string): Promise<void> {
   return assertHref(href, fromFile, localTargetExists);
 }
 
@@ -71,7 +87,7 @@ async function assertHtmlHref(href: string, fromFile: string): Promise<void> {
   return assertHref(href, fromFile, htmlTargetExists);
 }
 
-function extractHtmlHrefs(html: string): string[] {
+export function extractHtmlHrefs(html: string): string[] {
   const targets: string[] = [];
   const re = /href="([^"]+)"/g;
   let match: RegExpExecArray | null;
@@ -81,7 +97,7 @@ function extractHtmlHrefs(html: string): string[] {
   return targets;
 }
 
-function extractMarkdownDestinations(text: string): string[] {
+export function extractMarkdownDestinations(text: string): string[] {
   const targets: string[] = [];
   const re = /\[([^\]]*)\]\(([^)]+)\)/g;
   let match: RegExpExecArray | null;
@@ -91,16 +107,23 @@ function extractMarkdownDestinations(text: string): string[] {
   return targets;
 }
 
-export async function check(): Promise<void> {
-  const html = await readFile(srcHtml, "utf8");
-  const readme = await readFile(readmeMd, "utf8");
+export async function check(paths: CheckPaths = defaultCheckPaths()): Promise<void> {
+  const jobs: Promise<void>[] = [];
 
-  const jobs: Promise<void>[] = [
-    ...extractHtmlHrefs(html).map((href) => assertHtmlHref(href, srcHtml)),
-    ...extractMarkdownDestinations(readme).map((href) =>
-      assertReadmeHref(href, readmeMd),
-    ),
-  ];
+  for (const htmlFile of paths.htmlFiles) {
+    const html = await readFile(htmlFile, "utf8");
+    for (const href of extractHtmlHrefs(html)) {
+      jobs.push(assertHtmlHref(href, htmlFile));
+    }
+  }
+
+  for (const mdFile of paths.markdownFiles) {
+    const text = await readFile(mdFile, "utf8");
+    for (const href of extractMarkdownDestinations(text)) {
+      jobs.push(assertMarkdownHref(href, mdFile));
+    }
+  }
+
   const results = await Promise.allSettled(jobs);
   const failures = results.flatMap((r) =>
     r.status === "rejected"
@@ -111,7 +134,11 @@ export async function check(): Promise<void> {
     throw new Error(`dead links:\n${failures.join("\n")}`);
   }
 
-  console.log("docs links OK (docs/site/index.html + README.md)");
+  const relative = [
+    ...paths.htmlFiles.map((p) => p.slice(paths.rootDir.length + 1)),
+    ...paths.markdownFiles.map((p) => p.slice(paths.rootDir.length + 1)),
+  ];
+  console.log(`docs links OK (${relative.join(" + ")})`);
 }
 
 if (import.meta.main) {

@@ -11,7 +11,7 @@
     "build": "turbo build && bun run docs:check",
     "docs:check": "bun run docs/site/check.ts",
     "docs:preview": "bun run docs/site/preview.ts",
-    "test": "turbo test",
+    "test": "turbo test && bun test docs/site/check.test.ts",
     "typecheck": "turbo build && bun run docs:check",
     "test:e2e": "bun run e2e/run.ts",
     "sprout": "bun run apps/cli/src/index.ts",

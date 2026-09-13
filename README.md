@@ -83,8 +83,8 @@ sprout teardown
 
 ## Docs
 
-- **[Public docs](docs/site/index.html)** — how it works, CLI reference, config, FAQ  
-  Preview locally: `bun run docs:preview`
+- **[Public docs](https://simpros.github.io/sprout/)** — how it works, CLI reference, config, FAQ  
+  ([source](docs/site/index.html) · local preview: `bun run docs:preview`)
 - [Adoption guide](docs/adoption.md) — `.sprout.yaml`, CI, entrypoints
 - [Operator deploy](docs/deploy.md) — compose stack, env, Traefik
 - [`examples/adopting-repo/`](examples/adopting-repo/) — copy-paste starter
