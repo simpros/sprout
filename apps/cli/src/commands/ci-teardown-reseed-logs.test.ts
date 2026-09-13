@@ -273,6 +273,85 @@ health:
     expect(captured[0]?.body).not.toHaveProperty("services");
   });
 
+  test("reseed reads SPROUT_APP_ENV blob and --seed-env-file like deploy", async () => {
+    let polls = 0;
+    const baseUrl = startGateway(async (req, url) => {
+      if (url.pathname === "/v1/deploy" && req.method === "POST") {
+        captured.push({
+          method: req.method,
+          path: url.pathname,
+          body: await req.json(),
+          authorization: req.headers.get("authorization"),
+        });
+        return Response.json({
+          ok: true,
+          status: "starting",
+          preview_url: "https://pr-17.myapp.preview.example.com",
+          canonical_repo_id: "https://gitlab.com/group/repo",
+          pr_id: 17,
+          slug: "myapp",
+          db_name: "sprout_myapp_pr17",
+          hostname: "pr-17.myapp.preview.example.com",
+        });
+      }
+      polls += 1;
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-17.myapp.preview.example.com",
+        canonical_repo_id: "https://gitlab.com/group/repo",
+        pr_id: 17,
+        slug: "myapp",
+        db_name: "sprout_myapp_pr17",
+        hostname: "pr-17.myapp.preview.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(`slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  app_env:
+    STRIPE_API_KEY:
+      required: true
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+`);
+    await Bun.write(`${cwd}/secrets.env`, "STRIPE_API_KEY=sk_live_reseed\n");
+    await Bun.write(`${cwd}/seed.env`, "FIXTURE=from-file\n");
+    const code = await runCli(
+      [
+        "ci",
+        "reseed",
+        "-s",
+        "registry.gitlab.com/group/repo-seed:abc123",
+        "--seed-env-file",
+        "seed.env",
+        "--seed-env",
+        "EXTRA=cli",
+      ],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          ...GITLAB_MR_ENV,
+          SPROUT_APP_ENV: `${cwd}/secrets.env`,
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      reseed: true,
+      app_env: ["STRIPE_API_KEY=sk_live_reseed"],
+      seed_env: ["FIXTURE=from-file", "EXTRA=cli"],
+    });
+  });
+
   test("requires -s <seed-image> before any network call", async () => {
     const baseUrl = startGateway(async () => {
       captured.push({

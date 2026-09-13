@@ -27,6 +27,7 @@ export async function runCiReseed(
   const flags = parseFlags(tokens, [
     "-s",
     "--seed-env",
+    "--seed-env-file",
     "--seed-arg",
     "--app-env",
     "--app-env-file",
@@ -64,17 +65,15 @@ export async function runCiReseed(
     seed_image: flags.value.seedImage,
     reseed: true,
   };
-  if (flags.value.seedEnv.length > 0) body.seed_env = flags.value.seedEnv;
   if (flags.value.seedArg.length > 0) body.seed_arg = flags.value.seedArg;
   if (yaml.value.preview.env) body.env = yaml.value.preview.env;
 
-  const withEnv = await applyDeployAppEnv(
-    body,
-    ctx.deps,
-    yaml.value,
-    flags.value.appEnvFile,
-    flags.value.appEnv,
-  );
+  const withEnv = await applyDeployAppEnv(body, ctx.deps, yaml.value, {
+    appEnvFile: flags.value.appEnvFile,
+    appEnv: flags.value.appEnv,
+    seedEnvFile: flags.value.seedEnvFile,
+    seedEnv: flags.value.seedEnv,
+  });
   if (!withEnv.ok) return fail(ctx.deps.io, withEnv.error);
 
   const settled = await postDeployAndWait({

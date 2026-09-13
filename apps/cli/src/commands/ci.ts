@@ -23,14 +23,27 @@ CI command group — infers repo, PR/MR id, and pipeline source from the CI env.
 
 const SUBCOMMANDS = new Set(["preview", "teardown", "reseed", "logs"]);
 
+/** Subcommands with real handlers. `preview` early-returns as a stub in runCi. */
+type ImplementedCiSubcommand = "teardown" | "reseed" | "logs";
+
+function isImplemented(
+  subcommand: string,
+): subcommand is ImplementedCiSubcommand {
+  return (
+    subcommand === "teardown" ||
+    subcommand === "reseed" ||
+    subcommand === "logs"
+  );
+}
+
 function printHelp(ctx: CliContext): number {
   ctx.deps.io.stdout(CI_HELP.trimEnd());
   return 0;
 }
 
-/** `preview` lands in #120; teardown/reseed/logs are implemented. */
+/** Implemented handlers only — `preview` never reaches here (stub in runCi). */
 async function dispatchCiSubcommand(
-  subcommand: string,
+  subcommand: ImplementedCiSubcommand,
   identity: CiIdentity,
   tokens: string[],
   ctx: CliContext,
@@ -42,11 +55,6 @@ async function dispatchCiSubcommand(
       return runCiReseed(identity, tokens, ctx);
     case "logs":
       return runCiLogs(identity, tokens, ctx);
-    default:
-      return fail(
-        ctx.deps.io,
-        `sprout ci ${subcommand} is not implemented yet`,
-      );
   }
 }
 
@@ -77,6 +85,12 @@ export async function runCi(
     const previewIdentity = await resolveCiPreviewIdentity(ctx.deps);
     if (!previewIdentity.ok) return fail(ctx.deps.io, previewIdentity.error);
     return fail(ctx.deps.io, "sprout ci preview is not implemented yet");
+  }
+
+  if (!isImplemented(subcommand)) {
+    // Unreachable: SUBCOMMANDS admitted only preview plus the implemented
+    // handlers, and preview returned above. Stay total for the type guard.
+    return fail(ctx.deps.io, CI_HELP.trimEnd());
   }
 
   const identity = await resolveCiIdentity(ctx.deps);

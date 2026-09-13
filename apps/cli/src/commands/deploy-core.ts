@@ -1,7 +1,14 @@
 import type { ApiClient, PreviewSnapshot } from "@sprout/api-client";
 import { resolveHealthSpec } from "@sprout/preview-env";
-import { type DotenvFile, mergeAppEnv } from "../app-env.ts";
-import { resolveAppEnvValues } from "../app-env-values.ts";
+import {
+  mergeAppEnv,
+  mergeSeedEnv,
+  readEnvFiles,
+} from "../app-env.ts";
+import {
+  expandAppEnvValue,
+  resolveAppEnvValues,
+} from "../app-env-values.ts";
 import type { CliDeps } from "../context.ts";
 import { readEden } from "../eden.ts";
 import { resolveDeployHostname } from "../hostname.ts";
@@ -57,49 +64,82 @@ export function deployBaseFields(
 }
 
 /**
- * Merge yaml `preview.app_env` with `--app-env-file` / `--app-env` into
- * `app_env`. Owns the full yaml→wire pipeline so deploy and ci reseed
- * cannot drift: yaml templates (`{hostname}` / `{pr_id}` / `{commit_sha}`)
- * and `generate: stable_per_pr` (HMAC via `SPROUT_TOKEN`) resolve first,
- * then dotenv files and `--app-env` flags overwrite. Returns a new body;
- * `body` is treated as read-only.
+ * Env inputs for a deploy POST. `deploy` takes these from flags;
+ * `ci reseed` takes the same flags (image comes from pipeline env instead).
+ */
+export type DeployEnvInputs = {
+  appEnvFile: string[];
+  appEnv: string[];
+  seedEnvFile: string[];
+  seedEnv: string[];
+};
+
+/**
+ * Merge yaml `preview.app_env` with `SPROUT_APP_ENV` / `--app-env-file` /
+ * `--app-env` into `app_env`, and `SPROUT_SEED_ENV` / `--seed-env-file` /
+ * `--seed-env` into `seed_env`. Owns the full yaml→wire pipeline so deploy
+ * and ci reseed cannot drift: yaml templates (`{hostname}` / `{pr_id}` /
+ * `{commit_sha}`) and `generate: stable_per_pr` (HMAC via `SPROUT_TOKEN`)
+ * resolve first via `resolveAppEnvValues`, then dotenv files and flags
+ * overwrite per key, with one placeholder expansion after merge
+ * (`expandAppEnvValue`); `{ required: true }` keys missing after all layers
+ * fail naming the key. Returns a new body; `body` is treated as read-only.
  */
 export async function applyDeployAppEnv(
   body: DeployRequest,
   deps: CliDeps,
   yaml: SproutYaml,
-  appEnvFile: string[],
-  appEnv: string[],
+  inputs: DeployEnvInputs,
 ): Promise<Result<DeployRequest>> {
-  const dotenvFiles: DotenvFile[] = [];
-  for (const filePath of appEnvFile) {
-    const resolved = filePath.startsWith("/")
-      ? filePath
-      : `${deps.cwd}/${filePath}`;
-    const raw = await deps.readTextFile(resolved);
-    if (raw === null) {
-      return { ok: false, error: `cannot read --app-env-file: ${filePath}` };
-    }
-    dotenvFiles.push({ pathLabel: filePath, content: raw });
-  }
+  const [appEnvFiles, seedEnvFiles] = await Promise.all([
+    readEnvFiles(deps, "SPROUT_APP_ENV", inputs.appEnvFile, "--app-env-file"),
+    readEnvFiles(
+      deps,
+      "SPROUT_SEED_ENV",
+      inputs.seedEnvFile,
+      "--seed-env-file",
+    ),
+  ]);
+  if (!appEnvFiles.ok) return appEnvFiles;
+  if (!seedEnvFiles.ok) return seedEnvFiles;
 
-  const resolvedYamlEnv = resolveAppEnvValues(yaml.preview.app_env, {
+  const resolveCtx = {
     hostname: body.hostname,
     prId: body.pr_id,
     commitSha: resolveCommitSha(deps.env),
     repo: body.canonical_repo_id,
     // HMAC key is SPROUT_TOKEN only (not local admin fallback) so CI and
     // local agree when the same deploy token is used.
-    deployToken: deps.env.SPROUT_TOKEN?.trim(),
-  });
-  if (!resolvedYamlEnv.ok) {
-    return { ok: false, error: resolvedYamlEnv.error };
-  }
+    deployToken: deps.env.SPROUT_TOKEN?.trim() ?? "",
+  };
 
-  const merged = mergeAppEnv(resolvedYamlEnv.value, dotenvFiles, appEnv);
-  if (!merged.ok) return { ok: false, error: merged.error };
+  const resolvedYamlEnv = resolveAppEnvValues(
+    yaml.preview.app_env,
+    resolveCtx,
+  );
+  if (!resolvedYamlEnv.ok) return resolvedYamlEnv;
+
+  const expandValue = (value: string) => expandAppEnvValue(value, resolveCtx);
+
+  const appEnv = mergeAppEnv(
+    resolvedYamlEnv.value.values,
+    resolvedYamlEnv.value.requiredKeys,
+    appEnvFiles.value,
+    inputs.appEnv,
+    expandValue,
+  );
+  if (!appEnv.ok) return appEnv;
+
+  const seedEnv = mergeSeedEnv(
+    seedEnvFiles.value,
+    inputs.seedEnv,
+    expandValue,
+  );
+  if (!seedEnv.ok) return seedEnv;
+
   const next = { ...body };
-  if (merged.value) next.app_env = merged.value;
+  if (appEnv.value) next.app_env = appEnv.value;
+  if (seedEnv.value) next.seed_env = seedEnv.value;
   return { ok: true, value: next };
 }
 
