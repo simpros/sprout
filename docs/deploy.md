@@ -243,7 +243,7 @@ order. Wrong resolver name → per-host orders resume (the rate-limit failure
 mode).
 
 Ready-to-apply fragments (placeholders only):
-[`deploy/traefik/`](../deploy/traefik/).
+[`deploy/traefik/README.md`](../deploy/traefik/README.md).
 
 #### Prerequisites (secrets / access — not in this repo)
 
@@ -614,7 +614,7 @@ below.
 - [Adoption guide](adoption.md) — `.sprout.yaml`, CI workflows, app entrypoint
 - [Public docs](site/index.html) — how it works, CLI, FAQ
 - `examples/adopting-repo/` — copy-paste adopting-repo files
-- [`deploy/traefik/`](../deploy/traefik/) — wildcard DNS-01 resolver fragment + one-shot bootstrap compose
+- [`deploy/traefik/README.md`](../deploy/traefik/README.md) — wildcard DNS-01 resolver fragment + one-shot bootstrap compose
 - [`deploy/postgres/ensure-preview-role.sh`](../deploy/postgres/ensure-preview-role.sh) — optional manual role helper
 - [`CONTEXT.md`](../CONTEXT.md) — domain vocabulary
 - [Spec #12](https://github.com/simpros/sprout/issues/12) — normative v0.1 specification

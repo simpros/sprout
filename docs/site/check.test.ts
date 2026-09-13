@@ -8,6 +8,7 @@ import {
   extractHtmlHrefs,
   extractMarkdownDestinations,
 } from "./check.ts";
+import { writeCorpusFixture } from "./test-fixture.ts";
 
 describe("docs link extraction", () => {
   test("extracts markdown destinations including relative deploy paths", () => {
@@ -32,63 +33,77 @@ describe("docs link extraction", () => {
 });
 
 describe("defaultCheckPaths", () => {
-  test("includes operator deploy.md alongside site html and README", () => {
-    const paths = defaultCheckPaths("/repo");
-    expect(paths.markdownFiles).toContain("/repo/docs/deploy.md");
-    expect(paths.markdownFiles).toContain("/repo/README.md");
-    expect(paths.htmlFiles).toContain("/repo/docs/site/index.html");
-  });
-});
-
-describe("check includes deploy.md", () => {
-  let root: string;
+  let root: string | undefined;
 
   afterEach(async () => {
     if (root) await rm(root, { recursive: true, force: true });
+    root = undefined;
   });
 
-  test("fails when deploy.md has a dead local link", async () => {
+  test("covers the published corpus, not just the front door", async () => {
     root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
-    const siteDir = join(root, "docs", "site");
-    await mkdir(siteDir, { recursive: true });
+    await writeCorpusFixture(root);
+    const paths = await defaultCheckPaths(root);
+    expect(paths.htmlFiles).toEqual([join(root, "docs/site/index.html")]);
+    for (const rel of [
+      "docs/adoption.md",
+      "docs/adr/README.md",
+      "docs/adr/0001-thing.md",
+      "examples/adopting-repo/README.md",
+      "templates/README.md",
+    ]) {
+      expect(paths.markdownFiles).toContain(join(root, rel));
+    }
+  });
 
-    await writeFile(join(siteDir, "index.html"), "<html></html>");
-    await writeFile(join(root, "README.md"), "# ok\n");
+  test("passes when the published corpus resolves", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await check(await defaultCheckPaths(root));
+  });
+
+  test("fails on a dead link in adoption.md", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
     await writeFile(
-      join(root, "docs", "deploy.md"),
+      join(root, "docs", "adoption.md"),
       "See [missing](../no-such-file.md).\n",
     );
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
+      /dead link/,
+    );
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
+      /adoption\.md/,
+    );
+  });
+});
 
-    await expect(check(defaultCheckPaths(root))).rejects.toThrow(/dead link/);
-    await expect(check(defaultCheckPaths(root))).rejects.toThrow(/deploy\.md/);
+describe("static-host rule", () => {
+  let root: string | undefined;
+
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+    root = undefined;
   });
 
-  test("passes when deploy.md local links resolve", async () => {
+  test("rejects a bare directory link without index.html", async () => {
     root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
-    const siteDir = join(root, "docs", "site");
-    await mkdir(siteDir, { recursive: true });
-    await mkdir(join(root, "e2e"), { recursive: true });
-    await mkdir(join(root, "deploy", "traefik"), { recursive: true });
+    await mkdir(join(root, "sub"), { recursive: true });
+    await writeFile(join(root, "page.md"), "See [sub](sub/).\n");
+    await expect(
+      check({ rootDir: root, htmlFiles: [], markdownFiles: [join(root, "page.md")] }),
+    ).rejects.toThrow(/dead link/);
+  });
 
-    await writeFile(join(siteDir, "index.html"), "<html></html>");
-    await writeFile(join(root, "README.md"), "# ok\n");
-    await writeFile(join(root, "CONTEXT.md"), "# ctx\n");
-    await writeFile(join(root, "e2e", "README.md"), "# e2e\n");
-    await writeFile(join(root, "docs", "adoption.md"), "# adopt\n");
-    await writeFile(
-      join(root, "deploy", "traefik", "certificates-resolver.dns.yml"),
-      "# yml\n",
-    );
-    await writeFile(
-      join(root, "docs", "deploy.md"),
-      [
-        "See [e2e](../e2e/README.md), [adoption](adoption.md),",
-        "[CONTEXT](../CONTEXT.md), and",
-        "[resolver](../deploy/traefik/certificates-resolver.dns.yml).",
-        "External [issue](https://github.com/simpros/sprout/issues/12).",
-      ].join(" "),
-    );
-
-    await check(defaultCheckPaths(root));
+  test("accepts a directory link served via index.html", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await mkdir(join(root, "sub"), { recursive: true });
+    await writeFile(join(root, "sub", "index.html"), "<html></html>");
+    await writeFile(join(root, "page.md"), "See [sub](sub/).\n");
+    await check({
+      rootDir: root,
+      htmlFiles: [],
+      markdownFiles: [join(root, "page.md")],
+    });
   });
 });

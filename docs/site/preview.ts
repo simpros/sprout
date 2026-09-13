@@ -1,12 +1,13 @@
 /**
- * Check links, then serve the repo root so docs/site/index.html keeps its
- * real URL path (/docs/site/index.html; / redirects there). Relative hrefs
- * (`../adoption.md`, `../../examples/…`) then resolve with ordinary
- * static-file semantics — no URL remapping.
+ * Check the published site, then serve the repo root so docs/site/index.html
+ * keeps its real URL path (/docs/site/index.html; / redirects there).
+ * Relative hrefs (`../adoption.md`, `../../examples/…`) then resolve with
+ * ordinary static-file semantics — no URL remapping.
  */
 import { dirname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { check } from "./check.ts";
+import { siteEntryPath } from "./assemble.ts";
+import { checkPublishedSite } from "./check.ts";
 
 const siteDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(siteDir, "../..");
@@ -20,7 +21,7 @@ function docsPort(): number {
   return port;
 }
 
-await check();
+await checkPublishedSite(repoRoot);
 
 function contentType(path: string): string | undefined {
   if (path.endsWith(".html")) return "text/html; charset=utf-8";
@@ -45,10 +46,7 @@ const server = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     if (url.pathname === "/") {
-      return Response.redirect(
-        new URL("/docs/site/index.html", url),
-        302,
-      );
+      return Response.redirect(new URL(`/${siteEntryPath}`, url), 302);
     }
 
     const rel = normalize(url.pathname.replace(/^\//, ""));

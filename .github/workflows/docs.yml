@@ -2,18 +2,23 @@ name: docs
 
 # Publish docs/site (plus linked markdown targets) to GitHub Pages.
 # Repo setting: Settings → Pages → Source = GitHub Actions.
+# Path filters are intentionally broader than the publish set (see
+# docs/site/assemble.ts): anything a published page can link to must
+# retrigger the deploy when it changes.
 on:
   push:
     branches: [main]
     paths:
-      - "docs/site/**"
-      - "docs/deploy.md"
-      - "docs/adoption.md"
-      - "docs/adr/**"
+      - "docs/**"
       - "README.md"
       - "CONTEXT.md"
       - "e2e/README.md"
-      - "examples/adopting-repo/README.md"
+      - "examples/adopting-repo/**"
+      - "deploy/traefik/**"
+      - "deploy/postgres/**"
+      - "compose.env.example"
+      - ".env.example"
+      - "templates/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -39,42 +44,7 @@ jobs:
       - name: Link check
         run: bun run docs:check
       - name: Assemble Pages artifact
-        run: |
-          set -euo pipefail
-          mkdir -p \
-            _site/docs/site \
-            _site/docs/adr \
-            _site/deploy/traefik \
-            _site/deploy/postgres \
-            _site/examples/adopting-repo \
-            _site/e2e
-          # Preserve /docs/site/… URL path so relative hrefs match local preview.
-          cp docs/site/index.html _site/docs/site/
-          cp docs/deploy.md docs/adoption.md _site/docs/
-          cp docs/adr/*.md _site/docs/adr/
-          cp deploy/traefik/README.md \
-            deploy/traefik/certificates-resolver.dns.yml \
-            deploy/traefik/wildcard-bootstrap.compose.yml \
-            _site/deploy/traefik/
-          cp deploy/postgres/ensure-preview-role.sh _site/deploy/postgres/
-          cp examples/adopting-repo/README.md _site/examples/adopting-repo/
-          cp README.md CONTEXT.md compose.env.example .env.example _site/
-          cp e2e/README.md _site/e2e/
-          # Project Pages root → docs page (same redirect as docs:preview).
-          cat > _site/index.html <<'EOF'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8" />
-            <meta http-equiv="refresh" content="0; url=docs/site/index.html" />
-            <link rel="canonical" href="docs/site/index.html" />
-            <title>sprout docs</title>
-          </head>
-          <body>
-            <p><a href="docs/site/index.html">sprout docs</a></p>
-          </body>
-          </html>
-          EOF
+        run: bun run docs:assemble
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

@@ -1,11 +1,26 @@
 /**
- * Link checker for the public docs site, README front door, and operator
- * deploy guide. There is no build output: preview serves the source files
- * directly.
+ * Link checker for the published docs site.
+ *
+ * The checked tree is the Pages artifact, not the repo: `checkPublishedSite`
+ * assembles the publish set (see assemble.ts) into a temp dir and validates
+ * every published HTML/markdown page there. Green docs:check therefore means
+ * the Pages URLs resolve.
+ *
+ * Pages is a static file host: a link target must be a file (a directory
+ * only counts when it carries its own index.html — Pages serves that, but
+ * never a generated listing). This intentionally differs from GitHub's UI,
+ * which renders bare directory links.
  */
-import { readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assembleSite,
+  listPublishedMarkdown,
+  repoRootDir,
+  siteEntryPath,
+} from "./assemble.ts";
 
 const siteDir = dirname(fileURLToPath(import.meta.url));
 const defaultRootDir = resolve(siteDir, "../..");
@@ -16,38 +31,28 @@ export type CheckPaths = {
   markdownFiles: string[];
 };
 
-export function defaultCheckPaths(rootDir = defaultRootDir): CheckPaths {
+export async function defaultCheckPaths(
+  rootDir = defaultRootDir,
+): Promise<CheckPaths> {
   return {
     rootDir,
-    htmlFiles: [join(rootDir, "docs/site/index.html")],
-    markdownFiles: [
-      join(rootDir, "README.md"),
-      join(rootDir, "docs/deploy.md"),
-    ],
+    htmlFiles: [join(rootDir, siteEntryPath)],
+    markdownFiles: await listPublishedMarkdown(rootDir),
   };
 }
 
-async function localTargetExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Preview serves files (Bun.file), not directories: a bare directory 404s
- * unless it contains an index.html. HTML hrefs must satisfy the same rule
- * or docs:check goes green while docs:preview 404s. README / markdown links
- * keep the lenient rule — those surfaces are browsed on GitHub (or as
- * static .md on Pages), where directory links are acceptable.
- */
-async function htmlTargetExists(path: string): Promise<boolean> {
+/** Static-host rule: a file, or a directory served via its index.html. */
+async function siteTargetExists(path: string): Promise<boolean> {
   try {
     const st = await stat(path);
     if (st.isFile()) return true;
-    if (st.isDirectory()) return await localTargetExists(join(path, "index.html"));
+    if (st.isDirectory()) {
+      try {
+        return (await stat(join(path, "index.html"))).isFile();
+      } catch {
+        return false;
+      }
+    }
     return false;
   } catch {
     return false;
@@ -77,16 +82,6 @@ async function assertHref(
   }
 }
 
-/** Markdown destinations: files or directories (GitHub renders dirs). */
-async function assertMarkdownHref(href: string, fromFile: string): Promise<void> {
-  return assertHref(href, fromFile, localTargetExists);
-}
-
-/** HTML hrefs: must be a servable file (or a dir containing index.html). */
-async function assertHtmlHref(href: string, fromFile: string): Promise<void> {
-  return assertHref(href, fromFile, htmlTargetExists);
-}
-
 export function extractHtmlHrefs(html: string): string[] {
   const targets: string[] = [];
   const re = /href="([^"]+)"/g;
@@ -107,29 +102,35 @@ export function extractMarkdownDestinations(text: string): string[] {
   return targets;
 }
 
-export async function check(paths: CheckPaths = defaultCheckPaths()): Promise<void> {
-  const jobs: Promise<void>[] = [];
+export async function check(paths: CheckPaths): Promise<void> {
+  // Attach handlers at push time: without this, a fast-rejecting link
+  // check would sit unhandled while later readFile awaits run, and Bun
+  // reports it as an unhandled rejection before allSettled attaches.
+  const jobs: Promise<string | null>[] = [];
+  const track = (job: Promise<void>): void => {
+    jobs.push(
+      job.then(
+        () => null,
+        (reason) => (reason instanceof Error ? reason.message : String(reason)),
+      ),
+    );
+  };
 
   for (const htmlFile of paths.htmlFiles) {
     const html = await readFile(htmlFile, "utf8");
     for (const href of extractHtmlHrefs(html)) {
-      jobs.push(assertHtmlHref(href, htmlFile));
+      track(assertHref(href, htmlFile, siteTargetExists));
     }
   }
 
   for (const mdFile of paths.markdownFiles) {
     const text = await readFile(mdFile, "utf8");
     for (const href of extractMarkdownDestinations(text)) {
-      jobs.push(assertMarkdownHref(href, mdFile));
+      track(assertHref(href, mdFile, siteTargetExists));
     }
   }
 
-  const results = await Promise.allSettled(jobs);
-  const failures = results.flatMap((r) =>
-    r.status === "rejected"
-      ? [r.reason instanceof Error ? r.reason.message : String(r.reason)]
-      : [],
-  );
+  const failures = (await Promise.all(jobs)).filter((f) => f !== null);
   if (failures.length > 0) {
     throw new Error(`dead links:\n${failures.join("\n")}`);
   }
@@ -141,6 +142,22 @@ export async function check(paths: CheckPaths = defaultCheckPaths()): Promise<vo
   console.log(`docs links OK (${relative.join(" + ")})`);
 }
 
+/**
+ * Assemble the publish set into a temp dir and check that tree, so the gate
+ * proves Pages URLs — not just that targets exist somewhere in the repo.
+ */
+export async function checkPublishedSite(
+  repoRoot: string = repoRootDir,
+): Promise<void> {
+  const siteRoot = await mkdtemp(join(tmpdir(), "sprout-docs-site-"));
+  try {
+    await assembleSite(repoRoot, siteRoot);
+    await check(await defaultCheckPaths(siteRoot));
+  } finally {
+    await rm(siteRoot, { recursive: true, force: true });
+  }
+}
+
 if (import.meta.main) {
-  await check();
+  await checkPublishedSite();
 }

@@ -23,12 +23,19 @@ Included in `bun run build` and `bun run typecheck`, or alone:
 bun run docs:check
 ```
 
-Checks local links in `docs/site/index.html`, `README.md`, and `docs/deploy.md`.
+`docs:check` assembles the publish set (single manifest in
+`docs/site/assemble.ts`) into a temp dir and checks every published
+HTML/markdown page there with static-host semantics — a target must be a
+file (or a directory carrying its own `index.html`; Pages never serves
+generated listings). Green `docs:check` therefore means the Pages URLs
+resolve, including `docs/adoption.md` and the ADRs.
 
 ## GitHub Pages
 
-`.github/workflows/docs.yml` publishes `docs/site/` (plus linked markdown
-targets so relative hrefs keep working) on pushes to `main` that touch those
-paths, or via `workflow_dispatch`.
+`.github/workflows/docs.yml` runs `docs:check`, then `docs:assemble` into
+`_site` (repo-relative paths preserved, so relative hrefs resolve exactly
+like local preview) and uploads it, on pushes to `main` touching the docs
+corpus or via `workflow_dispatch`. Path filters are intentionally broader
+than the publish set so linked fragments cannot go stale.
 
 Repo setting: **Settings → Pages → Source = GitHub Actions**.
