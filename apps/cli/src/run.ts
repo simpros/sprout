@@ -1,5 +1,6 @@
 import { createApiClient, type ApiClient } from "@sprout/api-client";
 import { runAdmin } from "./commands/admin.ts";
+import { runCi } from "./commands/ci.ts";
 import { runDeploy } from "./commands/deploy.ts";
 import { runDoctor } from "./commands/doctor.ts";
 import { runDrop } from "./commands/drop.ts";
@@ -36,6 +37,7 @@ const COMMANDS: Record<string, Command> = {
   drop: { needsToken: true, run: runDrop },
   logs: { needsToken: true, run: runLogs },
   admin: { needsToken: true, run: runAdmin },
+  ci: { needsToken: false, run: runCi },
   "worktree-db": {
     needsToken: false,
     run: async (tokens, ctx) => runWorktreeDb(tokens, ctx.deps),
@@ -50,7 +52,7 @@ export async function runCli(
   if (!name) {
     return fail(
       deps.io,
-      "usage: sprout <health|deploy|teardown|list|doctor|drop|logs|admin|worktree-db> …",
+      "usage: sprout <health|deploy|teardown|list|doctor|drop|logs|admin|ci|worktree-db> …",
     );
   }
 
