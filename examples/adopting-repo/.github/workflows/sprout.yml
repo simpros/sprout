@@ -17,20 +17,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
-
       - name: Install sprout
+        env:
+          SPROUT_CLI_TAG: v0.6.0 # ≥ release with glibc sprout-linux-x64 (not v0.5.0)
         run: |
-          # Pin to a tag/SHA when releases exist; unpinned HEAD is a temporary seam.
-          git clone --depth 1 https://github.com/simpros/sprout.git "$RUNNER_TEMP/sprout"
-          cd "$RUNNER_TEMP/sprout" && bun install
-          # Run the CLI from the workspace so @sprout/api-client resolves.
+          # glibc runners: sprout-linux-x64. Alpine: sprout-linux-x64-musl
+          # (+ apk add libstdc++). See docs/adoption.md#install-from-a-release-asset.
           mkdir -p "$RUNNER_TEMP/bin"
-          printf '%s\n' '#!/usr/bin/env bash' \
-            "exec bun \"$RUNNER_TEMP/sprout/apps/cli/src/index.ts\" \"\$@\"" \
-            > "$RUNNER_TEMP/bin/sprout"
+          curl -fsSL -o "$RUNNER_TEMP/bin/sprout" \
+            "https://github.com/simpros/sprout/releases/download/${SPROUT_CLI_TAG}/sprout-linux-x64"
           chmod +x "$RUNNER_TEMP/bin/sprout"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/sprout" --version
 
       - name: Log in to container registry
         if: github.event.action != 'closed'

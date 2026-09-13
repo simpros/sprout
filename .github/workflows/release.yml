@@ -89,21 +89,25 @@ jobs:
         with:
           bun-version: 1.4.0
       - run: bun install --frozen-lockfile
-      - name: Compile CLI binary
+      - name: Compile CLI binaries
         env:
           SPROUT_CLI_VERSION: ${{ needs.meta.outputs.tag }}
         run: bun run --filter @sprout/cli compile
-      # Host is glibc; the musl binary needs Alpine (+ libstdc++, which Bun's
-      # musl embed still links dynamically on 1.4.x).
+      # ubuntu-latest is glibc — proves sprout-linux-x64 runs without musl.
+      - name: Smoke-test on glibc (host)
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: test "$(./dist/sprout-linux-x64 --version)" = "$TAG"
+      # Alpine CI (DCOS/erntastic) needs the musl asset (+ libstdc++ on Bun 1.4.x).
       - name: Smoke-test on musl (Alpine)
         env:
           TAG: ${{ needs.meta.outputs.tag }}
         run: |
           docker run --rm \
-            -v "$PWD/dist/sprout-linux-x64:/sprout:ro" \
+            -v "$PWD/dist/sprout-linux-x64-musl:/sprout:ro" \
             alpine:3.20 \
             sh -c 'apk add --no-cache libstdc++ >/dev/null && test "$(/sprout --version)" = "'"$TAG"'"'
-      - name: Upload sprout-linux-x64 to release
+      - name: Upload CLI binaries to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.meta.outputs.tag }}
@@ -111,4 +115,7 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "sprout ${TAG}" --generate-notes
           fi
-          gh release upload "$TAG" dist/sprout-linux-x64 --clobber
+          gh release upload "$TAG" \
+            dist/sprout-linux-x64 \
+            dist/sprout-linux-x64-musl \
+            --clobber

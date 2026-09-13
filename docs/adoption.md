@@ -398,13 +398,38 @@ The **canonical** workflow is
 [`examples/adopting-repo/.github/workflows/sprout.yml`](../examples/adopting-repo/.github/workflows/sprout.yml)
 — copy it rather than pasting fragments from this guide. It covers:
 
-1. Install `sprout` from a workspace clone pinned to a SHA/branch of this
-   tree (or the `v0.2.0` release when published; keeps `@sprout/api-client`
-   resolution; same as the in-repo `sprout` bin).
+1. Install the prebuilt `sprout` CLI from the matching release asset (see
+   below), or from a workspace clone when hacking on sprout itself.
 2. Build and push app + seed images tagged with `${{ github.sha }}`.
 3. `sprout deploy -i … -s …`, capture `preview_url=` from `deploy.log`, comment
    on the PR.
 4. On close, `sprout teardown` (idempotent — exit 0 if already gone).
+
+### Install from a release asset
+
+Pick the asset that matches the host libc (names are honest):
+
+| Asset | Libc | Use when |
+|---|---|---|
+| `sprout-linux-x64` | glibc | Debian/Ubuntu runners (GitHub-hosted `ubuntu-*`) |
+| `sprout-linux-x64-musl` | musl | Alpine runners (DCOS / erntastic); install `libstdc++` |
+
+```bash
+TAG=v0.6.0   # pin ≥ the release that ships glibc `sprout-linux-x64` (not v0.5.0)
+
+# glibc hosts
+curl -fsSL -o /usr/local/bin/sprout \
+  "https://github.com/simpros/sprout/releases/download/${TAG}/sprout-linux-x64"
+chmod +x /usr/local/bin/sprout
+sprout --version                # must equal $TAG
+
+# musl / Alpine (Bun 1.4.x embeds still need libstdc++ at runtime)
+# apk add --no-cache libstdc++   # once on the image
+curl -fsSL -o /usr/local/bin/sprout \
+  "https://github.com/simpros/sprout/releases/download/${TAG}/sprout-linux-x64-musl"
+chmod +x /usr/local/bin/sprout
+sprout --version
+```
 
 CLI environment in CI:
 

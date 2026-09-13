@@ -40,11 +40,17 @@ Postgres — created on the first deploy attempt for that `(repo, pr)`, kept
 across synchronize re-deploys, and dropped on teardown / operator drop /
 sweep. Details: [adoption guide](docs/adoption.md), [CONTEXT](CONTEXT.md).
 
-## Commands
+## Install the CLI
 
-From a clone (`bun install`), run the CLI via `bun run sprout …` (same entry
-as the published `sprout` binary). Set `SPROUT_URL` (default
-`http://127.0.0.1:7331`).
+Prebuilt Linux x64 binaries (glibc + musl) ship on each
+[GitHub release](https://github.com/simpros/sprout/releases). Asset names,
+curl recipes, and Alpine `libstdc++` notes:
+[Install from a release asset](docs/adoption.md#install-from-a-release-asset).
+
+From a clone (`bun install`), run via `bun run sprout …` (same entry as the
+published binary). Set `SPROUT_URL` (default `http://127.0.0.1:7331`).
+
+## Commands
 
 **Deploy token** (CI / adopting repo):
 
