@@ -1,9 +1,9 @@
 import type { CliDeps } from "../context.ts";
 import { loadEventPayload, loadYaml } from "../context.ts";
 import {
-  resolveGithubPrId,
-  resolveGitlabPrId,
+  resolvePrId,
   resolveRepoForForge,
+  type Forge,
 } from "../identity.ts";
 import { resolveDeployHostname } from "../hostname.ts";
 import type { Result } from "../result.ts";
@@ -15,7 +15,7 @@ export type CiSource =
       pipelineSource: "pull_request" | "pull_request_target";
     };
 
-/** Common to all `sprout ci *` subcommands. */
+/** Common to all `sprout ci *` subcommands — keeps the forge discriminant. */
 export type CiIdentity = CiSource & {
   repo: string;
   prId: number;
@@ -27,22 +27,36 @@ export type CiPreviewIdentity = CiIdentity & {
   hostname: string;
 };
 
-/** Positive MR/PR pipeline evidence — one forge, no empty-string escape hatch. */
+/** Coherence check over both forges' pipeline claims — not a priority chain. */
 export function requireCiSource(env: NodeJS.ProcessEnv): Result<CiSource> {
   const gitlabSource = env.CI_PIPELINE_SOURCE?.trim();
   const githubEvent = env.GITHUB_EVENT_NAME?.trim();
+  const gitlabPositive = gitlabSource === "merge_request_event";
+  const githubPositive =
+    githubEvent === "pull_request" || githubEvent === "pull_request_target";
 
-  if (gitlabSource === "merge_request_event") {
+  if (gitlabPositive && githubPositive) {
+    return {
+      ok: false,
+      error: `sprout ci refuses ambiguous pipeline (CI_PIPELINE_SOURCE=${gitlabSource} and GITHUB_EVENT_NAME=${githubEvent}); run in a single merge-request or pull-request pipeline`,
+    };
+  }
+
+  if (gitlabPositive) {
     return {
       ok: true,
       value: { forge: "gitlab", pipelineSource: "merge_request_event" },
     };
   }
 
-  if (githubEvent === "pull_request" || githubEvent === "pull_request_target") {
+  if (githubPositive) {
     return {
       ok: true,
-      value: { forge: "github", pipelineSource: githubEvent },
+      value: {
+        forge: "github",
+        pipelineSource:
+          githubEvent as "pull_request" | "pull_request_target",
+      },
     };
   }
 
@@ -67,17 +81,29 @@ export function requireCiSource(env: NodeJS.ProcessEnv): Result<CiSource> {
   };
 }
 
-export function resolveImageRef(env: NodeJS.ProcessEnv): Result<string> {
+export function resolveImageRef(
+  env: NodeJS.ProcessEnv,
+  forge: Forge,
+): Result<string> {
   const registry = env.CI_REGISTRY_IMAGE?.trim();
-  const sha = env.CI_COMMIT_SHA?.trim() || env.GITHUB_SHA?.trim() || "";
+  const sha =
+    forge === "gitlab"
+      ? env.CI_COMMIT_SHA?.trim()
+      : env.GITHUB_SHA?.trim();
   if (!registry || !sha) {
+    const shaVar = forge === "gitlab" ? "CI_COMMIT_SHA" : "GITHUB_SHA";
     return {
       ok: false,
-      error:
-        "cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA or GITHUB_SHA)",
+      error: `cannot derive image ref (set CI_REGISTRY_IMAGE and ${shaVar})`,
     };
   }
   return { ok: true, value: `${registry}:${sha}` };
+}
+
+function ciPrIdError(forge: Forge): string {
+  return forge === "gitlab"
+    ? "sprout ci must run in a merge-request pipeline (set CI_MERGE_REQUEST_IID)"
+    : "sprout ci must run in a pull-request workflow (GitHub pull_request event or GITHUB_REF)";
 }
 
 /**
@@ -93,31 +119,20 @@ export async function resolveCiIdentity(
   const repo = resolveRepoForForge(source.value.forge, deps.env);
   if (!repo.ok) return repo;
 
+  let prId: Result<number>;
   if (source.value.forge === "gitlab") {
-    const prId = resolveGitlabPrId(deps.env);
-    if (!prId.ok) {
-      return {
-        ok: false,
-        error:
-          "sprout ci must run in a merge-request pipeline (set CI_MERGE_REQUEST_IID)",
-      };
-    }
-    return {
-      ok: true,
-      value: { ...source.value, repo: repo.value, prId: prId.value },
-    };
+    prId = resolvePrId({ env: deps.env, forge: "gitlab" });
+  } else {
+    const event = await loadEventPayload(deps);
+    if (!event.ok) return event;
+    prId = resolvePrId({
+      env: deps.env,
+      eventPayload: event.value,
+      forge: "github",
+    });
   }
-
-  const event = await loadEventPayload(deps);
-  if (!event.ok) return event;
-
-  const prId = resolveGithubPrId(deps.env, event.value);
   if (!prId.ok) {
-    return {
-      ok: false,
-      error:
-        "sprout ci must run in a pull-request workflow (GitHub pull_request event or GITHUB_REF)",
-    };
+    return { ok: false, error: ciPrIdError(source.value.forge) };
   }
 
   return {
@@ -133,7 +148,7 @@ export async function resolveCiPreviewIdentity(
   const base = await resolveCiIdentity(deps);
   if (!base.ok) return base;
 
-  const imageRef = resolveImageRef(deps.env);
+  const imageRef = resolveImageRef(deps.env, base.value.forge);
   if (!imageRef.ok) return imageRef;
 
   const yaml = await loadYaml(deps);

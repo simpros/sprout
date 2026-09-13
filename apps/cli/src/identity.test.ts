@@ -3,8 +3,6 @@ import {
   normalizeGitRemoteUrl,
   resolveCanonicalRepoId,
   resolveCommitSha,
-  resolveGithubPrId,
-  resolveGitlabPrId,
   resolvePrId,
   resolveRepoForForge,
 } from "./identity.ts";
@@ -95,49 +93,57 @@ describe("resolveRepoForForge", () => {
   });
 });
 
-describe("resolveGithubPrId", () => {
-  test("reads pull_request payload and GITHUB_REF", () => {
+describe("resolvePrId with strict forge", () => {
+  test("github reads pull_request payload and GITHUB_REF", () => {
     expect(
-      resolveGithubPrId({}, { pull_request: { number: 42 } }),
+      resolvePrId({ env: {}, eventPayload: { pull_request: { number: 42 } }, forge: "github" }),
     ).toEqual({ ok: true, value: 42 });
-    expect(resolveGithubPrId({ GITHUB_REF: "refs/pull/99/merge" })).toEqual({
-      ok: true,
-      value: 99,
-    });
+    expect(
+      resolvePrId({ env: { GITHUB_REF: "refs/pull/99/merge" }, forge: "github" }),
+    ).toEqual({ ok: true, value: 99 });
   });
 
-  test("ignores CI_MERGE_REQUEST_IID", () => {
-    expect(resolveGithubPrId({ CI_MERGE_REQUEST_IID: "12" })).toEqual({
+  test("github ignores CI_MERGE_REQUEST_IID", () => {
+    expect(
+      resolvePrId({ env: { CI_MERGE_REQUEST_IID: "12" }, forge: "github" }),
+    ).toEqual({
       ok: false,
       error: "cannot derive pr id (GitHub pull_request event or GITHUB_REF)",
     });
   });
-});
 
-describe("resolveGitlabPrId", () => {
-  test("reads CI_MERGE_REQUEST_IID only", () => {
+  test("gitlab reads CI_MERGE_REQUEST_IID only", () => {
     expect(
-      resolveGitlabPrId({
-        CI_MERGE_REQUEST_IID: "12",
-        GITHUB_REF: "refs/pull/99/merge",
+      resolvePrId({
+        env: {
+          CI_MERGE_REQUEST_IID: "12",
+          GITHUB_REF: "refs/pull/99/merge",
+        },
+        forge: "gitlab",
       }),
     ).toEqual({ ok: true, value: 12 });
   });
 
-  test("errors when missing", () => {
-    expect(resolveGitlabPrId({ GITHUB_REF: "refs/pull/99/merge" })).toEqual({
+  test("gitlab ignores GITHUB_REF", () => {
+    expect(
+      resolvePrId({
+        env: { GITHUB_REF: "refs/pull/99/merge" },
+        forge: "gitlab",
+      }),
+    ).toEqual({
       ok: false,
       error: "cannot derive pr id (CI_MERGE_REQUEST_IID)",
     });
   });
 });
 
-describe("resolvePrId", () => {
+describe("resolvePrId with forge any (deploy path)", () => {
   test("reads GitHub pull request event payload", () => {
     expect(
       resolvePrId({
         env: {},
         eventPayload: { pull_request: { number: 42 } },
+        forge: "any",
       }),
     ).toEqual({ ok: true, value: 42 });
   });
@@ -147,6 +153,7 @@ describe("resolvePrId", () => {
       resolvePrId({
         env: {},
         eventPayload: { number: 7 },
+        forge: "any",
       }),
     ).toEqual({ ok: true, value: 7 });
   });
@@ -155,6 +162,7 @@ describe("resolvePrId", () => {
     expect(
       resolvePrId({
         env: { GITHUB_REF: "refs/pull/99/merge" },
+        forge: "any",
       }),
     ).toEqual({ ok: true, value: 99 });
   });
@@ -163,12 +171,13 @@ describe("resolvePrId", () => {
     expect(
       resolvePrId({
         env: { CI_MERGE_REQUEST_IID: "12" },
+        forge: "any",
       }),
     ).toEqual({ ok: true, value: 12 });
   });
 
   test("errors when missing", () => {
-    expect(resolvePrId({ env: {} })).toEqual({
+    expect(resolvePrId({ env: {}, forge: "any" })).toEqual({
       ok: false,
       error:
         "cannot derive pr id (GitHub pull_request event, GITHUB_REF, or CI_MERGE_REQUEST_IID)",

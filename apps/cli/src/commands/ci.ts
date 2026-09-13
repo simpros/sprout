@@ -3,6 +3,8 @@ import { authedClient, fail } from "../context.ts";
 import {
   resolveCiIdentity,
   resolveCiPreviewIdentity,
+  type CiIdentity,
+  type CiPreviewIdentity,
 } from "./ci-identity.ts";
 import { runCiLogs } from "./ci-logs.ts";
 import { runCiPreview } from "./ci-preview.ts";
@@ -68,34 +70,38 @@ export async function runCi(
     return printHelp(ctx);
   }
 
-  // `preview` builds + pushes images, then deploys through the shared
-  // settle contract. Identity resolves before auth so outside-pipeline
-  // errors win over missing-token.
+  // Identity resolves before auth so outside-pipeline errors win over
+  // missing-token. The token resolves once here and the authed client is
+  // handed down — subcommands never touch token env vars themselves.
+  let identity: CiIdentity;
+  let previewIdentity: CiPreviewIdentity | undefined;
   if (subcommand === "preview") {
-    const previewIdentity = await resolveCiPreviewIdentity(ctx.deps);
-    if (!previewIdentity.ok) return fail(ctx.deps.io, previewIdentity.error);
-    const client = await authedClient(ctx.deps);
-    if (!client.ok) return fail(ctx.deps.io, client.error);
-    return runCiPreview(
-      previewIdentity.value,
-      rest,
-      { deps: ctx.deps, client: client.value },
-    );
+    const preview = await resolveCiPreviewIdentity(ctx.deps);
+    if (!preview.ok) return fail(ctx.deps.io, preview.error);
+    previewIdentity = preview.value;
+    identity = preview.value;
+  } else {
+    const base = await resolveCiIdentity(ctx.deps);
+    if (!base.ok) return fail(ctx.deps.io, base.error);
+    identity = base.value;
   }
-
-  const identity = await resolveCiIdentity(ctx.deps);
-  if (!identity.ok) return fail(ctx.deps.io, identity.error);
 
   const client = await authedClient(ctx.deps);
   if (!client.ok) return fail(ctx.deps.io, client.error);
 
   const subCtx = { deps: ctx.deps, client: client.value };
   switch (subcommand) {
+    case "preview":
+      return runCiPreview(
+        previewIdentity as CiPreviewIdentity,
+        rest,
+        subCtx,
+      );
     case "teardown":
-      return runCiTeardown(identity.value, rest, subCtx);
+      return runCiTeardown(identity, rest, subCtx);
     case "reseed":
-      return runCiReseed(identity.value, rest, subCtx);
+      return runCiReseed(identity, rest, subCtx);
     case "logs":
-      return runCiLogs(identity.value, rest, subCtx);
+      return runCiLogs(identity, rest, subCtx);
   }
 }

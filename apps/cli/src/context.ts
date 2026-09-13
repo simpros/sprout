@@ -182,6 +182,7 @@ export async function resolveIdentity(
   const prId = resolvePrId({
     env: deps.env,
     eventPayload: event.value,
+    forge: "any",
   });
   if (!prId.ok) return prId;
 

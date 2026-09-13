@@ -68,11 +68,15 @@ export function resolveCanonicalRepoId(input: {
   env: NodeJS.ProcessEnv;
   gitRemoteUrl?: string | null;
 }): Result<string> {
-  const github = resolveRepoForForge("github", input.env);
-  if (github.ok) return github;
+  const githubRepo = input.env.GITHUB_REPOSITORY?.trim();
+  if (githubRepo) {
+    return { ok: true, value: `https://github.com/${githubRepo}` };
+  }
 
-  const gitlab = resolveRepoForForge("gitlab", input.env);
-  if (gitlab.ok) return gitlab;
+  const gitlabUrl = input.env.CI_PROJECT_URL?.trim();
+  if (gitlabUrl) {
+    return { ok: true, value: gitlabUrl.replace(/\.git$/, "") };
+  }
 
   if (input.gitRemoteUrl) {
     const normalized = normalizeGitRemoteUrl(input.gitRemoteUrl);
@@ -86,52 +90,55 @@ export function resolveCanonicalRepoId(input: {
   };
 }
 
-export function resolveGithubPrId(
-  env: NodeJS.ProcessEnv,
-  eventPayload?: unknown,
-): Result<number> {
-  if (eventPayload && typeof eventPayload === "object") {
-    const record = eventPayload as Record<string, unknown>;
-    const fromPr = record.pull_request;
-    if (fromPr && typeof fromPr === "object") {
-      const n = positiveInt((fromPr as { number?: unknown }).number);
-      if (n !== null) return { ok: true, value: n };
-    }
-    const fromNumber = positiveInt(record.number);
-    if (fromNumber !== null) return { ok: true, value: fromNumber };
-  }
-
-  const ref = env.GITHUB_REF?.trim();
-  if (ref) {
-    const match = /^refs\/pull\/(\d+)\//.exec(ref);
-    if (match) return { ok: true, value: Number(match[1]) };
-  }
-
-  return {
-    ok: false,
-    error: "cannot derive pr id (GitHub pull_request event or GITHUB_REF)",
-  };
-}
-
-export function resolveGitlabPrId(env: NodeJS.ProcessEnv): Result<number> {
-  const gitlab = positiveInt(env.CI_MERGE_REQUEST_IID);
-  if (gitlab !== null) return { ok: true, value: gitlab };
-  return {
-    ok: false,
-    error: "cannot derive pr id (CI_MERGE_REQUEST_IID)",
-  };
-}
-
-/** Deploy/teardown: GitHub reader, then GitLab (forge-blind aggregator). */
+/**
+ * Single PR-id resolver parameterized by forge. The CI path passes a strict
+ * forge (reads only that forge's sources); the deploy path passes `"any"`
+ * (GitHub readers first, then GitLab — same order as the old aggregator).
+ */
 export function resolvePrId(input: {
   env: NodeJS.ProcessEnv;
   eventPayload?: unknown;
+  forge: Forge | "any";
 }): Result<number> {
-  const github = resolveGithubPrId(input.env, input.eventPayload);
-  if (github.ok) return github;
+  const wantGithub = input.forge === "github" || input.forge === "any";
+  const wantGitlab = input.forge === "gitlab" || input.forge === "any";
 
-  const gitlab = resolveGitlabPrId(input.env);
-  if (gitlab.ok) return gitlab;
+  if (wantGithub) {
+    if (input.eventPayload && typeof input.eventPayload === "object") {
+      const record = input.eventPayload as Record<string, unknown>;
+      const fromPr = record.pull_request;
+      if (fromPr && typeof fromPr === "object") {
+        const n = positiveInt((fromPr as { number?: unknown }).number);
+        if (n !== null) return { ok: true, value: n };
+      }
+      const fromNumber = positiveInt(record.number);
+      if (fromNumber !== null) return { ok: true, value: fromNumber };
+    }
+
+    const ref = input.env.GITHUB_REF?.trim();
+    if (ref) {
+      const match = /^refs\/pull\/(\d+)\//.exec(ref);
+      if (match) return { ok: true, value: Number(match[1]) };
+    }
+
+    if (input.forge === "github") {
+      return {
+        ok: false,
+        error: "cannot derive pr id (GitHub pull_request event or GITHUB_REF)",
+      };
+    }
+  }
+
+  if (wantGitlab) {
+    const gitlab = positiveInt(input.env.CI_MERGE_REQUEST_IID);
+    if (gitlab !== null) return { ok: true, value: gitlab };
+    if (input.forge === "gitlab") {
+      return {
+        ok: false,
+        error: "cannot derive pr id (CI_MERGE_REQUEST_IID)",
+      };
+    }
+  }
 
   return {
     ok: false,
