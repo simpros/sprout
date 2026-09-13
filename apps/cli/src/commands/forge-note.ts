@@ -85,7 +85,7 @@ type ForgeTarget = GitlabTarget | GithubTarget;
  * Explicit skip/target outcome: no forge token is a skip (local runs),
  * never a null smuggled inside the success type.
  */
-export type ForgeTargetResolution =
+type ForgeTargetResolution =
   | { skipped: true }
   | { skipped: false; target: ForgeTarget };
 
@@ -110,7 +110,7 @@ function repoPathFromCanonical(repo: string, host: string): string | null {
  * token → skipped (no warning): local runs without a job token are not
  * failures.
  */
-export function resolveForgeTarget(
+function resolveForgeTarget(
   env: NodeJS.ProcessEnv,
   identity: CiIdentity,
 ): Result<ForgeTargetResolution> {
@@ -338,7 +338,10 @@ async function findMarkedNoteId(
       return { ok: true, value: null };
     }
   }
-  return { ok: true, value: null };
+  return {
+    ok: false,
+    error: `${adapter.listOp} exceeded ${MAX_NOTE_PAGES} pages without finding the sprout marker`,
+  };
 }
 
 async function writeNote(

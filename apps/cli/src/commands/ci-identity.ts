@@ -8,11 +8,6 @@ import {
 import { resolveDeployHostname } from "../hostname.ts";
 import type { Result } from "../result.ts";
 
-export type CiPipelineSource =
-  | "merge_request_event"
-  | "pull_request"
-  | "pull_request_target";
-
 export type CiSource =
   | { forge: "gitlab"; pipelineSource: "merge_request_event" }
   | {

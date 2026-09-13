@@ -227,6 +227,34 @@ describe("upsertForgeNote (GitLab)", () => {
     expect(String(writes[0]?.url)).toContain("/notes/7");
   });
 
+  test("fails closed when the page cap is exhausted without a marker", async () => {
+    const calls: FetchCall[] = [];
+    const filler = Array.from({ length: 100 }, (_, i) => ({
+      id: 3000 + i,
+      body: `filler ${i}`,
+    }));
+    const fetchFn = async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ url, method, body: init?.body ?? null });
+      return new Response(JSON.stringify(filler), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "x-next-page": "2",
+        },
+      });
+    };
+    const result = await upsertForgeNote(
+      baseDeps({ CI_JOB_TOKEN: "t", CI_PROJECT_ID: "99" }, fetchFn),
+      GITLAB_IDENTITY,
+      `${SPROUT_NOTE_MARKER}\nnew`,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("exceeded 10 pages");
+    expect(calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+    expect(calls.filter((c) => c.method === "GET")).toHaveLength(10);
+  });
+
   test("job token travels in JOB-TOKEN only, PAT in PRIVATE-TOKEN only", async () => {
     const seen: Array<Record<string, string>> = [];
     const fetchFn = async (_url: string, init?: RequestInit) => {
