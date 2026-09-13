@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  commitShaEnvVar,
   normalizeGitRemoteUrl,
   resolveCanonicalRepoId,
   resolveCommitSha,
@@ -216,6 +217,10 @@ describe("resolveCommitShaAny", () => {
 
 describe("resolveCommitSha", () => {
 
+  test("commitShaEnvVar names the forge's SHA var", () => {
+    expect(commitShaEnvVar("gitlab")).toBe("CI_COMMIT_SHA");
+    expect(commitShaEnvVar("github")).toBe("GITHUB_SHA");
+  });
   test("forge-scoped github ignores CI_COMMIT_SHA", () => {
     expect(
       resolveCommitSha({ GITHUB_SHA: "abc", CI_COMMIT_SHA: "def" }, "github"),

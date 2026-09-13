@@ -6,7 +6,6 @@ import {
   loadYaml,
 } from "../context.ts";
 import { parseFlags } from "../flags.ts";
-import { resolveCommitSha } from "../identity.ts";
 import type { Result } from "../result.ts";
 import type { CiPreviewIdentity } from "./ci-identity.ts";
 import {
@@ -173,7 +172,7 @@ export async function runCiPreview(
     appEnv: flags.value.appEnv,
     seedEnvFile: flags.value.seedEnvFile,
     seedEnv: flags.value.seedEnv,
-    commitSha: resolveCommitSha(ctx.deps.env, identity.forge),
+    commitSha: identity.commitSha,
   });
   if (!withEnv.ok) return fail(ctx.deps.io, withEnv.error);
 

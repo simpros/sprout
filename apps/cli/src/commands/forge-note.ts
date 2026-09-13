@@ -1,5 +1,4 @@
 import type { CliDeps, CliIo } from "../context.ts";
-import { resolveCommitSha } from "../identity.ts";
 import type { Result } from "../result.ts";
 import type { CiIdentity } from "./ci-identity.ts";
 
@@ -388,11 +387,10 @@ export async function publishPreviewNote(
   identity: CiIdentity,
   previewUrl: string,
 ): Promise<Result<void>> {
-  const sha = resolveCommitSha(deps.env, identity.forge);
   return upsertForgeNote(
     deps,
     identity,
-    buildPreviewNote({ previewUrl, sha, prId: identity.prId }),
+    buildPreviewNote({ previewUrl, sha: identity.commitSha, prId: identity.prId }),
   );
 }
 
@@ -401,11 +399,10 @@ export async function publishTeardownNote(
   deps: CliDeps,
   identity: CiIdentity,
 ): Promise<Result<void>> {
-  const sha = resolveCommitSha(deps.env, identity.forge);
   return upsertForgeNote(
     deps,
     identity,
-    buildTeardownNote({ prId: identity.prId, sha }),
+    buildTeardownNote({ prId: identity.prId, sha: identity.commitSha }),
   );
 }
 

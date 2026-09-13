@@ -1,6 +1,7 @@
 import type { CliDeps } from "../context.ts";
 import { loadEventPayload, loadYaml } from "../context.ts";
 import {
+  commitShaEnvVar,
   resolveCommitSha,
   resolvePrId,
   resolveRepoForForge,
@@ -20,6 +21,13 @@ export type CiSource =
 export type CiIdentity = CiSource & {
   repo: string;
   prId: number;
+  /**
+   * Forge-scoped SHA locked at identity time (`resolveCommitSha(env, forge)`).
+   * `undefined` when the forge's var is missing — image-ref resolution fails
+   * on preview/reseed, while teardown/logs/notes carry on without it. Every
+   * consumer reads this field; nobody re-derives the SHA from env.
+   */
+  commitSha: string | undefined;
 };
 
 /** Preview-only fields (#120) — image + hostname from yaml. */
@@ -88,7 +96,7 @@ export function resolveImageRef(
   const registry = env.CI_REGISTRY_IMAGE?.trim();
   const sha = resolveCommitSha(env, forge);
   if (!registry || !sha) {
-    const shaVar = forge === "gitlab" ? "CI_COMMIT_SHA" : "GITHUB_SHA";
+    const shaVar = commitShaEnvVar(forge);
     return {
       ok: false,
       error: `cannot derive image ref (set CI_REGISTRY_IMAGE and ${shaVar})`,
@@ -130,7 +138,12 @@ export async function resolveCiIdentity(
 
   return {
     ok: true,
-    value: { ...source.value, repo: repo.value, prId: prId.value },
+    value: {
+      ...source.value,
+      repo: repo.value,
+      prId: prId.value,
+      commitSha: resolveCommitSha(deps.env, source.value.forge),
+    },
   };
 }
 

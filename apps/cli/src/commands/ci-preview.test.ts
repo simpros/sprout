@@ -467,4 +467,34 @@ preview:
     expect(stderr).toEqual(["--tail must be a positive integer"]);
     expect(dockerCalls).toEqual([]);
   });
+
+  test("mixed SHA env: {commit_sha} follows the forge SHA, matching the image tag", async () => {
+    const baseUrl = healthyGateway();
+    const cwd = await withWorkspace(`slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  app_env:
+    REF: "{commit_sha}"
+`);
+    const code = await runCli(
+      ["ci", "preview"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          ...GITLAB_MR_ENV,
+          CI_COMMIT_SHA: "aaa",
+          GITHUB_SHA: "bbb",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      app_image: "registry.gitlab.com/group/repo:aaa",
+      app_env: ["REF=aaa"],
+    });
+  });
 });

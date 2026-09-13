@@ -187,6 +187,7 @@ describe("resolveCiIdentity", () => {
         repo: "https://gitlab.com/group/repo",
         prId: 17,
         pipelineSource: "merge_request_event",
+        commitSha: undefined,
       },
     });
   });
@@ -210,6 +211,7 @@ describe("resolveCiIdentity", () => {
         repo: "https://github.com/org/repo",
         prId: 42,
         pipelineSource: "pull_request",
+        commitSha: undefined,
       },
     });
   });
@@ -230,6 +232,7 @@ describe("resolveCiIdentity", () => {
         repo: "https://github.com/org/repo",
         prId: 8,
         pipelineSource: "pull_request_target",
+        commitSha: undefined,
       },
     });
   });
@@ -326,6 +329,7 @@ describe("resolveCiIdentity", () => {
         repo: "https://gitlab.com/group/repo",
         prId: 5,
         pipelineSource: "merge_request_event",
+        commitSha: undefined,
       },
     });
   });
@@ -389,6 +393,53 @@ describe("resolveCiIdentity", () => {
         "sprout ci refuses detached/non-MR pipelines (GITHUB_EVENT_NAME=push); run from a pull_request workflow",
     });
   });
+
+  test("locks the forge-scoped SHA and ignores the other forge's var", async () => {
+    expect(
+      await resolveCiIdentity(
+        deps({
+          CI_PROJECT_URL: "https://gitlab.com/group/repo",
+          CI_MERGE_REQUEST_IID: "17",
+          CI_PIPELINE_SOURCE: "merge_request_event",
+          CI_COMMIT_SHA: "aaa",
+          GITHUB_SHA: "bbb",
+        }),
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: { forge: "gitlab", commitSha: "aaa" },
+    });
+    expect(
+      await resolveCiIdentity(
+        deps({
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_REF: "refs/pull/42/merge",
+          CI_COMMIT_SHA: "aaa",
+          GITHUB_SHA: "bbb",
+        }),
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: { forge: "github", commitSha: "bbb" },
+    });
+  });
+
+  test("leaves commitSha undefined when the forge's var is missing", async () => {
+    expect(
+      await resolveCiIdentity(
+        deps({
+          CI_PROJECT_URL: "https://gitlab.com/group/repo",
+          CI_MERGE_REQUEST_IID: "17",
+          CI_PIPELINE_SOURCE: "merge_request_event",
+          GITHUB_SHA: "bbb",
+        }),
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: { forge: "gitlab", commitSha: undefined },
+    });
+  });
 });
 
 describe("resolveCiPreviewIdentity", () => {
@@ -410,6 +461,7 @@ describe("resolveCiPreviewIdentity", () => {
         repo: "https://gitlab.com/group/repo",
         prId: 17,
         pipelineSource: "merge_request_event",
+        commitSha: "abc123",
         imageRef: "registry.gitlab.com/group/repo:abc123",
         hostname: "pr-17.example.com",
       },
@@ -434,6 +486,7 @@ describe("resolveCiPreviewIdentity", () => {
         repo: "https://github.com/org/repo",
         prId: 42,
         pipelineSource: "pull_request",
+        commitSha: "def456",
         imageRef: "ghcr.io/org/repo:def456",
         hostname: "pr-42.example.com",
       },

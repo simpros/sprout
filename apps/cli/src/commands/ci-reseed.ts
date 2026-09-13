@@ -1,7 +1,6 @@
 import type { CliContext } from "../context.ts";
 import { fail, loadYaml } from "../context.ts";
 import { parseFlags } from "../flags.ts";
-import { resolveCommitSha } from "../identity.ts";
 import type { CiIdentity } from "./ci-identity.ts";
 import { resolveImageRef } from "./ci-identity.ts";
 import {
@@ -75,7 +74,7 @@ export async function runCiReseed(
     appEnv: flags.value.appEnv,
     seedEnvFile: flags.value.seedEnvFile,
     seedEnv: flags.value.seedEnv,
-    commitSha: resolveCommitSha(ctx.deps.env, identity.forge),
+    commitSha: identity.commitSha,
   });
   if (!withEnv.ok) return fail(ctx.deps.io, withEnv.error);
 
