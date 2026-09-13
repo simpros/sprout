@@ -26,9 +26,11 @@
 # - the component project is "one file + root README": only
 #   templates/preview.yml is synced. Staging uses `git add -A` so deletions
 #   and orphans enter the commit instead of lingering in the working tree.
-# - if tag <tag> already exists and does not point at HEAD the script FAILS
-#   instead of leaving the tag on a stale SHA (workflow_dispatch rebuilds
-#   must not green-check while @vX.Y.Z resolves old content).
+# - if tag <tag> already exists and new content would be pushed, the script
+#   FAILS *before* pushing anything, so the default branch never advances
+#   under a frozen tag (workflow_dispatch rebuilds must not green-check while
+#   @vX.Y.Z resolves old content, nor leave a branch/tag split behind).
+#   A tag that already points at HEAD is success ("already points at HEAD").
 set -euo pipefail
 
 fail() {
@@ -87,29 +89,38 @@ if [ ! -f README.md ]; then
 fi
 
 git add -A templates README.md
-if git diff --cached --quiet; then
-  printf 'component sync: no changes for %s\n' "$TAG"
-else
-  git -c user.name="sprout-release" -c user.email="sprout-release@local" \
-    commit -m "sprout ${TAG}"
-  git push origin HEAD
-fi
 
-# Resolve the tag on the REMOTE, never via local refs: the clone above is
+# Decide against the REMOTE tag before pushing anything: the clone above is
 # `--depth 1`, so tags that do not point at the fetched tip are usually
 # absent locally and a `git rev-parse "$TAG"` check would miss the stale-tag
 # case (degrading to a raw `git push` rejection with a vaguer message).
-HEAD_SHA="$(git rev-parse HEAD)"
-REMOTE_SHA="$(git ls-remote --tags origin "refs/tags/${TAG}" | awk '{print $1}')"
-if [ -n "$REMOTE_SHA" ]; then
-  if [ "$REMOTE_SHA" != "$HEAD_SHA" ]; then
-    fail "component sync: tag ${TAG} already exists at ${REMOTE_SHA} (HEAD is ${HEAD_SHA}); refusing to leave @${TAG} on stale content"
+# The `^{}` pattern resolves annotated tags to their commit; the awk prefers
+# the peeled line and falls back to the tip for lightweight tags.
+REMOTE_SHA="$(git ls-remote --tags origin "refs/tags/${TAG}^{}" "refs/tags/${TAG}" \
+  | awk '/\^\{\}$/ { peeled = $1 } { last = $1 } END { print (peeled != "" ? peeled : last) }')"
+if ! git diff --cached --quiet; then
+  if [ -n "$REMOTE_SHA" ]; then
+    fail "component sync: tag ${TAG} already exists; refusing to push new content under a frozen tag"
   fi
-  git rev-parse "$TAG" >/dev/null 2>&1 || git tag "$TAG"
-  printf 'component sync: tag %s already points at HEAD\n' "$TAG"
-else
+  git -c user.name="sprout-release" -c user.email="sprout-release@local" \
+    commit -m "sprout ${TAG}"
+  git push origin HEAD
+  HEAD_SHA="$(git rev-parse HEAD)"
   git tag "$TAG"
   git push origin "$TAG"
+else
+  printf 'component sync: no changes for %s\n' "$TAG"
+  HEAD_SHA="$(git rev-parse HEAD)"
+  if [ -n "$REMOTE_SHA" ]; then
+    if [ "$REMOTE_SHA" != "$HEAD_SHA" ]; then
+      fail "component sync: tag ${TAG} already exists at ${REMOTE_SHA} (HEAD is ${HEAD_SHA}); refusing to leave @${TAG} on stale content"
+    fi
+    git rev-parse "$TAG" >/dev/null 2>&1 || git tag "$TAG"
+    printf 'component sync: tag %s already points at HEAD\n' "$TAG"
+  else
+    git tag "$TAG"
+    git push origin "$TAG"
+  fi
 fi
 
 printf 'component sync ok: %s@%s\n' "$PROJECT" "$TAG"

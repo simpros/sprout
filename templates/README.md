@@ -45,8 +45,10 @@ Prerequisites on the GitLab side:
 - Merge-request pipelines (`CI_PIPELINE_SOURCE=merge_request_event`; the jobs
   gate on `$CI_MERGE_REQUEST_IID`). Branch pipelines are refused by the CLI
   with a named error.
-- A runner that can run privileged `docker:dind` (the component declares its
-  own `docker:24` image + `docker:24-dind` service). To override the image
+- A runner that can run privileged `docker:dind` (the preview job declares
+  its own `docker:24` image + `docker:24-dind` service; the stop/teardown
+  job shares only the CLI install and needs no Docker daemon). To override
+  the image
   (e.g. a mirrored registry), redefine the job's `image:`/`services:` in
   your `.gitlab-ci.yml` — job names merge by name. Keep it Alpine-based:
   the bootstrap installs prerequisites with `apk`.
@@ -105,8 +107,7 @@ automatically — no manual step:
    configured GitLab component project, replacing the
    `@SPROUT_COMPONENT_VERSION@` sentinel with the release tag, and tags
    `v<version>` there (`scripts/sync-gitlab-component.sh`). The sync clears `templates/` first, so staging with `git add -A` also removes orphans;
-   an existing tag that does
-   not point at `HEAD` fails the job instead of leaving `@vX.Y.Z` stale.
+   an existing tag under which new content would land fails the job *before anything is pushed*, so the default branch never advances while `@vX.Y.Z` stays stale. A tag that already points at `HEAD` is success.
 3. The pushed tag triggers the component project's own tag pipeline, which
    creates the GitLab Release (catalog version).
 

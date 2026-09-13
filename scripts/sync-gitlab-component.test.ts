@@ -54,6 +54,17 @@ function showFile(gitDir: string, rev: string, path: string) {
   return proc.stdout.toString();
 }
 
+function revParse(gitDir: string, rev: string): string {
+  const proc = Bun.spawnSync(["git", "--git-dir", gitDir, "rev-parse", rev], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (proc.exitCode !== 0) {
+    throw new Error(`git rev-parse ${rev} failed`);
+  }
+  return proc.stdout.toString().trim();
+}
+
 function hasFile(gitDir: string, rev: string, path: string): boolean {
   const proc = Bun.spawnSync(
     ["git", "--git-dir", gitDir, "cat-file", "-e", `${rev}:${path}`],
@@ -154,10 +165,47 @@ describe("sync-gitlab-component.sh", () => {
     expect(second.exitCode).toBe(0);
     expect(second.stdout.toString()).toContain("already points at HEAD");
 
-    // New content under the same tag: must fail, not leave the tag stale.
+    // New content under the same tag: must fail, not leave the tag stale —
+    // and must not advance the default branch either (the stale-tag gate
+    // runs before any push, so no orphan commit splits branch from tag).
     appendFileSync(join(src, "preview.yml"), "\n# rebuild probe\n");
     const third = runScript(baseEnv);
     expect(third.exitCode).not.toBe(0);
     expect(third.stderr.toString()).toMatch(/already exists/);
+    expect(revParse(remote, "HEAD")).toBe(revParse(remote, tag));
+  });
+
+  test("annotated tags pointing at HEAD do not false-fail the stale-tag guard", () => {
+    const remote = initBareRemote();
+    const src = makeSrcDir();
+    const tag = "v9.9.9-annot";
+    const baseEnv = {
+      SPROUT_COMPONENT_PROJECT: "group/sprout-ci",
+      VERSION_TAG: tag,
+      SPROUT_GITLAB_SYNC_TOKEN: "dummy",
+      SPROUT_COMPONENT_GIT_URL: `file://${remote}`,
+      SOURCE_TEMPLATES_DIR: src,
+    };
+
+    const first = runScript(baseEnv);
+    expect(first.exitCode).toBe(0);
+    const pinned = revParse(remote, tag);
+
+    // Swap the lightweight tag for an annotated one at the same commit, the
+    // way a human retag or alternate release tooling would leave it.
+    // `ls-remote` reports the tag *object* SHA for annotated tags, so a naive
+    // compare would read this as stale forever.
+    const ctl = mkdtempSync(join(tmpdir(), "sprout-annot-"));
+    git(ctl, ["clone", "-q", remote, "work"]);
+    const wc = join(ctl, "work");
+    git(wc, ["push", "-q", "origin", `:refs/tags/${tag}`]);
+    git(wc, ["tag", "-d", tag]);
+    git(wc, ["tag", "-a", tag, "-m", tag, pinned]);
+    git(wc, ["push", "-q", "origin", tag]);
+
+    // Unchanged content with the annotated tag at HEAD: still success.
+    const second = runScript(baseEnv);
+    expect(second.exitCode).toBe(0);
+    expect(second.stdout.toString()).toContain("already points at HEAD");
   });
 });

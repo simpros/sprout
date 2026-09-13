@@ -12,8 +12,8 @@
 # explicit sprout_version): templates/README.md#remote-include-fallback.
 #
 # Conventions (per GitLab component guidance):
-# - no global keywords (`default:`, `variables:` at top level); every job
-#   carries its own image/services/variables via `.sprout-preview-base`.
+# - no global keywords (`default:`, `variables:` at top level); both jobs
+#   carry their own image/variables via `.sprout-cli`.
 # - no hardcoded stage: both jobs use `inputs.stage`.
 # - `sprout_version` defaults to the release tag shipping this file; the
 #   source carries the sentinel `@SPROUT_COMPONENT_VERSION@`, which the
@@ -51,16 +51,13 @@ spec:
       default: "200"
 ---
 
-# Shared job shape: dind image + service, registry login prerequisites.
-# Hidden (dot-prefixed) so it never runs as a job itself.
-.sprout-preview-base:
+# Shared CLI bootstrap: image, credentials, checksum-verified install.
+# Hidden (dot-prefixed) so it never runs as a job itself. Both jobs extend
+# this; only the preview job gets a Docker daemon (via
+# `.sprout-preview-base` below). Teardown is gateway HTTP — it must never pay
+# for dind or a registry login.
+.sprout-cli:
   image: docker:24
-  services:
-    - name: docker:24-dind
-      alias: docker
-  variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
   before_script:
     - |
       set -eu
@@ -69,6 +66,17 @@ spec:
         echo "sprout_version input is empty (remote includes must set it explicitly)" >&2
         exit 1
       fi
+      # Unpinned sentinel (remote includes ship the source default verbatim):
+      # anything still wrapped in @…@ was never pinned — fail with a pointer
+      # instead of curling `.../download/@…@/…` into a 404. Matched by shape,
+      # not by the literal sentinel, so the release pin rewrite can never
+      # touch this branch.
+      case "$SPROUT_VERSION" in
+        "@"*@)
+          echo "sprout_version input is unpinned (remote includes must set sprout_version explicitly to the tag in the URL)" >&2
+          exit 1
+          ;;
+      esac
       # Gateway credentials: explicit input wins, masked CI variables otherwise.
       INPUT_SPROUT_URL="$[[ inputs.sprout_url ]]"
       if [ -n "$INPUT_SPROUT_URL" ]; then
@@ -93,10 +101,17 @@ spec:
       (cd "$INSTALL_TMP" && grep ' sprout-linux-x64-musl$' SHA256SUMS.txt | sha256sum -c -)
       install -m 0755 "$INSTALL_TMP/sprout" /usr/local/bin/sprout
       test "$(sprout --version)" = "$SPROUT_VERSION"
-      # Predefined registry credentials when the project registry is enabled.
-      if [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
-        echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
-      fi
+
+# Preview-only shape: Docker daemon for the image builds inside
+# `sprout ci preview`. The stop job extends `.sprout-cli` directly.
+.sprout-preview-base:
+  extends: .sprout-cli
+  services:
+    - name: docker:24-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
 
 sprout-preview:
   extends: .sprout-preview-base
@@ -115,6 +130,12 @@ sprout-preview:
   script:
     - |
       set -eu
+      # Predefined registry credentials when the project registry is enabled.
+      # Lives here (not in the shared bootstrap): only the preview build
+      # pushes images, so teardown never pays for a registry login.
+      if [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
+        echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+      fi
       APP_CONTEXT="$[[ inputs.app_context ]]"
       DOTENV_FILE="$[[ inputs.dotenv_file ]]"
       TAIL="$[[ inputs.tail ]]"
@@ -130,7 +151,7 @@ sprout-preview:
       sprout ci preview "$@"
 
 sprout-stop-preview:
-  extends: .sprout-preview-base
+  extends: .sprout-cli
   stage: $[[ inputs.stage ]]
   rules:
     - if: $CI_MERGE_REQUEST_IID
