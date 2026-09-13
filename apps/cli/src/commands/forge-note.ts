@@ -116,7 +116,7 @@ function resolveForgeTarget(
   if (identity.forge === "gitlab") {
     const jobToken = env.CI_JOB_TOKEN?.trim();
     const pat = env.GITLAB_TOKEN?.trim();
-    const token = jobToken || pat || "";
+    const token = pat || jobToken || "";
     if (!token) return { ok: true, value: { skipped: true } };
     const base = stripTrailingSlash(
       env.CI_API_V4_URL?.trim() || "https://gitlab.com/api/v4",
@@ -145,7 +145,7 @@ function resolveForgeTarget(
           project,
           iid: identity.prId,
           token,
-          tokenHeader: jobToken ? "JOB-TOKEN" : "PRIVATE-TOKEN",
+          tokenHeader: pat ? "PRIVATE-TOKEN" : "JOB-TOKEN",
         },
       },
     };
