@@ -702,17 +702,6 @@ Add the returned token to the repo's `SPROUT_TOKEN` secret.
 Reviewers may see brief 502 responses while the app migrates and starts —
 Traefik routes exist before the app is healthy.
 
-## Herdr review automation (operator side)
-
-Adopters need nothing for this: on the operator machine, each MR/PR is
-reviewed and fixed automatically. `pr-review-watch` posts a collapsed
-thermo-nuclear review per round to the MR thread (plus a one-line verdict +
-link to Discord), `pr-review-fix` implements `REQUEST CHANGES` feedback and
-pushes so the next round re-reviews, the `herdr-eyes` tick reports agent
-status per worktree channel, and `sprout-chain` kicks the next unblocked
-milestone ticket. Full trigger → output → log map:
-[Herdr integration](herdr-integration.md).
-
 ## Test coverage (maintainers)
 
 Repo-relative paths for the Reference contract above (issue #130 linked
@@ -748,5 +737,4 @@ tests):
 ## See also
 
 - [Operator deployment](deploy.md)
-- [Herdr review integration](herdr-integration.md)
 - `CONTEXT.md`

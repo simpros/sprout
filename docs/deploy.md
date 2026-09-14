@@ -612,6 +612,7 @@ below.
 ## See also
 
 - [Adoption guide](adoption.md) — `.sprout.yaml`, CI workflows, app entrypoint
+- [Herdr review integration](herdr-integration.md) — optional simpros-operator review automation, not gateway deploy (adopters need nothing for it)
 - [Public docs](site/index.html) — how it works, CLI, FAQ
 - `examples/adopting-repo/` — copy-paste adopting-repo files
 - [`deploy/traefik/README.md`](../deploy/traefik/README.md) — wildcard DNS-01 resolver fragment + one-shot bootstrap compose

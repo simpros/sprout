@@ -5,7 +5,9 @@ Optional operator-side automation that reviews every merge / pull request and
 fixes feedback without human relay. Adopters need nothing for it: no extra CI
 job, no extra variable, no `.sprout.yaml` key. This page is for the operator
 who runs it on their own machine, so reviewers know where the bot comments
-come from and where to look when they don't arrive.
+come from and where to look when they don't arrive. The `~/.hermes` /
+`~/.herdr-eyes` paths below live on the operator machine, not in this repo,
+and may drift — the scripts themselves are the source of truth.
 
 All four pieces are cron-driven scripts on the operator machine. Each section
 below follows the same shape: **trigger → output → log location**.
