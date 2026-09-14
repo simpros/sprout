@@ -109,7 +109,7 @@ export function extractMarkdownDestinations(text: string): string[] {
  * every page once and reuses the set for both the ADR gate and the dead-link
  * asserts, so the two phases can never drift onto different read paths.
  */
-type LoadedPage = { file: string; text: string; hrefs: string[] };
+export type LoadedPage = { file: string; text: string; hrefs: string[] };
 
 async function loadPages(paths: CheckPaths): Promise<LoadedPage[]> {
   return Promise.all([
@@ -128,11 +128,11 @@ async function loadPages(paths: CheckPaths): Promise<LoadedPage[]> {
  * ADR exclusion gate: every artifact path is path-checked (any extension —
  * not just checked pages), then every loaded page body is scanned for the
  * forbidden vocabulary while extracted hrefs are scanned for ADR targets.
- * Returns the leak lines; callers throw so a leak reports as an ADR leak
- * even when its target is also missing from the artifact. Mention scanning
- * reads raw page text with no format-specific stripping: `findAdrMention`
- * never matches `adr/` path segments, so ADR-shaped hrefs report exactly
- * once, as ADR links.
+ * Pure collector feeding `assertNoAdrLeaks`, so a leak reports as an ADR
+ * leak even when its target is also missing from the artifact. Mention
+ * scanning reads raw page text with no format-specific stripping:
+ * `findAdrMention` never matches `adr/` path segments, so ADR-shaped hrefs
+ * report exactly once, as ADR links.
  */
 async function collectAdrLeaks(
   paths: CheckPaths,
@@ -164,16 +164,23 @@ async function collectAdrLeaks(
   return adrLeaks;
 }
 
-function throwIfAdrLeaks(adrLeaks: string[]): void {
+/**
+ * ADR exclusion gate: the only throw seam for ADR leaks. Takes preloaded
+ * pages when the caller already has them (`check` loads once and shares the
+ * set with the dead-link asserts); loads them when called standalone, so
+ * there is exactly one enforcement path either way.
+ */
+export async function assertNoAdrLeaks(
+  paths: CheckPaths,
+  pages?: LoadedPage[],
+): Promise<void> {
+  const loaded = pages ?? (await loadPages(paths));
+  const adrLeaks = await collectAdrLeaks(paths, loaded);
   if (adrLeaks.length > 0) {
     throw new Error(
       `ADR leak (ADRs are maintainer internals, never consumer docs):\n${adrLeaks.join("\n")}`,
     );
   }
-}
-
-export async function assertNoAdrLeaks(paths: CheckPaths): Promise<void> {
-  throwIfAdrLeaks(await collectAdrLeaks(paths, await loadPages(paths)));
 }
 
 export async function check(paths: CheckPaths): Promise<void> {
@@ -184,7 +191,7 @@ export async function check(paths: CheckPaths): Promise<void> {
   // link asserts below stay a pure dead-link gate with no special-case
   // branch.
   const pages = await loadPages(paths);
-  throwIfAdrLeaks(await collectAdrLeaks(paths, pages));
+  await assertNoAdrLeaks(paths, pages);
 
   const results = await Promise.allSettled(
     pages.flatMap(({ file, hrefs }) =>
