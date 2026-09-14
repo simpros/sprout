@@ -16,6 +16,7 @@ import { writeCorpusFixture } from "./test-fixture.ts";
 describe("publish manifest", () => {
   test("includes adoption.md and the deep-link trees", () => {
     expect(publishFiles).toContain("docs/adoption.md");
+    expect(publishFiles).toContain("docs/herdr-integration.md");
     expect(publishDirs).toContain("templates");
     expect(publishDirs).toContain("examples/adopting-repo");
   });

@@ -94,6 +94,21 @@ operator must have deployed the [operator compose stack](deploy.md) and
 minted the deploy token. Pull credentials on the gateway follow the deploy
 `app_image` host (`SPROUT_REGISTRY_AUTHS_JSON` per host, empty = anonymous).
 
+### Component → CLI ownership
+
+The component YAML above calls exactly two `sprout ci` subcommands —
+everything else is manual (run from a merge-request pipeline or laptop):
+
+| Component job | CLI call | Owns |
+|---|---|---|
+| `sprout-preview` | `sprout ci preview --tail … --dotenv-file … [--app-env-file …] [--seed-env-file …]` | Install check aside, the CLI builds + pushes the app image (and the seed image when `.sprout.yaml` sets `seed`), deploys, writes `PREVIEW_URL=` to the dotenv artifact, dumps the gateway log tail on failure, and posts/updates the MR note (best-effort). |
+| `sprout-stop-preview` | `sprout ci teardown` (no flags) | Idempotent teardown; rewrites the MR note in place ("preview was removed"). No Docker daemon, no registry login on this path. |
+
+Manual helpers (never called by the component): `sprout ci reseed -s …`
+(re-run the seed against the existing database) and `sprout ci logs
+[--tail N]` (container logs through the gateway). Full flags in
+[CLI `ci` commands](#cli-ci-commands).
+
 ## Reference
 
 ### Manifest keys (`.sprout.yaml`)
@@ -295,19 +310,30 @@ component inputs — companions go through `sprout ci preview --service`.
 
 If your `.gitlab-ci.yml` currently installs the CLI, builds/pushes images,
 and calls `sprout deploy` by hand, replace the whole job with the component.
-Concretely, delete:
+Hand-rolled setups (per #118) typically carry `scripts/ci/sprout-preview.sh`
+plus a seed-image script, `SPROUT_VERSION` / `SPROUT_SHA256` (or `SPROUT_SHA`)
+project variables, a custom CLI installer block, and flag-by-flag
+`--app-env` assembly. Concretely, delete:
 
 1. The `curl` install block (version pin, asset selection, `chmod`,
    `libstdc++` handling) — the component installs the pinned,
-   checksum-verified binary matching the component version.
+   checksum-verified binary matching the component version. This retires the
+   custom installer and the `SPROUT_VERSION` / `SPROUT_SHA256` project
+   variables: the version is now the component version (`sprout_version`
+   input, pinned automatically on component includes).
 2. The `docker build` / `docker push` steps and registry-login script — the
    component owns the dind service and login; `sprout ci preview` builds and
    pushes the app image and, when `.sprout.yaml` configures `seed`, the seed
-   image.
+   image. This retires `scripts/ci/sprout-preview.sh` and the seed-image
+   script (image coordinates move into `.sprout.yaml` `build` / `seed`
+   blocks).
 3. The `sprout deploy -i … -s …` invocation, `preview_url=` scraping, dotenv
    writing, and `sprout teardown` script — the component calls
    `sprout ci preview` / `sprout ci teardown`, writes the dotenv artifact,
-   and posts the MR note.
+   and posts the MR note. Flag-by-flag `--app-env` assembly in shell goes
+   away with it: extra env moves into `.sprout.yaml` (`preview.app_env` /
+   `seed.env`), the `SPROUT_APP_ENV` / `SPROUT_SEED_ENV` file-type variables,
+   or the `app_env_file` / `seed_env_file` component inputs.
 4. Any reconstruction of the preview hostname in CI (string munging
    `pr-<id>.host`) — read `PREVIEW_URL` / `preview_url=` from the CLI output
    instead.
