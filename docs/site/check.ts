@@ -165,17 +165,15 @@ async function collectAdrLeaks(
 }
 
 /**
- * ADR exclusion gate: the only throw seam for ADR leaks. Takes preloaded
- * pages when the caller already has them (`check` loads once and shares the
- * set with the dead-link asserts); loads them when called standalone, so
- * there is exactly one enforcement path either way.
+ * ADR exclusion gate: the only throw seam for ADR leaks. Takes the preloaded
+ * pages the caller already has (`check` loads once and shares the set with
+ * the dead-link asserts), so there is exactly one load shape.
  */
 export async function assertNoAdrLeaks(
   paths: CheckPaths,
-  pages?: LoadedPage[],
+  pages: LoadedPage[],
 ): Promise<void> {
-  const loaded = pages ?? (await loadPages(paths));
-  const adrLeaks = await collectAdrLeaks(paths, loaded);
+  const adrLeaks = await collectAdrLeaks(paths, pages);
   if (adrLeaks.length > 0) {
     throw new Error(
       `ADR leak (ADRs are maintainer internals, never consumer docs):\n${adrLeaks.join("\n")}`,
