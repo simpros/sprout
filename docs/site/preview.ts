@@ -1,15 +1,17 @@
 /**
- * Check links, then serve the repo root so docs/site/index.html keeps its
- * real URL path (/docs/site/index.html; / redirects there). Relative hrefs
+ * Assemble the published site once, check that tree, then serve the same
+ * tree so docs/site/index.html keeps its real URL path
+ * (/docs/site/index.html; / redirects there). Relative hrefs
  * (`../adoption.md`, `../../examples/…`) then resolve with ordinary
- * static-file semantics — no URL remapping.
+ * static-file semantics against exactly what Pages will serve — no URL
+ * remapping, no repo-only paths.
  */
-import { dirname, join, normalize, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { check } from "./check.ts";
-
-const siteDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(siteDir, "../..");
+import { mkdtemp } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, normalize, resolve } from "node:path";
+import { assembleSite, repoRootDir, siteEntryPath } from "./assemble.ts";
+import { check, defaultCheckPaths } from "./check.ts";
 
 function docsPort(): number {
   const raw = process.env.DOCS_PORT ?? "4173";
@@ -20,7 +22,22 @@ function docsPort(): number {
   return port;
 }
 
-await check();
+const siteRoot = await mkdtemp(join(tmpdir(), "sprout-docs-preview-"));
+// Clean synchronously, then exit: without process.exit the server keeps
+// running after Ctrl+C, and an async rm would race process teardown.
+function shutdown(): never {
+  try {
+    rmSync(siteRoot, { recursive: true, force: true });
+  } catch {
+    // Best effort — temp cleanup must not mask the shutdown signal.
+  }
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+await assembleSite(repoRootDir, siteRoot);
+await check(await defaultCheckPaths(siteRoot));
 
 function contentType(path: string): string | undefined {
   if (path.endsWith(".html")) return "text/html; charset=utf-8";
@@ -45,18 +62,15 @@ const server = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     if (url.pathname === "/") {
-      return Response.redirect(
-        new URL("/docs/site/index.html", url),
-        302,
-      );
+      return Response.redirect(new URL(`/${siteEntryPath}`, url), 302);
     }
 
     const rel = normalize(url.pathname.replace(/^\//, ""));
     if (!rel || rel === "." || rel.startsWith("..")) {
       return new Response("Not found", { status: 404 });
     }
-    const abs = resolve(repoRoot, rel);
-    if (abs !== repoRoot && !abs.startsWith(repoRoot + "/")) {
+    const abs = resolve(siteRoot, rel);
+    if (abs !== siteRoot && !abs.startsWith(siteRoot + "/")) {
       return new Response("Not found", { status: 404 });
     }
 

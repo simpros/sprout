@@ -1,0 +1,60 @@
+name: docs
+
+# Publish docs/site (plus linked markdown targets) to GitHub Pages.
+# Repo setting: Settings → Pages → Source = GitHub Actions.
+# Path filters are intentionally broader than the publish set (see
+# docs/site/assemble.ts): anything a published page can link to must
+# retrigger the deploy when it changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "README.md"
+      - "CONTEXT.md"
+      - "e2e/README.md"
+      - "examples/adopting-repo/**"
+      - "deploy/traefik/**"
+      - "deploy/postgres/**"
+      - "compose.env.example"
+      - ".env.example"
+      - "templates/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Assemble Pages artifact
+        run: bun run docs:assemble
+      - name: Link check
+        run: bun run docs/site/check.ts _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

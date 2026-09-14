@@ -13,7 +13,7 @@ touches Postgres admin credentials.
 
 Copy-paste app files (`.sprout.yaml`, `.gitlab-ci.yml`, Dockerfiles,
 entrypoints, seed script) live in
-[`examples/adopting-repo/`](../examples/adopting-repo/).
+[`examples/adopting-repo/README.md`](../examples/adopting-repo/README.md).
 
 ## Quickstart (GitLab component)
 

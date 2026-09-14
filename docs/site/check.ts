@@ -1,48 +1,64 @@
 /**
- * Link checker for the public docs site and the README front door.
- * There is no build output: preview serves the source files directly.
+ * Link checker for the published docs site.
+ *
+ * The checked tree is the Pages artifact, not the repo: check roots are
+ * discovered by walking the assembled tree for HTML/markdown pages, and
+ * `checkPublishedSite` assembles the publish set (see assemble.ts) into a
+ * temp dir before validating it there. Green docs:check therefore means
+ * the Pages URLs resolve.
+ *
+ * Pages is a static file host: a link target must be a file (a directory
+ * only counts when it carries its own index.html — Pages serves that, but
+ * never a generated listing). This intentionally differs from GitHub's UI,
+ * which renders bare directory links.
  */
-import { readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { assembleSite, listFilesRecursive, repoRootDir } from "./assemble.ts";
 
-const siteDir = dirname(fileURLToPath(import.meta.url));
-const rootDir = resolve(siteDir, "../..");
-const srcHtml = join(siteDir, "index.html");
-const readmeMd = join(rootDir, "README.md");
-
-async function localTargetExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
+export type CheckPaths = {
+  rootDir: string;
+  htmlFiles: string[];
+  markdownFiles: string[];
+};
 
 /**
- * Preview serves files (Bun.file), not directories: a bare directory 404s
- * unless it contains an index.html. HTML hrefs must satisfy the same rule
- * or docs:check goes green while docs:preview 404s. README links keep the
- * lenient rule — that surface is browsed on GitHub, where directory links
- * render as folder listings.
+ * Check roots: every HTML/markdown page in the assembled tree. Takes the
+ * assembled site root explicitly — there is no repo-root default, so a bare
+ * call can never silently reintroduce "check the repo, not the artifact".
  */
-async function htmlTargetExists(path: string): Promise<boolean> {
+export async function defaultCheckPaths(rootDir: string): Promise<CheckPaths> {
+  const htmlFiles: string[] = [];
+  const markdownFiles: string[] = [];
+
+  for (const abs of await listFilesRecursive(rootDir)) {
+    if (abs.endsWith(".html")) htmlFiles.push(abs);
+    else if (abs.endsWith(".md")) markdownFiles.push(abs);
+  }
+
+  return { rootDir, htmlFiles, markdownFiles };
+}
+
+/** Static-host rule: a file, or a directory served via its index.html. */
+async function siteTargetExists(path: string): Promise<boolean> {
   try {
     const st = await stat(path);
     if (st.isFile()) return true;
-    if (st.isDirectory()) return await localTargetExists(join(path, "index.html"));
+    if (st.isDirectory()) {
+      try {
+        return (await stat(join(path, "index.html"))).isFile();
+      } catch {
+        return false;
+      }
+    }
     return false;
   } catch {
     return false;
   }
 }
 
-async function assertHref(
-  href: string,
-  fromFile: string,
-  exists: (path: string) => Promise<boolean>,
-): Promise<void> {
+async function assertHref(href: string, fromFile: string): Promise<void> {
   if (
     href.startsWith("http://") ||
     href.startsWith("https://") ||
@@ -56,22 +72,12 @@ async function assertHref(
   if (!pathPart) return;
 
   const resolved = resolve(dirname(fromFile), pathPart);
-  if (!(await exists(resolved))) {
+  if (!(await siteTargetExists(resolved))) {
     throw new Error(`dead link in ${fromFile}: ${href} → ${resolved}`);
   }
 }
 
-/** README destinations: files or directories (GitHub renders dirs). */
-async function assertReadmeHref(href: string, fromFile: string): Promise<void> {
-  return assertHref(href, fromFile, localTargetExists);
-}
-
-/** HTML hrefs: must be a servable file (or a dir containing index.html). */
-async function assertHtmlHref(href: string, fromFile: string): Promise<void> {
-  return assertHref(href, fromFile, htmlTargetExists);
-}
-
-function extractHtmlHrefs(html: string): string[] {
+export function extractHtmlHrefs(html: string): string[] {
   const targets: string[] = [];
   const re = /href="([^"]+)"/g;
   let match: RegExpExecArray | null;
@@ -81,7 +87,7 @@ function extractHtmlHrefs(html: string): string[] {
   return targets;
 }
 
-function extractMarkdownDestinations(text: string): string[] {
+export function extractMarkdownDestinations(text: string): string[] {
   const targets: string[] = [];
   const re = /\[([^\]]*)\]\(([^)]+)\)/g;
   let match: RegExpExecArray | null;
@@ -91,17 +97,26 @@ function extractMarkdownDestinations(text: string): string[] {
   return targets;
 }
 
-export async function check(): Promise<void> {
-  const html = await readFile(srcHtml, "utf8");
-  const readme = await readFile(readmeMd, "utf8");
+export async function check(paths: CheckPaths): Promise<void> {
+  // Read every page body before starting any link assert, so no assert
+  // promise can reject while a later readFile await is still in flight
+  // (Bun would report that as an unhandled rejection).
+  const pages = await Promise.all([
+    ...paths.htmlFiles.map(async (file) => ({
+      file,
+      hrefs: extractHtmlHrefs(await readFile(file, "utf8")),
+    })),
+    ...paths.markdownFiles.map(async (file) => ({
+      file,
+      hrefs: extractMarkdownDestinations(await readFile(file, "utf8")),
+    })),
+  ]);
 
-  const jobs: Promise<void>[] = [
-    ...extractHtmlHrefs(html).map((href) => assertHtmlHref(href, srcHtml)),
-    ...extractMarkdownDestinations(readme).map((href) =>
-      assertReadmeHref(href, readmeMd),
+  const results = await Promise.allSettled(
+    pages.flatMap(({ file, hrefs }) =>
+      hrefs.map((href) => assertHref(href, file)),
     ),
-  ];
-  const results = await Promise.allSettled(jobs);
+  );
   const failures = results.flatMap((r) =>
     r.status === "rejected"
       ? [r.reason instanceof Error ? r.reason.message : String(r.reason)]
@@ -111,9 +126,34 @@ export async function check(): Promise<void> {
     throw new Error(`dead links:\n${failures.join("\n")}`);
   }
 
-  console.log("docs links OK (docs/site/index.html + README.md)");
+  const relative = [
+    ...paths.htmlFiles.map((p) => p.slice(paths.rootDir.length + 1)),
+    ...paths.markdownFiles.map((p) => p.slice(paths.rootDir.length + 1)),
+  ];
+  console.log(`docs links OK (${relative.join(" + ")})`);
+}
+
+/**
+ * Assemble the publish set into a temp dir and check that tree, so the gate
+ * proves Pages URLs — not just that targets exist somewhere in the repo.
+ */
+export async function checkPublishedSite(
+  repoRoot: string = repoRootDir,
+): Promise<void> {
+  const siteRoot = await mkdtemp(join(tmpdir(), "sprout-docs-site-"));
+  try {
+    await assembleSite(repoRoot, siteRoot);
+    await check(await defaultCheckPaths(siteRoot));
+  } finally {
+    await rm(siteRoot, { recursive: true, force: true });
+  }
 }
 
 if (import.meta.main) {
-  await check();
+  // With a directory argument, check that assembled tree in place (CI
+  // assembles once, then gates the artifact it will upload). Without one,
+  // assemble to a temp dir and check that (local `bun run docs:check`).
+  const [siteRootArg] = process.argv.slice(2);
+  if (siteRootArg) await check(await defaultCheckPaths(resolve(siteRootArg)));
+  else await checkPublishedSite();
 }

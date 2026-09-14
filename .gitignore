@@ -12,3 +12,4 @@ coverage/
 .turbo/
 sprout.db
 sprout.db-*
+_site/

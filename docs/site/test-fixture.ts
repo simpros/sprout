@@ -1,0 +1,48 @@
+/**
+ * Minimal repo carrying every path the publish manifest expects.
+ *
+ * Stubs are generated from `publishFiles`, so adding a standalone file to
+ * the manifest can never leave the fixture behind; directory trees
+ * (`publishDirs`) are copied wholesale, so only the link-relevant members
+ * need samples here. Rich content below overlays the stubs for the pages
+ * whose links the tests exercise.
+ */
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { publishFiles } from "./assemble.ts";
+
+/** Link-relevant members of the `publishDirs` trees. */
+const dirSamples: Record<string, string> = {
+  "templates/README.md": "# templates\n",
+  "templates/preview.yml": "# yml\n",
+  "examples/adopting-repo/docker-entrypoint.sh": "#!/bin/sh\n",
+  "examples/adopting-repo/.github/workflows/sprout.yml": "# ci\n",
+  "docs/adr/0001-thing.md": "# one\n",
+};
+
+/** Pages whose outbound links the tests assert on. */
+const overlays: Record<string, string> = {
+  "docs/site/index.html":
+    `<html><body><a href="../deploy.md">deploy</a><a href="../adoption.md">adopt</a></body></html>\n`,
+  "README.md": "# r\n[adopt](docs/adoption.md) [adr](docs/adr/README.md)\n",
+  "docs/deploy.md":
+    "See [adoption](adoption.md), [e2e](../e2e/README.md), " +
+    "[traefik](../deploy/traefik/README.md), and " +
+    "[resolver](../deploy/traefik/certificates-resolver.dns.yml).\n",
+  "docs/adoption.md":
+    "See [deploy](deploy.md), [templates](../templates/README.md), and " +
+    "[entrypoint](../examples/adopting-repo/docker-entrypoint.sh).\n",
+  "docs/adr/README.md": "# adrs\n[one](0001-thing.md)\n",
+  "examples/adopting-repo/README.md": "# ex\n[adopt](../../docs/adoption.md)\n",
+};
+
+export async function writeCorpusFixture(root: string): Promise<void> {
+  const files: Record<string, string> = {};
+  for (const file of publishFiles) files[file] = `# ${file}\n`;
+  Object.assign(files, dirSamples, overlays);
+  for (const [rel, text] of Object.entries(files)) {
+    const abs = join(root, rel);
+    await mkdir(dirname(abs), { recursive: true });
+    await writeFile(abs, text);
+  }
+}
