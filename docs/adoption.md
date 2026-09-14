@@ -711,6 +711,4 @@ tests):
 ## See also
 
 - [Operator deployment](deploy.md)
-- `docs/adr/0003-seed-as-user-image.md`
-- `docs/adr/0004-ci-driven-lifecycle-no-webhooks.md`
 - `CONTEXT.md`

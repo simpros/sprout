@@ -543,7 +543,7 @@ sprout worktree-db drop --slug <name> --admin-url "$ADMIN_DSN"
   temp+rename). When `PGPASSWORD` is already present in the env file, that
   password is reused so live connections are not rotated. Defaults write
   `DATABASE_URL` plus canonical `PGHOST` / `PGPORT` / `PGUSER` /
-  `PGPASSWORD` / `PGDATABASE` (ADR-0007); rename with
+  `PGPASSWORD` / `PGDATABASE`; rename with
   `--rename LOGICAL=NAME` (logical keys: `DATABASE_URL`, `PGHOST`, …).
 
 ## Upgrade / redeploy

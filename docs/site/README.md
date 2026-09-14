@@ -32,8 +32,16 @@ and checks every HTML/markdown page found there with static-host semantics
 Pages never serves generated listings). Check roots are discovered by
 walking the artifact, so a newly published page is always gated. Green
 `docs:check` therefore means the Pages URLs resolve, including
-`docs/adoption.md` and the ADRs. `bun run docs/site/check.ts <dir>` checks
+`docs/adoption.md`. `bun run docs/site/check.ts <dir>` checks
 an already-assembled tree in place.
+
+## ADRs never ship
+
+ADRs are maintainer internals, not consumer docs: `docs/adr` stays out of
+the publish manifest, and no published page may link to or mention ADRs.
+`docs/site/check.ts` enforces this structurally — any ADR file
+(`docs/adr/...`) or ADR mention (`ADR`, `ADRs`, `adr/...` in any case)
+in the assembled tree fails the docs build.
 
 ## GitHub Pages
 

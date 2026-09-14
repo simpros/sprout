@@ -19,6 +19,13 @@ describe("publish manifest", () => {
     expect(publishDirs).toContain("examples/adopting-repo");
   });
 
+  test("keeps ADRs out of the consumer surface", () => {
+    expect(publishDirs).not.toContain("docs/adr");
+    for (const entry of [...publishFiles, ...publishDirs]) {
+      expect(entry.toLowerCase().split("/")).not.toContain("adr");
+    }
+  });
+
   test("root redirect has no leading whitespace and targets the entry", () => {
     const html = rootRedirectHtml();
     for (const line of html.split("\n")) {
@@ -50,7 +57,6 @@ describe("assembleSite", () => {
 
     for (const rel of [
       "docs/adoption.md",
-      "docs/adr/0001-thing.md",
       "templates/README.md",
       "templates/preview.yml",
       "examples/adopting-repo/docker-entrypoint.sh",
@@ -60,6 +66,7 @@ describe("assembleSite", () => {
       expect(published).toContain(rel);
       expect((await stat(join(out, rel))).isFile()).toBe(true);
     }
+    expect(published.every((p) => !p.split("/").includes("adr"))).toBe(true);
     expect(await readFile(join(out, "index.html"), "utf8")).toBe(
       rootRedirectHtml(),
     );
@@ -69,6 +76,24 @@ describe("assembleSite", () => {
     const paths = await defaultCheckPaths(out);
     expect(paths.htmlFiles).toContain(join(out, "index.html"));
     await check(paths);
+  });
+
+  test("never publishes maintainer ADR files left in the repo", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-assemble-"));
+    const repo = join(root, "repo");
+    const out = join(root, "site");
+    await writeCorpusFixture(repo);
+
+    // Maintainer ADRs still exist in the repo; the manifest must not copy them.
+    await mkdir(join(repo, "docs", "adr"), { recursive: true });
+    await writeFile(join(repo, "docs", "adr", "README.md"), "# adrs\n");
+    await writeFile(join(repo, "docs", "adr", "0001-thing.md"), "# one\n");
+
+    const published = await assembleSite(repo, out);
+
+    expect(published.every((p) => !p.split("/").includes("adr"))).toBe(true);
+    await expect(stat(join(out, "docs", "adr", "README.md"))).rejects.toThrow();
+    await check(await defaultCheckPaths(out));
   });
 
   test("replaces outDir instead of merging, so stale orphans cannot ship", async () => {
