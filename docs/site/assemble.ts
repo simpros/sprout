@@ -35,6 +35,7 @@ export const publishFiles = [
   ".env.example",
   "docs/deploy.md",
   "docs/adoption.md",
+  "docs/herdr-integration.md",
   "docs/site/index.html",
   "e2e/README.md",
   "deploy/traefik/README.md",
