@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # sprout `preview` component — thin CLI bootstrapper (GitLab CI/CD component).
 #
 # Adopters include this file and declare two CI variables; all preview logic
