@@ -8,6 +8,7 @@ import {
   extractHtmlHrefs,
   extractMarkdownDestinations,
 } from "./check.ts";
+import { findAdrMention, isAdrHref, isAdrPath } from "./adr-policy.ts";
 import { writeCorpusFixture } from "./test-fixture.ts";
 
 describe("docs link extraction", () => {
@@ -47,8 +48,6 @@ describe("defaultCheckPaths", () => {
     expect(paths.htmlFiles).toEqual([join(root, "docs/site/index.html")]);
     for (const rel of [
       "docs/adoption.md",
-      "docs/adr/README.md",
-      "docs/adr/0001-thing.md",
       "examples/adopting-repo/README.md",
       "templates/README.md",
     ]) {
@@ -114,5 +113,82 @@ describe("static-host rule", () => {
       htmlFiles: [],
       markdownFiles: [join(root, "page.md")],
     });
+  });
+});
+
+describe("ADR exclusion (standing rule: never consumer docs)", () => {
+  let root: string | undefined;
+
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+    root = undefined;
+  });
+
+  test("isAdrPath matches adr segments only", () => {
+    expect(isAdrPath("docs/adr/README.md")).toBe(true);
+    expect(isAdrPath("docs/ADR/0001-x.md")).toBe(true);
+    expect(isAdrPath("docs/adoption.md")).toBe(false);
+    expect(isAdrPath("README.md")).toBe(false);
+  });
+
+  test("findAdrMention bans the word, not adr path segments", () => {
+    expect(findAdrMention("See docs/adoption.md for details.")).toBeNull();
+    expect(findAdrMention("Postal address: 123 Main St.")).toBeNull();
+    expect(findAdrMention("see ADR 0007")).not.toBeNull();
+    expect(findAdrMention("see ADR-0007")).not.toBeNull();
+    expect(findAdrMention("our ADRs live elsewhere")).not.toBeNull();
+    // `/` counts as part of a path token, so an `adr` path segment in raw
+    // text is not a vocabulary hit — those report as ADR links via
+    // `isAdrHref`, or as ADR files via `isAdrPath`.
+    expect(findAdrMention("[decisions](docs/adr/README.md)")).toBeNull();
+    expect(findAdrMention('<a href="../adr/README.md">x</a>')).toBeNull();
+  });
+
+  test("isAdrHref flags artifact-relative ADR targets only", () => {
+    expect(isAdrHref("docs/adr/README.md")).toBe(true);
+    expect(isAdrHref("../adr/README.md")).toBe(true);
+    expect(isAdrHref("docs/ADR/0001-x.md")).toBe(true);
+    expect(isAdrHref("docs/adoption.md")).toBe(false);
+    expect(isAdrHref("#adr")).toBe(false);
+    expect(isAdrHref("mailto:someone@example.com")).toBe(false);
+    expect(isAdrHref("https://example.com/docs/adr/x.md")).toBe(false);
+    expect(isAdrHref("//cdn.example/docs/adr/x.md")).toBe(false);
+  });
+
+  test("fails closed when an ADR file lands in the tree", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    // Temporarily re-add the leak the manifest must exclude.
+    await mkdir(join(root, "docs", "adr"), { recursive: true });
+    await writeFile(join(root, "docs", "adr", "README.md"), "# adrs\n");
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(/ADR leak/);
+  });
+
+  test("fails closed on a non-page ADR file in the tree", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await mkdir(join(root, "docs", "adr"), { recursive: true });
+    await writeFile(join(root, "docs", "adr", "notes.yml"), "# notes\n");
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(/ADR leak/);
+  });
+
+  test("fails closed on an ADR link in README", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(
+      join(root, "README.md"),
+      "# r\n[adopt](docs/adoption.md) [decisions](docs/adr/README.md)\n",
+    );
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(/ADR leak/);
+  });
+
+  test("fails closed on an inline ADR mention in HTML", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(
+      join(root, "docs", "site", "index.html"),
+      `<html><body><a href="../adoption.md">adopt</a><p>see ADR 0007</p></body></html>\n`,
+    );
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(/ADR leak/);
   });
 });

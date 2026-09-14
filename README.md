@@ -89,7 +89,6 @@ sprout teardown
 - [Operator deploy](docs/deploy.md) — compose stack, env, Traefik
 - [`examples/adopting-repo/README.md`](examples/adopting-repo/README.md) — copy-paste starter
 - [`CONTEXT.md`](CONTEXT.md) — domain vocabulary
-- [`docs/adr/README.md`](docs/adr/README.md) — architecture decisions
 - [`e2e/README.md`](e2e/README.md) — acceptance harness (`bun run test:e2e`)
 
 ## Develop

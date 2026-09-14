@@ -17,14 +17,13 @@ const dirSamples: Record<string, string> = {
   "templates/preview.yml": "# yml\n",
   "examples/adopting-repo/docker-entrypoint.sh": "#!/bin/sh\n",
   "examples/adopting-repo/.github/workflows/sprout.yml": "# ci\n",
-  "docs/adr/0001-thing.md": "# one\n",
 };
 
 /** Pages whose outbound links the tests assert on. */
 const overlays: Record<string, string> = {
   "docs/site/index.html":
     `<html><body><a href="../deploy.md">deploy</a><a href="../adoption.md">adopt</a></body></html>\n`,
-  "README.md": "# r\n[adopt](docs/adoption.md) [adr](docs/adr/README.md)\n",
+  "README.md": "# r\n[adopt](docs/adoption.md)\n",
   "docs/deploy.md":
     "See [adoption](adoption.md), [e2e](../e2e/README.md), " +
     "[traefik](../deploy/traefik/README.md), and " +
@@ -32,7 +31,6 @@ const overlays: Record<string, string> = {
   "docs/adoption.md":
     "See [deploy](deploy.md), [templates](../templates/README.md), and " +
     "[entrypoint](../examples/adopting-repo/docker-entrypoint.sh).\n",
-  "docs/adr/README.md": "# adrs\n[one](0001-thing.md)\n",
   "examples/adopting-repo/README.md": "# ex\n[adopt](../../docs/adoption.md)\n",
 };
 

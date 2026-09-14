@@ -5,9 +5,12 @@
  * builder copies exactly this set (preserving repo-relative paths, so
  * relative hrefs resolve identically), and the checker discovers its check
  * roots by walking the assembled tree — so the checked tree and the
- * published tree cannot drift apart. There is no second markdown list and
- * no ADR special case: `docs/adr` is published wholesale like the other
- * deep-link trees.
+ * published tree cannot drift apart.
+ *
+ * Standing rule: ADRs are maintainer internals and MUST NEVER reach the
+ * consumer surface. `docs/adr` is therefore NOT published, and the link
+ * checker (see check.ts) fails closed on any ADR file or mention that lands
+ * in the assembled tree.
  */
 import { cp, copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
@@ -27,6 +30,7 @@ export const siteEntryPath = "docs/site/index.html";
 export const publishFiles = [
   "README.md",
   "CONTEXT.md",
+  "LICENSE",
   "compose.env.example",
   ".env.example",
   "docs/deploy.md",
@@ -41,14 +45,12 @@ export const publishFiles = [
 
 /**
  * Repo-relative directories published wholesale. Deep links from published
- * pages (adoption.md → templates, adopting-repo scripts/workflows, ADR
- * index → individual ADRs) keep working without tracking each target file
- * here.
+ * pages (adoption.md → templates, adopting-repo scripts/workflows) keep
+ * working without tracking each target file here.
  */
 export const publishDirs = [
   "templates",
   "examples/adopting-repo",
-  "docs/adr",
 ];
 
 /** Recursively list every file under root as absolute paths. */

@@ -119,5 +119,4 @@ _Avoid_: Root token, master key
 ## See also
 
 - The normative v0.1 specification (tracked in the GitHub issue tracker)
-- `docs/adr/` — architecture decision records
 - `docs/agents/` — how agents consume this documentation

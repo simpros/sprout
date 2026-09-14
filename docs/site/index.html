@@ -164,7 +164,15 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 0.95rem;
+      margin: 0;
+    }
+    .table-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
       margin: 0.85rem 0;
+    }
+    .table-scroll table {
+      min-width: 34rem;
     }
     th, td {
       text-align: left;
@@ -201,7 +209,6 @@
 
     @media (max-width: 560px) {
       header.hero { padding-top: 2.25rem; }
-      td:first-child { white-space: normal; }
     }
   </style>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -318,6 +325,7 @@ sprout teardown                        <span class="c"># on pull_request closed<
         <code>bun run --cwd apps/cli</code>. Auth: set <code>SPROUT_URL</code> and
         <code>SPROUT_TOKEN</code> (except <code>health</code>).
       </p>
+      <div class="table-scroll">
       <table>
         <thead>
           <tr><th>Command</th><th>Purpose</th></tr>
@@ -365,12 +373,14 @@ sprout teardown                        <span class="c"># on pull_request closed<
           </tr>
         </tbody>
       </table>
+      </div>
       <p>Identity (repo + PR id) is inferred from CI env or git remote; override with <code>--repo</code> where supported. Full flags per command: <code>sprout &lt;command&gt; --help</code>; CI details: <a href="../adoption.md">docs/adoption.md</a>.</p>
     </section>
 
     <section id="config">
       <h2>Adopting-repo config reference</h2>
       <p>Root file: <code>.sprout.yaml</code>. Unknown keys are rejected.</p>
+      <div class="table-scroll">
       <table>
         <thead>
           <tr><th>Key</th><th>Required</th><th>Notes</th></tr>
@@ -389,7 +399,7 @@ sprout teardown                        <span class="c"># on pull_request closed<
           <tr>
             <td>preview.env</td>
             <td>no</td>
-            <td>Remap connection env injection names (see ADR 0007).</td>
+            <td>Remap connection env injection names.</td>
           </tr>
           <tr>
             <td>preview.app_env</td>
@@ -418,6 +428,7 @@ sprout teardown                        <span class="c"># on pull_request closed<
           </tr>
         </tbody>
       </table>
+      </div>
       <p>
         The gateway injects connection env into app/seed containers by default as
         <code>PGHOST</code>, <code>PGPORT</code>, <code>PGUSER</code>, <code>PGPASSWORD</code>, <code>PGDATABASE</code>
@@ -451,12 +462,12 @@ sprout teardown                        <span class="c"># on pull_request closed<
       </p>
       <h3>Do I need forge webhooks?</h3>
       <p>
-        No. Symmetric CI on PR open / synchronize / close drives deploy and teardown
-        (ADR 0004). Sweep recovers if teardown is missed.
+        No. Symmetric CI on PR open / synchronize / close drives deploy and teardown.
+        Sweep recovers if teardown is missed.
       </p>
       <h3>Where does seed data come from?</h3>
       <p>
-        From a user-built one-shot seed image (ADR 0003). The gateway does not clone your repo.
+        From a user-built one-shot seed image. The gateway does not clone your repo.
       </p>
       <h3>Can two PRs share a database?</h3>
       <p>
@@ -478,7 +489,6 @@ sprout teardown                        <span class="c"># on pull_request closed<
         <li><a href="../deploy.md">Operator deploy</a></li>
         <li><a href="../../examples/adopting-repo/README.md">Adopting-repo examples</a></li>
         <li><a href="../../CONTEXT.md">CONTEXT.md</a> — domain vocabulary</li>
-        <li><a href="../adr/README.md">Architecture decision records</a></li>
         <li><a href="../../e2e/README.md">E2E harness</a> — <code>bun run test:e2e</code></li>
         <li><a href="https://github.com/simpros/sprout">simpros/sprout</a> on GitHub</li>
       </ul>
