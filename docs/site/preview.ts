@@ -6,7 +6,8 @@
  * static-file semantics against exactly what Pages will serve — no URL
  * remapping, no repo-only paths.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, normalize, resolve } from "node:path";
 import { assembleSite, repoRootDir, siteEntryPath } from "./assemble.ts";
@@ -22,8 +23,18 @@ function docsPort(): number {
 }
 
 const siteRoot = await mkdtemp(join(tmpdir(), "sprout-docs-preview-"));
-process.on("SIGINT", () => void rm(siteRoot, { recursive: true, force: true }));
-process.on("SIGTERM", () => void rm(siteRoot, { recursive: true, force: true }));
+// Clean synchronously, then exit: without process.exit the server keeps
+// running after Ctrl+C, and an async rm would race process teardown.
+function shutdown(): never {
+  try {
+    rmSync(siteRoot, { recursive: true, force: true });
+  } catch {
+    // Best effort — temp cleanup must not mask the shutdown signal.
+  }
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
 
 await assembleSite(repoRootDir, siteRoot);
 await check(await defaultCheckPaths(siteRoot));
