@@ -9,9 +9,9 @@
  *
  * Standing rule: ADRs are maintainer internals and MUST NEVER reach the
  * consumer surface. `check` therefore also fails closed on any ADR file or
- * ADR mention in the assembled tree (see `isAdrPath` / `findAdrMention`).
- * Keep `docs/adr` out of the publish manifest in assemble.ts and keep ADR
- * pointers out of every published page.
+ * ADR mention in the assembled tree (see `assertNoAdrLeaks`; policy lives
+ * in `adr-policy.ts`). Keep `docs/adr` out of the publish manifest in
+ * assemble.ts and keep ADR pointers out of every published page.
  *
  * Pages is a static file host: a link target must be a file (a directory
  * only counts when it carries its own index.html — Pages serves that, but
@@ -22,6 +22,9 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { assembleSite, listFilesRecursive, repoRootDir } from "./assemble.ts";
+import { findAdrMention, isAdrHref, isAdrPath } from "./adr-policy.ts";
+
+export { findAdrMention, isAdrHref, isAdrPath };
 
 export type CheckPaths = {
   rootDir: string;
@@ -104,29 +107,66 @@ export function extractMarkdownDestinations(text: string): string[] {
 }
 
 /**
- * True when a published relative path is an ADR file: any path segment
- * equals `adr` (case-insensitive), covering `docs/adr/...` regardless of
- * where the artifact root sits.
+ * ADR exclusion gate: every artifact path is path-checked (any extension —
+ * not just checked pages), then every page body is scanned for the forbidden
+ * vocabulary and ADR-shaped href targets. Throws on the first build-breaking
+ * leak set so an ADR leak reports as such even when its target is also
+ * missing from the artifact.
  */
-export function isAdrPath(relPath: string): boolean {
-  return relPath
-    .split("/")
-    .some((segment) => segment.toLowerCase() === "adr");
-}
+export async function assertNoAdrLeaks(paths: CheckPaths): Promise<void> {
+  const adrLeaks: string[] = [];
 
-/**
- * First ADR mention in page text, if any. Matches the standalone word
- * `ADR`/`ADRs` (any case, so `see ADR 0007` and `adrs` both trip) or an
- * `adr/` link prefix (any case, so `docs/adr/`, `../adr/` both trip).
- * The `\b` / `/` anchors keep ordinary words like `address` green.
- */
-export function findAdrMention(text: string): string | null {
-  const re = /\bADRs?\b|adr\//i;
-  const match = re.exec(text);
-  return match ? match[0]! : null;
+  for (const abs of await listFilesRecursive(paths.rootDir)) {
+    const rel = abs.slice(paths.rootDir.length + 1);
+    if (isAdrPath(rel)) {
+      adrLeaks.push(`ADR file in consumer surface: ${rel}`);
+    }
+  }
+
+  const pages = await Promise.all([
+    ...paths.htmlFiles.map(async (file) => {
+      const text = await readFile(file, "utf8");
+      return { file, text, hrefs: extractHtmlHrefs(text) };
+    }),
+    ...paths.markdownFiles.map(async (file) => {
+      const text = await readFile(file, "utf8");
+      return { file, text, hrefs: extractMarkdownDestinations(text) };
+    }),
+  ]);
+  for (const { file, text, hrefs } of pages) {
+    const rel = file.slice(paths.rootDir.length + 1);
+    if (isAdrPath(rel)) continue;
+    // Mention scan sees prose only: href destinations are stripped so an
+    // `adr/...` target reports as an ADR *link* below, not a mention.
+    // (`/` is a word boundary, so the raw `\bADRs?\b` ban would otherwise
+    // fire on every ADR-shaped href too.)
+    const prose = file.endsWith(".html")
+      ? text.replace(/href="[^"]*"/g, 'href=""')
+      : text.replace(/\[([^\]]*)\]\(([^)]+)\)/g, "$1");
+    const mention = findAdrMention(prose);
+    if (mention) {
+      adrLeaks.push(`ADR mention in ${rel}: ${JSON.stringify(mention)}`);
+    }
+    for (const href of hrefs) {
+      if (isAdrHref(href)) {
+        adrLeaks.push(`ADR link in ${rel}: ${JSON.stringify(href)}`);
+      }
+    }
+  }
+
+  if (adrLeaks.length > 0) {
+    throw new Error(
+      `ADR leak (ADRs are maintainer internals, never consumer docs):\n${adrLeaks.join("\n")}`,
+    );
+  }
 }
 
 export async function check(paths: CheckPaths): Promise<void> {
+  // ADR policy first, so a leak reports as such even when its target is
+  // also missing from the artifact; link asserts below stay a pure dead-link
+  // gate with no special-case branch.
+  await assertNoAdrLeaks(paths);
+
   // Read every page body before starting any link assert, so no assert
   // promise can reject while a later readFile await is still in flight
   // (Bun would report that as an unhandled rejection).
@@ -140,29 +180,6 @@ export async function check(paths: CheckPaths): Promise<void> {
       return { file, text, hrefs: extractMarkdownDestinations(text) };
     }),
   ]);
-
-  // Standing rule: ADRs never ship to consumers. Fail closed on ADR files
-  // or ADR mentions so a re-added `docs/adr` publish entry or a stray
-  // `see ADR …` pointer breaks the docs build instead of leaking. Runs
-  // before link asserts so an ADR leak reports as such even when its
-  // target is also missing from the artifact.
-  const adrLeaks: string[] = [];
-  for (const { file, text } of pages) {
-    const rel = file.slice(paths.rootDir.length + 1);
-    if (isAdrPath(rel)) {
-      adrLeaks.push(`ADR file in consumer surface: ${rel}`);
-      continue;
-    }
-    const mention = findAdrMention(text);
-    if (mention) {
-      adrLeaks.push(`ADR mention in ${rel}: ${JSON.stringify(mention)}`);
-    }
-  }
-  if (adrLeaks.length > 0) {
-    throw new Error(
-      `ADR leak (ADRs are maintainer internals, never consumer docs):\n${adrLeaks.join("\n")}`,
-    );
-  }
 
   const results = await Promise.allSettled(
     pages.flatMap(({ file, hrefs }) =>

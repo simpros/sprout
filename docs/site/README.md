@@ -39,9 +39,11 @@ an already-assembled tree in place.
 
 ADRs are maintainer internals, not consumer docs: `docs/adr` stays out of
 the publish manifest, and no published page may link to or mention ADRs.
-`docs/site/check.ts` enforces this structurally — any ADR file
-(`docs/adr/...`) or ADR mention (`ADR`, `ADRs`, `adr/...` in any case)
-in the assembled tree fails the docs build.
+`docs/site/check.ts` enforces this structurally via `assertNoAdrLeaks`
+(policy in `docs/site/adr-policy.ts`): any file under an `adr` path segment
+(any extension, not just HTML/markdown pages), any standalone `ADR`/`ADRs`
+word in a published page, or any artifact-relative href pointing at an
+`adr` path in the assembled tree fails the docs build.
 
 ## GitHub Pages
 

@@ -10,6 +10,7 @@ import {
   siteEntryPath,
 } from "./assemble.ts";
 import { check, defaultCheckPaths } from "./check.ts";
+import { isAdrPath } from "./adr-policy.ts";
 import { writeCorpusFixture } from "./test-fixture.ts";
 
 describe("publish manifest", () => {
@@ -22,7 +23,7 @@ describe("publish manifest", () => {
   test("keeps ADRs out of the consumer surface", () => {
     expect(publishDirs).not.toContain("docs/adr");
     for (const entry of [...publishFiles, ...publishDirs]) {
-      expect(entry.toLowerCase().split("/")).not.toContain("adr");
+      expect(isAdrPath(entry)).toBe(false);
     }
   });
 
@@ -66,7 +67,7 @@ describe("assembleSite", () => {
       expect(published).toContain(rel);
       expect((await stat(join(out, rel))).isFile()).toBe(true);
     }
-    expect(published.every((p) => !p.split("/").includes("adr"))).toBe(true);
+    expect(published.every((p) => !isAdrPath(p))).toBe(true);
     expect(await readFile(join(out, "index.html"), "utf8")).toBe(
       rootRedirectHtml(),
     );
@@ -91,7 +92,7 @@ describe("assembleSite", () => {
 
     const published = await assembleSite(repo, out);
 
-    expect(published.every((p) => !p.split("/").includes("adr"))).toBe(true);
+    expect(published.every((p) => !isAdrPath(p))).toBe(true);
     await expect(stat(join(out, "docs", "adr", "README.md"))).rejects.toThrow();
     await check(await defaultCheckPaths(out));
   });
