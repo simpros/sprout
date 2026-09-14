@@ -160,9 +160,18 @@ sprout-preview:
 sprout-stop-preview:
   extends: .sprout-cli
   stage: $[[ inputs.stage ]]
+  # Optional manual stop: `when: manual` at job level (NOT inside `rules`)
+  # keeps MR pipelines green with zero clicks and no `allow_failure`
+  # band-aid — job-level manual defaults to optional, while `when: manual`
+  # inside `rules` defaults to blocking (#163). The job stays playable on
+  # demand and GitLab auto-runs this `on_stop` target on MR close/merge +
+  # `auto_stop_in` expiry (the deploy job's `environment: on_stop` is the
+  # trigger wire — `on_stop` only fires when the deploying job defines an
+  # environment). Both jobs share the same `rules` condition so the stop
+  # target exists in every pipeline that deploys.
+  when: manual
   rules:
     - if: $CI_MERGE_REQUEST_IID
-      when: manual
   environment:
     name: preview/mr-$CI_MERGE_REQUEST_IID
     action: stop

@@ -92,6 +92,25 @@ describe("preview component contract", () => {
     expect(jobs["sprout-stop-preview"].environment.action).toBe("stop");
   });
 
+  test("manual stop never blocks pipeline success (#163)", () => {
+    const { jobs } = componentDocs();
+    const stop = jobs["sprout-stop-preview"];
+    // Blocking manual (when: manual INSIDE rules) leaves MR pipelines at
+    // `manual` and breaks auto-merge/MWPS. Job-level `when: manual` defaults
+    // to optional, so the pipeline reaches `success` with zero clicks and no
+    // `allow_failure` band-aid — while staying playable on demand and
+    // auto-runnable on MR close/merge + auto_stop_in expiry via the deploy
+    // job's `environment: on_stop` wire.
+    expect(stop.when).toBe("manual");
+    expect(stop.rules).toEqual([{ if: "$CI_MERGE_REQUEST_IID" }]);
+    expect(stop).not.toHaveProperty("allow_failure");
+    // Same inclusion condition on both jobs: the stop target exists in every
+    // pipeline that deploys, so GitLab can trigger it on environment stop.
+    expect(stop.rules).toEqual(jobs["sprout-preview"].rules);
+    // The deploy job must still block on failure: no allow_failure there.
+    expect(jobs["sprout-preview"]).not.toHaveProperty("allow_failure");
+  });
+
   test("dotenv artifact feeds environment:url; auto_stop_in is an input", () => {
     const { jobs } = componentDocs();
     expect(jobs["sprout-preview"].artifacts.reports.dotenv).toBe(
