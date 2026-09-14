@@ -41,10 +41,10 @@ jobs:
           bun-version: 1.4.0
       - name: Install
         run: bun install --frozen-lockfile
-      - name: Link check
-        run: bun run docs:check
       - name: Assemble Pages artifact
         run: bun run docs:assemble
+      - name: Link check
+        run: bun run docs/site/check.ts _site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

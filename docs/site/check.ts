@@ -1,9 +1,10 @@
 /**
  * Link checker for the published docs site.
  *
- * The checked tree is the Pages artifact, not the repo: `checkPublishedSite`
- * assembles the publish set (see assemble.ts) into a temp dir and validates
- * every published HTML/markdown page there. Green docs:check therefore means
+ * The checked tree is the Pages artifact, not the repo: check roots are
+ * discovered by walking the assembled tree for HTML/markdown pages, and
+ * `checkPublishedSite` assembles the publish set (see assemble.ts) into a
+ * temp dir before validating it there. Green docs:check therefore means
  * the Pages URLs resolve.
  *
  * Pages is a static file host: a link target must be a file (a directory
@@ -11,19 +12,10 @@
  * never a generated listing). This intentionally differs from GitHub's UI,
  * which renders bare directory links.
  */
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-  assembleSite,
-  listPublishedMarkdown,
-  repoRootDir,
-  siteEntryPath,
-} from "./assemble.ts";
-
-const siteDir = dirname(fileURLToPath(import.meta.url));
-const defaultRootDir = resolve(siteDir, "../..");
+import { assembleSite, repoRootDir } from "./assemble.ts";
 
 export type CheckPaths = {
   rootDir: string;
@@ -31,14 +23,28 @@ export type CheckPaths = {
   markdownFiles: string[];
 };
 
+/** Check roots: every HTML/markdown page in the assembled tree. */
 export async function defaultCheckPaths(
-  rootDir = defaultRootDir,
+  rootDir = repoRootDir,
 ): Promise<CheckPaths> {
-  return {
-    rootDir,
-    htmlFiles: [join(rootDir, siteEntryPath)],
-    markdownFiles: await listPublishedMarkdown(rootDir),
-  };
+  const htmlFiles: string[] = [];
+  const markdownFiles: string[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) await walk(abs);
+      else if (entry.isFile()) {
+        if (abs.endsWith(".html")) htmlFiles.push(abs);
+        else if (abs.endsWith(".md")) markdownFiles.push(abs);
+      }
+    }
+  }
+
+  await walk(rootDir);
+  htmlFiles.sort();
+  markdownFiles.sort();
+  return { rootDir, htmlFiles, markdownFiles };
 }
 
 /** Static-host rule: a file, or a directory served via its index.html. */
@@ -59,11 +65,7 @@ async function siteTargetExists(path: string): Promise<boolean> {
   }
 }
 
-async function assertHref(
-  href: string,
-  fromFile: string,
-  exists: (path: string) => Promise<boolean>,
-): Promise<void> {
+async function assertHref(href: string, fromFile: string): Promise<void> {
   if (
     href.startsWith("http://") ||
     href.startsWith("https://") ||
@@ -77,7 +79,7 @@ async function assertHref(
   if (!pathPart) return;
 
   const resolved = resolve(dirname(fromFile), pathPart);
-  if (!(await exists(resolved))) {
+  if (!(await siteTargetExists(resolved))) {
     throw new Error(`dead link in ${fromFile}: ${href} → ${resolved}`);
   }
 }
@@ -103,34 +105,30 @@ export function extractMarkdownDestinations(text: string): string[] {
 }
 
 export async function check(paths: CheckPaths): Promise<void> {
-  // Attach handlers at push time: without this, a fast-rejecting link
-  // check would sit unhandled while later readFile awaits run, and Bun
-  // reports it as an unhandled rejection before allSettled attaches.
-  const jobs: Promise<string | null>[] = [];
-  const track = (job: Promise<void>): void => {
-    jobs.push(
-      job.then(
-        () => null,
-        (reason) => (reason instanceof Error ? reason.message : String(reason)),
-      ),
-    );
-  };
+  // Read every page body before starting any link assert, so no assert
+  // promise can reject while a later readFile await is still in flight
+  // (Bun would report that as an unhandled rejection).
+  const pages = await Promise.all([
+    ...paths.htmlFiles.map(async (file) => ({
+      file,
+      hrefs: extractHtmlHrefs(await readFile(file, "utf8")),
+    })),
+    ...paths.markdownFiles.map(async (file) => ({
+      file,
+      hrefs: extractMarkdownDestinations(await readFile(file, "utf8")),
+    })),
+  ]);
 
-  for (const htmlFile of paths.htmlFiles) {
-    const html = await readFile(htmlFile, "utf8");
-    for (const href of extractHtmlHrefs(html)) {
-      track(assertHref(href, htmlFile, siteTargetExists));
-    }
-  }
-
-  for (const mdFile of paths.markdownFiles) {
-    const text = await readFile(mdFile, "utf8");
-    for (const href of extractMarkdownDestinations(text)) {
-      track(assertHref(href, mdFile, siteTargetExists));
-    }
-  }
-
-  const failures = (await Promise.all(jobs)).filter((f) => f !== null);
+  const results = await Promise.allSettled(
+    pages.flatMap(({ file, hrefs }) =>
+      hrefs.map((href) => assertHref(href, file)),
+    ),
+  );
+  const failures = results.flatMap((r) =>
+    r.status === "rejected"
+      ? [r.reason instanceof Error ? r.reason.message : String(r.reason)]
+      : [],
+  );
   if (failures.length > 0) {
     throw new Error(`dead links:\n${failures.join("\n")}`);
   }
@@ -159,5 +157,10 @@ export async function checkPublishedSite(
 }
 
 if (import.meta.main) {
-  await checkPublishedSite();
+  // With a directory argument, check that assembled tree in place (CI
+  // assembles once, then gates the artifact it will upload). Without one,
+  // assemble to a temp dir and check that (local `bun run docs:check`).
+  const [siteRootArg] = process.argv.slice(2);
+  if (siteRootArg) await check(await defaultCheckPaths(resolve(siteRootArg)));
+  else await checkPublishedSite();
 }

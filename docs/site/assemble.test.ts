@@ -45,6 +45,9 @@ describe("assembleSite", () => {
 
     const published = await assembleSite(repo, out);
 
+    // One manifest, no overlapping entries: every path published exactly once.
+    expect(new Set(published).size).toBe(published.length);
+
     for (const rel of [
       "docs/adoption.md",
       "docs/adr/0001-thing.md",
@@ -61,7 +64,10 @@ describe("assembleSite", () => {
       rootRedirectHtml(),
     );
 
-    // The artifact — not the repo — is what the gate validates.
-    await check(await defaultCheckPaths(out));
+    // The artifact — not the repo — is what the gate validates, and the
+    // root redirect is part of the checked HTML set.
+    const paths = await defaultCheckPaths(out);
+    expect(paths.htmlFiles).toContain(join(out, "index.html"));
+    await check(paths);
   });
 });

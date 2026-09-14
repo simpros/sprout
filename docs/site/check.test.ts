@@ -62,6 +62,15 @@ describe("defaultCheckPaths", () => {
     await check(await defaultCheckPaths(root));
   });
 
+  test("covers the root redirect links", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(join(root, "index.html"), `<a href="docs/site/nope.html">x</a>`);
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
+      /dead link/,
+    );
+  });
+
   test("fails on a dead link in adoption.md", async () => {
     root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
     await writeCorpusFixture(root);

@@ -1,11 +1,13 @@
 /**
  * Single manifest for the published docs corpus.
  *
- * Both the Pages artifact builder and the link checker derive from this
- * module, so the checked tree and the published tree cannot drift apart:
- * assemble copies exactly the published set (preserving repo-relative
- * paths, so relative hrefs resolve identically), and the checker validates
- * that assembled tree with static-host semantics.
+ * `publishFiles` + `publishDirs` is the sole allowlist: the Pages artifact
+ * builder copies exactly this set (preserving repo-relative paths, so
+ * relative hrefs resolve identically), and the checker discovers its check
+ * roots by walking the assembled tree — so the checked tree and the
+ * published tree cannot drift apart. There is no second markdown list and
+ * no ADR special case: `docs/adr` is published wholesale like the other
+ * deep-link trees.
  */
 import { cp, copyFile, mkdir, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -17,7 +19,11 @@ export const repoRootDir = resolve(siteDir, "../..");
 /** URL path of the docs front door, relative to the site root. */
 export const siteEntryPath = "docs/site/index.html";
 
-/** Repo-relative files published to Pages with a verbatim layout. */
+/**
+ * Repo-relative files published to Pages with a verbatim layout.
+ * Directory trees below cover their own members (including READMEs), so
+ * only standalone files are listed here.
+ */
 export const publishFiles = [
   "README.md",
   "CONTEXT.md",
@@ -26,8 +32,6 @@ export const publishFiles = [
   "docs/deploy.md",
   "docs/adoption.md",
   "docs/site/index.html",
-  "docs/adr/README.md",
-  "examples/adopting-repo/README.md",
   "e2e/README.md",
   "deploy/traefik/README.md",
   "deploy/traefik/certificates-resolver.dns.yml",
@@ -37,12 +41,15 @@ export const publishFiles = [
 
 /**
  * Repo-relative directories published wholesale. Deep links from published
- * pages (adoption.md → templates, adopting-repo scripts/workflows) keep
- * working without tracking each target file here.
+ * pages (adoption.md → templates, adopting-repo scripts/workflows, ADR
+ * index → individual ADRs) keep working without tracking each target file
+ * here.
  */
-export const publishDirs = ["templates", "examples/adopting-repo"];
-
-const adrDirRel = "docs/adr";
+export const publishDirs = [
+  "templates",
+  "examples/adopting-repo",
+  "docs/adr",
+];
 
 async function walkFiles(root: string, rel: string, out: string[]): Promise<void> {
   for (const entry of await readdir(join(root, rel), { withFileTypes: true })) {
@@ -50,24 +57,6 @@ async function walkFiles(root: string, rel: string, out: string[]): Promise<void
     if (entry.isDirectory()) await walkFiles(root, child, out);
     else out.push(child);
   }
-}
-
-/** Markdown pages inside the published trees that carry checkable links. */
-export async function listPublishedMarkdown(repoRoot: string): Promise<string[]> {
-  const rel = [
-    "README.md",
-    "CONTEXT.md",
-    "docs/deploy.md",
-    "docs/adoption.md",
-    "examples/adopting-repo/README.md",
-    "e2e/README.md",
-    "deploy/traefik/README.md",
-    "templates/README.md",
-  ];
-  for (const entry of await readdir(join(repoRoot, adrDirRel))) {
-    if (entry.endsWith(".md")) rel.push(join(adrDirRel, entry));
-  }
-  return [...new Set(rel)].sort().map((p) => join(repoRoot, p));
 }
 
 /** Root redirect equivalent to the docs:preview `/` → entry redirect. */
@@ -104,15 +93,6 @@ export async function assembleSite(
     await mkdir(dirname(dest), { recursive: true });
     await copyFile(join(repoRoot, file), dest);
     published.push(file);
-  }
-
-  for (const entry of await readdir(join(repoRoot, adrDirRel))) {
-    if (entry === "README.md" || !entry.endsWith(".md")) continue;
-    const rel = join(adrDirRel, entry);
-    const dest = join(outDir, rel);
-    await mkdir(dirname(dest), { recursive: true });
-    await copyFile(join(repoRoot, rel), dest);
-    published.push(rel);
   }
 
   for (const dir of publishDirs) {
