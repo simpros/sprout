@@ -18,22 +18,25 @@ export function isAdrPath(relPath: string): boolean {
 
 /**
  * First standalone `ADR`/`ADRs` word in page text, if any. Case-insensitive,
- * so `see ADR 0007` and `adrs` both trip. The `\b` anchors keep ordinary
- * words like `address` green. Path-in-text (`adr/...`) is intentionally NOT
- * matched here — href targets are checked via `isAdrHref` and leaked ADR
- * files via `isAdrPath`, so this stays a pure vocabulary ban.
+ * so `see ADR 0007` and `adrs` both trip. Boundaries exclude word chars AND
+ * `/`, so `adr/...` path segments in raw text do NOT match here — href
+ * targets are checked via `isAdrHref` and leaked ADR files via `isAdrPath`,
+ * so this stays a pure vocabulary ban. Ordinary words like `address` stay
+ * green via the `\w` lookarounds.
  */
 export function findAdrMention(text: string): string | null {
-  const match = /\bADRs?\b/i.exec(text);
+  const match = /(?<![\w/])ADRs?(?![\w/])/i.exec(text);
   return match ? match[0]! : null;
 }
 
 /**
- * True when an extracted href points at an ADR path. Skips external targets,
- * mailto, and pure anchors — only artifact-relative links can be ADR leaks.
+ * True when an extracted href points at an ADR path. Skips external targets
+ * (including protocol-relative `//` URLs), mailto, and pure anchors — only
+ * artifact-relative links can be ADR leaks.
  */
 export function isAdrHref(href: string): boolean {
   if (
+    href.startsWith("//") ||
     href.startsWith("http://") ||
     href.startsWith("https://") ||
     href.startsWith("mailto:") ||

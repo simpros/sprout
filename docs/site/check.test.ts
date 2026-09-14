@@ -131,17 +131,17 @@ describe("ADR exclusion (standing rule: never consumer docs)", () => {
     expect(isAdrPath("README.md")).toBe(false);
   });
 
-  test("findAdrMention bans the word, with / as a word boundary", () => {
+  test("findAdrMention bans the word, not adr path segments", () => {
     expect(findAdrMention("See docs/adoption.md for details.")).toBeNull();
     expect(findAdrMention("Postal address: 123 Main St.")).toBeNull();
     expect(findAdrMention("see ADR 0007")).not.toBeNull();
     expect(findAdrMention("see ADR-0007")).not.toBeNull();
     expect(findAdrMention("our ADRs live elsewhere")).not.toBeNull();
-    // `/` is a non-word char, so `\bADRs?\b` also fires on an `adr` path
-    // segment in raw text. `isAdrHref` exists so the gate can still report
-    // those as ADR links rather than bare mentions.
-    expect(findAdrMention("[decisions](docs/adr/README.md)")).not.toBeNull();
-    expect(findAdrMention('<a href="../adr/README.md">x</a>')).not.toBeNull();
+    // `/` counts as part of a path token, so an `adr` path segment in raw
+    // text is not a vocabulary hit — those report as ADR links via
+    // `isAdrHref`, or as ADR files via `isAdrPath`.
+    expect(findAdrMention("[decisions](docs/adr/README.md)")).toBeNull();
+    expect(findAdrMention('<a href="../adr/README.md">x</a>')).toBeNull();
   });
 
   test("isAdrHref flags artifact-relative ADR targets only", () => {
@@ -152,6 +152,7 @@ describe("ADR exclusion (standing rule: never consumer docs)", () => {
     expect(isAdrHref("#adr")).toBe(false);
     expect(isAdrHref("mailto:someone@example.com")).toBe(false);
     expect(isAdrHref("https://example.com/docs/adr/x.md")).toBe(false);
+    expect(isAdrHref("//cdn.example/docs/adr/x.md")).toBe(false);
   });
 
   test("fails closed when an ADR file lands in the tree", async () => {
