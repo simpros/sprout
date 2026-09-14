@@ -150,7 +150,8 @@ instance):
 ## Verification status
 
 Static checks in this repo (`templates/preview.test.ts`: required inputs,
-both CLI entrypoints, dotenv/`on_stop`/`auto_stop_in` wiring, dind service,
+both CLI entrypoints, dotenv/`on_stop`/`auto_stop_in` wiring, optional
+manual stop (#163), dind service,
 registry login, checksum verification, YAML-parse of the component plus
 shell-syntax check of all three embedded scripts):
 
