@@ -2,6 +2,7 @@
   "name": "@sprout/cli",
   "version": "0.5.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "bin": {
     "sprout": "./src/index.ts"

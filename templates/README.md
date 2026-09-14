@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
 # sprout GitLab CI/CD component: `preview`
 
 One-include previews for GitLab merge-request pipelines. The component is a

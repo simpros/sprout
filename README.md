@@ -100,3 +100,7 @@ bun run dev          # gateway watch
 bun test
 bun run build        # typecheck + docs links
 ```
+
+## License
+
+AGPL-3.0-only — see [LICENSE](LICENSE).
