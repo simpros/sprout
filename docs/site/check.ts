@@ -12,10 +12,10 @@
  * never a generated listing). This intentionally differs from GitHub's UI,
  * which renders bare directory links.
  */
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { assembleSite, repoRootDir } from "./assemble.ts";
+import { assembleSite, listFilesRecursive, repoRootDir } from "./assemble.ts";
 
 export type CheckPaths = {
   rootDir: string;
@@ -23,27 +23,20 @@ export type CheckPaths = {
   markdownFiles: string[];
 };
 
-/** Check roots: every HTML/markdown page in the assembled tree. */
-export async function defaultCheckPaths(
-  rootDir = repoRootDir,
-): Promise<CheckPaths> {
+/**
+ * Check roots: every HTML/markdown page in the assembled tree. Takes the
+ * assembled site root explicitly — there is no repo-root default, so a bare
+ * call can never silently reintroduce "check the repo, not the artifact".
+ */
+export async function defaultCheckPaths(rootDir: string): Promise<CheckPaths> {
   const htmlFiles: string[] = [];
   const markdownFiles: string[] = [];
 
-  async function walk(dir: string): Promise<void> {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const abs = join(dir, entry.name);
-      if (entry.isDirectory()) await walk(abs);
-      else if (entry.isFile()) {
-        if (abs.endsWith(".html")) htmlFiles.push(abs);
-        else if (abs.endsWith(".md")) markdownFiles.push(abs);
-      }
-    }
+  for (const abs of await listFilesRecursive(rootDir)) {
+    if (abs.endsWith(".html")) htmlFiles.push(abs);
+    else if (abs.endsWith(".md")) markdownFiles.push(abs);
   }
 
-  await walk(rootDir);
-  htmlFiles.sort();
-  markdownFiles.sort();
   return { rootDir, htmlFiles, markdownFiles };
 }
 
