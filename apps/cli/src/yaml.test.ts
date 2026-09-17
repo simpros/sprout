@@ -601,8 +601,7 @@ preview:
     });
   });
 
-  test("parses seed env and args", () => {
-    const result = parseSproutYaml(`
+  test("parses seed env and args", () => {    const result = parseSproutYaml(`
 slug: myapp
 seed:
   dockerfile: Dockerfile.seed
@@ -654,6 +653,69 @@ preview:
         preview: { hostname: "pr-{pr_id}.example.com" },
         seed: { dockerfile: "Dockerfile.seed" },
       },
+    });
+  });
+
+  test("parses seed inputs", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+seed:
+  dockerfile: Dockerfile.seed
+  inputs:
+    - Dockerfile.seed
+    - docker-seed-entrypoint.sh
+    - bun.lock
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+        seed: {
+          dockerfile: "Dockerfile.seed",
+          inputs: [
+            "Dockerfile.seed",
+            "docker-seed-entrypoint.sh",
+            "bun.lock",
+          ],
+        },
+      },
+    });
+  });
+
+  test("empty seed inputs are absent (default reuse key applies)", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+seed:
+  dockerfile: Dockerfile.seed
+  inputs: []
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+        seed: { dockerfile: "Dockerfile.seed" },
+      },
+    });
+  });
+
+  test("rejects malformed seed inputs", () => {
+    const base = (extra: string) =>
+      parseSproutYaml(
+        `slug: myapp\npreview:\n  hostname: "pr-{pr_id}.example.com"\n${extra}`,
+      );
+    expect(base("seed:\n  inputs: not-a-list\n")).toEqual({
+      ok: false,
+      error: "seed.inputs must be a list",
+    });
+    expect(base("seed:\n  inputs:\n    - ''\n")).toEqual({
+      ok: false,
+      error: "seed.inputs[0] is required",
     });
   });
 });

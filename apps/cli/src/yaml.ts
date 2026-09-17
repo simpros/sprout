@@ -39,14 +39,19 @@ export type SproutBuild = SproutDockerfileBlock;
 
 /**
  * Seed image build config. When present, `sprout ci preview` builds + pushes
- * the seed image (tag = app tag + a `-seed` suffix, same repository) and
- * deploys with `-s`. Defaults the Dockerfile to `Dockerfile.seed`. `env` uses the same
- * value grammar as `preview.app_env` (strings with `{hostname}` /
+ * the seed image (tag = `seed-<shorthash>` suffix on the same repository,
+ * content-addressed over `inputs`) and deploys with `-s`. Defaults the
+ * Dockerfile to `Dockerfile.seed`. `inputs` defaults to the seed Dockerfile
+ * plus the package manifest / lockfile present in the repo (see
+ * `defaultSeedInputs`); set it explicitly to pin the reuse key (seed
+ * Dockerfile, entrypoint/script, migrations, lockfile, …). `env` uses the
+ * same value grammar as `preview.app_env` (strings with `{hostname}` /
  * `{pr_id}` / `{commit_sha}`, `{ generate: stable_per_pr }`, `{ required:
  * true }`); `args` are extra seed container args (yaml first, then
  * `--seed-arg` flags).
  */
 export type SproutSeed = SproutDockerfileBlock & {
+  inputs?: string[];
   env?: Record<string, ManifestEnvValue>;
   args?: string[];
 };
@@ -92,7 +97,7 @@ const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 const SERVICE_KEYS = new Set(["name", "image", "hostname", "path"]);
 const DOCKERFILE_KEYS = new Set(["dockerfile"]);
-const SEED_KEYS = new Set(["dockerfile", "env", "args"]);
+const SEED_KEYS = new Set(["dockerfile", "inputs", "env", "args"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -304,6 +309,26 @@ function parseSeedArgs(raw: unknown): Result<string[] | undefined> {
 }
 
 /**
+ * Absent or empty list → undefined (the reuse key falls back to
+ * `defaultSeedInputs`). Each entry is a repo-relative path whose contents
+ * feed the seed tag hash.
+ */
+function parseSeedInputs(raw: unknown): Result<string[] | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (!Array.isArray(raw)) {
+    return { ok: false, error: "seed.inputs must be a list" };
+  }
+  if (raw.length === 0) return { ok: true, value: undefined };
+  const out: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const input = requireString(raw[i], `seed.inputs[${i}]`);
+    if (!input.ok) return input;
+    out.push(input.value);
+  }
+  return { ok: true, value: out };
+}
+
+/**
  * Absent block → undefined. Present without `dockerfile` → the conventional
  * `Dockerfile.seed` default, so `seed: {}` enables seeding without spelling
  * out the convention.
@@ -322,11 +347,14 @@ function parseSeedBlock(raw: unknown): Result<SproutSeed | undefined> {
     "Dockerfile.seed",
   );
   if (!dockerfile.ok) return dockerfile;
+  const inputs = parseSeedInputs(raw.inputs);
+  if (!inputs.ok) return inputs;
   const env = parseAppEnv(raw.env, "seed.env");
   if (!env.ok) return env;
   const args = parseSeedArgs(raw.args);
   if (!args.ok) return args;
   const value: SproutSeed = { dockerfile: dockerfile.value };
+  if (inputs.value) value.inputs = inputs.value;
   if (env.value) value.env = env.value;
   if (args.value) value.args = args.value;
   return { ok: true, value };

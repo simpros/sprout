@@ -17,6 +17,12 @@ import {
 } from "./deploy-core.ts";
 import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
 import { publishPreviewNote, warnForgeNote } from "./forge-note.ts";
+import {
+  readSeedContents,
+  resolveSeedImageRef,
+  seedImageExists,
+  shortSeedHash,
+} from "./seed-image.ts";
 
 /** Log lines dumped from the gateway on a failed deploy. */
 export const DEFAULT_CI_PREVIEW_TAIL = 200;
@@ -26,28 +32,6 @@ export const DEFAULT_CI_PREVIEW_TAIL = 200;
  * `artifacts:reports:dotenv` picks up `PREVIEW_URL` for `environment:url`.
  */
 export const DEFAULT_PREVIEW_DOTENV_FILE = "sprout-preview.env";
-
-/**
- * Derive the seed tag from the app tag: `<registry-path>:<sha>-seed`
- * (same repository, distinct tag). Scoped push credentials (GitLab
- * `CI_JOB_TOKEN`, least-privilege registry credentials) can only write
- * under the project's own repository, so a sibling `-seed` repository
- * path is denied. The app tag always comes from the pipeline convention
- * (`CI_REGISTRY_IMAGE` + SHA), so it always carries a `:tag` suffix.
- */
-export function resolveSeedImageRef(appImageRef: string): Result<string> {
-  const cut = appImageRef.lastIndexOf(":");
-  if (cut <= 0 || cut === appImageRef.length - 1) {
-    return {
-      ok: false,
-      error: `cannot derive seed image ref from ${appImageRef}`,
-    };
-  }
-  return {
-    ok: true,
-    value: `${appImageRef}-seed`,
-  };
-}
 
 /**
  * `docker build -f <dockerfile> -t <ref> .` then `docker push <ref>`.
@@ -84,10 +68,11 @@ async function buildAndPush(
 
 /**
  * `sprout ci preview` — build + push the app image (and the seed image when
- * `.sprout.yaml` configures `seed`), deploy with the resolved env, and on a
- * healthy preview emit `preview_url=` plus the dotenv artifact. On failure
- * the gateway log tail is printed first, then the deploy error exits
- * non-zero. Settling reuses `postDeployAndWait` — there is no second deploy
+ * `.sprout.yaml` configures `seed`, reusing the pushed tag when the seed
+ * inputs are unchanged), deploy with the resolved env, and on a healthy
+ * preview emit `preview_url=` plus the dotenv artifact. On failure the
+ * gateway log tail is printed first, then the deploy error exits non-zero.
+ * Settling reuses `postDeployAndWait` — there is no second deploy
  * implementation here.
  */
 export async function runCiPreview(
@@ -103,6 +88,7 @@ export async function runCiPreview(
     "--seed-arg",
     "--service",
     "--clear-services",
+    "--reseed",
     "--tail",
     "--dotenv-file",
   ]);
@@ -129,7 +115,8 @@ export async function runCiPreview(
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
 
   const appDockerfile = yaml.value.build?.dockerfile ?? "Dockerfile";
-  const seedDockerfile = yaml.value.seed?.dockerfile;
+  const seedBlock = yaml.value.seed;
+  const seedDockerfile = seedBlock?.dockerfile;
   // Intentional preflight: fail before docker build/push. The assembler
   // re-checks the same gate (keyed off the resolved seed image) as the
   // canonical owner; service-flag validation lives there too.
@@ -138,17 +125,46 @@ export async function runCiPreview(
     seedSource: "seed",
   });
   if (!seedGate.ok) return fail(ctx.deps.io, seedGate.error);
+  if (flags.value.reseed && !seedDockerfile) {
+    return fail(ctx.deps.io, "--reseed requires a seed block in .sprout.yaml");
+  }
+
+  // Content-addressed seed ref, resolved before any docker work so an
+  // unreadable reuse-key file fails fast (same preflight posture as the
+  // health gate above).
+  let seedRef: string | undefined;
+  if (seedBlock && seedDockerfile) {
+    const contents = await readSeedContents(
+      seedBlock,
+      ctx.deps.cwd,
+      ctx.deps.readTextFile,
+    );
+    if (!contents.ok) return fail(ctx.deps.io, contents.error);
+    const ref = resolveSeedImageRef(
+      identity.imageRef,
+      shortSeedHash(contents.value),
+    );
+    if (!ref.ok) return fail(ctx.deps.io, ref.error);
+    seedRef = ref.value;
+  }
 
   const app = await buildAndPush(ctx, "app", appDockerfile, identity.imageRef);
   if (!app.ok) return fail(ctx.deps.io, app.error);
 
   let seedImage: string | undefined;
-  if (seedDockerfile) {
-    const ref = resolveSeedImageRef(identity.imageRef);
-    if (!ref.ok) return fail(ctx.deps.io, ref.error);
-    const seed = await buildAndPush(ctx, "seed", seedDockerfile, ref.value);
-    if (!seed.ok) return fail(ctx.deps.io, seed.error);
-    seedImage = ref.value;
+  if (seedDockerfile && seedRef) {
+    // Reuse gate: skip seed build + push when the content-addressed tag is
+    // already in the registry. Only an exit-0 inspect reuses — an absent
+    // tag, a failed check, or an unsupported docker degrades to build+push,
+    // never a silent skip.
+    if (await seedImageExists(ctx, seedRef)) {
+      ctx.deps.io.stdout(`seed image reused: ${seedRef}`);
+      seedImage = seedRef;
+    } else {
+      const seed = await buildAndPush(ctx, "seed", seedDockerfile, seedRef);
+      if (!seed.ok) return fail(ctx.deps.io, seed.error);
+      seedImage = seedRef;
+    }
   }
 
   const previewInputs: BuildDeployRequestInputs = seedImage
@@ -159,12 +175,14 @@ export async function runCiPreview(
         seedArg: flags.value.seedArg,
         service: flags.value.service,
         clearServices: flags.value.clearServices,
+        reseed: flags.value.reseed,
       }
     : {
         appImage: identity.imageRef,
         seedArg: flags.value.seedArg,
         service: flags.value.service,
         clearServices: flags.value.clearServices,
+        reseed: flags.value.reseed,
       };
   const assembled = buildDeployRequest(yaml.value, identity, previewInputs);
   if (!assembled.ok) return fail(ctx.deps.io, assembled.error);

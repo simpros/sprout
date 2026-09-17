@@ -75,8 +75,11 @@ What you get:
 
 - `sprout-preview` job (merge-request pipelines only): installs the pinned,
   checksum-verified `sprout` binary (version = component version), builds +
-  pushes the app image (`CI_REGISTRY_IMAGE:<SHA>`) and the seed image (same
-  repository, `<SHA>-seed` tag suffix), deploys, writes `PREVIEW_URL=` to the
+  pushes the app image (`CI_REGISTRY_IMAGE:<SHA>`) and — when `.sprout.yaml`
+  sets `seed` — the seed image (same repository, `seed-<shorthash>` tag
+  suffix content-addressed over `seed.inputs`; an authenticated
+  `docker manifest inspect` skips the build + push when that tag already
+  exists and logs `seed image reused: <ref>`), deploys, writes `PREVIEW_URL=` to the
   `sprout-preview.env` dotenv artifact that feeds `environment:url`, and
   best-effort posts/updates the MR note with the preview URL (forge failures
   only warn with the forge's error body, never the token). The URL comes from the
@@ -101,7 +104,7 @@ everything else is manual (run from a merge-request pipeline or laptop):
 
 | Component job | CLI call | Owns |
 |---|---|---|
-| `sprout-preview` | `sprout ci preview --tail … --dotenv-file … [--app-env-file …] [--seed-env-file …]` | Install check aside, the CLI builds + pushes the app image (and the seed image when `.sprout.yaml` sets `seed`), deploys, writes `PREVIEW_URL=` to the dotenv artifact, dumps the gateway log tail on failure, and posts/updates the MR note (best-effort). |
+| `sprout-preview` | `sprout ci preview --tail … --dotenv-file … [--app-env-file …] [--seed-env-file …] [--reseed]` | Install check aside, the CLI builds + pushes the app image and — when `.sprout.yaml` sets `seed` — the seed image unless its content-addressed tag already exists in the registry (reuse is logged; a failed check rebuilds), deploys (with `--reseed` when the flag is passed), writes `PREVIEW_URL=` to the dotenv artifact, dumps the gateway log tail on failure, and posts/updates the MR note (best-effort). |
 | `sprout-stop-preview` | `sprout ci teardown` (no flags) | Idempotent teardown; rewrites the MR note in place ("preview was removed"). No Docker daemon, no registry login on this path. |
 
 Manual helpers (never called by the component): `sprout ci reseed -s …`
@@ -138,6 +141,7 @@ pointers live in [Test coverage](#test-coverage-maintainers).
 | `health.expect` | when seeding | `200` | Expected status (100–599). Gates the after-healthy seed hook. |
 | `build.dockerfile` | no | `Dockerfile` | App Dockerfile for `sprout ci preview`. An empty `build: {}` takes the default. |
 | `seed.dockerfile` | when `seed:` present | `Dockerfile.seed` | Seed Dockerfile. An empty `seed: {}` takes the default and enables seeding. |
+| `seed.inputs` | no | seed Dockerfile + manifest/lockfile present | Repo-relative paths whose contents key seed-image reuse (seed Dockerfile, entrypoint/script, migrations, lockfile, …). Sorted with paths folded into a sha256; the seed tag is `<registry-path>:seed-<12-hex>`. When absent, the Dockerfile plus whichever of `package.json` / `bun.lock[b]` / `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` exists is hashed. |
 | `seed.env` | no | — | Seed-only env (same grammar and layering as `preview.app_env`). |
 | `seed.args` | no | — | Seed container args (yaml first, then `--seed-arg` flags appended). |
 
@@ -269,6 +273,7 @@ contract; test pointers live in [Test coverage](#test-coverage-maintainers).
 | | `--clear-services` | Remove all companions (`services: []` on the API). Cannot combine with `--service`. |
 | | `--tail N` | Gateway log lines printed when the deploy fails (default `200`; must be a positive integer, checked before building). |
 | | `--dotenv-file PATH` | Dotenv artifact the CLI writes `PREVIEW_URL=` to (default `sprout-preview.env`, relative to the workspace root). Emitted only once the preview is healthy. |
+| | `--reseed` | Force the gateway to re-run the seed against the existing database (requires a `seed` block). Needed when the seed inputs changed on an existing MR: the new content-addressed tag deploys, but the gateway skips seeding while `seeded_at` is set. Without seed changes, omit it — a reused image still seeds every fresh PR (`seeded_at` unset). |
 | `sprout ci teardown` | *(no flags — extra args are rejected)* | Tear down this MR's preview. Idempotent; rewrites the MR note in place ("preview was removed"). Note failures only warn so gateway success owns the exit code. |
 | `sprout ci reseed` | `-s <seed-image>` (required) | Re-run the seed job against the existing database (no image build; app tag from `CI_REGISTRY_IMAGE` + SHA). Body is a reseed request, so companions stay as last deployed by construction. |
 | | `--seed-env`, `--seed-env-file`, `--seed-arg`, `--app-env`, `--app-env-file` | Same env layering as `preview` (yaml + blob + files + flags). |
@@ -431,6 +436,7 @@ parse errors name the key or file without echoing the value.
 | Seed fails | `seed_failed` (exit code or `timeout` in `last_error_detail`); app **stays up** and routable, `seeded_at` unset | Fix the seed image and redeploy with `-s` (resume path — no Traefik replace when image + hostname are unchanged). Seed wall-clock is `SPROUT_SEED_TIMEOUT` (default `180s`); health timeout is separate and never starts the seed. |
 | Redeploy after a failed seed without `-s` | `422 seed_image_required_to_resume_seeding` | Redeploy with `-s` (resume needs the seed image); `--reseed` is not required for first-seed failure resume. Tear down only for a fresh database, not fresh fixtures. |
 | Synchronize deploy skips seeding | no error; `seeded_at` already set | Pass `--reseed` with `-s` (or `sprout ci reseed -s …`) to force a re-seed against the existing database. A failed reseed clears `seeded_at` and keeps the app up. |
+| Seed inputs changed but fixtures look stale | job log shows a new `seed-<shorthash>` tag built, yet no seed run | Same `seeded_at` short-circuit with a new tag: run the pipeline once with `sprout ci preview --reseed` (or `sprout ci reseed -s <ref>`). See [After-healthy hook](#after-healthy-hook-seed-image). |
 | `sprout ci reseed` without an image | `ci reseed requires -s <seed-image>` | Pass `-s` with the seed image; reseed runs against the existing database without rebuilding. |
 
 ## App image: migrate at startup
@@ -532,8 +538,12 @@ no `wait-for-postgres` / sleep loops in the seed path to wait for migrations.
 
 With the component you declare it once in `.sprout.yaml` (quickstart) and
 never pass `-s` in CI — `sprout ci preview` builds + pushes the seed image
-(tag = app tag + a `-seed` suffix, same repository) and deploys with it.
-The low-level equivalent is `sprout deploy -i … -s …` with
+(tag = `seed-<shorthash>` suffix on the same repository, content-addressed
+over `seed.inputs`) and deploys with it. When the tag already exists in the
+registry the build + push is skipped (`seed image reused: <ref>` in the job
+log) and the existing image deploys; a failed or unsupported registry check
+rebuilds instead of skipping. The low-level equivalent is
+`sprout deploy -i … -s …` with
 `--seed-env` / `--seed-arg`:
 
 ```bash
@@ -553,6 +563,16 @@ To force a re-seed against the existing database without tearing down, pass
 ```bash
 sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" --reseed
 ```
+
+With `sprout ci preview` the same flag applies (`sprout ci preview
+--reseed`). Adopting pipelines need it exactly once per seed change: when
+`seed.inputs` change on an existing MR, the new tag builds, pushes, and
+deploys, but the gateway skips the seed run because that PR already seeded
+(`seeded_at` set) — `--reseed` clears the way for one run. Fresh MRs never
+need it (first seed always runs), and syncs without seed changes reuse the
+image with no flag. The component does not pass `--reseed` itself; add it to
+the `sprout ci preview` invocation (component override or hand-rolled job)
+for the pipeline that lands the seed change, then remove it.
 
 ## Multi-image previews (app + services)
 
@@ -715,8 +735,10 @@ tests):
 - CLI env layering (yaml + blob + files + flags):
   `apps/cli/src/commands/deploy-env.test.ts` (CLI side),
   `apps/server/src/http/deploy-env.test.ts` (gateway side)
-- `sprout ci preview` (builds, service flags, seed env/args, tail, dotenv,
-  health gate): `apps/cli/src/commands/ci-preview.test.ts`
+- `sprout ci preview` (builds, seed content-hash + reuse gate, `--reseed`,
+  service flags, seed env/args, tail, dotenv, health gate):
+  `apps/cli/src/commands/ci-preview.test.ts`,
+  `apps/cli/src/commands/seed-image.test.ts`
 - `sprout ci` identity (both forges, detached/non-MR refusal):
   `apps/cli/src/commands/ci.test.ts`,
   `apps/cli/src/commands/ci-identity.test.ts`
