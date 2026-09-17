@@ -76,10 +76,11 @@ What you get:
 - `sprout-preview` job (merge-request pipelines only): installs the pinned,
   checksum-verified `sprout` binary (version = component version), builds +
   pushes the app image (`CI_REGISTRY_IMAGE:<SHA>`) and — when `.sprout.yaml`
-  sets `seed` — the seed image (same repository, `seed-<shorthash>` tag
-  suffix content-addressed over `seed.inputs`; an authenticated
-  `docker manifest inspect` skips the build + push when that tag already
-  exists and logs `seed image reused: <ref>`), deploys, writes `PREVIEW_URL=` to the
+  sets `seed` — the seed image (same repository; commit-scoped
+  `<SHA>-seed` tag rebuilt on every run, or — with explicit `seed.inputs` —
+  a `seed-<shorthash>` tag content-addressed over those inputs, where an
+  authenticated `docker manifest inspect` skips the build + push when that
+  tag already exists and logs `seed image reused: <ref>`), deploys, writes `PREVIEW_URL=` to the
   `sprout-preview.env` dotenv artifact that feeds `environment:url`, and
   best-effort posts/updates the MR note with the preview URL (forge failures
   only warn with the forge's error body, never the token). The URL comes from the
@@ -104,7 +105,7 @@ everything else is manual (run from a merge-request pipeline or laptop):
 
 | Component job | CLI call | Owns |
 |---|---|---|
-| `sprout-preview` | `sprout ci preview --tail … --dotenv-file … [--app-env-file …] [--seed-env-file …] [--reseed]` | Install check aside, the CLI builds + pushes the app image and — when `.sprout.yaml` sets `seed` — the seed image unless its content-addressed tag already exists in the registry (reuse is logged; a failed check rebuilds), deploys (with `--reseed` when the flag is passed), writes `PREVIEW_URL=` to the dotenv artifact, dumps the gateway log tail on failure, and posts/updates the MR note (best-effort). |
+| `sprout-preview` | `sprout ci preview --tail … --dotenv-file … [--app-env-file …] [--seed-env-file …] [--reseed]` | Install check aside, the CLI builds + pushes the app image and — when `.sprout.yaml` sets `seed` — the seed image (always rebuilt, unless explicit `seed.inputs` opt into content-addressed reuse: an existing tag skips the rebuild, reuse is logged, a failed check rebuilds), deploys (with `--reseed` when the flag is passed), writes `PREVIEW_URL=` to the dotenv artifact, dumps the gateway log tail on failure, and posts/updates the MR note (best-effort). |
 | `sprout-stop-preview` | `sprout ci teardown` (no flags) | Idempotent teardown; rewrites the MR note in place ("preview was removed"). No Docker daemon, no registry login on this path. |
 
 Manual helpers (never called by the component): `sprout ci reseed -s …`
@@ -141,7 +142,7 @@ pointers live in [Test coverage](#test-coverage-maintainers).
 | `health.expect` | when seeding | `200` | Expected status (100–599). Gates the after-healthy seed hook. |
 | `build.dockerfile` | no | `Dockerfile` | App Dockerfile for `sprout ci preview`. An empty `build: {}` takes the default. |
 | `seed.dockerfile` | when `seed:` present | `Dockerfile.seed` | Seed Dockerfile. An empty `seed: {}` takes the default and enables seeding. |
-| `seed.inputs` | no | seed Dockerfile + manifest/lockfile present | Repo-relative paths whose contents key seed-image reuse (seed Dockerfile, entrypoint/script, migrations, lockfile, …). Sorted with paths folded into a sha256; the seed tag is `<registry-path>:seed-<12-hex>`. When absent, the Dockerfile plus whichever of `package.json` / `bun.lock[b]` / `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` exists is hashed. |
+| `seed.inputs` | no | — (always rebuild) | Repo-relative paths whose contents key seed-image reuse (seed Dockerfile, entrypoint/script, migrations, lockfile, …). Sorted with paths folded into a sha256; the seed tag is `<registry-path>:seed-<12-hex>`. Without `inputs` the tag is commit-scoped (`<SHA>-seed`) and the seed image is rebuilt on every run — set `inputs` explicitly to opt into reuse, listing every COPY source the seed image depends on. |
 | `seed.env` | no | — | Seed-only env (same grammar and layering as `preview.app_env`). |
 | `seed.args` | no | — | Seed container args (yaml first, then `--seed-arg` flags appended). |
 

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import type { CliContext } from "../context.ts";
 import {
-  DEFAULT_SEED_LOCKFILES,
-  defaultSeedInputs,
+  ensureSeedImage,
   readSeedContents,
+  resolveCommitSeedImageRef,
   resolveSeedImageRef,
   SEED_TAG_HASH_LEN,
   shortSeedHash,
@@ -39,14 +40,18 @@ describe("shortSeedHash", () => {
   });
 });
 
-describe("defaultSeedInputs", () => {
-  test("starts with the seed Dockerfile plus lockfile candidates", () => {
-    const inputs = defaultSeedInputs("Dockerfile.seed");
-    expect(inputs[0]).toBe("Dockerfile.seed");
-    for (const lockfile of DEFAULT_SEED_LOCKFILES) {
-      expect(inputs).toContain(lockfile);
-    }
-    expect(inputs).toContain("package.json");
+describe("resolveCommitSeedImageRef", () => {
+  test("derives the commit-scoped tag suffix", () => {
+    expect(
+      resolveCommitSeedImageRef("registry.example.com/group/app:abc123"),
+    ).toEqual({
+      ok: true,
+      value: "registry.example.com/group/app:abc123-seed",
+    });
+  });
+
+  test("refuses a ref without a tag", () => {
+    expect(resolveCommitSeedImageRef("registry/app").ok).toBe(false);
   });
 });
 
@@ -61,14 +66,14 @@ describe("resolveSeedImageRef", () => {
   });
 });
 
-describe("readSeedContents", () => {
-  const files = (entries: Record<string, string>) => async (
-    path: string,
-  ): Promise<string | null> => {
-    const name = path.split("/").at(-1)!;
-    return entries[name] ?? null;
-  };
+const files = (entries: Record<string, string>) => async (
+  path: string,
+): Promise<string | null> => {
+  const name = path.split("/").at(-1)!;
+  return entries[name] ?? null;
+};
 
+describe("readSeedContents", () => {
   test("explicit inputs are all required", async () => {
     const result = await readSeedContents(
       { dockerfile: "Dockerfile.seed", inputs: ["Dockerfile.seed", "seed.ts"] },
@@ -93,23 +98,7 @@ describe("readSeedContents", () => {
     });
   });
 
-  test("defaults skip absent lockfiles but require the Dockerfile", async () => {
-    const hashed = await readSeedContents(
-      { dockerfile: "Dockerfile.seed" },
-      "/repo",
-      files({
-        "Dockerfile.seed": "FROM x\n",
-        "package.json": "{}\n",
-      }),
-    );
-    expect(hashed).toEqual({
-      ok: true,
-      value: [
-        { path: "Dockerfile.seed", content: "FROM x\n" },
-        { path: "package.json", content: "{}\n" },
-      ],
-    });
-
+  test("the seed Dockerfile is always required", async () => {
     const missing = await readSeedContents(
       { dockerfile: "Dockerfile.seed" },
       "/repo",
@@ -119,5 +108,131 @@ describe("readSeedContents", () => {
       ok: false,
       error: "seed input not readable: Dockerfile.seed",
     });
+  });
+
+  test("the Dockerfile is folded into explicit inputs once", async () => {
+    const result = await readSeedContents(
+      {
+        dockerfile: "Dockerfile.seed",
+        inputs: ["Dockerfile.seed", "entrypoint.sh"],
+      },
+      "/repo",
+      files({ "Dockerfile.seed": "FROM x\n", "entrypoint.sh": "#!/bin/sh\n" }),
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        { path: "Dockerfile.seed", content: "FROM x\n" },
+        { path: "entrypoint.sh", content: "#!/bin/sh\n" },
+      ],
+    });
+  });
+});
+
+describe("ensureSeedImage", () => {
+  const SEED_FILES = { "Dockerfile.seed": "FROM x\n" };
+
+  function fakeCtx(opts: {
+    files?: Record<string, string>;
+    manifestExit?: number;
+  }): { ctx: CliContext; calls: string[][]; stdout: string[] } {
+    const calls: string[][] = [];
+    const stdout: string[] = [];
+    const ctx = {
+      deps: {
+        env: {},
+        cwd: "/repo",
+        readTextFile: files(opts.files ?? SEED_FILES),
+        getGitRemoteUrl: () => null,
+        createClient: () => {
+          throw new Error("unused");
+        },
+        runCommand: async (argv: string[]) => {
+          calls.push(argv);
+          if (argv[1] === "manifest") {
+            return { exitCode: opts.manifestExit ?? 1 };
+          }
+          return { exitCode: 0 };
+        },
+        io: {
+          stdout: (line: string) => stdout.push(line),
+          stderr: () => {},
+        },
+      },
+      client: {},
+    } as unknown as CliContext;
+    return { ctx, calls, stdout };
+  }
+
+  const APP_REF = "registry.example.com/group/app:abc123";
+
+  test("without inputs always builds + pushes the commit-scoped tag", async () => {
+    // Even when the registry probe would succeed, the commit path never
+    // inspects — reuse is opt-in on explicit inputs.
+    const { ctx, calls, stdout } = fakeCtx({ manifestExit: 0 });
+    const result = await ensureSeedImage(
+      ctx,
+      { dockerfile: "Dockerfile.seed" },
+      APP_REF,
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        ref: "registry.example.com/group/app:abc123-seed",
+        reused: false,
+      },
+    });
+    expect(calls).toEqual([
+      ["docker", "build", "-f", "Dockerfile.seed", "-t", "registry.example.com/group/app:abc123-seed", "."],
+      ["docker", "push", "registry.example.com/group/app:abc123-seed"],
+    ]);
+    expect(stdout).toEqual([]);
+  });
+
+  test("with inputs reuses the content-addressed tag on probe hit", async () => {
+    const { ctx, calls, stdout } = fakeCtx({ manifestExit: 0 });
+    const result = await ensureSeedImage(
+      ctx,
+      { dockerfile: "Dockerfile.seed", inputs: ["Dockerfile.seed"] },
+      APP_REF,
+    );
+    const ref = `registry.example.com/group/app:seed-${shortSeedHash([
+      { path: "Dockerfile.seed", content: "FROM x\n" },
+    ])}`;
+    expect(result).toEqual({ ok: true, value: { ref, reused: true } });
+    expect(calls).toEqual([["docker", "manifest", "inspect", ref]]);
+    expect(stdout).toEqual([`seed image reused: ${ref}`]);
+  });
+
+  test("with inputs builds + pushes on probe miss", async () => {
+    const { ctx, calls, stdout } = fakeCtx({ manifestExit: 1 });
+    const result = await ensureSeedImage(
+      ctx,
+      { dockerfile: "Dockerfile.seed", inputs: ["Dockerfile.seed"] },
+      APP_REF,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.reused).toBe(false);
+    expect(calls).toEqual([
+      ["docker", "manifest", "inspect", result.value.ref],
+      ["docker", "build", "-f", "Dockerfile.seed", "-t", result.value.ref, "."],
+      ["docker", "push", result.value.ref],
+    ]);
+    expect(stdout).toEqual([]);
+  });
+
+  test("with inputs fails before docker on unreadable entries", async () => {
+    const { ctx, calls } = fakeCtx({ files: SEED_FILES });
+    const result = await ensureSeedImage(
+      ctx,
+      { dockerfile: "Dockerfile.seed", inputs: ["missing.sh"] },
+      APP_REF,
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: "seed input not readable: missing.sh",
+    });
+    expect(calls).toEqual([]);
   });
 });

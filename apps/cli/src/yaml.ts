@@ -39,16 +39,18 @@ export type SproutBuild = SproutDockerfileBlock;
 
 /**
  * Seed image build config. When present, `sprout ci preview` builds + pushes
- * the seed image (tag = `seed-<shorthash>` suffix on the same repository,
- * content-addressed over `inputs`) and deploys with `-s`. Defaults the
- * Dockerfile to `Dockerfile.seed`. `inputs` defaults to the seed Dockerfile
- * plus the package manifest / lockfile present in the repo (see
- * `defaultSeedInputs`); set it explicitly to pin the reuse key (seed
- * Dockerfile, entrypoint/script, migrations, lockfile, …). `env` uses the
- * same value grammar as `preview.app_env` (strings with `{hostname}` /
- * `{pr_id}` / `{commit_sha}`, `{ generate: stable_per_pr }`, `{ required:
- * true }`); `args` are extra seed container args (yaml first, then
- * `--seed-arg` flags).
+ * the seed image and deploys with `-s`. Defaults the Dockerfile to
+ * `Dockerfile.seed`. Without `inputs` the tag is commit-scoped
+ * (`<app-tag>-seed`) and the image is always rebuilt — correct, no false
+ * reuse. With explicit `inputs` the tag is content-addressed
+ * (`:seed-<shorthash>` over the seed Dockerfile plus every listed path) and
+ * the build + push is skipped when the tag already exists in the registry;
+ * list every COPY source the seed image depends on (seed Dockerfile,
+ * entrypoint/script, migrations, lockfile, …). `env` uses the same value
+ * grammar as `preview.app_env` (strings with `{hostname}` / `{pr_id}` /
+ * `{commit_sha}`, `{ generate: stable_per_pr }`, `{ required: true }`);
+ * `args` are extra seed container args (yaml first, then `--seed-arg`
+ * flags).
  */
 export type SproutSeed = SproutDockerfileBlock & {
   inputs?: string[];
@@ -292,38 +294,25 @@ function parseDockerfileBlock(
   return { ok: true, value: { dockerfile: dockerfile.value } };
 }
 
-/** Absent or empty list → undefined. Each entry must be a non-empty string. */
-function parseSeedArgs(raw: unknown): Result<string[] | undefined> {
-  if (raw === undefined) return { ok: true, value: undefined };
-  if (!Array.isArray(raw)) {
-    return { ok: false, error: "seed.args must be a list" };
-  }
-  if (raw.length === 0) return { ok: true, value: undefined };
-  const out: string[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const arg = requireString(raw[i], `seed.args[${i}]`);
-    if (!arg.ok) return arg;
-    out.push(arg.value);
-  }
-  return { ok: true, value: out };
-}
-
 /**
- * Absent or empty list → undefined (the reuse key falls back to
- * `defaultSeedInputs`). Each entry is a repo-relative path whose contents
- * feed the seed tag hash.
+ * Absent or empty list → undefined. Each entry must be a non-empty string.
+ * Shared by `seed.args` and `seed.inputs` so the next list field does not
+ * clone the loop a third time.
  */
-function parseSeedInputs(raw: unknown): Result<string[] | undefined> {
+function parseStringList(
+  raw: unknown,
+  path: string,
+): Result<string[] | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!Array.isArray(raw)) {
-    return { ok: false, error: "seed.inputs must be a list" };
+    return { ok: false, error: `${path} must be a list` };
   }
   if (raw.length === 0) return { ok: true, value: undefined };
   const out: string[] = [];
   for (let i = 0; i < raw.length; i++) {
-    const input = requireString(raw[i], `seed.inputs[${i}]`);
-    if (!input.ok) return input;
-    out.push(input.value);
+    const item = requireString(raw[i], `${path}[${i}]`);
+    if (!item.ok) return item;
+    out.push(item.value);
   }
   return { ok: true, value: out };
 }
@@ -347,11 +336,11 @@ function parseSeedBlock(raw: unknown): Result<SproutSeed | undefined> {
     "Dockerfile.seed",
   );
   if (!dockerfile.ok) return dockerfile;
-  const inputs = parseSeedInputs(raw.inputs);
+  const inputs = parseStringList(raw.inputs, "seed.inputs");
   if (!inputs.ok) return inputs;
   const env = parseAppEnv(raw.env, "seed.env");
   if (!env.ok) return env;
-  const args = parseSeedArgs(raw.args);
+  const args = parseStringList(raw.args, "seed.args");
   if (!args.ok) return args;
   const value: SproutSeed = { dockerfile: dockerfile.value };
   if (inputs.value) value.inputs = inputs.value;

@@ -1,12 +1,10 @@
 import type { CliContext } from "../context.ts";
 import {
-  defaultRunCommand,
   defaultWriteTextFile,
   fail,
   loadYaml,
 } from "../context.ts";
 import { parseFlags } from "../flags.ts";
-import type { Result } from "../result.ts";
 import type { CiPreviewIdentity } from "./ci-identity.ts";
 import {
   applyDeployEnv,
@@ -17,12 +15,7 @@ import {
 } from "./deploy-core.ts";
 import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
 import { publishPreviewNote, warnForgeNote } from "./forge-note.ts";
-import {
-  readSeedContents,
-  resolveSeedImageRef,
-  seedImageExists,
-  shortSeedHash,
-} from "./seed-image.ts";
+import { buildAndPush, ensureSeedImage } from "./seed-image.ts";
 
 /** Log lines dumped from the gateway on a failed deploy. */
 export const DEFAULT_CI_PREVIEW_TAIL = 200;
@@ -34,42 +27,9 @@ export const DEFAULT_CI_PREVIEW_TAIL = 200;
 export const DEFAULT_PREVIEW_DOTENV_FILE = "sprout-preview.env";
 
 /**
- * `docker build -f <dockerfile> -t <ref> .` then `docker push <ref>`.
- * The docker CLI inherits the job env, so dind (`DOCKER_HOST`, TLS) and
- * registry auth work unchanged. Build output streams to the job log;
- * only the exit code is captured.
- */
-async function buildAndPush(
-  ctx: CliContext,
-  label: string,
-  dockerfile: string,
-  ref: string,
-): Promise<Result<true>> {
-  const run = ctx.deps.runCommand ?? defaultRunCommand;
-  const build = await run(
-    ["docker", "build", "-f", dockerfile, "-t", ref, "."],
-    { cwd: ctx.deps.cwd },
-  );
-  if (build.exitCode !== 0) {
-    return {
-      ok: false,
-      error: `${label} image build failed (exit ${build.exitCode})`,
-    };
-  }
-  const push = await run(["docker", "push", ref], { cwd: ctx.deps.cwd });
-  if (push.exitCode !== 0) {
-    return {
-      ok: false,
-      error: `${label} image push failed (exit ${push.exitCode})`,
-    };
-  }
-  return { ok: true, value: true };
-}
-
-/**
  * `sprout ci preview` — build + push the app image (and the seed image when
- * `.sprout.yaml` configures `seed`, reusing the pushed tag when the seed
- * inputs are unchanged), deploy with the resolved env, and on a healthy
+ * `.sprout.yaml` configures `seed`: always rebuilt without `seed.inputs`,
+ * reused by content-addressed tag with them), deploy with the resolved env, and on a healthy
  * preview emit `preview_url=` plus the dotenv artifact. On failure the
  * gateway log tail is printed first, then the deploy error exits non-zero.
  * Settling reuses `postDeployAndWait` — there is no second deploy
@@ -116,55 +76,30 @@ export async function runCiPreview(
 
   const appDockerfile = yaml.value.build?.dockerfile ?? "Dockerfile";
   const seedBlock = yaml.value.seed;
-  const seedDockerfile = seedBlock?.dockerfile;
   // Intentional preflight: fail before docker build/push. The assembler
   // re-checks the same gate (keyed off the resolved seed image) as the
-  // canonical owner; service-flag validation lives there too.
+  // canonical owner; service-flag validation lives there too. A present
+  // seed block always carries a dockerfile (the parser defaults it), so
+  // presence alone gates seeding.
   const seedGate = requireHealthWhenSeeding(yaml.value, {
-    hasSeed: Boolean(seedDockerfile),
+    hasSeed: Boolean(seedBlock),
     seedSource: "seed",
   });
   if (!seedGate.ok) return fail(ctx.deps.io, seedGate.error);
-  if (flags.value.reseed && !seedDockerfile) {
+  if (flags.value.reseed && !seedBlock) {
     return fail(ctx.deps.io, "--reseed requires a seed block in .sprout.yaml");
-  }
-
-  // Content-addressed seed ref, resolved before any docker work so an
-  // unreadable reuse-key file fails fast (same preflight posture as the
-  // health gate above).
-  let seedRef: string | undefined;
-  if (seedBlock && seedDockerfile) {
-    const contents = await readSeedContents(
-      seedBlock,
-      ctx.deps.cwd,
-      ctx.deps.readTextFile,
-    );
-    if (!contents.ok) return fail(ctx.deps.io, contents.error);
-    const ref = resolveSeedImageRef(
-      identity.imageRef,
-      shortSeedHash(contents.value),
-    );
-    if (!ref.ok) return fail(ctx.deps.io, ref.error);
-    seedRef = ref.value;
   }
 
   const app = await buildAndPush(ctx, "app", appDockerfile, identity.imageRef);
   if (!app.ok) return fail(ctx.deps.io, app.error);
 
+  // Seed image (commit-scoped rebuild or content-addressed reuse) resolves
+  // before the deploy is assembled, so seed failures exit before deploying.
   let seedImage: string | undefined;
-  if (seedDockerfile && seedRef) {
-    // Reuse gate: skip seed build + push when the content-addressed tag is
-    // already in the registry. Only an exit-0 inspect reuses — an absent
-    // tag, a failed check, or an unsupported docker degrades to build+push,
-    // never a silent skip.
-    if (await seedImageExists(ctx, seedRef)) {
-      ctx.deps.io.stdout(`seed image reused: ${seedRef}`);
-      seedImage = seedRef;
-    } else {
-      const seed = await buildAndPush(ctx, "seed", seedDockerfile, seedRef);
-      if (!seed.ok) return fail(ctx.deps.io, seed.error);
-      seedImage = seedRef;
-    }
+  if (seedBlock) {
+    const seed = await ensureSeedImage(ctx, seedBlock, identity.imageRef);
+    if (!seed.ok) return fail(ctx.deps.io, seed.error);
+    seedImage = seed.value.ref;
   }
 
   const previewInputs: BuildDeployRequestInputs = seedImage

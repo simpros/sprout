@@ -121,6 +121,22 @@ health:
   expect: 200
 `;
 
+const SEEDED_INPUTS_YAML = `slug: myapp
+build:
+  dockerfile: Dockerfile
+seed:
+  dockerfile: Dockerfile.seed
+  inputs:
+    - Dockerfile.seed
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+`;
+
 const GITLAB_MR_ENV = {
   CI_PROJECT_URL: "https://gitlab.com/group/repo",
   CI_MERGE_REQUEST_IID: "17",
@@ -131,6 +147,7 @@ const GITLAB_MR_ENV = {
 
 const APP_REF = "registry.gitlab.com/group/repo:abc123";
 
+// Explicit `seed.inputs`: content-addressed tag over the listed paths.
 function seedRefFor(content: string): string {
   return `registry.gitlab.com/group/repo:seed-${shortSeedHash([
     { path: "Dockerfile.seed", content },
@@ -138,6 +155,9 @@ function seedRefFor(content: string): string {
 }
 
 const SEED_DOCKERFILE = "FROM oven/bun:1.4.0\n";
+// No `seed.inputs`: commit-scoped tag, always rebuilt, never probed.
+const COMMIT_SEED_REF = `${APP_REF}-seed`;
+
 const SEED_REF = seedRefFor(SEED_DOCKERFILE);
 
 function healthyGateway() {
@@ -199,12 +219,12 @@ describe("sprout ci preview", () => {
     );
     expect(code).toBe(0);
     expect(stderr).toEqual([]);
+    // No `seed.inputs`: commit-scoped tag, always rebuilt, never probed.
     expect(dockerCalls).toEqual([
       ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
       ["docker", "push", APP_REF],
-      ["docker", "manifest", "inspect", SEED_REF],
-      ["docker", "build", "-f", "Dockerfile.seed", "-t", SEED_REF, "."],
-      ["docker", "push", SEED_REF],
+      ["docker", "build", "-f", "Dockerfile.seed", "-t", COMMIT_SEED_REF, "."],
+      ["docker", "push", COMMIT_SEED_REF],
     ]);
     expect(captured).toHaveLength(1);
     expect(captured[0]?.body).toMatchObject({
@@ -213,7 +233,7 @@ describe("sprout ci preview", () => {
       slug: "myapp",
       hostname: "pr-17.myapp.preview.example.com",
       app_image: APP_REF,
-      seed_image: SEED_REF,
+      seed_image: COMMIT_SEED_REF,
     });
     expect(stdout).toEqual([
       "preview_url=https://pr-17.myapp.preview.example.com",
@@ -271,8 +291,7 @@ describe("sprout ci preview", () => {
     expect(dockerCalls).toEqual([
       ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
       ["docker", "push", APP_REF],
-      ["docker", "manifest", "inspect", SEED_REF],
-      ["docker", "build", "-f", "Dockerfile.seed", "-t", SEED_REF, "."],
+      ["docker", "build", "-f", "Dockerfile.seed", "-t", COMMIT_SEED_REF, "."],
     ]);
     expect(captured).toEqual([]);
     expect(written).toEqual({});
@@ -519,7 +538,7 @@ health:
     expect(captured).toHaveLength(1);
     expect(captured[0]?.body).toMatchObject({
       app_image: APP_REF,
-      seed_image: SEED_REF,
+      seed_image: COMMIT_SEED_REF,
       seed_env: [
         "FIXTURE_SET=demo",
         "SEED_URL=https://pr-17.myapp.preview.example.com",
@@ -580,7 +599,7 @@ preview:
       if (argv[1] === "manifest") return 0;
       return argv.includes("Dockerfile.seed") ? 1 : 0;
     };
-    const cwd = await withWorkspace(SEEDED_YAML, {
+    const cwd = await withWorkspace(SEEDED_INPUTS_YAML, {
       "Dockerfile.seed": SEED_DOCKERFILE,
     });
     const code = await runCli(
@@ -613,12 +632,57 @@ preview:
     );
   });
 
+  test("without seed inputs the registry is never probed: always rebuild", async () => {
+    const baseUrl = healthyGateway();
+    // Even a present tag must not skip the seed build — reuse is opt-in on
+    // explicit `seed.inputs`. A probe hit here would wrongly reuse a stale
+    // image after an entrypoint / seed-script change.
+    dockerBehavior = (argv) => {
+      if (argv[1] === "manifest") return 0;
+      return 0;
+    };
+    const cwd = await withWorkspace(SEEDED_YAML, {
+      "Dockerfile.seed": SEED_DOCKERFILE,
+    });
+    const code = await runCli(
+      ["ci", "preview"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(dockerCalls).toEqual([
+      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
+      ["docker", "push", APP_REF],
+      [
+        "docker",
+        "build",
+        "-f",
+        "Dockerfile.seed",
+        "-t",
+        COMMIT_SEED_REF,
+        ".",
+      ],
+      ["docker", "push", COMMIT_SEED_REF],
+    ]);
+    expect(stdout).toEqual([
+      "preview_url=https://pr-17.myapp.preview.example.com",
+    ]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      app_image: APP_REF,
+      seed_image: COMMIT_SEED_REF,
+    });
+  });
+
   test("changed seed inputs produce a new tag and build + push", async () => {
     const baseUrl = healthyGateway();
-    const first = await withWorkspace(SEEDED_YAML, {
+    const first = await withWorkspace(SEEDED_INPUTS_YAML, {
       "Dockerfile.seed": "FROM oven/bun:1.4.0\n",
     });
-    const second = await withWorkspace(SEEDED_YAML, {
+    const second = await withWorkspace(SEEDED_INPUTS_YAML, {
       "Dockerfile.seed": "FROM oven/bun:1.5.0\n",
     });
     const run = (cwd: string) =>
@@ -657,7 +721,7 @@ preview:
     // Unsupported docker (`manifest` unknown) exits non-zero like an
     // absent tag — the seed must still build.
     dockerBehavior = (argv) => (argv[1] === "manifest" ? 125 : 0);
-    const cwd = await withWorkspace(SEEDED_YAML, {
+    const cwd = await withWorkspace(SEEDED_INPUTS_YAML, {
       "Dockerfile.seed": SEED_DOCKERFILE,
     });
     const code = await runCli(
@@ -680,7 +744,7 @@ preview:
     expect(captured[0]?.body).toMatchObject({ seed_image: SEED_REF });
   });
 
-  test("unreadable seed input fails before any docker work", async () => {
+  test("unreadable seed input fails after app push, before seed or deploy", async () => {
     const baseUrl = healthyGateway();
     const cwd = await withWorkspace(
       `slug: myapp
@@ -711,7 +775,12 @@ health:
     expect(stderr).toEqual([
       "seed input not readable: missing-entrypoint.sh",
     ]);
-    expect(dockerCalls).toEqual([]);
+    // The app still builds first (one seam owns the whole seed pipeline);
+    // nothing seed-related runs and nothing deploys.
+    expect(dockerCalls).toEqual([
+      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
+      ["docker", "push", APP_REF],
+    ]);
     expect(captured).toEqual([]);
   });
 
@@ -732,7 +801,7 @@ health:
     expect(captured).toHaveLength(1);
     expect(captured[0]?.body).toMatchObject({
       app_image: APP_REF,
-      seed_image: SEED_REF,
+      seed_image: COMMIT_SEED_REF,
       reseed: true,
     });
   });
