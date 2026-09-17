@@ -66,8 +66,8 @@ Prerequisites on the GitLab side:
 | `sprout_url` | `""` (use `$SPROUT_URL`) | Gateway URL override. |
 | `app_context` | `.` | Directory holding `.sprout.yaml`; the CLI builds (`docker build … .`) and resolves Dockerfiles relative to it. |
 | `auto_stop_in` | `1 week` | `environment:auto_stop_in` for the preview. |
-| `app_env_file` | `""` | Project-root-relative extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). Resolved before `cd` into `app_context`, same rule as `dotenv_file`. |
-| `seed_env_file` | `""` | Project-root-relative extra seed dotenv file passed as `--seed-env-file` (on top of `SPROUT_SEED_ENV`). Same rule. |
+| `app_env_file` | `""` | Project-root-relative extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). Resolved before `cd` into `app_context`, same rule as `dotenv_file`. Do NOT pass a file-type CI variable (e.g. `$MY_ENV_FILE`) here — `include: inputs:` interpolate at pipeline-config time, when file-type values are not yet materialized, so the value expands to empty and `--app-env-file` is skipped silently. Export file-type blobs at job runtime instead (`before_script: export SPROUT_APP_ENV="$MY_ENV_FILE"`), which the CLI reads automatically. |
+| `seed_env_file` | `""` | Project-root-relative extra seed dotenv file passed as `--seed-env-file` (on top of `SPROUT_SEED_ENV`). Same rule. Same file-type restriction as `app_env_file`: never pass a file-type CI variable via `inputs:` — export it at job runtime instead (`before_script: export SPROUT_SEED_ENV="$MY_SEED_FILE"`). |
 | `dotenv_file` | `sprout-preview.env` | Project-root-relative dotenv artifact carrying `PREVIEW_URL` to `environment:url`. Parent directories must already exist (a bare filename always works). |
 | `tail` | `200` | Gateway log lines printed when `sprout ci preview` fails. |
 
@@ -76,6 +76,12 @@ Image builds are driven by `.sprout.yaml` (`build.dockerfile`,
 resolution — the component passes no Dockerfile paths and no free-form
 extra args. Gaps belong behind explicit typed inputs (or CLI flags), not
 shell guards or argv appenders.
+
+## Troubleshooting
+
+| Symptom | Error (stderr) | Fix |
+|---|---|---|
+| File-type CI variable passed via `app_env_file` / `seed_env_file` input (e.g. `inputs: { app_env_file: $MY_ENV_FILE }`) | `preview.app_env.<KEY>: required value missing` (nothing points at the input) — had the flag been passed with a bad path, the CLI would say `cannot read --app-env-file: <path>` instead; the required-missing error means the flag never reached the CLI | Never pass file-type variables via `inputs:` — they expand to empty at pipeline-config time and the component's `[ -n "$APP_ENV_FILE" ]` guard skips `--app-env-file` silently. Export the blob at job runtime instead, which the CLI reads automatically: `before_script: export SPROUT_APP_ENV="$MY_ENV_FILE"` (seed: `export SPROUT_SEED_ENV="$MY_SEED_FILE"`). `app_env_file` / `seed_env_file` are only for repo-relative dotenv paths. |
 
 ## Remote-include fallback
 

@@ -39,10 +39,10 @@ spec:
       description: "GitLab environment expiry for the preview (e.g. 1 week, 3 days)."
       default: "1 week"
     app_env_file:
-      description: "Optional project-root-relative dotenv file passed as --app-env-file (in addition to the SPROUT_APP_ENV file-type variable the CLI reads automatically). Resolved against the project root before cd into app_context."
+      description: "Optional project-root-relative dotenv file passed as --app-env-file (in addition to the SPROUT_APP_ENV file-type variable the CLI reads automatically). Resolved against the project root before cd into app_context. Do NOT pass a file-type CI variable (e.g. $MY_ENV_FILE) here: include: inputs: interpolate at pipeline-config time, when file-type values are not yet materialized, so the value expands to empty and --app-env-file is skipped silently. Export file-type blobs at job runtime instead (adopter before_script: export SPROUT_APP_ENV=\"$MY_ENV_FILE\"), which the CLI reads automatically."
       default: ""
     seed_env_file:
-      description: "Optional project-root-relative seed dotenv file passed as --seed-env-file. Resolved against the project root before cd into app_context."
+      description: "Optional project-root-relative seed dotenv file passed as --seed-env-file (in addition to the SPROUT_SEED_ENV file-type variable the CLI reads automatically). Resolved against the project root before cd into app_context. Same file-type rule as app_env_file: never pass a file-type CI variable via inputs: (it expands to empty); export it at job runtime instead (before_script: export SPROUT_SEED_ENV=\"$MY_SEED_FILE\")."
       default: ""
     dotenv_file:
       description: "Dotenv artifact path (project-root-relative) the CLI writes PREVIEW_URL= to for environment:url."
