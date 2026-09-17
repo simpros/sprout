@@ -4,7 +4,8 @@ import {
   ensureSeedImage,
   readSeedContents,
   resolveCommitSeedImageRef,
-  resolveSeedImageRef,
+  resolveContentSeedImageRef,
+  resolveSeedTarget,
   SEED_TAG_HASH_LEN,
   shortSeedHash,
 } from "./seed-image.ts";
@@ -55,14 +56,32 @@ describe("resolveCommitSeedImageRef", () => {
   });
 });
 
-describe("resolveSeedImageRef", () => {
+describe("resolveContentSeedImageRef", () => {
   test("keeps the same-repository tag-suffix shape", () => {
     expect(
-      resolveSeedImageRef("registry.example.com/group/app:sha", "0123456789ab"),
+      resolveContentSeedImageRef(
+        "registry.example.com/group/app:sha",
+        "0123456789ab",
+      ),
     ).toEqual({
       ok: true,
       value: "registry.example.com/group/app:seed-0123456789ab",
     });
+  });
+
+  test("handles a registry with a port", () => {
+    expect(
+      resolveContentSeedImageRef("localhost:5000/app:sha", "abc123def456"),
+    ).toEqual({
+      ok: true,
+      value: "localhost:5000/app:seed-abc123def456",
+    });
+  });
+
+  test("refuses a ref without a tag", () => {
+    expect(
+      resolveContentSeedImageRef("registry/app", "abc123def456").ok,
+    ).toBe(false);
   });
 });
 
@@ -100,7 +119,7 @@ describe("readSeedContents", () => {
 
   test("the seed Dockerfile is always required", async () => {
     const missing = await readSeedContents(
-      { dockerfile: "Dockerfile.seed" },
+      { dockerfile: "Dockerfile.seed", inputs: [] },
       "/repo",
       files({}),
     );
@@ -126,6 +145,82 @@ describe("readSeedContents", () => {
         { path: "entrypoint.sh", content: "#!/bin/sh\n" },
       ],
     });
+  });
+
+  test("inputs outside the workspace are rejected", async () => {
+    const result = await readSeedContents(
+      { dockerfile: "Dockerfile.seed", inputs: ["../outside.sh"] },
+      "/repo",
+      files({
+        "Dockerfile.seed": "FROM x\n",
+        "outside.sh": "evil\n",
+      }),
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: "seed input escapes workspace: ../outside.sh",
+    });
+  });
+});
+
+describe("resolveSeedTarget", () => {
+  const read = files({ "Dockerfile.seed": "FROM x\n" });
+
+  test("without inputs the tag is commit-scoped and never reusable", async () => {
+    const result = await resolveSeedTarget(
+      { dockerfile: "Dockerfile.seed" },
+      "registry.example.com/group/app:abc123",
+      "/repo",
+      read,
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        ref: "registry.example.com/group/app:abc123-seed",
+        allowReuse: false,
+      },
+    });
+  });
+
+  test("with inputs the tag is content-addressed and reusable", async () => {
+    const result = await resolveSeedTarget(
+      { dockerfile: "Dockerfile.seed", inputs: ["Dockerfile.seed"] },
+      "registry.example.com/group/app:abc123",
+      "/repo",
+      read,
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        ref: `registry.example.com/group/app:seed-${shortSeedHash([
+          { path: "Dockerfile.seed", content: "FROM x\n" },
+        ])}`,
+        allowReuse: true,
+      },
+    });
+  });
+
+  test("unreadable inputs fail before any docker work", async () => {
+    const result = await resolveSeedTarget(
+      { dockerfile: "Dockerfile.seed", inputs: ["missing.sh"] },
+      "registry.example.com/group/app:abc123",
+      "/repo",
+      read,
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: "seed input not readable: missing.sh",
+    });
+  });
+
+  test("an untagged app ref fails", async () => {
+    const result = await resolveSeedTarget(
+      { dockerfile: "Dockerfile.seed" },
+      "registry/app",
+      "/repo",
+      read,
+    );
+    expect(result.ok).toBe(false);
   });
 });
 

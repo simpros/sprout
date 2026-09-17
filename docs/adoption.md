@@ -539,8 +539,11 @@ no `wait-for-postgres` / sleep loops in the seed path to wait for migrations.
 
 With the component you declare it once in `.sprout.yaml` (quickstart) and
 never pass `-s` in CI — `sprout ci preview` builds + pushes the seed image
-(tag = `seed-<shorthash>` suffix on the same repository, content-addressed
-over `seed.inputs`) and deploys with it. When the tag already exists in the
+and deploys with it. Without `seed.inputs` the tag is commit-scoped
+(`<SHA>-seed`) and the image is rebuilt on every run; with explicit
+`seed.inputs` the tag is `seed-<shorthash>` content-addressed over those
+inputs (list every COPY source the seed image depends on). When the
+content-addressed tag already exists in the
 registry the build + push is skipped (`seed image reused: <ref>` in the job
 log) and the existing image deploys; a failed or unsupported registry check
 rebuilds instead of skipping. The low-level equivalent is

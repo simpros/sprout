@@ -15,7 +15,8 @@ import {
 } from "./deploy-core.ts";
 import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
 import { publishPreviewNote, warnForgeNote } from "./forge-note.ts";
-import { buildAndPush, ensureSeedImage } from "./seed-image.ts";
+import { buildAndPush } from "./image-build.ts";
+import { ensureSeedImage } from "./seed-image.ts";
 
 /** Log lines dumped from the gateway on a failed deploy. */
 export const DEFAULT_CI_PREVIEW_TAIL = 200;
@@ -90,17 +91,17 @@ export async function runCiPreview(
     return fail(ctx.deps.io, "--reseed requires a seed block in .sprout.yaml");
   }
 
-  const app = await buildAndPush(ctx, "app", appDockerfile, identity.imageRef);
-  if (!app.ok) return fail(ctx.deps.io, app.error);
-
-  // Seed image (commit-scoped rebuild or content-addressed reuse) resolves
-  // before the deploy is assembled, so seed failures exit before deploying.
+  // Seed first: unreadable inputs fail before any docker work, and the
+  // seed tag derives from the app ref without needing the app built.
   let seedImage: string | undefined;
   if (seedBlock) {
     const seed = await ensureSeedImage(ctx, seedBlock, identity.imageRef);
     if (!seed.ok) return fail(ctx.deps.io, seed.error);
     seedImage = seed.value.ref;
   }
+
+  const app = await buildAndPush(ctx, "app", appDockerfile, identity.imageRef);
+  if (!app.ok) return fail(ctx.deps.io, app.error);
 
   const previewInputs: BuildDeployRequestInputs = seedImage
     ? {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiClient } from "@sprout/api-client";
 import { runCli, type CliDeps } from "../run.ts";
-import { resolveSeedImageRef, shortSeedHash } from "./seed-image.ts";
+import { shortSeedHash } from "./seed-image.ts";
 
 type Captured = {
   method: string;
@@ -183,26 +183,6 @@ function healthyGateway() {
   });
 }
 
-describe("resolveSeedImageRef", () => {
-  test("content-addresses the tag on the same repository", () => {
-    expect(resolveSeedImageRef(APP_REF, "abc123def456")).toEqual({
-      ok: true,
-      value: "registry.gitlab.com/group/repo:seed-abc123def456",
-    });
-  });
-
-  test("handles a registry with a port", () => {
-    expect(resolveSeedImageRef("localhost:5000/app:sha", "abc123def456")).toEqual({
-      ok: true,
-      value: "localhost:5000/app:seed-abc123def456",
-    });
-  });
-
-  test("refuses a ref without a tag", () => {
-    expect(resolveSeedImageRef("registry/app", "abc123def456").ok).toBe(false);
-  });
-});
-
 describe("sprout ci preview", () => {
   test("success builds + pushes app and seed, deploys with -s, writes dotenv", async () => {
     const baseUrl = healthyGateway();
@@ -220,11 +200,13 @@ describe("sprout ci preview", () => {
     expect(code).toBe(0);
     expect(stderr).toEqual([]);
     // No `seed.inputs`: commit-scoped tag, always rebuilt, never probed.
+    // The seed ensures before the app build so bad inputs fail with no
+    // docker work at all.
     expect(dockerCalls).toEqual([
-      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
-      ["docker", "push", APP_REF],
       ["docker", "build", "-f", "Dockerfile.seed", "-t", COMMIT_SEED_REF, "."],
       ["docker", "push", COMMIT_SEED_REF],
+      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
+      ["docker", "push", APP_REF],
     ]);
     expect(captured).toHaveLength(1);
     expect(captured[0]?.body).toMatchObject({
@@ -268,7 +250,7 @@ describe("sprout ci preview", () => {
     );
   });
 
-  test("seed build failure exits after app push, before deploy", async () => {
+  test("seed build failure exits before app build or deploy", async () => {
     const baseUrl = healthyGateway();
     dockerBehavior = (argv) => {
       if (argv[1] === "manifest") return 1;
@@ -288,9 +270,8 @@ describe("sprout ci preview", () => {
     expect(code).toBe(1);
     expect(stderr).toEqual(["seed image build failed (exit 1)"]);
     expect(stdout).toEqual([]);
+    // The seed ensures first, so the app never builds and nothing deploys.
     expect(dockerCalls).toEqual([
-      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
-      ["docker", "push", APP_REF],
       ["docker", "build", "-f", "Dockerfile.seed", "-t", COMMIT_SEED_REF, "."],
     ]);
     expect(captured).toEqual([]);
@@ -613,10 +594,11 @@ preview:
     expect(code).toBe(0);
     expect(stderr).toEqual([]);
     // Seed build/push would exit 1 here — their absence proves the skip.
+    // The seed probes before the app builds.
     expect(dockerCalls).toEqual([
+      ["docker", "manifest", "inspect", SEED_REF],
       ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
       ["docker", "push", APP_REF],
-      ["docker", "manifest", "inspect", SEED_REF],
     ]);
     expect(stdout).toEqual([
       `seed image reused: ${SEED_REF}`,
@@ -654,8 +636,6 @@ preview:
     );
     expect(code).toBe(0);
     expect(dockerCalls).toEqual([
-      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
-      ["docker", "push", APP_REF],
       [
         "docker",
         "build",
@@ -666,6 +646,8 @@ preview:
         ".",
       ],
       ["docker", "push", COMMIT_SEED_REF],
+      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
+      ["docker", "push", APP_REF],
     ]);
     expect(stdout).toEqual([
       "preview_url=https://pr-17.myapp.preview.example.com",
@@ -734,17 +716,17 @@ preview:
     );
     expect(code).toBe(0);
     expect(dockerCalls).toEqual([
-      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
-      ["docker", "push", APP_REF],
       ["docker", "manifest", "inspect", SEED_REF],
       ["docker", "build", "-f", "Dockerfile.seed", "-t", SEED_REF, "."],
       ["docker", "push", SEED_REF],
+      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
+      ["docker", "push", APP_REF],
     ]);
     expect(stdout).not.toContain(`seed image reused: ${SEED_REF}`);
     expect(captured[0]?.body).toMatchObject({ seed_image: SEED_REF });
   });
 
-  test("unreadable seed input fails after app push, before seed or deploy", async () => {
+  test("unreadable seed input fails before any docker work or deploy", async () => {
     const baseUrl = healthyGateway();
     const cwd = await withWorkspace(
       `slug: myapp
@@ -775,12 +757,9 @@ health:
     expect(stderr).toEqual([
       "seed input not readable: missing-entrypoint.sh",
     ]);
-    // The app still builds first (one seam owns the whole seed pipeline);
-    // nothing seed-related runs and nothing deploys.
-    expect(dockerCalls).toEqual([
-      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
-      ["docker", "push", APP_REF],
-    ]);
+    // The seed ensures before the app builds, so bad inputs fail with no
+    // docker work at all and nothing deploys.
+    expect(dockerCalls).toEqual([]);
     expect(captured).toEqual([]);
   });
 

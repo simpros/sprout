@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { defaultRunCommand, type CliContext } from "../context.ts";
 import type { Result } from "../result.ts";
 import type { SproutSeed } from "../yaml.ts";
+import { buildAndPush } from "./image-build.ts";
 
 /** Hex chars kept from the seed-content sha256 for the tag suffix. */
 export const SEED_TAG_HASH_LEN = 12;
@@ -26,17 +27,14 @@ export function shortSeedHash(entries: SeedContent[]): string {
 }
 
 /**
- * Commit-scoped seed tag (no `seed.inputs`): `<app-tag>-seed` on the same
- * repository. The app tag always comes from the pipeline convention
- * (`CI_REGISTRY_IMAGE` + SHA), so it always carries a `:tag` suffix — the
- * seed tag is unique per commit and never reused across commits. Scoped
- * push credentials (GitLab `CI_JOB_TOKEN`, least-privilege registry
- * credentials) can only write under the project's own repository, so the
- * tag-suffix shape must stay a suffix (#148).
+ * Single validator for both seed tag policies: the app tag always comes
+ * from the pipeline convention (`CI_REGISTRY_IMAGE` + SHA), so it always
+ * carries a `:tag` suffix. Returns the repository prefix (everything before
+ * the last `:`); scoped push credentials (GitLab `CI_JOB_TOKEN`,
+ * least-privilege registry credentials) can only write under the project's
+ * own repository, so both seed shapes stay on that prefix (#148).
  */
-export function resolveCommitSeedImageRef(
-  appImageRef: string,
-): Result<string> {
+function splitTaggedImageRef(appImageRef: string): Result<string> {
   const cut = appImageRef.lastIndexOf(":");
   if (cut <= 0 || cut === appImageRef.length - 1) {
     return {
@@ -44,50 +42,63 @@ export function resolveCommitSeedImageRef(
       error: `cannot derive seed image ref from ${appImageRef}`,
     };
   }
+  return { ok: true, value: appImageRef.slice(0, cut) };
+}
+
+/**
+ * Commit-scoped seed tag (no `seed.inputs`): `<app-tag>-seed` on the same
+ * repository. Unique per commit, never reused across commits.
+ */
+export function resolveCommitSeedImageRef(
+  appImageRef: string,
+): Result<string> {
+  const repo = splitTaggedImageRef(appImageRef);
+  if (!repo.ok) return repo;
   return { ok: true, value: `${appImageRef}-seed` };
 }
 
 /**
  * Content-addressed seed tag (explicit `seed.inputs`):
  * `<registry-path>:seed-<shorthash>` on the same repository, distinct tag.
- * Same scoped-credential constraint as the commit-scoped shape above.
  */
-export function resolveSeedImageRef(
+export function resolveContentSeedImageRef(
   appImageRef: string,
   shortHash: string,
 ): Result<string> {
-  const cut = appImageRef.lastIndexOf(":");
-  if (cut <= 0 || cut === appImageRef.length - 1) {
-    return {
-      ok: false,
-      error: `cannot derive seed image ref from ${appImageRef}`,
-    };
-  }
-  return {
-    ok: true,
-    value: `${appImageRef.slice(0, cut)}:seed-${shortHash}`,
-  };
+  const repo = splitTaggedImageRef(appImageRef);
+  if (!repo.ok) return repo;
+  return { ok: true, value: `${repo.value}:seed-${shortHash}` };
 }
 
 /**
  * Read the reuse-key files for hashing: the seed Dockerfile plus every
- * explicit `seed.inputs` entry (deduplicated), all required. A missing
- * entry fails before any docker work. Paths resolve against the workspace
- * root (`app_context`); `readFile` is the `deps.readTextFile` seam so tests
- * hash fixture strings. Reuse is opt-in on explicit `seed.inputs` — without
- * them the caller takes the commit-scoped path and never hashes.
+ * explicit `seed.inputs` entry (deduplicated), all required. A missing or
+ * unreadable entry fails before any docker work, as does a path that
+ * escapes the workspace root. Paths resolve against the workspace root
+ * (`app_context`); `readFile` is the `deps.readTextFile` seam so tests
+ * hash fixture strings. Callers only reach here on the content-addressed
+ * arm — reuse is opt-in on explicit `seed.inputs`.
  */
 export async function readSeedContents(
-  seed: SproutSeed,
+  seed: { dockerfile: string; inputs: string[] },
   cwd: string,
   readFile: (path: string) => Promise<string | null>,
 ): Promise<Result<SeedContent[]>> {
   const candidates = [
     seed.dockerfile,
-    ...(seed.inputs ?? []).filter((rel) => rel !== seed.dockerfile),
+    ...seed.inputs.filter((rel) => rel !== seed.dockerfile),
   ];
   const out: SeedContent[] = [];
   for (const rel of candidates) {
+    if (
+      rel.startsWith("/") ||
+      rel === ".." ||
+      rel.startsWith("../") ||
+      rel.includes("/../") ||
+      rel.endsWith("/..")
+    ) {
+      return { ok: false, error: `seed input escapes workspace: ${rel}` };
+    }
     let content: string | null;
     try {
       content = await readFile(`${cwd}/${rel}`);
@@ -125,37 +136,37 @@ async function seedImageExists(
   }
 }
 
+/** Resolved seed policy: which tag to realize, and whether a probe may skip the build. */
+export type SeedTarget = { ref: string; allowReuse: boolean };
+
 /**
- * `docker build -f <dockerfile> -t <ref> .` then `docker push <ref>`.
- * The docker CLI inherits the job env, so dind (`DOCKER_HOST`, TLS) and
- * registry auth work unchanged. Build output streams to the job log;
- * only the exit code is captured.
+ * Policy resolution (no docker): commit-scoped tag without `seed.inputs`
+ * (never reusable), content-addressed tag with them (reusable on probe hit).
+ * Unreadable inputs and unresolvable refs fail here, before any docker work.
  */
-export async function buildAndPush(
-  ctx: CliContext,
-  label: string,
-  dockerfile: string,
-  ref: string,
-): Promise<Result<true>> {
-  const run = ctx.deps.runCommand ?? defaultRunCommand;
-  const build = await run(
-    ["docker", "build", "-f", dockerfile, "-t", ref, "."],
-    { cwd: ctx.deps.cwd },
+export async function resolveSeedTarget(
+  seed: SproutSeed,
+  appImageRef: string,
+  cwd: string,
+  readFile: (path: string) => Promise<string | null>,
+): Promise<Result<SeedTarget>> {
+  if (seed.inputs === undefined) {
+    const ref = resolveCommitSeedImageRef(appImageRef);
+    if (!ref.ok) return ref;
+    return { ok: true, value: { ref: ref.value, allowReuse: false } };
+  }
+  const contents = await readSeedContents(
+    { dockerfile: seed.dockerfile, inputs: seed.inputs },
+    cwd,
+    readFile,
   );
-  if (build.exitCode !== 0) {
-    return {
-      ok: false,
-      error: `${label} image build failed (exit ${build.exitCode})`,
-    };
-  }
-  const push = await run(["docker", "push", ref], { cwd: ctx.deps.cwd });
-  if (push.exitCode !== 0) {
-    return {
-      ok: false,
-      error: `${label} image push failed (exit ${push.exitCode})`,
-    };
-  }
-  return { ok: true, value: true };
+  if (!contents.ok) return contents;
+  const ref = resolveContentSeedImageRef(
+    appImageRef,
+    shortSeedHash(contents.value),
+  );
+  if (!ref.ok) return ref;
+  return { ok: true, value: { ref: ref.value, allowReuse: true } };
 }
 
 export type EnsuredSeedImage = { ref: string; reused: boolean };
@@ -174,26 +185,19 @@ export async function ensureSeedImage(
   seed: SproutSeed,
   appImageRef: string,
 ): Promise<Result<EnsuredSeedImage>> {
-  if (seed.inputs === undefined) {
-    const ref = resolveCommitSeedImageRef(appImageRef);
-    if (!ref.ok) return ref;
-    const built = await buildAndPush(ctx, "seed", seed.dockerfile, ref.value);
-    if (!built.ok) return built;
-    return { ok: true, value: { ref: ref.value, reused: false } };
-  }
-  const contents = await readSeedContents(
+  const target = await resolveSeedTarget(
     seed,
+    appImageRef,
     ctx.deps.cwd,
     ctx.deps.readTextFile,
   );
-  if (!contents.ok) return contents;
-  const ref = resolveSeedImageRef(appImageRef, shortSeedHash(contents.value));
-  if (!ref.ok) return ref;
-  if (await seedImageExists(ctx, ref.value)) {
-    ctx.deps.io.stdout(`seed image reused: ${ref.value}`);
-    return { ok: true, value: { ref: ref.value, reused: true } };
+  if (!target.ok) return target;
+  const { ref, allowReuse } = target.value;
+  if (allowReuse && (await seedImageExists(ctx, ref))) {
+    ctx.deps.io.stdout(`seed image reused: ${ref}`);
+    return { ok: true, value: { ref, reused: true } };
   }
-  const built = await buildAndPush(ctx, "seed", seed.dockerfile, ref.value);
+  const built = await buildAndPush(ctx, "seed", seed.dockerfile, ref);
   if (!built.ok) return built;
-  return { ok: true, value: { ref: ref.value, reused: false } };
+  return { ok: true, value: { ref, reused: false } };
 }
