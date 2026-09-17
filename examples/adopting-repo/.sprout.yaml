@@ -6,4 +6,13 @@ health:
   interval: 2s
   timeout: 120s
   expect: 200
-seed: {}
+seed:
+  dockerfile: Dockerfile.seed
+  # Reuse key: every COPY source in Dockerfile.seed. Without `inputs` the
+  # seed image is rebuilt on every run (commit-scoped tag); with them the
+  # build is skipped while the content-addressed tag exists in the registry.
+  inputs:
+    - Dockerfile.seed
+    - package.json
+    - scripts/seed.ts
+    - docker-seed-entrypoint.sh

@@ -39,14 +39,21 @@ export type SproutBuild = SproutDockerfileBlock;
 
 /**
  * Seed image build config. When present, `sprout ci preview` builds + pushes
- * the seed image (tag = app tag + a `-seed` suffix, same repository) and
- * deploys with `-s`. Defaults the Dockerfile to `Dockerfile.seed`. `env` uses the same
- * value grammar as `preview.app_env` (strings with `{hostname}` /
- * `{pr_id}` / `{commit_sha}`, `{ generate: stable_per_pr }`, `{ required:
- * true }`); `args` are extra seed container args (yaml first, then
- * `--seed-arg` flags).
+ * the seed image and deploys with `-s`. Defaults the Dockerfile to
+ * `Dockerfile.seed`. Without `inputs` the tag is commit-scoped
+ * (`<app-tag>-seed`) and the image is always rebuilt — correct, no false
+ * reuse. With explicit `inputs` the tag is content-addressed
+ * (`:seed-<shorthash>` over the seed Dockerfile plus every listed path) and
+ * the build + push is skipped when the tag already exists in the registry;
+ * list every COPY source the seed image depends on (seed Dockerfile,
+ * entrypoint/script, migrations, lockfile, …). `env` uses the same value
+ * grammar as `preview.app_env` (strings with `{hostname}` / `{pr_id}` /
+ * `{commit_sha}`, `{ generate: stable_per_pr }`, `{ required: true }`);
+ * `args` are extra seed container args (yaml first, then `--seed-arg`
+ * flags).
  */
 export type SproutSeed = SproutDockerfileBlock & {
+  inputs?: string[];
   env?: Record<string, ManifestEnvValue>;
   args?: string[];
 };
@@ -92,7 +99,7 @@ const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 const SERVICE_KEYS = new Set(["name", "image", "hostname", "path"]);
 const DOCKERFILE_KEYS = new Set(["dockerfile"]);
-const SEED_KEYS = new Set(["dockerfile", "env", "args"]);
+const SEED_KEYS = new Set(["dockerfile", "inputs", "env", "args"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -287,18 +294,25 @@ function parseDockerfileBlock(
   return { ok: true, value: { dockerfile: dockerfile.value } };
 }
 
-/** Absent or empty list → undefined. Each entry must be a non-empty string. */
-function parseSeedArgs(raw: unknown): Result<string[] | undefined> {
+/**
+ * Absent or empty list → undefined. Each entry must be a non-empty string.
+ * Shared by `seed.args` and `seed.inputs` so the next list field does not
+ * clone the loop a third time.
+ */
+function parseStringList(
+  raw: unknown,
+  path: string,
+): Result<string[] | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!Array.isArray(raw)) {
-    return { ok: false, error: "seed.args must be a list" };
+    return { ok: false, error: `${path} must be a list` };
   }
   if (raw.length === 0) return { ok: true, value: undefined };
   const out: string[] = [];
   for (let i = 0; i < raw.length; i++) {
-    const arg = requireString(raw[i], `seed.args[${i}]`);
-    if (!arg.ok) return arg;
-    out.push(arg.value);
+    const item = requireString(raw[i], `${path}[${i}]`);
+    if (!item.ok) return item;
+    out.push(item.value);
   }
   return { ok: true, value: out };
 }
@@ -322,11 +336,14 @@ function parseSeedBlock(raw: unknown): Result<SproutSeed | undefined> {
     "Dockerfile.seed",
   );
   if (!dockerfile.ok) return dockerfile;
+  const inputs = parseStringList(raw.inputs, "seed.inputs");
+  if (!inputs.ok) return inputs;
   const env = parseAppEnv(raw.env, "seed.env");
   if (!env.ok) return env;
-  const args = parseSeedArgs(raw.args);
+  const args = parseStringList(raw.args, "seed.args");
   if (!args.ok) return args;
   const value: SproutSeed = { dockerfile: dockerfile.value };
+  if (inputs.value) value.inputs = inputs.value;
   if (env.value) value.env = env.value;
   if (args.value) value.args = args.value;
   return { ok: true, value };

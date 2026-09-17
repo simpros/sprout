@@ -1,12 +1,10 @@
 import type { CliContext } from "../context.ts";
 import {
-  defaultRunCommand,
   defaultWriteTextFile,
   fail,
   loadYaml,
 } from "../context.ts";
 import { parseFlags } from "../flags.ts";
-import type { Result } from "../result.ts";
 import type { CiPreviewIdentity } from "./ci-identity.ts";
 import {
   applyDeployEnv,
@@ -17,6 +15,8 @@ import {
 } from "./deploy-core.ts";
 import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
 import { publishPreviewNote, warnForgeNote } from "./forge-note.ts";
+import { buildAndPush } from "./image-build.ts";
+import { ensureSeedImage } from "./seed-image.ts";
 
 /** Log lines dumped from the gateway on a failed deploy. */
 export const DEFAULT_CI_PREVIEW_TAIL = 200;
@@ -28,66 +28,12 @@ export const DEFAULT_CI_PREVIEW_TAIL = 200;
 export const DEFAULT_PREVIEW_DOTENV_FILE = "sprout-preview.env";
 
 /**
- * Derive the seed tag from the app tag: `<registry-path>:<sha>-seed`
- * (same repository, distinct tag). Scoped push credentials (GitLab
- * `CI_JOB_TOKEN`, least-privilege registry credentials) can only write
- * under the project's own repository, so a sibling `-seed` repository
- * path is denied. The app tag always comes from the pipeline convention
- * (`CI_REGISTRY_IMAGE` + SHA), so it always carries a `:tag` suffix.
- */
-export function resolveSeedImageRef(appImageRef: string): Result<string> {
-  const cut = appImageRef.lastIndexOf(":");
-  if (cut <= 0 || cut === appImageRef.length - 1) {
-    return {
-      ok: false,
-      error: `cannot derive seed image ref from ${appImageRef}`,
-    };
-  }
-  return {
-    ok: true,
-    value: `${appImageRef}-seed`,
-  };
-}
-
-/**
- * `docker build -f <dockerfile> -t <ref> .` then `docker push <ref>`.
- * The docker CLI inherits the job env, so dind (`DOCKER_HOST`, TLS) and
- * registry auth work unchanged. Build output streams to the job log;
- * only the exit code is captured.
- */
-async function buildAndPush(
-  ctx: CliContext,
-  label: string,
-  dockerfile: string,
-  ref: string,
-): Promise<Result<true>> {
-  const run = ctx.deps.runCommand ?? defaultRunCommand;
-  const build = await run(
-    ["docker", "build", "-f", dockerfile, "-t", ref, "."],
-    { cwd: ctx.deps.cwd },
-  );
-  if (build.exitCode !== 0) {
-    return {
-      ok: false,
-      error: `${label} image build failed (exit ${build.exitCode})`,
-    };
-  }
-  const push = await run(["docker", "push", ref], { cwd: ctx.deps.cwd });
-  if (push.exitCode !== 0) {
-    return {
-      ok: false,
-      error: `${label} image push failed (exit ${push.exitCode})`,
-    };
-  }
-  return { ok: true, value: true };
-}
-
-/**
  * `sprout ci preview` — build + push the app image (and the seed image when
- * `.sprout.yaml` configures `seed`), deploy with the resolved env, and on a
- * healthy preview emit `preview_url=` plus the dotenv artifact. On failure
- * the gateway log tail is printed first, then the deploy error exits
- * non-zero. Settling reuses `postDeployAndWait` — there is no second deploy
+ * `.sprout.yaml` configures `seed`: always rebuilt without `seed.inputs`,
+ * reused by content-addressed tag with them), deploy with the resolved env, and on a healthy
+ * preview emit `preview_url=` plus the dotenv artifact. On failure the
+ * gateway log tail is printed first, then the deploy error exits non-zero.
+ * Settling reuses `postDeployAndWait` — there is no second deploy
  * implementation here.
  */
 export async function runCiPreview(
@@ -103,6 +49,7 @@ export async function runCiPreview(
     "--seed-arg",
     "--service",
     "--clear-services",
+    "--reseed",
     "--tail",
     "--dotenv-file",
   ]);
@@ -129,27 +76,32 @@ export async function runCiPreview(
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
 
   const appDockerfile = yaml.value.build?.dockerfile ?? "Dockerfile";
-  const seedDockerfile = yaml.value.seed?.dockerfile;
+  const seedBlock = yaml.value.seed;
   // Intentional preflight: fail before docker build/push. The assembler
   // re-checks the same gate (keyed off the resolved seed image) as the
-  // canonical owner; service-flag validation lives there too.
+  // canonical owner; service-flag validation lives there too. A present
+  // seed block always carries a dockerfile (the parser defaults it), so
+  // presence alone gates seeding.
   const seedGate = requireHealthWhenSeeding(yaml.value, {
-    hasSeed: Boolean(seedDockerfile),
+    hasSeed: Boolean(seedBlock),
     seedSource: "seed",
   });
   if (!seedGate.ok) return fail(ctx.deps.io, seedGate.error);
+  if (flags.value.reseed && !seedBlock) {
+    return fail(ctx.deps.io, "--reseed requires a seed block in .sprout.yaml");
+  }
+
+  // Seed first: unreadable inputs fail before any docker work, and the
+  // seed tag derives from the app ref without needing the app built.
+  let seedImage: string | undefined;
+  if (seedBlock) {
+    const seed = await ensureSeedImage(ctx, seedBlock, identity.imageRef);
+    if (!seed.ok) return fail(ctx.deps.io, seed.error);
+    seedImage = seed.value.ref;
+  }
 
   const app = await buildAndPush(ctx, "app", appDockerfile, identity.imageRef);
   if (!app.ok) return fail(ctx.deps.io, app.error);
-
-  let seedImage: string | undefined;
-  if (seedDockerfile) {
-    const ref = resolveSeedImageRef(identity.imageRef);
-    if (!ref.ok) return fail(ctx.deps.io, ref.error);
-    const seed = await buildAndPush(ctx, "seed", seedDockerfile, ref.value);
-    if (!seed.ok) return fail(ctx.deps.io, seed.error);
-    seedImage = ref.value;
-  }
 
   const previewInputs: BuildDeployRequestInputs = seedImage
     ? {
@@ -159,12 +111,14 @@ export async function runCiPreview(
         seedArg: flags.value.seedArg,
         service: flags.value.service,
         clearServices: flags.value.clearServices,
+        reseed: flags.value.reseed,
       }
     : {
         appImage: identity.imageRef,
         seedArg: flags.value.seedArg,
         service: flags.value.service,
         clearServices: flags.value.clearServices,
+        reseed: flags.value.reseed,
       };
   const assembled = buildDeployRequest(yaml.value, identity, previewInputs);
   if (!assembled.ok) return fail(ctx.deps.io, assembled.error);

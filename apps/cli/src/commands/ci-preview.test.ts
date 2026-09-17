@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiClient } from "@sprout/api-client";
 import { runCli, type CliDeps } from "../run.ts";
-import { resolveSeedImageRef } from "./ci-preview.ts";
+import { shortSeedHash } from "./seed-image.ts";
 
 type Captured = {
   method: string;
@@ -16,7 +16,10 @@ type Captured = {
 let server: ReturnType<typeof Bun.serve> | undefined;
 let captured: Captured[] = [];
 let dockerCalls: string[][] = [];
-let dockerBehavior: (argv: string[]) => number = () => 0;
+// Absent tag by default: `manifest inspect` fails so the seed builds —
+// tests opt into the reuse path by returning 0 for it.
+let dockerBehavior: (argv: string[]) => number = (argv) =>
+  argv[1] === "manifest" ? 1 : 0;
 let written: Record<string, string> = {};
 let stdout: string[] = [];
 let stderr: string[] = [];
@@ -26,7 +29,7 @@ afterEach(() => {
   server = undefined;
   captured = [];
   dockerCalls = [];
-  dockerBehavior = () => 0;
+  dockerBehavior = (argv) => (argv[1] === "manifest" ? 1 : 0);
   written = {};
   stdout = [];
   stderr = [];
@@ -45,10 +48,23 @@ function startGateway(
   return `http://127.0.0.1:${server.port}`;
 }
 
-async function withWorkspace(yaml: string): Promise<string> {
+async function withWorkspace(
+  yaml: string,
+  files: Record<string, string> = {},
+): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "sprout-ci-preview-"));
   await writeFile(join(dir, ".sprout.yaml"), yaml);
+  for (const [name, content] of Object.entries(files)) {
+    await writeFile(join(dir, name), content);
+  }
   return dir;
+}
+
+/** Production-faithful file seam: missing files read as null, not a throw. */
+async function readRealFile(path: string): Promise<string | null> {
+  const file = Bun.file(path);
+  if (!(await file.exists())) return null;
+  return file.text();
 }
 
 function deps(
@@ -105,6 +121,22 @@ health:
   expect: 200
 `;
 
+const SEEDED_INPUTS_YAML = `slug: myapp
+build:
+  dockerfile: Dockerfile
+seed:
+  dockerfile: Dockerfile.seed
+  inputs:
+    - Dockerfile.seed
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+`;
+
 const GITLAB_MR_ENV = {
   CI_PROJECT_URL: "https://gitlab.com/group/repo",
   CI_MERGE_REQUEST_IID: "17",
@@ -114,7 +146,19 @@ const GITLAB_MR_ENV = {
 };
 
 const APP_REF = "registry.gitlab.com/group/repo:abc123";
-const SEED_REF = "registry.gitlab.com/group/repo:abc123-seed";
+
+// Explicit `seed.inputs`: content-addressed tag over the listed paths.
+function seedRefFor(content: string): string {
+  return `registry.gitlab.com/group/repo:seed-${shortSeedHash([
+    { path: "Dockerfile.seed", content },
+  ])}`;
+}
+
+const SEED_DOCKERFILE = "FROM oven/bun:1.4.0\n";
+// No `seed.inputs`: commit-scoped tag, always rebuilt, never probed.
+const COMMIT_SEED_REF = `${APP_REF}-seed`;
+
+const SEED_REF = seedRefFor(SEED_DOCKERFILE);
 
 function healthyGateway() {
   return startGateway(async (req, url) => {
@@ -139,45 +183,30 @@ function healthyGateway() {
   });
 }
 
-describe("resolveSeedImageRef", () => {
-  test("suffixes the tag with -seed in the same repository", () => {
-    expect(resolveSeedImageRef(APP_REF)).toEqual({
-      ok: true,
-      value: SEED_REF,
-    });
-  });
-
-  test("handles a registry with a port", () => {
-    expect(resolveSeedImageRef("localhost:5000/app:sha")).toEqual({
-      ok: true,
-      value: "localhost:5000/app:sha-seed",
-    });
-  });
-
-  test("refuses a ref without a tag", () => {
-    expect(resolveSeedImageRef("registry/app").ok).toBe(false);
-  });
-});
-
 describe("sprout ci preview", () => {
   test("success builds + pushes app and seed, deploys with -s, writes dotenv", async () => {
     const baseUrl = healthyGateway();
-    const cwd = await withWorkspace(SEEDED_YAML);
+    const cwd = await withWorkspace(SEEDED_YAML, {
+      "Dockerfile.seed": SEED_DOCKERFILE,
+    });
     const code = await runCli(
       ["ci", "preview"],
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(0);
     expect(stderr).toEqual([]);
+    // No `seed.inputs`: commit-scoped tag, always rebuilt, never probed.
+    // The seed ensures before the app build so bad inputs fail with no
+    // docker work at all.
     expect(dockerCalls).toEqual([
+      ["docker", "build", "-f", "Dockerfile.seed", "-t", COMMIT_SEED_REF, "."],
+      ["docker", "push", COMMIT_SEED_REF],
       ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
       ["docker", "push", APP_REF],
-      ["docker", "build", "-f", "Dockerfile.seed", "-t", SEED_REF, "."],
-      ["docker", "push", SEED_REF],
     ]);
     expect(captured).toHaveLength(1);
     expect(captured[0]?.body).toMatchObject({
@@ -186,7 +215,7 @@ describe("sprout ci preview", () => {
       slug: "myapp",
       hostname: "pr-17.myapp.preview.example.com",
       app_image: APP_REF,
-      seed_image: SEED_REF,
+      seed_image: COMMIT_SEED_REF,
     });
     expect(stdout).toEqual([
       "preview_url=https://pr-17.myapp.preview.example.com",
@@ -205,7 +234,7 @@ describe("sprout ci preview", () => {
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(0);
@@ -221,26 +250,29 @@ describe("sprout ci preview", () => {
     );
   });
 
-  test("seed build failure exits after app push, before deploy", async () => {
+  test("seed build failure exits before app build or deploy", async () => {
     const baseUrl = healthyGateway();
-    dockerBehavior = (argv) =>
-      argv.includes("Dockerfile.seed") ? 1 : 0;
-    const cwd = await withWorkspace(SEEDED_YAML);
+    dockerBehavior = (argv) => {
+      if (argv[1] === "manifest") return 1;
+      return argv.includes("Dockerfile.seed") ? 1 : 0;
+    };
+    const cwd = await withWorkspace(SEEDED_YAML, {
+      "Dockerfile.seed": SEED_DOCKERFILE,
+    });
     const code = await runCli(
       ["ci", "preview"],
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(1);
     expect(stderr).toEqual(["seed image build failed (exit 1)"]);
     expect(stdout).toEqual([]);
+    // The seed ensures first, so the app never builds and nothing deploys.
     expect(dockerCalls).toEqual([
-      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
-      ["docker", "push", APP_REF],
-      ["docker", "build", "-f", "Dockerfile.seed", "-t", SEED_REF, "."],
+      ["docker", "build", "-f", "Dockerfile.seed", "-t", COMMIT_SEED_REF, "."],
     ]);
     expect(captured).toEqual([]);
     expect(written).toEqual({});
@@ -255,7 +287,7 @@ describe("sprout ci preview", () => {
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(1);
@@ -274,7 +306,7 @@ describe("sprout ci preview", () => {
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(1);
@@ -323,7 +355,7 @@ describe("sprout ci preview", () => {
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
         now: () => now,
         sleep: async (ms) => {
           now += ms;
@@ -375,7 +407,7 @@ describe("sprout ci preview", () => {
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(1);
@@ -400,7 +432,7 @@ describe("sprout ci preview", () => {
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(1);
@@ -420,7 +452,7 @@ describe("sprout ci preview", () => {
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(0);
@@ -443,7 +475,7 @@ preview:
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(1);
@@ -454,7 +486,8 @@ preview:
 
   test("seed env/args from the manifest reach the deploy body", async () => {
     const baseUrl = healthyGateway();
-    const cwd = await withWorkspace(`slug: myapp
+    const cwd = await withWorkspace(
+      `slug: myapp
 build:
   dockerfile: Dockerfile
 seed:
@@ -471,20 +504,22 @@ health:
   interval: 2s
   timeout: 120s
   expect: 200
-`);
+`,
+      { "Dockerfile.seed": SEED_DOCKERFILE },
+    );
     const code = await runCli(
       ["ci", "preview", "--seed-arg", "--fixtures=demo"],
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(0);
     expect(captured).toHaveLength(1);
     expect(captured[0]?.body).toMatchObject({
       app_image: APP_REF,
-      seed_image: SEED_REF,
+      seed_image: COMMIT_SEED_REF,
       seed_env: [
         "FIXTURE_SET=demo",
         "SEED_URL=https://pr-17.myapp.preview.example.com",
@@ -501,7 +536,7 @@ health:
       deps({
         cwd,
         env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(1);
@@ -528,7 +563,7 @@ preview:
           CI_COMMIT_SHA: "aaa",
           GITHUB_SHA: "bbb",
         },
-        readTextFile: async (path) => Bun.file(path).text(),
+        readTextFile: readRealFile,
       }),
     );
     expect(code).toBe(0);
@@ -537,5 +572,235 @@ preview:
       app_image: "registry.gitlab.com/group/repo:aaa",
       app_env: ["REF=aaa"],
     });
+  });
+
+  test("unchanged seed inputs skip seed build + push and log the reuse", async () => {
+    const baseUrl = healthyGateway();
+    dockerBehavior = (argv) => {
+      if (argv[1] === "manifest") return 0;
+      return argv.includes("Dockerfile.seed") ? 1 : 0;
+    };
+    const cwd = await withWorkspace(SEEDED_INPUTS_YAML, {
+      "Dockerfile.seed": SEED_DOCKERFILE,
+    });
+    const code = await runCli(
+      ["ci", "preview"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(stderr).toEqual([]);
+    // Seed build/push would exit 1 here — their absence proves the skip.
+    // The seed probes before the app builds.
+    expect(dockerCalls).toEqual([
+      ["docker", "manifest", "inspect", SEED_REF],
+      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
+      ["docker", "push", APP_REF],
+    ]);
+    expect(stdout).toEqual([
+      `seed image reused: ${SEED_REF}`,
+      "preview_url=https://pr-17.myapp.preview.example.com",
+    ]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      app_image: APP_REF,
+      seed_image: SEED_REF,
+    });
+    expect(written[`${cwd}/sprout-preview.env`]).toBe(
+      "PREVIEW_URL=https://pr-17.myapp.preview.example.com\n",
+    );
+  });
+
+  test("without seed inputs the registry is never probed: always rebuild", async () => {
+    const baseUrl = healthyGateway();
+    // Even a present tag must not skip the seed build — reuse is opt-in on
+    // explicit `seed.inputs`. A probe hit here would wrongly reuse a stale
+    // image after an entrypoint / seed-script change.
+    dockerBehavior = (argv) => {
+      if (argv[1] === "manifest") return 0;
+      return 0;
+    };
+    const cwd = await withWorkspace(SEEDED_YAML, {
+      "Dockerfile.seed": SEED_DOCKERFILE,
+    });
+    const code = await runCli(
+      ["ci", "preview"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(dockerCalls).toEqual([
+      [
+        "docker",
+        "build",
+        "-f",
+        "Dockerfile.seed",
+        "-t",
+        COMMIT_SEED_REF,
+        ".",
+      ],
+      ["docker", "push", COMMIT_SEED_REF],
+      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
+      ["docker", "push", APP_REF],
+    ]);
+    expect(stdout).toEqual([
+      "preview_url=https://pr-17.myapp.preview.example.com",
+    ]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      app_image: APP_REF,
+      seed_image: COMMIT_SEED_REF,
+    });
+  });
+
+  test("changed seed inputs produce a new tag and build + push", async () => {
+    const baseUrl = healthyGateway();
+    const first = await withWorkspace(SEEDED_INPUTS_YAML, {
+      "Dockerfile.seed": "FROM oven/bun:1.4.0\n",
+    });
+    const second = await withWorkspace(SEEDED_INPUTS_YAML, {
+      "Dockerfile.seed": "FROM oven/bun:1.5.0\n",
+    });
+    const run = (cwd: string) =>
+      runCli(
+        ["ci", "preview"],
+        deps({
+          cwd,
+          env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+          readTextFile: readRealFile,
+        }),
+      );
+    expect(await run(first)).toBe(0);
+    const firstSeedBuilds = dockerCalls.filter(
+      (argv) => argv[1] === "build" && argv.includes("Dockerfile.seed"),
+    );
+    expect(firstSeedBuilds).toHaveLength(1);
+    const firstRef = firstSeedBuilds[0]?.[5];
+    dockerCalls = [];
+    captured = [];
+    expect(await run(second)).toBe(0);
+    const secondSeedBuilds = dockerCalls.filter(
+      (argv) => argv[1] === "build" && argv.includes("Dockerfile.seed"),
+    );
+    expect(secondSeedBuilds).toHaveLength(1);
+    const secondRef = secondSeedBuilds[0]?.[5];
+    expect(firstRef).not.toEqual(secondRef);
+    expect(secondRef).toMatch(/^registry\.gitlab\.com\/group\/repo:seed-[0-9a-f]{12}$/);
+    // Both tags stay on the same repository (scoped push credentials).
+    expect(String(secondRef).split(":")[0]).toBe(
+      "registry.gitlab.com/group/repo",
+    );
+  });
+
+  test("failed registry check degrades to build + push, never a silent skip", async () => {
+    const baseUrl = healthyGateway();
+    // Unsupported docker (`manifest` unknown) exits non-zero like an
+    // absent tag — the seed must still build.
+    dockerBehavior = (argv) => (argv[1] === "manifest" ? 125 : 0);
+    const cwd = await withWorkspace(SEEDED_INPUTS_YAML, {
+      "Dockerfile.seed": SEED_DOCKERFILE,
+    });
+    const code = await runCli(
+      ["ci", "preview"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(dockerCalls).toEqual([
+      ["docker", "manifest", "inspect", SEED_REF],
+      ["docker", "build", "-f", "Dockerfile.seed", "-t", SEED_REF, "."],
+      ["docker", "push", SEED_REF],
+      ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
+      ["docker", "push", APP_REF],
+    ]);
+    expect(stdout).not.toContain(`seed image reused: ${SEED_REF}`);
+    expect(captured[0]?.body).toMatchObject({ seed_image: SEED_REF });
+  });
+
+  test("unreadable seed input fails before any docker work or deploy", async () => {
+    const baseUrl = healthyGateway();
+    const cwd = await withWorkspace(
+      `slug: myapp
+seed:
+  dockerfile: Dockerfile.seed
+  inputs:
+    - Dockerfile.seed
+    - missing-entrypoint.sh
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+`,
+      { "Dockerfile.seed": SEED_DOCKERFILE },
+    );
+    const code = await runCli(
+      ["ci", "preview"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr).toEqual([
+      "seed input not readable: missing-entrypoint.sh",
+    ]);
+    // The seed ensures before the app builds, so bad inputs fail with no
+    // docker work at all and nothing deploys.
+    expect(dockerCalls).toEqual([]);
+    expect(captured).toEqual([]);
+  });
+
+  test("--reseed passes through to the deploy body", async () => {
+    const baseUrl = healthyGateway();
+    const cwd = await withWorkspace(SEEDED_YAML, {
+      "Dockerfile.seed": SEED_DOCKERFILE,
+    });
+    const code = await runCli(
+      ["ci", "preview", "--reseed"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      app_image: APP_REF,
+      seed_image: COMMIT_SEED_REF,
+      reseed: true,
+    });
+  });
+
+  test("--reseed without a seed block fails before building", async () => {
+    const baseUrl = healthyGateway();
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["ci", "preview", "--reseed"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr).toEqual([
+      "--reseed requires a seed block in .sprout.yaml",
+    ]);
+    expect(dockerCalls).toEqual([]);
+    expect(captured).toEqual([]);
   });
 });
