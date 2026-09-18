@@ -6,7 +6,6 @@ export type SweepReason =
   | "sweep:orphan-db"
   | "sweep:orphan-container";
 
-/** Minimal preview identity for orphan planning (no Docker list metadata). */
 export type PreviewRef = { slug: string; prId: number };
 
 export type CatalogDbRef = PreviewRef & { dbName: string };
@@ -16,9 +15,7 @@ export type SweepPreview = {
   prId: number;
   slug: string;
   dbName: string;
-  /** Raw createdAt string — generation token for under-lock revalidation. */
   createdAt: string;
-  /** null = unparsable createdAt; skip TTL, still protect orphans / forge. */
   createdAtMs: number | null;
   status: string;
 };
@@ -30,7 +27,6 @@ export type SweepDeletion =
       prId: number;
       slug: string;
       dbName: string;
-      /** Generation at plan time — drop aborts if provision refreshed it. */
       createdAt: string;
     }
   | { reason: "sweep:orphan-db"; slug: string; prId: number; dbName: string }
@@ -45,14 +41,13 @@ export type SweepPorts = {
   listCatalogDatabases: () => Promise<CatalogDbRef[]>;
   listPreviewContainers: () => Promise<PreviewRef[]>;
   listOpenPrIds: (canonicalRepoId: string) => Promise<number[]>;
-  /** @returns true if resources were removed; false if the plan was stale. */
+  /** True if resources were removed; false if the plan was stale. */
   drop: (deletion: SweepDeletion) => Promise<boolean>;
   ttlHours: number;
   log?: (message: string, deletion?: SweepDeletion) => void;
 };
 
 export type SweepPassResult = {
-  /** Canonical repo ids whose forge listOpenPrIds call failed. */
   forgeRepoFailures: string[];
   deletions: SweepDeletion[];
 };
@@ -74,7 +69,8 @@ async function dropSettled(
     const result = results[i]!;
     const deletion = candidates[i]!;
     if (result.status === "fulfilled") {
-      if (!result.value.removed) continue; // stale plan — not a success
+      // Stale plan — not a success.
+      if (!result.value.removed) continue;
       ports.log?.(successLog(deletion), deletion);
       succeeded.push(deletion);
     } else {
@@ -107,7 +103,6 @@ export function planOrphans(
       dbName: db.dbName,
     });
   }
-  // Catalog may list app + N service containers per preview; one orphan per fleet.
   const seenOrphanContainers = new Set<string>();
   for (const container of containers) {
     const key = `${container.slug}:${container.prId}`;

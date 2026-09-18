@@ -48,7 +48,6 @@ const defaultOpsDeps: Omit<BindPreviewOpsDeps, "docker"> = {
   seedTimeoutMs: 180_000,
 };
 
-/** Shared bind for HTTP/sweep tests — same PG/network/port bag as createTestApp. */
 export function bindTestPreviewApp(
   docker: PreviewDocker,
   opsDeps?: Partial<Omit<BindPreviewOpsDeps, "docker">>,
@@ -121,12 +120,10 @@ export function bearer(token: string): HeadersInit {
   return { authorization: `Bearer ${token}` };
 }
 
-/** Shared fixture identity for HTTP deploy tests (single source with deployBody). */
 export const TEST_REPO = "https://github.com/org/repo";
 export const TEST_APP_IMAGE = "ghcr.io/org/myapp:sha-abc";
 export const TEST_HOSTNAME = "pr-42.myapp.preview.example.com";
 
-/** Shared default POST /v1/deploy body for HTTP tests. */
 export function deployBody(overrides: Record<string, unknown> = {}) {
   return {
     canonical_repo_id: TEST_REPO,
@@ -155,10 +152,6 @@ export async function postDeployToken(
   return { status: res.status, body: await res.json() };
 }
 
-/**
- * Mirror of CLI `deployOutcome` — keep field rules in sync with
- * apps/cli/src/commands/deploy-outcome.ts (no shared package; avoid cycles).
- */
 function snapshotDeployOutcome(
   data: Record<string, unknown>,
 ): "ready" | "failed" | "pending" {
@@ -174,19 +167,13 @@ function snapshotDeployOutcome(
   return "pending";
 }
 
-/**
- * POST /v1/deploy then, on 202, poll GET /v1/preview until ready or terminal.
- * Async settle returns the snapshot body — never invents fake HTTP error codes.
- */
 export async function postDeployAndSettle(
   app: TestApp,
   token: string,
   body: Record<string, unknown>,
 ): Promise<{
   acceptStatus: number;
-  /** Sync reject status when accept ≠ 202; 200 when GET poll settled. */
   settleStatus: number;
-  /** ready | failed after poll; rejected when accept was non-202. */
   outcome: "ready" | "failed" | "rejected";
   body: Record<string, unknown>;
 }> {
@@ -237,8 +224,6 @@ export async function postDeployAndSettle(
         };
       }
       if (outcome === "failed") {
-        // settleStatus stays 202 (accept) — assert outcome + snapshot fields,
-        // not invented 4xx/5xx codes.
         return {
           acceptStatus,
           settleStatus: acceptStatus,

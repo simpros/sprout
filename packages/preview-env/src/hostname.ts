@@ -1,11 +1,7 @@
-/** Preview hostname template + host validation (single grammar for CLI + gateway). */
-
 const HOSTNAME_PLACEHOLDER = "{pr_id}";
 
-/** Sentinel digit used at parse time so templates share {@link validateHostname}. */
 const TEMPLATE_SENTINEL = "0";
 
-/** Lowercase hostname label: starts/ends alnum, interior hyphens allowed. */
 const HOST_LABEL_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
 export type HostnameIssue =
@@ -13,24 +9,13 @@ export type HostnameIssue =
   | { code: "hostname_template_invalid"; detail: string }
   | { code: "invalid_hostname"; detail: string };
 
-/**
- * How a hostname field may be shaped:
- * - `required_template` — must contain `{pr_id}` (preview.hostname)
- * - `static_or_template` — static host, or a `{pr_id}` template (service hostname)
- */
 export type HostnameMode = "required_template" | "static_or_template";
 
-/** True when the value is treated as a `{pr_id}` template under `mode`. */
 function isHostnameTemplate(raw: string, mode: HostnameMode): boolean {
   if (mode === "required_template") return true;
-  // Any brace means "intended template" — reject stray `{`/`}` via template rules.
   return raw.includes("{") || raw.includes("}");
 }
 
-/**
- * Validate a `.sprout.yaml` hostname template.
- * Placeholder checks, then the same host grammar via a sentinel substitution.
- */
 function validateHostnameTemplate(
   template: string,
 ):
@@ -57,7 +42,6 @@ function validateHostnameTemplate(
   );
 }
 
-/** Validate a fully-substituted preview host (no scheme, path, or port). */
 export function validateHostname(
   host: string,
 ):
@@ -90,10 +74,6 @@ export function validateHostname(
   return { ok: true };
 }
 
-/**
- * Parse-time shape check for a hostname field (no PR substitution).
- * Same mode policy as {@link resolveHostnameValue}.
- */
 export function validateHostnameValue(
   raw: string,
   mode: HostnameMode,
@@ -106,10 +86,6 @@ export function validateHostnameValue(
   return validateHostname(raw);
 }
 
-/**
- * Substitute `{pr_id}` and validate the resulting host.
- * Rejects templates that cannot produce a host for the given PR.
- */
 function substituteHostname(
   template: string,
   prId: number,
@@ -124,10 +100,6 @@ function substituteHostname(
   return { ok: true, value: host };
 }
 
-/**
- * Deploy-time resolve: substitute when the value is a template under `mode`,
- * otherwise validate and return the static host.
- */
 export function resolveHostnameValue(
   raw: string,
   prId: number,

@@ -2,13 +2,8 @@ import type { Result } from "./result.ts";
 
 export type DotenvFile = { pathLabel: string; content: string };
 
-/**
- * Expand `{placeholder}` templates in a final merged value. The returned error
- * is a bare reason (no key prefix); {@link mergeLayers} adds the key label.
- */
 export type EnvValueExpander = (value: string) => Result<string>;
 
-/** Minimal deps for reading CI / flag dotenv paths (no CLI command types). */
 export type EnvFileReader = {
   cwd: string;
   env: NodeJS.ProcessEnv;
@@ -25,11 +20,6 @@ function parseEntry(entry: string): ParsedEntry | null {
   return { key, value: stripQuotes(entry.slice(eq + 1)) };
 }
 
-/**
- * Strip one pair of matching surrounding quotes (`KEY="a b"` → `a b`).
- * Unbalanced quotes are kept verbatim; only surrounding whitespace of the key
- * is trimmed — values keep their bytes so secrets survive round-trips.
- */
 function stripQuotes(value: string): string {
   if (value.length >= 2) {
     const first = value[0];
@@ -47,12 +37,7 @@ function resolveEnvPath(cwd: string, path: string): string {
   return path.startsWith("/") ? path : `${cwd}/${path}`;
 }
 
-/**
- * Collect the dotenv blob for one env surface. Order: the file-type CI
- * variable (`envVarName`, e.g. `SPROUT_APP_ENV`), then explicit `--*-env-file`
- * flags. Each value is a path GitLab writes the masked blob to; missing paths
- * fail naming the variable rather than silently dropping secrets.
- */
+/** Missing paths fail naming the variable rather than silently dropping secrets. */
 export async function readEnvFiles(
   deps: EnvFileReader,
   envVarName: string,
@@ -81,10 +66,7 @@ export async function readEnvFiles(
   return { ok: true, value: files };
 }
 
-/**
- * Apply `--*-env KEY=VALUE` entries into `byKey`. Errors never echo the entry:
- * it may carry a secret.
- */
+/** Errors never echo the entry: it may carry a secret. */
 function applyFlagEntries(
   byKey: Map<string, string>,
   flags: string[],
@@ -100,11 +82,7 @@ function applyFlagEntries(
   return { ok: true, value: true };
 }
 
-/**
- * Apply dotenv text into `byKey`. Blank lines and `#` comments are skipped; an
- * optional `export ` prefix is stripped. Invalid lines fail with a path + line
- * number and never echo the line, which may carry a secret.
- */
+/** Invalid lines fail with path + line number and never echo the line, which may carry a secret. */
 function applyDotenv(
   byKey: Map<string, string>,
   content: string,
@@ -131,15 +109,12 @@ function applyDotenv(
 }
 
 type MergeLayersInput = {
-  /** Manifest values (lowest precedence); may still contain `{placeholder}`s. */
   yamlValues?: Record<string, string>;
   files: DotenvFile[];
   flags: string[];
   flagLabel: string;
   fileFlagLabel: string;
-  /** Expand each final value once after all layers merge. */
   expand?: EnvValueExpander;
-  /** Prefix for expansion errors, e.g. `preview.app_env.` or `--seed-env `. */
   expandKeyPrefix: string;
 };
 
@@ -148,11 +123,6 @@ function serializeEnv(byKey: Map<string, string>): string[] | undefined {
   return [...byKey].map(([key, value]) => `${key}=${value}`);
 }
 
-/**
- * Merge manifest values, then dotenv files in order, then flags. Later layers
- * overwrite duplicate keys. When `expand` is set, each final value is expanded
- * once.
- */
 function mergeLayers(input: MergeLayersInput): Result<Map<string, string>> {
   const byKey = new Map(Object.entries(input.yamlValues ?? {}));
   for (const file of input.files) {
@@ -183,29 +153,14 @@ function mergeLayers(input: MergeLayersInput): Result<Map<string, string>> {
   return { ok: true, value: byKey };
 }
 
-/**
- * Label set for one manifest env surface (`preview.app_env` or `seed.env`).
- * The merge pipeline is identical; only error text differs.
- */
 export type EnvSurfaceLabels = {
-  /** Flag label, e.g. `--app-env`. */
   flagLabel: string;
-  /** File-flag label, e.g. `--app-env-file`. */
   fileFlagLabel: string;
-  /** Prefix for expansion errors, e.g. `preview.app_env.`. */
   expandKeyPrefix: string;
-  /** Surface path for required-key errors, e.g. `preview.app_env`. */
   requiredPrefix: string;
-  /** Supply hint for required-key errors, without the `supply it via` lead. */
   requiredHint: string;
 };
 
-/**
- * Merge manifest values, then dotenv files in order, then flags for one env
- * surface. Later layers overwrite duplicate keys. Required keys missing after
- * all layers fail with a surface-specific error. Invalid flags / file lines
- * fail before any network call.
- */
 export function mergeEnvSurface(
   yamlValues: Record<string, string> | undefined,
   required: string[] | undefined,
@@ -253,10 +208,6 @@ const SEED_ENV_LABELS: EnvSurfaceLabels = {
   requiredHint: "--seed-env-file, SPROUT_SEED_ENV, or --seed-env",
 };
 
-/**
- * Merge `preview.app_env`, then `--app-env-file` / `SPROUT_APP_ENV` contents,
- * then `--app-env` flags. See {@link mergeEnvSurface} for the pipeline.
- */
 export function mergeAppEnv(
   yamlValues: Record<string, string> | undefined,
   required: string[] | undefined,
@@ -274,10 +225,6 @@ export function mergeAppEnv(
   );
 }
 
-/**
- * Merge `seed.env`, then `--seed-env-file` / `SPROUT_SEED_ENV` contents, then
- * `--seed-env` flags. See {@link mergeEnvSurface} for the pipeline.
- */
 export function mergeSeedEnv(
   yamlValues: Record<string, string> | undefined,
   required: string[] | undefined,

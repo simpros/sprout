@@ -12,10 +12,6 @@ export type SweepTimerHandle = {
   stop: () => void;
 };
 
-/**
- * First sweep runs after one full interval; subsequent passes on the same interval.
- * Overlapping ticks are skipped while a pass is in flight.
- */
 export function startSweepTimer(options: SweepTimerOptions): SweepTimerHandle {
   const scheduleTimeout = options.setTimeout ?? setTimeout;
   const scheduleInterval = options.setInterval ?? setInterval;

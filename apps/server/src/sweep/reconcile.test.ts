@@ -127,7 +127,6 @@ describe("runSweepPass", () => {
         createdAt: "2026-08-01T12:00:00.000Z",
       },
     ]);
-    // TTL-only candidates never need a forge round-trip.
     expect(forgeCalls).toEqual([]);
   });
 
@@ -374,11 +373,9 @@ describe("runSweepPass", () => {
       fetch: async (input) => {
         const url = String(input);
         if (url.includes("api.github.com")) {
-          // PR 10 open; 11 closed
           return new Response(JSON.stringify([{ number: 10 }]), { status: 200 });
         }
         if (url.includes("gitlab.com/api/v4")) {
-          // MR 20 open; 21 closed
           return new Response(JSON.stringify([{ iid: 20 }]), { status: 200 });
         }
         return new Response("unexpected", { status: 500 });

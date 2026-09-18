@@ -9,12 +9,9 @@ import {
 } from "./preview-containers.ts";
 
 export type PreviewServiceSpec = {
-  /** Alphanumeric service id (same grammar as slug). */
   name: string;
   image: string;
-  /** Optional Host(); when omitted with path, falls back to app hostname. */
   hostname?: string;
-  /** Optional PathPrefix (e.g. `/api`). */
   path?: string;
 };
 
@@ -24,14 +21,12 @@ export type ReplacePreviewServicesDeps = {
   networks: { traefik: string; postgres: string };
   previewPortDefault: number;
   traefikTls?: TraefikTls;
-  /** Inherited by routed services (Host/PathPrefix public routes). */
   traefikForwardAuth?: TraefikForwardAuth;
 };
 
 export type ReplacePreviewServicesInput = {
   slug: string;
   prId: number;
-  /** App hostname — used when a service has path but no hostname. */
   appHostname: string;
   dbName: string;
   services: PreviewServiceSpec[];
@@ -40,13 +35,6 @@ export type ReplacePreviewServicesInput = {
 
 export { removePreviewServices };
 
-/**
- * Replace long-lived preview service containers for one PR.
- * Clears prior services, then creates each requested service in parallel.
- * Traefik labels only when hostname and/or path is set (otherwise internal).
- * On any create failure, clears partial services before rethrowing.
- * Caller must already have pulled images. Empty list clears without creating.
- */
 export async function replacePreviewServices(
   deps: ReplacePreviewServicesDeps,
   input: ReplacePreviewServicesInput,

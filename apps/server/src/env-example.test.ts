@@ -8,7 +8,6 @@ function envExampleKeys(contents: string): Set<string> {
   for (const line of contents.split("\n")) {
     const trimmed = line.trim();
     if (trimmed === "") continue;
-    // Active assignments and commented optional pins both count as documented.
     const match = trimmed.match(/^#?\s*([A-Z][A-Z0-9_]*)=/);
     if (match) keys.add(match[1]!);
   }

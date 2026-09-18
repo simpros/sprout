@@ -1,26 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# sprout `preview` component — thin CLI bootstrapper (GitLab CI/CD component).
-#
-# Adopters include this file and declare two CI variables; all preview logic
-# lives in the CLI (`sprout ci preview` / `sprout ci teardown`). This file
-# only installs the pinned, checksum-verified binary and calls it.
-#
-#   include:
-#     - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
-#       inputs: { stage: deploy }
-#
-# Full reference: templates/README.md. Remote-include fallback (same file,
-# explicit sprout_version): templates/README.md#remote-include-fallback.
-#
-# Conventions (per GitLab component guidance):
-# - no global keywords (`default:`, `variables:` at top level); both jobs
-#   carry their own image/variables via `.sprout-cli`.
-# - no hardcoded stage: both jobs use `inputs.stage`.
-# - `sprout_version` defaults to the release tag shipping this file; the
-#   source carries the sentinel `@SPROUT_COMPONENT_VERSION@`, which the
-#   release pipeline replaces with the tag it publishes, so the
-#   component version and the binary version coincide. Override to pin or
-#   trial a different CLI build.
 spec:
   inputs:
     sprout_version:
@@ -52,11 +29,6 @@ spec:
       default: "200"
 ---
 
-# Shared CLI bootstrap: credentials + checksum-verified install. Hidden
-# (dot-prefixed) so it never runs as a job itself. Runs on a minimal Alpine
-# image: teardown is gateway HTTP and never needs a Docker client. Only the
-# preview job gets Docker (it overrides the image and adds the daemon below).
-# Teardown avoids dind, Docker pulls, and registry logins.
 .sprout-cli:
   image: alpine:3.20
   before_script:
@@ -67,18 +39,13 @@ spec:
         echo "sprout_version input is empty (remote includes must set it explicitly)" >&2
         exit 1
       fi
-      # Unpinned sentinel (remote includes ship the source default verbatim):
-      # anything still wrapped in @…@ was never pinned — fail with a pointer
-      # instead of curling `.../download/@…@/…` into a 404. Matched by shape,
-      # not by the literal sentinel, so the release pin rewrite can never
-      # touch this branch.
+      # Matched by shape so the release pin rewrite cannot touch this branch.
       case "$SPROUT_VERSION" in
         "@"*@)
           echo "sprout_version input is unpinned (remote includes must set sprout_version explicitly to the tag in the URL)" >&2
           exit 1
           ;;
       esac
-      # Gateway credentials: explicit input wins, masked CI variables otherwise.
       INPUT_SPROUT_URL="$[[ inputs.sprout_url ]]"
       if [ -n "$INPUT_SPROUT_URL" ]; then
         SPROUT_URL="$INPUT_SPROUT_URL"
@@ -86,9 +53,7 @@ spec:
       : "${SPROUT_URL:?Set the SPROUT_URL CI variable (masked) or the sprout_url input.}"
       : "${SPROUT_TOKEN:?Set the SPROUT_TOKEN CI variable (masked).}"
       export SPROUT_URL
-      # Prerequisites live inside the component: adopters declare no packages.
       apk add --no-cache curl ca-certificates libstdc++ >/dev/null
-      # Pinned, checksum-verified binary (musl asset: this job image is Alpine).
       ASSET=sprout-linux-x64-musl
       INSTALL_TMP="$(mktemp -d)"
       curl -fsSL -o "$INSTALL_TMP/$ASSET" \
@@ -104,9 +69,6 @@ spec:
       install -m 0755 "$INSTALL_TMP/$ASSET" /usr/local/bin/sprout
       test "$(sprout --version)" = "$SPROUT_VERSION"
 
-# Preview-only Docker shape lives on the only job that needs it: the image
-# builds inside `sprout ci preview` need a client + daemon. The stop job
-# extends `.sprout-cli` directly.
 sprout-preview:
   extends: .sprout-cli
   image: docker:24
@@ -131,9 +93,6 @@ sprout-preview:
   script:
     - |
       set -eu
-      # Predefined registry credentials when the project registry is enabled.
-      # Lives here (not in the shared bootstrap): only the preview build
-      # pushes images, so teardown never pays for a registry login.
       if [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
         echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
       fi
@@ -142,22 +101,12 @@ sprout-preview:
       TAIL="$[[ inputs.tail ]]"
       APP_ENV_FILE="$[[ inputs.app_env_file ]]"
       SEED_ENV_FILE="$[[ inputs.seed_env_file ]]"
-      # All path-shaped inputs are project-root-relative (same contract as
-      # dotenv_file): resolve them before `cd`, since `cd "$APP_CONTEXT"`
-      # would otherwise relocate relative env paths under app_context.
       abs() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$CI_PROJECT_DIR/$1" ;; esac; }
       DOTENV_FILE="$(abs "$DOTENV_FILE")"
       if [ -n "$APP_ENV_FILE" ]; then APP_ENV_FILE="$(abs "$APP_ENV_FILE")"; fi
       if [ -n "$SEED_ENV_FILE" ]; then SEED_ENV_FILE="$(abs "$SEED_ENV_FILE")"; fi
       cd "$APP_CONTEXT"
-      # The preview URL comes from the CLI's dotenv output only; never
-      # reconstruct the hostname here (the CLI owns {pr_id} substitution).
       set -- --tail "$TAIL" --dotenv-file "$DOTENV_FILE"
-      # Silent-skip note: inputs: interpolate at config time, when File-type
-      # values are not yet materialized — a File var passed as app_env_file /
-      # seed_env_file expands to empty here, so the flags below are skipped
-      # with no message. Repo-relative dotenv paths only; File blobs go via
-      # runtime SPROUT_APP_ENV / SPROUT_SEED_ENV (see Troubleshooting).
       if [ -n "$APP_ENV_FILE" ]; then set -- "$@" --app-env-file "$APP_ENV_FILE"; fi
       if [ -n "$SEED_ENV_FILE" ]; then set -- "$@" --seed-env-file "$SEED_ENV_FILE"; fi
       sprout ci preview "$@"
@@ -165,15 +114,7 @@ sprout-preview:
 sprout-stop-preview:
   extends: .sprout-cli
   stage: $[[ inputs.stage ]]
-  # Optional manual stop: `when: manual` at job level (NOT inside `rules`)
-  # keeps MR pipelines green with zero clicks and no `allow_failure`:
-  # job-level manual defaults to optional, while `when: manual`
-  # inside `rules` defaults to blocking. The job stays playable on
-  # demand and GitLab auto-runs this `on_stop` target on MR close/merge +
-  # `auto_stop_in` expiry (the deploy job's `environment: on_stop` is the
-  # trigger wire — `on_stop` only fires when the deploying job defines an
-  # environment). Both jobs share the same `rules` condition so the stop
-  # target exists in every pipeline that deploys.
+  # Job-level when: manual stays optional; inside rules it would block the pipeline.
   when: manual
   rules:
     - if: $CI_MERGE_REQUEST_IID
@@ -183,7 +124,4 @@ sprout-stop-preview:
   script:
     - |
       set -eu
-      # Teardown takes no flags and runs at $CI_PROJECT_DIR: identity comes
-      # from CI env only, so there is nothing to carry over from the preview
-      # job (no working-directory jump, no dotenv/extra args).
       sprout ci teardown

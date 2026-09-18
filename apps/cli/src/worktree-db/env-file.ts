@@ -4,14 +4,12 @@ import {
   type OwnerEnvKey,
 } from "@sprout/preview-env";
 
-/** Worktree-local emission beyond the owner PG* keys. */
 export const DATABASE_URL_LOGICAL = "DATABASE_URL" as const;
 
 export type WorktreeEnvLogicalKey =
   | typeof DATABASE_URL_LOGICAL
   | OwnerEnvKey;
 
-/** Default env names written by worktree-db provision. */
 export const DEFAULT_ENV_KEYS: Record<WorktreeEnvLogicalKey, string> = {
   DATABASE_URL: "DATABASE_URL",
   PGHOST: "PGHOST",
@@ -26,12 +24,10 @@ const WORKTREE_ENV_LOGICAL_KEYS = [
   ...OWNER_ENV_KEYS,
 ] as const satisfies readonly WorktreeEnvLogicalKey[];
 
-/** Connection values keyed by the same logical names as env emission. */
 export type ConnectionEnvValues = Record<WorktreeEnvLogicalKey, string>;
 
 export type EnvKeyNames = Record<WorktreeEnvLogicalKey, string>;
 
-/** Map a provision result onto logical env keys (one naming system end-to-end). */
 export function connectionEnvValues(conn: {
   databaseUrl: string;
   host: string;
@@ -56,10 +52,6 @@ function isWorktreeEnvLogicalKey(key: string): key is WorktreeEnvLogicalKey {
   );
 }
 
-/**
- * Parse KEY=VALUE rename pairs; unknown logical keys and target collisions
- * (same invariant as parsePreviewEnvMap) are rejected.
- */
 export function parseEnvRenames(
   pairs: string[],
 ): { ok: true; value: Partial<EnvKeyNames> } | { ok: false; error: string } {
@@ -109,7 +101,6 @@ export function resolveEnvKeyNames(
   return { ...DEFAULT_ENV_KEYS, ...renames };
 }
 
-/** Read a KEY=value from dotenv-style text (first match). */
 export function readEnvFileValue(
   existing: string | null,
   key: string,
@@ -124,10 +115,6 @@ export function readEnvFileValue(
   return undefined;
 }
 
-/**
- * Replace managed connection keys in a dotenv-style file; preserve others.
- * Creates content when existing is null/empty.
- */
 export function mergeConnectionEnvFile(
   existing: string | null,
   values: ConnectionEnvValues,

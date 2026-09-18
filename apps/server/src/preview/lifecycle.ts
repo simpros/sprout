@@ -115,13 +115,7 @@ type AcceptBringUp = {
   plan: BringUpPlan;
 };
 
-/**
- * Registry pull failed before replace. Must run under {@link withPreviewLock}.
- * No-ops if teardown already won (`removing` / `removed` / missing). If a
- * container is still claimed, restore `running` so a bad registry blip cannot
- * poison a ready preview. Sticky `last_error` fields travel on the snapshot.
- * Used only from the pull preflight path — never for bring-up / replace.
- */
+/** Must run under withPreviewLock; skips removing/removed rows. */
 async function persistPullFailure(
   db: StateDb,
   repo: string,
@@ -193,13 +187,6 @@ async function writeProvisioningIntent(
   );
 }
 
-/**
- * Same-identity accept patch: clear sticky error strings, write durable
- * bringUpPlan, and set the in-flight status. Optional remint advances TTL
- * generation (stuck provisioning only). Does not touch seeded_at — that
- * clears after healthy attach or on seed entry. Preserves failureFamily
- * through claim (survives until closeRunning / attach / sticky re-mark).
- */
 async function patchAccept(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -228,7 +215,6 @@ async function patchAccept(
   );
 }
 
-/** slug + dbName ownership; hostname is routing and may change on replace. */
 function dbIdentityMatches(
   row: PreviewRow,
   input: ProvisionInput,
@@ -252,21 +238,6 @@ function requireDbIdentity(
   return { ok: true, value: true };
 }
 
-/**
- * Write / preserve the bring-up plan at accept. Bring-up consumes
- * `bringUpPlan` blindly — sticky fail already wrote recovery plans; do not
- * rebuild from `failureFamily`.
- *
- * - Durable `sync_close` / `close` / `seed_resume` + same app → keep that plan
- * - seeding + seededAt (seed done, plan missing) + same app → close
- * - seeding + same app (seed incomplete) → seed_resume
- * - failed without a durable recovery plan → full_replace
- * - running/starting + reseed + same app → seed_resume
- * - else → full_replace
- *
- * Bare `starting` without close/sync_close is mid-health (or older crash);
- * keep full_replace — promote writes close|sync_close only after healthy.
- */
 function planAcceptBringUp(
   row: PreviewRow,
   input: ProvisionInput,
@@ -274,7 +245,6 @@ function planAcceptBringUp(
 ): AcceptBringUp {
   const sameApp = canSeedWithoutAppReplace(row, input);
 
-  // Crash / sticky recovery: plan already on the row.
   if (sameApp) {
     if (row.bringUpPlan === "sync_close") {
       return { status: "provisioning", plan: "sync_close" };
@@ -307,12 +277,6 @@ function planAcceptBringUp(
   }
   return { status: "provisioning", plan: "full_replace" };
 }
-/**
- * Accept-time writer of truth: under the preview lock, insert or rewrite a
- * `provisioning` intent row and return its snapshot. Does not pull or bring-up.
- * Seed-resume / identity conflicts that need the request body are left to
- * {@link completeProvisionUnlocked} (durable failure on the row for pollers).
- */
 export async function claimDeployIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -359,8 +323,6 @@ export async function claimDeployIntent(
     }
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
-        // Seed-resume accept writes in-flight `seeding` so `failed` stays
-        // terminal-only for CLI pollers (keep containerId/appImage).
         const planned = planAcceptBringUp(row, input, "failed");
         const next = await patchAccept(deps, row, planned);
         return { ok: true, value: previewSnapshotFromRow(next) };
@@ -407,15 +369,6 @@ export async function claimDeployIntent(
   }
 }
 
-/**
- * Post-accept bring-up under the preview lock. Assumes
- * {@link claimDeployIntent} already wrote the intent row + durable
- * `bringUpPlan`. Never remints createdAt — accept owns generation.
- *
- * Bring-up consumes `bringUpPlan` only (see bring-up.ts):
- * seed_resume → seed → close|sync; sync_close → sync → running;
- * close → running; full_replace → ensure → attach → promote → close|sync.
- */
 async function completeProvisionUnlocked(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -441,14 +394,9 @@ async function completeProvisionUnlocked(
   return completeBringUp(deps, row, input);
 }
 
-/** Soft-remove (sweep/teardown) vs hard-delete SQLite row (admin drop). */
 type DestroyDisposition = "tombstone" | "purge";
 
-/**
- * Drop the preview DB under the dbName lock, then finalize the control-plane
- * row: soft `removed` (tombstone, reclaimable) or hard DELETE (purge).
- * Must run inside withPreviewLock; never unlock between DROP and finalize.
- */
+/** Must run inside withPreviewLock; never unlock between DROP and finalize. */
 async function destroyPreviewRow(
   deps: TeardownDeps,
   existing: PreviewRow,
@@ -464,8 +412,6 @@ async function destroyPreviewRow(
       and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
     );
 
-  // Best-effort container remove outside dbName lock (still under preview lock).
-  // Leftover sprout-* containers are reclaimed by orphan-container sweep.
   try {
     await deps.app.remove(existing.slug, existing.prId);
   } catch {
@@ -533,13 +479,7 @@ async function teardownUnlocked(
   return destroyPreviewRow(deps, existing, "tombstone");
 }
 
-/**
- * Pull images then complete bring-up under the preview lock.
- * Call only after {@link claimDeployIntent} has written the provisioning row
- * (async accept path). Pull stays outside the lock so a hung registry cannot
- * stall teardown; durable pull-failure writes happen under the lock so they
- * cannot resurrect a `removed` row.
- */
+/** Pull stays outside the lock so a hung registry cannot stall teardown. */
 export async function provisionPreview(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -569,13 +509,7 @@ export function teardownPreview(
   );
 }
 
-/**
- * Admin purge: drop the DB and hard-delete the SQLite row under one lock.
- * No soft-remove → unlock → DELETE window (provision cannot reclaim mid-purge).
- * Operator drop is intentionally unversioned — confirm binds to (repo, prId)
- * only; a concurrent redeploy can still be destroyed without a new plan.
- * Container remove is best-effort inside destroyPreviewRow (same as teardown).
- */
+/** Purge holds one lock throughout; confirm binds (repo, prId) only, unversioned. */
 export function purgePreview(
   deps: LifecycleDeps,
   input: TeardownInput,
@@ -593,11 +527,6 @@ export function purgePreview(
   });
 }
 
-/**
- * Sweep control-plane delete: under the same lock as provision/teardown,
- * re-read and abort unless identity + generation still match, then remove.
- * @returns true if the preview was removed; false if the plan was stale.
- */
 export function removePreview(
   deps: TeardownDeps,
   input: RemovePreviewInput,
@@ -623,11 +552,6 @@ export function removePreview(
   });
 }
 
-/**
- * Orphan catalog DROP under the dbName lock. Aborts if a non-removed
- * preview row claims this name (provision won since plan time).
- * @returns true if DROP ran.
- */
 export function dropOrphanDatabase(
   deps: TeardownDeps,
   dbName: string,

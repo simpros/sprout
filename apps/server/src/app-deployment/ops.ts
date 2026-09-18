@@ -30,39 +30,25 @@ import {
 
 export type { PreviewServiceSpec };
 
-/** Live container log text; null = container missing (Docker 404). */
 export type LiveContainerLogs = {
   app: string | null;
   seed: string | null;
 };
 
-/** Bound deploy ops for lifecycle/sweep — no PGHOST / network config at callers. */
 export type PreviewAppOps = {
   pullImage: (image: string) => Promise<void>;
   replace: (
     input: ReplacePreviewAppInput,
   ) => Promise<{ containerId: string; port: number }>;
-  /**
-   * Replace long-lived service containers after the app is healthy.
-   * Caller must already have pulled images. Empty list clears prior services.
-   */
   replaceServices: (input: ReplacePreviewServicesInput) => Promise<void>;
-  /** Poll postgres-network IP until HealthSpec expects success or timeout. */
   waitHealthy: (
     containerId: string,
     port: number,
     health: HealthSpec,
   ) => Promise<"ok" | "timeout">;
-  /** One-shot seed image on Postgres network; caller already pulled the image. */
   runSeed: (input: SeedImageInput) => Promise<SeedImageResult>;
-  /** Remove app + all service containers for one PR (fleet teardown). */
   remove: (slug: string, prId: number) => Promise<void>;
-  /** Catalog of running sprout-* containers (orphan sweep). */
   list: () => Promise<CatalogContainer[]>;
-  /**
-   * Live app + seed container text in parallel.
-   * Missing container → null (caller merges with stored seed_log).
-   */
   liveLogs: (input: {
     slug: string;
     prId: number;
@@ -71,15 +57,11 @@ export type PreviewAppOps = {
 };
 
 export type BindPreviewOpsDeps = ReplacePreviewAppDeps & {
-  /** Wall-clock bound for one-shot seed image runs (SPROUT_SEED_TIMEOUT). */
   seedTimeoutMs: number;
-  /** Test seam — defaults to fetch-based probe. */
   healthProbe?: HealthProbe;
-  /** Test seam — defaults to Date.now / setTimeout. */
   healthClock?: HealthClock;
 };
 
-/** Parallel Docker log pulls for app + seed container names. */
 export async function fetchLiveContainerLogs(
   docker: PreviewDocker,
   input: { slug: string; prId: number; tail: number },
@@ -97,7 +79,6 @@ export async function fetchLiveContainerLogs(
   return { app, seed };
 }
 
-/** Compose replace/health + seed at the composition root (not in replace.ts). */
 export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
   const probe = deps.healthProbe ?? defaultHealthProbe();
   return {

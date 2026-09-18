@@ -30,10 +30,6 @@ afterEach(async () => {
   fakeDocker = undefined;
 });
 
-/**
- * Pull-fail persistence must not resurrect a torn-down preview.
- * Gate the registry pull, teardown mid-flight, then let pull fail under lock.
- */
 describe("deploy pull vs teardown race", () => {
   test("pull failure after teardown leaves row removed", async () => {
     let releasePull!: () => void;
@@ -94,7 +90,6 @@ describe("deploy pull vs teardown race", () => {
 
     releasePull();
 
-    // Background runAsyncDeploy must finish (and not resurrect) before we assert.
     for (let i = 0; i < 200; i++) {
       const [row] = await testApp.db
         .select()
@@ -104,7 +99,6 @@ describe("deploy pull vs teardown race", () => {
         )
         .limit(1);
       if (!row || row.status === "removed") break;
-      // Still provisioning: wait for locked pull-fail path to observe tombstone.
       if (row.status !== "provisioning" && row.status !== "removing") break;
       await new Promise<void>((r) => setImmediate(r));
     }

@@ -262,14 +262,12 @@ health:
       pr_id: 17,
       slug: "myapp",
       hostname: "pr-17.myapp.preview.example.com",
-      // No image rebuild: the already-pushed pipeline tag is reused.
       app_image: "registry.gitlab.com/group/repo:abc123",
       seed_image: "registry.gitlab.com/group/repo-seed:abc123",
       seed_env: ["FIXTURE=demo"],
       reseed: true,
       app_env: ["SHARED=from-cli", "KEEP=yaml", "FILE_ONLY=1"],
     });
-    // Companions untouched: no services key means "leave".
     expect(captured[0]?.body).not.toHaveProperty("services");
   });
 

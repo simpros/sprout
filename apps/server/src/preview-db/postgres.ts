@@ -48,7 +48,6 @@ export function createPostgresPreviewDb(
   return {
     async createDatabase(dbName) {
       assertPreviewDbName(dbName);
-      // Defensive if boot skipped ensure; memoized after first success (no hot-path ALTER).
       await ensurePreviewRole();
       await ensureDatabase(sql, { name: dbName, owner: previewRole });
       await ensureRestrictedRole(sql, {

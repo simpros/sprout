@@ -54,7 +54,6 @@ describe("assembleSite", () => {
 
     const published = await assembleSite(repo, out);
 
-    // One manifest, no overlapping entries: every path published exactly once.
     expect(new Set(published).size).toBe(published.length);
 
     for (const rel of [
@@ -73,8 +72,6 @@ describe("assembleSite", () => {
       rootRedirectHtml(),
     );
 
-    // The artifact — not the repo — is what the gate validates, and the
-    // root redirect is part of the checked HTML set.
     const paths = await defaultCheckPaths(out);
     expect(paths.htmlFiles).toContain(join(out, "index.html"));
     await check(paths);
@@ -86,7 +83,6 @@ describe("assembleSite", () => {
     const out = join(root, "site");
     await writeCorpusFixture(repo);
 
-    // Maintainer ADRs still exist in the repo; the manifest must not copy them.
     await mkdir(join(repo, "docs", "adr"), { recursive: true });
     await writeFile(join(repo, "docs", "adr", "README.md"), "# adrs\n");
     await writeFile(join(repo, "docs", "adr", "0001-thing.md"), "# one\n");
@@ -104,8 +100,6 @@ describe("assembleSite", () => {
     const out = join(root, "site");
     await writeCorpusFixture(repo);
 
-    // Pre-seed a dirty outDir: orphan files and a stale page the manifest
-    // no longer publishes.
     await mkdir(join(out, "orphan"), { recursive: true });
     await writeFile(join(out, "orphan", "stale.md"), "# stale\n");
     await writeFile(join(out, "index.html"), "<html>stale</html>");
@@ -117,7 +111,6 @@ describe("assembleSite", () => {
     expect(await readFile(join(out, "index.html"), "utf8")).toBe(
       rootRedirectHtml(),
     );
-    // The on-disk tree is exactly the manifest: no orphans beside it.
     const onDisk = await defaultCheckPaths(out);
     const rel = (abs: string) => abs.slice(out.length + 1);
     expect(

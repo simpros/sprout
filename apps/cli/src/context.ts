@@ -12,7 +12,6 @@ export type CliIo = {
   stderr: (line: string) => void;
 };
 
-/** Result of one spawned process (`sprout ci preview` docker steps). */
 export type CommandResult = {
   exitCode: number;
 };
@@ -24,29 +23,18 @@ export type CliDeps = {
   getGitRemoteUrl: () => string | null;
   createClient: (baseUrl: string, token: string) => ApiClient;
   io: CliIo;
-  /** Test seam for deploy status polling. */
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
-  /**
-   * Test seam for spawning `docker` (`sprout ci preview` build/push steps).
-   * Inherits the process env, so DOCKER_HOST / registry auth for dind works
-   * unchanged. Defaults to streaming child stdio.
-   */
+  /** Inherits process env so DOCKER_HOST / registry auth for dind works unchanged. */
   runCommand?: (
     argv: string[],
     opts: { cwd: string },
   ) => Promise<CommandResult>;
-  /** Test seam for writing the preview dotenv file. */
   writeTextFile?: (path: string, content: string) => Promise<void>;
-  /**
-   * Test seam for forge MR-note calls (`sprout ci preview` / `teardown`
-   * post one note via the GitLab / GitHub API). Defaults to global fetch.
-   * The forge token travels in headers only and is never logged.
-   */
+  /** The forge token travels in headers only and is never logged. */
   fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
 };
 
-/** Shared runtime for a single command invocation. */
 export type CliContext = {
   deps: CliDeps;
   client: ApiClient;
@@ -58,14 +46,8 @@ export function resolveGatewayUrl(
   return env.SPROUT_URL?.trim() || "http://127.0.0.1:7331";
 }
 
-/** Well-known default; compose/image set `SPROUT_ADMIN_TOKEN_PATH` explicitly. */
 const DEFAULT_ADMIN_TOKEN_PATH = "admin-token";
 
-/**
- * Path for the gateway-persisted bootstrap admin token.
- * CLI does not derive this from the control-plane DB path — publish via
- * `SPROUT_ADMIN_TOKEN_PATH` (compose/Dockerfile set `/data/admin-token`).
- */
 export function resolveAdminTokenPath(env: NodeJS.ProcessEnv): string {
   return env.SPROUT_ADMIN_TOKEN_PATH?.trim() || DEFAULT_ADMIN_TOKEN_PATH;
 }
@@ -85,12 +67,6 @@ export function fail(io: CliIo, message: string, code = 1): number {
   return code;
 }
 
-/**
- * Bearer for authed commands (full local-admin policy):
- * 1. `SPROUT_TOKEN` (explicit)
- * 2. on loopback only: `SPROUT_ADMIN_TOKEN`
- * 3. on loopback only: admin token file (`SPROUT_ADMIN_TOKEN_PATH` or default)
- */
 export async function requireToken(deps: CliDeps): Promise<Result<string>> {
   const explicit = deps.env.SPROUT_TOKEN?.trim();
   if (explicit) return { ok: true, value: explicit };
@@ -199,10 +175,6 @@ export async function authedContext(
   };
 }
 
-/**
- * Gateway client for commands that resolve identity before auth (e.g.
- * `sprout ci *`, which must report outside-pipeline usage without a token).
- */
 export async function authedClient(
   deps: CliDeps,
 ): Promise<Result<ApiClient>> {
@@ -221,10 +193,6 @@ export function unauthedContext(deps: CliDeps): CliContext {
   };
 }
 
-/**
- * Spawn a child process with inherited stdio (docker build/push stream to
- * the CI job log). Only the exit code is captured.
- */
 export async function defaultRunCommand(
   argv: string[],
   opts: { cwd: string },

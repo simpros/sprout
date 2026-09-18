@@ -190,7 +190,6 @@ preview:
       app_env: [
         "BETTER_AUTH_URL=https://pr-9.example.com",
         "REF=deadbeef",
-        // HMAC-SHA256("t", "sprout-stable-per-pr:https://github.com/org/repo:9:BETTER_AUTH_SECRET")
         "BETTER_AUTH_SECRET=KrLonl37dtv_WiT_yVTw01CIOI0nfVFcQT4oectt8bE",
       ],
     });

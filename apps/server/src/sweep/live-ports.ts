@@ -18,7 +18,6 @@ import type {
 export type LiveSweepDeps = {
   db: StateDb;
   previewDb: PreviewDb;
-  /** Same bound ops as HTTP — list + remove for catalog and cleanup. */
   app: Pick<PreviewAppOps, "list" | "remove">;
   forge: ForgeClient;
   ttlHours: number;
@@ -40,8 +39,6 @@ async function removeControlPlane(
     { reason: "sweep:ttl-expired" | "sweep:pr-not-open" }
   >,
 ): Promise<boolean> {
-  // Lifecycle owns Docker teardown under the preview lock (dbName lock is
-  // SQL-only). Failures surface as incomplete teardown for the next pass.
   const result = await removePreview(teardownDeps(deps), {
     repo: deletion.canonicalRepoId,
     prId: deletion.prId,
@@ -97,7 +94,6 @@ export function createLiveSweepPorts(deps: LiveSweepDeps): SweepPorts {
         case "sweep:ttl-expired":
           return removeControlPlane(deps, deletion);
         case "sweep:pr-not-open": {
-          // Forge outside the preview lock — under lock only checks generation.
           const open = await deps.forge.listOpenPrIds(
             deletion.canonicalRepoId,
           );

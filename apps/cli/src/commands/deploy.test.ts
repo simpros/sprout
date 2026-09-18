@@ -230,7 +230,6 @@ describe("sprout deploy async poll", () => {
     let polls = 0;
     const baseUrl = startGateway(async (req, url) => {
       if (url.pathname === "/v1/deploy") {
-        // Accept after seed_failed: plan is seeding, not terminal failed.
         return Response.json(
           { ...SNAPSHOT_BASE, status: "seeding" },
           { status: 202 },

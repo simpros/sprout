@@ -14,10 +14,8 @@ import {
 
 const enabled = process.env.SPROUT_E2E_MANAGED === "1";
 
-/** Public image with EXPOSE 80 — health path `/` (no PG* required to boot). */
 const APP_IMAGE = "nginx:alpine";
 
-/** Partial remap: three adopter names + two remaining PG* (replace, not alias). */
 const REMAP = {
   PGHOST: "DATABASE_HOST",
   PGUSER: "DATABASE_USER",
@@ -91,7 +89,6 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
       expect(env.has("DATABASE_PASSWORD")).toBe(true);
       expect(env.get("DATABASE_PASSWORD")).not.toBe("");
 
-      // Unmapped canonical keys stay PG*; remapped keys must not dual-alias.
       expect(env.get("PGPORT")).toBe(expectedPort);
       expect(env.has("PGDATABASE")).toBe(true);
       expect(env.has("PGAPPUSER")).toBe(true);

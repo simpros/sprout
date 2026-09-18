@@ -61,7 +61,6 @@ export const deployBody = t.Object({
   reseed: t.Optional(t.Boolean()),
 });
 
-/** Identity is (canonical_repo_id, pr_id); slug is not part of teardown. */
 export const teardownBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   pr_id: t.Number(),
@@ -84,12 +83,10 @@ export type DeployBody = {
   seed_env?: string[];
   seed_arg?: string[];
   app_env?: string[];
-  /** Omit = leave companions; `[]` = clear; non-empty = replace. */
   services?: PreviewServiceSpec[];
   reseed?: boolean;
 };
 
-/** Cap + `KEY=VALUE` shape check shared by seed_env and app_env. */
 function validateKvEnvEntries(
   entries: string[],
   opts: { max: number; tooMany: string; invalid: string },
@@ -105,7 +102,6 @@ function validateKvEnvEntries(
   return { ok: true };
 }
 
-/** Validate optional seed fields; health is required when seed_image is set. */
 export function resolveSeedRequest(
   body: Pick<
     DeployBody,
@@ -149,7 +145,6 @@ export function resolveSeedRequest(
   };
 }
 
-/** Validate adopter app env (`KEY=VALUE`); empty list is allowed. */
 export function resolveAppEnvRequest(
   body: Pick<DeployBody, "app_env">,
 ): { ok: true; value: string[] } | { ok: false; error: string } {
@@ -163,10 +158,6 @@ export function resolveAppEnvRequest(
   return { ok: true, value: appEnv };
 }
 
-/**
- * Validate optional service list.
- * Omitted → undefined (leave companions); present (incl. `[]`) → sync/clear.
- */
 export function resolveServicesRequest(
   body: Pick<DeployBody, "services">,
 ):
@@ -251,7 +242,6 @@ export function deploy(deps: LifecycleDeps) {
     const connectionEnv = parsePreviewEnvMap(body.env);
     if (!connectionEnv.ok) {
       set.status = 422;
-      // Collapse empty → invalid at the HTTP edge (stable API codes).
       const code =
         connectionEnv.issue.code === "empty_env_target"
           ? "invalid_env_target"

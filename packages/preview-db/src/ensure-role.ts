@@ -48,9 +48,6 @@ async function roleDdl(
   return stmt;
 }
 
-/**
- * Create or sync a LOGIN role password via the admin connection.
- */
 export async function ensureLoginRole(
   sql: SQL,
   role: string,
@@ -72,7 +69,6 @@ export async function ensureLoginRole(
       await sql.unsafe(await roleDdl(sql, role, password, "create"));
       return "created";
     } catch (err) {
-      // Concurrent ensure: another caller created the role between SELECT and CREATE.
       if (!isDuplicateRole(err)) throw err;
       await sql.unsafe(await roleDdl(sql, role, password, "alter"));
       return "synced";

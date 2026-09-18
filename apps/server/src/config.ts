@@ -28,7 +28,6 @@ export const OPTIONAL_ENV_DEFAULTS = {
   SPROUT_PORT: 7331,
 } as const;
 
-/** Optional string keys read by `loadConfig` (blank → ""). */
 export const OPTIONAL_STRING_ENV = [
   "SPROUT_REGISTRY_USER",
   "SPROUT_REGISTRY_PASSWORD",
@@ -42,11 +41,6 @@ export const OPTIONAL_STRING_ENV = [
   "SPROUT_FORWARDAUTH_ADDRESS",
 ] as const;
 
-/**
- * Every gateway env name that `.env.example` must document.
- * Includes loadConfig keys plus admin (absent vs blank) and SQLite path
- * (resolved outside loadConfig via `resolveStateDbPath`).
- */
 export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
   ...REQUIRED_ENV,
   ...Object.keys(OPTIONAL_ENV_DEFAULTS),
@@ -58,23 +52,15 @@ export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
 
 export type Config = {
   previewPostgresUrl: string;
-  /** Hostname preview containers use for PGHOST (often not the admin DSN host). */
   previewPgHost: string;
   previewPgPort: number;
   previewPgUser: string;
   previewPgPassword: string;
   traefikNetwork: string;
   postgresNetwork: string;
-  /**
-   * Normalized registry pull auth: per-host map from SPROUT_REGISTRY_AUTHS_JSON
-   * plus optional legacy USER/PASSWORD fallback (only when user is non-empty).
-   */
   registryPullAuth: RegistryPullAuth;
-  /** GitHub PAT for sweep open-PR listing. */
   githubToken: string;
-  /** GitLab PAT for sweep open-MR listing. */
   gitlabToken: string;
-  /** Extra self-managed GitLab hosts (from SPROUT_FORGE_HOSTS). */
   extraGitlabHosts: ReadonlySet<string>;
   adminToken?: string;
   ttlHours: number;
@@ -82,18 +68,7 @@ export type Config = {
   previewPortDefault: number;
   seedTimeout: number;
   port: number;
-  /**
-   * Router TLS policy for preview Traefik labels.
-   * Absent = HTTP (no tls/entrypoints/certresolver). Set when
-   * SPROUT_TRAEFIK_ENTRYPOINTS is non-empty.
-   */
   traefikTls?: TraefikTls;
-  /**
-   * ForwardAuth middleware policy for preview Traefik labels.
-   * Absent = no middleware attachment/definition. Set when both
-   * SPROUT_TRAEFIK_MIDDLEWARES (one name) and SPROUT_FORWARDAUTH_ADDRESS
-   * are non-empty.
-   */
   traefikForwardAuth?: TraefikForwardAuth;
 };
 
@@ -118,15 +93,10 @@ function requiredEnv(key: (typeof REQUIRED_ENV)[number]): string {
   return raw.trim();
 }
 
-/** Trimmed env value; missing or blank → "". */
 function optionalStringEnv(key: (typeof OPTIONAL_STRING_ENV)[number]): string {
   return process.env[key]?.trim() ?? "";
 }
 
-/**
- * Build router TLS policy from env. Entrypoints empty → off (HTTP labels).
- * Certresolver alone (without entrypoints) is ignored.
- */
 function parseTraefikTls(): TraefikTls | undefined {
   const entrypoints = optionalStringEnv("SPROUT_TRAEFIK_ENTRYPOINTS");
   if (entrypoints === "") return undefined;
@@ -136,13 +106,6 @@ function parseTraefikTls(): TraefikTls | undefined {
     : { entrypoints, certResolver };
 }
 
-/**
- * Build forwardAuth middleware policy from env.
- * Both middleware name and address empty → off (today's labels).
- * Exactly one set → fail fast (never attach without a definition, and never
- * define without attachment). Env name stays plural for collision control with
- * Coolify; value is a single Traefik middleware name (no commas).
- */
 function parseTraefikForwardAuth(): TraefikForwardAuth | undefined {
   const middleware = optionalStringEnv("SPROUT_TRAEFIK_MIDDLEWARES");
   const address = optionalStringEnv("SPROUT_FORWARDAUTH_ADDRESS");
@@ -160,10 +123,6 @@ function parseTraefikForwardAuth(): TraefikForwardAuth | undefined {
   return { middleware, address };
 }
 
-/**
- * Parse `host=gitlab` pairs (also accepts `host:gitlab`) into extra GitLab hosts.
- * Built-in GitHub hosts cannot be remapped. Empty / unset → empty set.
- */
 export function parseExtraGitlabHosts(raw: string): ReadonlySet<string> {
   const trimmed = raw.trim();
   if (trimmed === "") return new Set();

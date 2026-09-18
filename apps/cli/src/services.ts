@@ -12,7 +12,6 @@ export type DeployService = {
   path?: string;
 };
 
-/** Parse one `--service name=image` flag. */
 export function parseServiceFlag(raw: string): Result<{ name: string; image: string }> {
   const eq = raw.indexOf("=");
   if (eq <= 0 || eq === raw.length - 1) {
@@ -26,11 +25,6 @@ export function parseServiceFlag(raw: string): Result<{ name: string; image: str
   return { ok: true, value: { name, image } };
 }
 
-/**
- * Merge yaml `preview.services` with repeatable `--service name=image`.
- * CLI images overlay matching names; every service needs an image after merge.
- * Empty merge → undefined (omit from deploy body = leave companions).
- */
 export function mergeServices(
   yamlServices: SproutYamlService[] | undefined,
   flagValues: string[],

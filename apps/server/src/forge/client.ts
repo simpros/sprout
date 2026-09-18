@@ -10,11 +10,8 @@ import {
 export { FORGE_KINDS, resolveForgeKind, type ForgeKind } from "./kind.ts";
 
 export type CreateForgeClientOptions = {
-  /** Per-forge PAT for GitHub API calls. */
   githubToken?: string;
-  /** Per-forge PAT for GitLab API calls. */
   gitlabToken?: string;
-  /** Extra self-managed GitLab hosts (see SPROUT_FORGE_HOSTS). */
   extraGitlabHosts?: ReadonlySet<string>;
   fetch?: FetchLike;
 };
@@ -58,10 +55,6 @@ function clientForKind(
   throw new Error(`Unsupported forge: ${kind satisfies never}`);
 }
 
-/**
- * Forge client that selects GitHub vs GitLab per canonical repo id
- * (URL host inference + optional SPROUT_FORGE_HOSTS extras).
- */
 export function createForgeClient(
   options: CreateForgeClientOptions,
 ): ForgeClient {

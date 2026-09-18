@@ -278,7 +278,6 @@ describe("createLiveSweepPorts", () => {
 
     const rows = await testDb.db.select().from(previews);
     expect(rows[0]?.status).toBe("failed");
-    // destroy removes the container before DROP; markPreviewFailed clears the claim
     expect(rows[0]?.containerId).toBeNull();
   });
 
@@ -353,7 +352,6 @@ describe("createLiveSweepPorts", () => {
       canonicalId: "https://github.com/acme/widgets",
       slug: "widgets",
     });
-    // Row already redeployed with a new identity since the plan was built.
     await testDb.db.insert(previews).values({
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 42,
@@ -405,7 +403,6 @@ describe("createLiveSweepPorts", () => {
       canonicalId: "https://github.com/acme/widgets",
       slug: "widgets",
     });
-    // Same dbName as the plan, but generation clock was reset by redeploy.
     await testDb.db.insert(previews).values({
       canonicalRepoId: "https://github.com/acme/widgets",
       prId: 42,

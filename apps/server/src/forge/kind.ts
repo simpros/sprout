@@ -3,21 +3,14 @@ import { forgeApiError } from "./types.ts";
 export const FORGE_KINDS = ["github", "gitlab"] as const;
 export type ForgeKind = (typeof FORGE_KINDS)[number];
 
-/** Hosts the GitHub adapter can serve (api.github.com only). */
 export const GITHUB_HOSTS = new Set(["github.com", "www.github.com"]);
 
-/** Built-in GitLab hosts (self-managed hosts go in SPROUT_FORGE_HOSTS). */
 export const GITLAB_DEFAULT_HOSTS = new Set(["gitlab.com", "www.gitlab.com"]);
 
 export type ResolveForgeKindOptions = {
-  /** Extra self-managed GitLab hosts (from SPROUT_FORGE_HOSTS). */
   extraGitlabHosts?: ReadonlySet<string>;
 };
 
-/**
- * Choose forge kind for a canonical repo id from hostname
- * (built-in hosts ∪ optional SPROUT_FORGE_HOSTS extras).
- */
 export function resolveForgeKind(
   canonicalRepoId: string,
   options: ResolveForgeKindOptions = {},

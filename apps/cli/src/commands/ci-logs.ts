@@ -4,10 +4,6 @@ import { parseFlags } from "../flags.ts";
 import type { CiIdentity } from "./ci-identity.ts";
 import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
 
-/**
- * `sprout ci logs [--tail N]` — preview container logs through the gateway.
- * Identity comes from CI env only; no `--repo`/`--pr` flags exist here.
- */
 export async function runCiLogs(
   identity: CiIdentity,
   tokens: string[],

@@ -1,4 +1,3 @@
-/** Match Postgres driver errors by SQLSTATE and/or message. */
 export function pgErrorMatches(
   err: unknown,
   opts: { codes: string[]; messageRe?: RegExp },

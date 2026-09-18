@@ -17,15 +17,12 @@ export type AppDeployNetworks = {
   postgres: string;
 };
 
-/** Replace/health deps only — seed timeout binds at composition (ops.ts). */
 export type ReplacePreviewAppDeps = {
   docker: PreviewDocker;
   pg: AppDeployPg;
   networks: AppDeployNetworks;
   previewPortDefault: number;
-  /** Router TLS policy; absent = HTTP-only labels (no tls/entrypoints). */
   traefikTls?: TraefikTls;
-  /** ForwardAuth policy; absent = no middleware labels. */
   traefikForwardAuth?: TraefikForwardAuth;
 };
 
@@ -35,18 +32,10 @@ export type ReplacePreviewAppInput = {
   hostname: string;
   image: string;
   dbName: string;
-  /** Adopter KEY=VALUE entries; colliding connection keys are stripped. */
   appEnv: string[];
-  /** Request-scoped connection env name remap; not persisted. */
   connectionEnv?: PreviewEnvMap;
 };
 
-/**
- * Replace (or first-start) the preview app container for one PR.
- * Force-removes any prior container with the stable name, then materializes
- * with Traefik routing. Caller must already have pulled the image.
- * App-only remove: companion sync runs after promote/seed in bring-up.
- */
 export async function replacePreviewApp(
   deps: ReplacePreviewAppDeps,
   input: ReplacePreviewAppInput,

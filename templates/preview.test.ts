@@ -6,7 +6,6 @@ const DIR = import.meta.dir;
 const COMPONENT = await Bun.file(join(DIR, "preview.yml")).text();
 const README = await Bun.file(join(DIR, "README.md")).text();
 
-/** Every `spec:inputs` entry the component contract requires. */
 const REQUIRED_INPUTS = [
   "sprout_version",
   "stage",
@@ -39,21 +38,14 @@ describe("preview component contract", () => {
     const { jobs } = componentDocs();
     expect(jobs["sprout-preview"].extends).toBe(".sprout-cli");
     expect(jobs["sprout-stop-preview"].extends).toBe(".sprout-cli");
-    // No single-consumer middle layer: the Docker shape sits on the only job
-    // that needs it.
     expect(jobs).not.toHaveProperty(".sprout-preview-base");
-    // Image boundary: the shared CLI base is a minimal Alpine image so
-    // teardown never pulls a Docker client; only the preview job overrides
-    // to docker:24.
     expect(jobs[".sprout-cli"].image).toBe("alpine:3.20");
     expect(jobs["sprout-preview"].image).toBe("docker:24");
-    // dind lives only on the preview job: teardown never starts a daemon.
     expect(jobs["sprout-preview"].services).toEqual([
       expect.objectContaining({ name: "docker:24-dind" }),
     ]);
     expect(jobs[".sprout-cli"]).not.toHaveProperty("services");
     expect(jobs["sprout-stop-preview"]).not.toHaveProperty("services");
-    // Only the preview path logs in: teardown pushes no images.
     const cliBase = cliBeforeScript();
     expect(cliBase).not.toContain("docker login");
     expect(stopScript()).not.toContain("docker login");
@@ -68,15 +60,10 @@ describe("preview component contract", () => {
 
   test("all path-shaped inputs resolve project-root-relative, before cd into app_context", () => {
     const script = previewScript();
-    // dotenv_file, app_env_file, and seed_env_file share one relativity rule:
-    // an `abs` helper prefixes $CI_PROJECT_DIR, applied before `cd`, so a
-    // relative env path is never relocated under app_context.
     expect(script).toContain("$CI_PROJECT_DIR/$1");
     expect(script).toContain('DOTENV_FILE="$(abs "$DOTENV_FILE")"');
     expect(script).toContain('APP_ENV_FILE="$(abs "$APP_ENV_FILE")"');
     expect(script).toContain('SEED_ENV_FILE="$(abs "$SEED_ENV_FILE")"');
-    // Resolution happens before the working-directory jump. (Match the `cd`
-    // command at line start: the comment above it quotes the same text.)
     expect(script.indexOf('DOTENV_FILE="$(abs')).toBeLessThan(
       script.indexOf('\ncd "$APP_CONTEXT"'),
     );
@@ -95,19 +82,10 @@ describe("preview component contract", () => {
   test("manual stop never blocks pipeline success (#163)", () => {
     const { jobs } = componentDocs();
     const stop = jobs["sprout-stop-preview"];
-    // Blocking manual (when: manual INSIDE rules) leaves MR pipelines at
-    // `manual` and breaks auto-merge/MWPS. Job-level `when: manual` defaults
-    // to optional, so the pipeline reaches `success` with zero clicks and no
-    // `allow_failure` — while staying playable on demand and
-    // auto-runnable on MR close/merge + auto_stop_in expiry via the deploy
-    // job's `environment: on_stop` wire.
     expect(stop.when).toBe("manual");
     expect(stop.rules).toEqual([{ if: "$CI_MERGE_REQUEST_IID" }]);
     expect(stop).not.toHaveProperty("allow_failure");
-    // Same inclusion condition on both jobs: the stop target exists in every
-    // pipeline that deploys, so GitLab can trigger it on environment stop.
     expect(stop.rules).toEqual(jobs["sprout-preview"].rules);
-    // The deploy job must still block on failure: no allow_failure there.
     expect(jobs["sprout-preview"]).not.toHaveProperty("allow_failure");
   });
 
@@ -138,14 +116,6 @@ describe("preview component contract", () => {
   });
 });
 
-/**
- * Parse `preview.yml` as multi-document YAML (spec doc + jobs doc) and return
- * the spec plus the job mapping. Indent scrapers truncate `before_script` at
- * the first column-0 comment while the raw text still contains it, so every
- * guarantee above comes from a real YAML parse — if the file stops parsing,
- * the contract fails with it. Raw-text checks survive only for the sentinel
- * string and for asserting removed inputs stay removed.
- */
 function componentDocs(): {
   spec: { inputs: Record<string, { default?: unknown }> };
   jobs: Record<string, Record<string, any>>;
@@ -211,9 +181,6 @@ function interpolateInputs(script: string): string {
 describe("preview component shell syntax", () => {
   test("preview.yml parses as multi-doc YAML with all three scripts", () => {
     const { jobs } = componentDocs();
-    // .sprout-cli before_script + preview script + stop script. The preview
-    // job carries its own Docker image/services/variables directly (no
-    // single-consumer middle layer) so teardown stays off the dind path.
     expect(Object.keys(jobs).sort()).toEqual(
       [".sprout-cli", "sprout-preview", "sprout-stop-preview"].sort(),
     );
@@ -225,11 +192,7 @@ describe("preview component shell syntax", () => {
 
   test("before_script carries the full install/checksum sequence", () => {
     const base = cliBeforeScript();
-    // A column-0 comment inside a `|` block scalar ends the block early,
-    // silently dropping everything below from the job while the raw text
-    // still contains it. Assert on the PARSED block, not the raw file.
-    // This is the single owner of the install guarantee (no duplicate
-    // checksum needle test elsewhere).
+    // Column-0 comments end YAML block scalars early; assert the parsed block, not raw text.
     for (const needle of [
       "apk add",
       "libstdc++",
@@ -245,11 +208,6 @@ describe("preview component shell syntax", () => {
 
   test("checksum verifies the downloaded asset via a single ASSET binding", () => {
     const base = cliBeforeScript();
-    // The binary was downloaded as `$INSTALL_TMP/sprout`
-    // but verified as `sprout-linux-x64-musl`, so `sha256sum -c` could never
-    // find the file. The asset basename now lives in exactly one `ASSET=`
-    // assignment; download, checksum, and install all reuse it, so the names
-    // cannot diverge without an explicit second assignment.
     const assignments = [...base.matchAll(/^ *ASSET=(\S+)/gm)].map((m) => m[1]);
     expect(assignments).toEqual(["sprout-linux-x64-musl"]);
     expect(base).toContain('curl -fsSL -o "$INSTALL_TMP/$ASSET"');

@@ -1,8 +1,6 @@
 import type { CatalogContainer } from "../docker/port.ts";
 
-/** App container: sprout-<slug>-pr-<id> (no suffix). */
 const PREVIEW_APP_CONTAINER_RE = /^sprout-([a-zA-Z0-9]+)-pr-(\d+)$/;
-/** Service container: sprout-<slug>-pr-<id>-svc-<name>. */
 const PREVIEW_SERVICE_CONTAINER_RE =
   /^sprout-([a-zA-Z0-9]+)-pr-(\d+)-svc-([a-zA-Z0-9]+)$/;
 
@@ -10,7 +8,6 @@ export function previewContainerName(slug: string, prId: number): string {
   return `sprout-${slug}-pr-${prId}`;
 }
 
-/** Deterministic name for a long-lived preview service container. */
 export function previewServiceContainerName(
   slug: string,
   prId: number,
@@ -19,15 +16,11 @@ export function previewServiceContainerName(
   return `sprout-${slug}-pr-${prId}-svc-${serviceName}`;
 }
 
-/** Deterministic name for the one-shot seed-image run (suffix avoids catalog regex). */
+/** One-shot seed run name; the suffix stays outside the catalog regex. */
 export function seedImageRunName(slug: string, prId: number): string {
   return `sprout-${slug}-pr-${prId}-seed`;
 }
 
-/**
- * Parse app or service container names into preview identity.
- * Seed (`-seed`) and other suffixes are not cataloged.
- */
 export function parsePreviewContainerName(
   name: string,
 ):
@@ -48,7 +41,6 @@ export function parsePreviewContainerName(
   return { slug: app[1]!, prId: Number(app[2]), kind: "app" };
 }
 
-/** Build a catalog row from a parsed preview container name. */
 export function toCatalogContainer(
   containerId: string,
   containerName: string,

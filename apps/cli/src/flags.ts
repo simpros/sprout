@@ -29,10 +29,6 @@ export type ArgvFlagDef<TFlag extends string = string> = {
   allowDash?: boolean;
 };
 
-/**
- * Bag-agnostic argv walker. Callers keep distinct typed bags; this owns the
- * rest/allow-set/missing-value/string-vs-repeat loop once.
- */
 export function parseArgv<TFlag extends string, TBag extends { rest: string[] }>(
   defs: readonly ArgvFlagDef<TFlag>[],
   tokens: string[],
@@ -100,7 +96,6 @@ const FLAG_DEFS = [
 
 type FlagName = (typeof FLAG_DEFS)[number]["flag"];
 
-/** Parse argv tokens, accepting only the listed flags. */
 export function parseFlags(
   tokens: string[],
   allowed: readonly FlagName[],

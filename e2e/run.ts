@@ -1,12 +1,4 @@
 #!/usr/bin/env bun
-/**
- * Bring up the e2e compose stack, run smoke tests, tear down.
- *
- *   bun run test:e2e
- *
- * Requires Docker. Asserts compose smoke (embedded CLI exec + admin mint)
- * and remapped preview.env injection on a deploy (see lifecycle.test.ts).
- */
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {

@@ -5,11 +5,9 @@ import { readPreviewLogs } from "../preview/preview-logs.ts";
 import type { Result } from "../preview/result.ts";
 import { mapResult, requireReadablePreviewRow } from "./result-map.ts";
 
-/** Default / max Docker `tail` lines for GET …/logs. */
 export const DEFAULT_LOG_TAIL = 100;
 export const MAX_LOG_TAIL = 10_000;
 
-/** Snapshot-only: no `follow` until SSE streaming ships. */
 export const previewLogsQuery = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   tail: t.Optional(t.String()),
@@ -48,10 +46,6 @@ function parseTail(raw: string | undefined): Result<number> {
   return { ok: true, value: Math.min(n, MAX_LOG_TAIL) };
 }
 
-/**
- * GET /v1/previews/:id/logs — `:id` is pr_id; repo from query.
- * Live app logs + seed text (live-if-present, else stored seed_log).
- */
 export function getPreviewLogs(deps: LifecycleDeps) {
   return async ({
     params,

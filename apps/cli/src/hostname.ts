@@ -1,8 +1,5 @@
 import { resolveHostnameValue, type HostnameIssue } from "@sprout/preview-env";
 
-/**
- * Single CLI formatter for hostname grammar issues (parse-time and deploy-time).
- */
 export function hostnameIssueMessage(
   label: string,
   issue: HostnameIssue,
@@ -19,7 +16,6 @@ export function hostnameIssueMessage(
   }
 }
 
-/** Canonical hostname for `preview.hostname` / service hostnames. */
 export function resolveDeployHostname(
   raw: string,
   prId: number,

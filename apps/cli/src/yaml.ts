@@ -20,50 +20,24 @@ export type SproutHealth = {
 
 export type SproutYamlService = {
   name: string;
-  /** Optional static image; usually supplied via `--service name=image`. */
   image?: string;
-  /** Optional Host(); supports `{pr_id}` like preview.hostname. */
   hostname?: string;
-  /** Optional PathPrefix (e.g. `/api`). */
   path?: string;
 };
 
-/** Single-dockerfile build block shared by `build` and `seed`. */
 export type SproutDockerfileBlock = {
   /** Dockerfile path relative to the repo root. */
   dockerfile: string;
 };
 
-/** Image build config (`sprout ci preview` runs `docker build` + `push`). */
 export type SproutBuild = SproutDockerfileBlock;
 
-/**
- * Seed image build config. When present, `sprout ci preview` builds + pushes
- * the seed image and deploys with `-s`. Defaults the Dockerfile to
- * `Dockerfile.seed`. Without `inputs` the tag is commit-scoped
- * (`<app-tag>-seed`) and the image is always rebuilt — correct, no false
- * reuse. With explicit `inputs` the tag is content-addressed
- * (`:seed-<shorthash>` over the seed Dockerfile plus every listed path) and
- * the build + push is skipped when the tag already exists in the registry;
- * list every COPY source the seed image depends on (seed Dockerfile,
- * entrypoint/script, migrations, lockfile, …). `env` uses the same value
- * grammar as `preview.app_env` (strings with `{hostname}` / `{pr_id}` /
- * `{commit_sha}`, `{ generate: stable_per_pr }`, `{ required: true }`);
- * `args` are extra seed container args (yaml first, then `--seed-arg`
- * flags).
- */
 export type SproutSeed = SproutDockerfileBlock & {
   inputs?: string[];
   env?: Record<string, ManifestEnvValue>;
   args?: string[];
 };
 
-/**
- * Plain string, a HMAC secret stable for the MR lifetime, or a key that CI must
- * supply via `--app-env-file` / `SPROUT_APP_ENV` / `--app-env` (or the seed
- * counterparts for `seed.env`). Shared value grammar for `preview.app_env`
- * and `seed.env`.
- */
 export type ManifestEnvValue =
   | string
   | { generate: "stable_per_pr" }
@@ -77,20 +51,11 @@ export type SproutYaml = {
   preview: {
     hostname: string;
     env?: PreviewEnvMap;
-    /**
-     * Adopter env for the app container. Strings may use `{hostname}`,
-     * `{pr_id}`, `{commit_sha}`; `{ generate: stable_per_pr }` derives a
-     * secret from the deploy token; `{ required: true }` must be supplied by
-     * CI (secrets via --app-env / --app-env-file / SPROUT_APP_ENV).
-     */
     app_env?: Record<string, ManifestEnvValue>;
-    /** Optional companion services (images usually via `--service`). */
     services?: SproutYamlService[];
   };
   health?: SproutHealth;
-  /** Optional app image build config for `sprout ci preview`. */
   build?: SproutBuild;
-  /** Optional seed image build config for `sprout ci preview`. */
   seed?: SproutSeed;
 };
 
@@ -144,7 +109,6 @@ function requireString(
   return { ok: true, value: value.trim() };
 }
 
-/** Absent or empty map → undefined (no remapping). Path-aware CLI errors. */
 function parsePreviewEnv(
   raw: unknown,
 ): Result<PreviewEnvMap | undefined> {
@@ -176,7 +140,6 @@ function parsePreviewEnv(
 const APP_ENV_VALUE_HINT =
   "must be a string, { generate: stable_per_pr }, or { required: true }";
 
-/** Absent or empty map → undefined. Strings or `{ generate: stable_per_pr }`. */
 function parseAppEnv(
   raw: unknown,
   path: string,
@@ -252,11 +215,6 @@ function parseAppEnvValue(
   };
 }
 
-/**
- * One dockerfile field: absent → the conventional default (`Dockerfile` for
- * `build`, `Dockerfile.seed` for `seed`). Shared by `parseDockerfileBlock`
- * and `parseSeedBlock` so the convention is owned once.
- */
 function parseDockerfileField(
   rawDockerfile: unknown,
   path: string,
@@ -268,11 +226,6 @@ function parseDockerfileField(
   return requireString(rawDockerfile, `${path}.dockerfile`);
 }
 
-/**
- * Absent block → undefined. Present without `dockerfile` → the conventional
- * default (`Dockerfile` for `build`, `Dockerfile.seed` for `seed`), so
- * `seed: {}` enables seeding without spelling out the convention.
- */
 function parseDockerfileBlock(
   raw: unknown,
   path: string,
@@ -294,11 +247,6 @@ function parseDockerfileBlock(
   return { ok: true, value: { dockerfile: dockerfile.value } };
 }
 
-/**
- * Absent or empty list → undefined. Each entry must be a non-empty string.
- * Shared by `seed.args` and `seed.inputs` so the next list field does not
- * clone the loop a third time.
- */
 function parseStringList(
   raw: unknown,
   path: string,
@@ -317,11 +265,6 @@ function parseStringList(
   return { ok: true, value: out };
 }
 
-/**
- * Absent block → undefined. Present without `dockerfile` → the conventional
- * `Dockerfile.seed` default, so `seed: {}` enables seeding without spelling
- * out the convention.
- */
 function parseSeedBlock(raw: unknown): Result<SproutSeed | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!isPlainObject(raw)) {
@@ -349,7 +292,6 @@ function parseSeedBlock(raw: unknown): Result<SproutSeed | undefined> {
   return { ok: true, value };
 }
 
-/** Absent → undefined (leave). Empty list is rejected — use --clear-services. */
 function parseServices(
   raw: unknown,
 ): Result<SproutYamlService[] | undefined> {

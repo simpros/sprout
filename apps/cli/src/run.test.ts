@@ -404,8 +404,6 @@ preview:
     });
   });
 
-  // App/seed env merge, required keys, and SPROUT_* path wiring live in
-  // commands/deploy-env.test.ts. One smoke here keeps the command surface covered.
   test("deploy smoke: SPROUT_APP_ENV blob + required key reaches the gateway", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({

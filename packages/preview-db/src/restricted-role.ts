@@ -2,13 +2,9 @@ import { createHmac } from "node:crypto";
 import { SQL } from "bun";
 import { assertSafeRole, ensureLoginRole } from "./ensure-role.ts";
 
-/**
- * Postgres NAMEDATALEN − 1: unquoted identifiers longer than this are
- * truncated (and can collide). Companion roles must fit without truncation.
- */
+/** Postgres truncates unquoted identifiers past 63 chars, risking collisions. */
 export const PG_IDENT_MAX = 63;
 
-/** Companion LOGIN role for one preview DB: `<dbName>_app`. */
 export function restrictedRoleName(dbName: string): string {
   const role = `${dbName}_app`;
   if (role.length > PG_IDENT_MAX) {
@@ -19,12 +15,6 @@ export function restrictedRoleName(dbName: string): string {
   return role;
 }
 
-/**
- * Deterministic companion password from the owner preview password + db name.
- * Stable across gateway restarts without persisting secrets in SQLite.
- * Derivation is the credential authority for env emission; ensure only mutates
- * Postgres to match.
- */
 export function deriveRestrictedPassword(
   ownerPassword: string,
   dbName: string,
@@ -34,12 +24,6 @@ export function deriveRestrictedPassword(
     .digest("base64url");
 }
 
-/**
- * Ensure a per-DB restricted LOGIN role, GRANT CONNECT + schema USAGE.
- * Does not own the database (owner stays the static preview login).
- * Callers read credentials via {@link restrictedRoleName} /
- * {@link deriveRestrictedPassword} at inject time.
- */
 export async function ensureRestrictedRole(
   sql: SQL,
   opts: { dbName: string; ownerPassword: string; adminUrl: string },
@@ -51,7 +35,6 @@ export async function ensureRestrictedRole(
 
   await ensureLoginRole(sql, role, password);
 
-  // dbName + role checked via SAFE_ROLE (safe for unquoted DDL identifiers).
   await sql.unsafe(
     `GRANT CONNECT ON DATABASE ${opts.dbName} TO ${role}`,
   );
@@ -64,7 +47,7 @@ export async function ensureRestrictedRole(
   }
 }
 
-/** DROP ROLE IF EXISTS for the companion; caller must DROP DATABASE first. */
+/** Caller must DROP DATABASE before dropping the companion role. */
 export async function dropRestrictedRole(
   sql: SQL,
   dbName: string,

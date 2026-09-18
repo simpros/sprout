@@ -8,7 +8,6 @@ export function utcIsoNow(): string {
   return new Date().toISOString();
 }
 
-/** Update by (repo, prId) + returning; throw if the row vanished mid-phase. */
 export async function updatePreviewRow(
   db: StateDb,
   row: Pick<PreviewRow, "canonicalRepoId" | "prId">,

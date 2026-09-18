@@ -1,9 +1,3 @@
-/** Thin process-env reader for the e2e smoke harness.
- *
- * `gatewayUrl` / `adminToken` are injected by `e2e/run.ts` (from
- * `compose.e2e.env`). Empty when unmanaged — compose suites skip, so nothing
- * runs against an empty URL.
- */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,11 +34,9 @@ export function requireComposeEnv(
 }
 
 export const e2eConfig = {
-  /** Injected by run.ts; empty when unmanaged (nothing runs). */
   get gatewayUrl() {
     return process.env.SPROUT_E2E_GATEWAY_URL?.trim() || "";
   },
-  /** Injected by run.ts; empty when unmanaged (nothing runs). */
   get adminToken() {
     return process.env.SPROUT_E2E_ADMIN_TOKEN?.trim() || "";
   },

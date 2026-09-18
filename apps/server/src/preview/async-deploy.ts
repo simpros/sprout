@@ -14,23 +14,12 @@ import {
   type ProvisionInput,
 } from "./lifecycle.ts";
 
-/**
- * Process-local join table for in-flight background deploys.
- * SQLite is the status source of truth; this map only prevents duplicate
- * background jobs and conflicting identity accepts while a job runs.
- */
 const inFlightDeploys = new Map<string, { slug: string; dbName: string }>();
 
 function previewKey(repo: string, prId: number): string {
   return `${repo}\0${prId}`;
 }
 
-/**
- * Accept a deploy for async completion: under the preview lock, reject
- * removing / identity conflicts / in-flight identity mismatch, write a
- * provisioning intent row, and return that snapshot. Callers return HTTP 202
- * then invoke {@link runAsyncDeploy} when `launch` is true.
- */
 export async function acceptAsyncDeploy(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -74,11 +63,6 @@ export async function acceptAsyncDeploy(
   });
 }
 
-/**
- * Background half of async deploy: pull + bring-up.
- * Durable failure is owned by {@link provisionPreview}; this only records
- * unexpected throws so the row cannot sit forever in provisioning.
- */
 export async function runAsyncDeploy(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -89,8 +73,6 @@ export async function runAsyncDeploy(
   } catch (err) {
     console.warn("provision:background_failed", err);
     try {
-      // Same rule as pull-failure persist: only mutate a live intent under the
-      // preview lock so teardown cannot be resurrected.
       await withPreviewLock(input.repo, input.prId, async () => {
         const row = await getPreviewRow(deps.db, input.repo, input.prId);
         if (!row || row.status === "removing" || row.status === "removed") {
@@ -104,16 +86,12 @@ export async function runAsyncDeploy(
         );
       });
     } catch {
-      // Recording the failure must not throw out of background completion.
     }
   } finally {
     inFlightDeploys.delete(key);
   }
 }
 
-/**
- * missing / removed → 404; removing → 409; else the control-plane row.
- */
 export function gateReadablePreviewRow(
   row: PreviewRow | null,
 ): Result<PreviewRow> {
@@ -135,13 +113,6 @@ export function gateReadablePreviewRow(
   return { ok: true, value: row };
 }
 
-/**
- * Deploy-token-readable preview status for CLI polling after POST /v1/deploy 202.
- * Returns the control-plane snapshot (including sticky last_error fields).
- * Missing/removing stay Result failures; HTTP mapping for those lives at the
- * route via mapResult. Deploy success/failure is decided by the CLI from the
- * snapshot fields — not by inventing a terminal Result over last_error.
- */
 export async function readPreviewStatus(
   deps: Pick<LifecycleDeps, "db">,
   repo: string,

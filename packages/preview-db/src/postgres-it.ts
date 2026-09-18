@@ -1,6 +1,5 @@
 import { SQL } from "bun";
 
-/** True when a local Docker daemon answers `docker info`. */
 export async function dockerAvailable(): Promise<boolean> {
   try {
     const proc = Bun.spawn(["docker", "info"], {
@@ -19,10 +18,6 @@ export type TempPostgres = {
   stop: () => Promise<void>;
 };
 
-/**
- * Ephemeral postgres:16-alpine for admin/role integration tests.
- * Caller must await stop() (e.g. afterAll).
- */
 export async function startTempPostgres(
   containerName: string,
 ): Promise<TempPostgres> {
@@ -63,7 +58,6 @@ export async function startTempPostgres(
   if ((await portProc.exited) !== 0) {
     throw new Error(`docker port failed: ${portOut}`);
   }
-  // e.g. 127.0.0.1:32768
   const hostPort = Number(portOut.split(":").at(-1));
   const adminUrl = `postgres://postgres:${encodeURIComponent(adminPassword)}@127.0.0.1:${hostPort}/postgres`;
 

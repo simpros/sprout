@@ -18,24 +18,11 @@ import { publishPreviewNote, warnForgeNote } from "./forge-note.ts";
 import { buildAndPush } from "./image-build.ts";
 import { ensureSeedImage } from "./seed-image.ts";
 
-/** Log lines dumped from the gateway on a failed deploy. */
 export const DEFAULT_CI_PREVIEW_TAIL = 200;
 
-/**
- * Default dotenv artifact (relative to the workspace root): GitLab
- * `artifacts:reports:dotenv` picks up `PREVIEW_URL` for `environment:url`.
- */
+/** GitLab `artifacts:reports:dotenv` picks up `PREVIEW_URL` for `environment:url`. */
 export const DEFAULT_PREVIEW_DOTENV_FILE = "sprout-preview.env";
 
-/**
- * `sprout ci preview` — build + push the app image (and the seed image when
- * `.sprout.yaml` configures `seed`: always rebuilt without `seed.inputs`,
- * reused by content-addressed tag with them), deploy with the resolved env, and on a healthy
- * preview emit `preview_url=` plus the dotenv artifact. On failure the
- * gateway log tail is printed first, then the deploy error exits non-zero.
- * Settling reuses `postDeployAndWait` — there is no second deploy
- * implementation here.
- */
 export async function runCiPreview(
   identity: CiPreviewIdentity,
   tokens: string[],
@@ -77,11 +64,6 @@ export async function runCiPreview(
 
   const appDockerfile = yaml.value.build?.dockerfile ?? "Dockerfile";
   const seedBlock = yaml.value.seed;
-  // Intentional preflight: fail before docker build/push. The assembler
-  // re-checks the same gate (keyed off the resolved seed image) as the
-  // canonical owner; service-flag validation lives there too. A present
-  // seed block always carries a dockerfile (the parser defaults it), so
-  // presence alone gates seeding.
   const seedGate = requireHealthWhenSeeding(yaml.value, {
     hasSeed: Boolean(seedBlock),
     seedSource: "seed",
@@ -91,8 +73,6 @@ export async function runCiPreview(
     return fail(ctx.deps.io, "--reseed requires a seed block in .sprout.yaml");
   }
 
-  // Seed first: unreadable inputs fail before any docker work, and the
-  // seed tag derives from the app ref without needing the app built.
   let seedImage: string | undefined;
   if (seedBlock) {
     const seed = await ensureSeedImage(ctx, seedBlock, identity.imageRef);
@@ -155,8 +135,6 @@ export async function runCiPreview(
   }
 
   const write = ctx.deps.writeTextFile ?? defaultWriteTextFile;
-  // The MR note is best-effort: gateway success owns the exit code, forge
-  // failures only warn (with the forge's error body, never the token).
   warnForgeNote(ctx.deps.io, await publishPreviewNote(ctx.deps, identity, settled.value));
   try {
     await write(dotenvPath, `PREVIEW_URL=${settled.value}\n`);

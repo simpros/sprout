@@ -316,7 +316,6 @@ describe("bindPreviewOps", () => {
         expectStatus: 200,
       }),
     ).toBe("ok");
-    // networkNames = [traefik, postgres] → postgres gets 10.99.0.2
     expect(hits).toEqual(["http://10.99.0.2:3000/health"]);
   });
 });

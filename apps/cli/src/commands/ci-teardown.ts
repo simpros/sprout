@@ -5,14 +5,7 @@ import type { CiIdentity } from "./ci-identity.ts";
 import { publishTeardownNote, warnForgeNote } from "./forge-note.ts";
 import { teardownPreview } from "./teardown.ts";
 
-/**
- * `sprout ci teardown` — tear down this MR's preview through the gateway.
- * Idempotent: the gateway reports `removed` when no preview exists, so the
- * GitLab environment Stop button and MR-close pipelines both succeed.
- *
- * The MR note is rewritten in place ("preview was removed"), never deleted;
- * note failures only warn so gateway success owns the exit code.
- */
+/** Idempotent: the gateway reports `removed` when no preview exists. */
 export async function runCiTeardown(
   identity: CiIdentity,
   tokens: string[],

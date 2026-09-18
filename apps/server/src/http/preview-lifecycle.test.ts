@@ -290,7 +290,6 @@ describe("POST /v1/deploy", () => {
     expect(row?.containerId).toBe("fake-1");
     expect(row?.lastError).toBe("preview_app_pull_failed");
 
-    // GET and list agree on phase; sticky error is a snapshot field, not a 500.
     const statusRes = await testApp!.app.handle(
       new Request(
         `http://localhost/v1/preview?canonical_repo_id=${encodeURIComponent(REPO)}&pr_id=42`,
@@ -522,7 +521,6 @@ describe("POST /v1/deploy", () => {
       postDeploy(deployToken, deployBody({ slug: "beta" })),
     ]);
     const statuses = [a.settleStatus, b.settleStatus].sort();
-    // One deploy is accepted; the other hits in-flight 409 at accept time.
     expect(statuses).toEqual([200, 409]);
     const winner = a.settleStatus === 200 ? a : b;
     const loser = a.settleStatus === 409 ? a : b;
@@ -789,7 +787,7 @@ describe("POST /v1/deploy", () => {
     });
 
     const first = postDeploy(deployToken, deployBody({ slug: "alpha" }));
-    await createStarted; // first deploy holds the per-preview lock inside CREATE
+    await createStarted;
     const teardown = postTeardown(deployToken, teardownBody());
     const second = postDeploy(
       deployToken,
@@ -820,7 +818,6 @@ describe("POST /v1/deploy", () => {
     expect(row?.dbName).toBe("sprout_beta_pr42");
     expect(row?.status).toBe("running");
 
-    // Winner's name must be present; alpha must have been dropped.
     expect(fakePreviewDb!.created).toContain("sprout_beta_pr42");
     expect(fakePreviewDb!.dropped).toContain("sprout_alpha_pr42");
     const live = new Set(fakePreviewDb!.created);

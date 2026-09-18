@@ -18,7 +18,6 @@ import type { ManifestEnvValue, PreviewEnvMap, SproutYaml } from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
 import { DEPLOY_POLL_BUFFER_MS, pollPreviewReady } from "./deploy-poll.ts";
 
-/** Shared POST /v1/deploy body — one contract for `deploy` and `ci reseed`. */
 export type DeployRequest = {
   canonical_repo_id: string;
   pr_id: number;
@@ -35,19 +34,13 @@ export type DeployRequest = {
   reseed?: boolean;
 };
 
-/**
- * `ci reseed` body: wire `services` has three meanings (absent = leave
- * companions, `[]` = clear, `[...]` = replace) and reseed must always
- * leave. A type that cannot carry `services` makes "leave" the default
- * instead of a forgotten field.
- */
+/** A type that cannot carry `services` makes "leave" the default instead of a forgotten field. */
 export type ReseedRequest = Omit<DeployRequest, "services"> & {
   reseed: true;
 };
 
 export type DeployIdentity = { repo: string; prId: number };
 
-/** Identity + yaml slug/hostname fields every deploy POST needs. */
 export function deployBaseFields(
   yaml: SproutYaml,
   identity: DeployIdentity,
@@ -72,14 +65,6 @@ export function deployBaseFields(
   };
 }
 
-/**
- * Env inputs for a deploy POST. `deploy` takes these from flags;
- * `ci reseed` takes the same flags (image comes from pipeline env instead).
- * The caller always resolves `commitSha` — `deploy` passes the forge-blind
- * `resolveCommitShaAny`, CI passes the SHA locked on `CiIdentity` — so
- * `{commit_sha}` cannot disagree with the image ref under mixed envs and
- * `applyDeployEnv` owns no forge fallback.
- */
 export type DeployEnvInputs = {
   appEnvFile: string[];
   appEnv: string[];
@@ -88,14 +73,6 @@ export type DeployEnvInputs = {
   commitSha: string | undefined;
 };
 
-/**
- * Single owner of the omit-`-s`-on-sync policy: yaml `seed.env` / `seed.args`
- * ride only on seed deploys (`seeding`), while explicit `--seed-arg` flags
- * always pass through so a stray seed flag without `-s` fails server-side.
- * `buildDeployRequest`, `buildReseedRequest`, and `applyDeployEnv` all read
- * the yaml seed layers through here so deploy, preview, and reseed cannot
- * drift.
- */
 export function layerSeedWireOptions(
   yaml: SproutYaml,
   seeding: boolean,
@@ -112,17 +89,6 @@ export function layerSeedWireOptions(
   };
 }
 
-/**
- * Merge yaml `preview.app_env` with `SPROUT_APP_ENV` / `--app-env-file` /
- * `--app-env` into `app_env`, and yaml `seed.env` with `SPROUT_SEED_ENV` /
- * `--seed-env-file` / `--seed-env` into `seed_env`. Owns the full yaml→wire
- * pipeline so deploy and ci reseed cannot drift: yaml templates (`{hostname}`
- * / `{pr_id}` / `{commit_sha}`) and `generate: stable_per_pr` (HMAC via
- * `SPROUT_TOKEN`) resolve first via `resolveAppEnvValues`, then dotenv files
- * and flags overwrite per key, with one placeholder expansion after merge
- * (`expandAppEnvValue`); `{ required: true }` keys missing after all layers
- * fail naming the key. Returns a new body; `body` is treated as read-only.
- */
 export async function applyDeployEnv<T extends DeployRequest>(
   body: T,
   deps: CliDeps,
@@ -158,10 +124,6 @@ export async function applyDeployEnv<T extends DeployRequest>(
   );
   if (!resolvedYamlEnv.ok) return resolvedYamlEnv;
 
-  // Yaml seed env via the shared seed-options owner: omitted on sync deploys
-  // (keeping the same database without re-seeding). Explicit `--seed-env` /
-  // file layers still pass through so a stray seed flag without `-s` fails
-  // server-side exactly as today.
   const { yamlEnv: seedYamlEnv } = layerSeedWireOptions(
     yaml,
     Boolean(body.seed_image),
@@ -200,13 +162,6 @@ export async function applyDeployEnv<T extends DeployRequest>(
   return { ok: true, value: next };
 }
 
-/**
- * POST /v1/deploy, settle (poll if needed), print `preview_url=`.
- * One settle contract for `sprout deploy`, `sprout ci reseed`, and
- * `sprout ci preview`. Resolves with the healthy preview URL (printed
- * above) so callers can persist it (e.g. the CI dotenv artifact) — the URL
- * comes from the `ready` outcome, never from a fallback cast.
- */
 export async function postDeployAndWait(opts: {
   client: ApiClient;
   deps: CliDeps;
@@ -246,13 +201,10 @@ export async function postDeployAndWait(opts: {
     now,
   });
   if (!poll.ok) return poll;
-  // The poller only resolves on a `ready` outcome, carrying its URL —
-  // no second `deployOutcome` interpretation here.
   opts.deps.io.stdout(`preview_url=${poll.value}`);
   return { ok: true, value: poll.value };
 }
 
-/** `--clear-services` / `--service` mutual exclusion, shared by all deploy paths. */
 export function checkServiceFlags(inputs: {
   service: string[];
   clearServices: boolean;
@@ -266,13 +218,6 @@ export function checkServiceFlags(inputs: {
   return { ok: true, value: true };
 }
 
-/**
- * Seed-implies-health gate. `seedSource` names where the seed image came
- * from so the failure points at the real config: `-s` for CLI flags
- * (`deploy`, `ci reseed`), `seed` for the `.sprout.yaml` seed block
- * (`ci preview`). Optional because non-seed deploys have no source to name;
- * the gate ignores it when `hasSeed` is false.
- */
 export function requireHealthWhenSeeding(
   yaml: SproutYaml,
   opts: { hasSeed: boolean; seedSource?: "-s" | "seed" },
@@ -289,13 +234,6 @@ export function requireHealthWhenSeeding(
   return { ok: true, value: true };
 }
 
-/**
- * One assembler for the deploy POST body — `deploy` and `ci preview` share
- * this instead of recopying the pipeline (clear/service + health-when-seed
- * checks, base fields, health / seed / env / services layering). The next
- * yaml/wire field lands here once. Seed options flow through
- * `layerSeedWireOptions` (yaml `seed.args` first, then `--seed-arg` flags).
- */
 export type BuildDeployRequestInputs = {
   appImage: string;
   seedArg: string[];
@@ -347,12 +285,6 @@ export function buildDeployRequest(
   return { ok: true, value: body };
 }
 
-/**
- * `ci reseed` body via the shared deploy assembler: same base fields,
- * health-when-seed gate, and seed layering as `deploy`, minus `services`
- * (companions stay as last deployed). Reseed never hand-rolls yaml seed
- * args so the two paths cannot drift.
- */
 export function buildReseedRequest(
   yaml: SproutYaml,
   identity: DeployIdentity,
@@ -372,12 +304,7 @@ export function buildReseedRequest(
   return { ok: true, value: { ...rest, reseed: true as const } };
 }
 
-/**
- * Companion services for a deploy POST from yaml `preview.services` plus
- * `--service` / `--clear-services`. Shared by `sprout deploy` and
- * `sprout ci preview` so the leave/clear/replace contract cannot drift:
- * undefined = leave companions, `[]` = clear, `[...]` = replace.
- */
+/** undefined = leave companions, `[]` = clear, `[...]` = replace. */
 export function resolveDeployServices(
   yaml: SproutYaml,
   prId: number,

@@ -32,13 +32,11 @@ function bodyDetail(body: unknown): string {
       const raw = JSON.stringify(body);
       if (raw && raw !== "{}") return raw.slice(0, 500);
     } catch {
-      // Non-serializable bodies fall through to the generic detail.
     }
   }
   return "request failed";
 }
 
-/** Unwrap one Eden/treaty response at the CLI boundary. Non-2xx is always failure. */
 export function readEden<T = unknown>(response: EdenLike): EdenResult<T> {
   const status = response.status ?? (response.error ? 500 : 200);
   if (response.error || status >= 400) {

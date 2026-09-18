@@ -1,7 +1,3 @@
-/**
- * Gateway health polling. Request-shape grammar lives in `@sprout/preview-env`.
- */
-
 import type { HealthSpec } from "@sprout/preview-env";
 
 export type HealthProbe = {
@@ -22,11 +18,7 @@ export function healthUrl(ip: string, port: number, path: string): string {
   return `http://${ip}:${port}${path}`;
 }
 
-/**
- * Poll until expectStatus or timeout. Total: never throws.
- * `resolveUrl` may return null (no IP yet) or throw (transient inspect blip) —
- * both count as not-ready and retry until the health timeout (same as a bad status).
- */
+/** Never throws: null URL, resolve/probe errors, and bad status all retry until timeout. */
 export async function pollHealth(
   probe: HealthProbe,
   resolveUrl: () => Promise<string | null>,
@@ -40,14 +32,12 @@ export async function pollHealth(
     try {
       url = await resolveUrl();
     } catch {
-      // Docker inspect blip / network race — keep polling.
     }
     if (url) {
       try {
         const status = await probe.getStatus(url);
         if (status === spec.expectStatus) return "ok";
       } catch {
-        // Container not listening yet — keep polling.
       }
     }
     if (clock.now() >= deadline) return "timeout";

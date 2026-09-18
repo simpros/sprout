@@ -107,7 +107,6 @@ describe("POST /v1/deploy services", () => {
       "sprout-traefik",
       "sprout-postgres",
     ]);
-    // Health only probed the app (first create); service starts after healthy.
     expect(fakeDocker!.creates[0]!.name).toBe("sprout-myapp-pr-42");
 
     const teardown = await postTeardown(deployToken, teardownBody());
@@ -190,8 +189,6 @@ describe("POST /v1/deploy services", () => {
     expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
     expect(fakeDocker!.running.has("sprout-myapp-pr-42-svc-api")).toBe(false);
 
-    // Retry same app+services: sync-only (keep containerId), not seed-resume
-    // and not full app replace.
     fakeDocker!.createAndStart = orig;
     const createsBeforeRetry = fakeDocker!.creates.length;
     const retry = await postDeploy(
@@ -217,7 +214,6 @@ describe("POST /v1/deploy services", () => {
       );
     expect(after?.containerId).toBe("fake-1");
     expect(after?.failureFamily).toBeNull();
-    // Sync-only: one service create, no second app container.
     expect(
       fakeDocker!.creates.slice(createsBeforeRetry).map((c) => c.name),
     ).toEqual(["sprout-myapp-pr-42-svc-api"]);
@@ -277,7 +273,6 @@ describe("POST /v1/deploy services", () => {
     const { deployToken } = await setup({
       exposedPorts: { [APP_IMAGE]: 3000, [SVC]: 4000 },
     });
-    // Crash mid-replaceServices: plan durable, no sticky failureFamily yet.
     await testApp!.db.insert(previews).values({
       canonicalRepoId: REPO,
       prId: 42,
@@ -320,7 +315,6 @@ describe("POST /v1/deploy services", () => {
     const { deployToken } = await setup({
       exposedPorts: { [APP_IMAGE]: 3000, [SVC]: 4000, [SEED]: 80 },
     });
-    // Simulate gateway kill after seed success, before companion sync.
     await testApp!.db.insert(previews).values({
       canonicalRepoId: REPO,
       prId: 42,
@@ -350,7 +344,6 @@ describe("POST /v1/deploy services", () => {
     );
     expect(res.settleStatus).toBe(200);
     expect(res.body).toMatchObject({ status: "running" });
-    // Must not re-seed or replace app — only sync companions then close.
     expect(
       fakeDocker!.creates.slice(createsBefore).map((c) => c.name),
     ).toEqual(["sprout-myapp-pr-42-svc-api"]);
@@ -412,7 +405,6 @@ describe("POST /v1/deploy services", () => {
     const { deployToken } = await setup({
       exposedPorts: { [APP_IMAGE]: 3000, [SEED]: 80 },
     });
-    // Seed done, no fleet work queued — only close remains.
     await testApp!.db.insert(previews).values({
       canonicalRepoId: REPO,
       prId: 42,

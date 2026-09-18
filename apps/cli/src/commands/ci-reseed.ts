@@ -9,16 +9,6 @@ import {
   postDeployAndWait,
 } from "./deploy-core.ts";
 
-/**
- * `sprout ci reseed` — re-run the seed job against the existing preview
- * database. No image is built: the app tag comes from the pipeline env
- * (`CI_REGISTRY_IMAGE` + SHA) and the seed tag from `-s`, so the gateway
- * takes the seed-resume path — rows/sessions created between deploys stay
- * intact and no credential rotates (same yaml + flags in, same env out).
- *
- * The body is a `ReseedRequest`, which cannot carry `services` — companions
- * stay as last deployed by construction, not by remembering to omit a field.
- */
 export async function runCiReseed(
   identity: CiIdentity,
   tokens: string[],
