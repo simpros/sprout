@@ -220,17 +220,22 @@ services start. There is no per-service health poll in this release.
 2. Gateway polls `health.path` on the Postgres-network container IP until
    `health.expect` or `health.timeout`.
 3. **After healthy:** if a seed image was provided and this PR has never
-   seeded successfully (`seeded_at` unset), the gateway runs the seed image
+   seeded successfully (`seeded_at` unset), or the incoming seed image
+   differs from the last successful one, the gateway runs the seed image
    once with the same connection-env remap as the app, plus `seed.env` /
    `--seed-env` and `seed.args` / `--seed-arg`. `--reseed` clears
    `seeded_at` after a healthy attach (replace) or on seed-phase entry
-   (seed-only), so the same after-healthy gate re-runs.
+   (seed-only), so the same after-healthy gate re-runs even when the
+   seed image is unchanged.
 4. Preview status becomes `running` with `seeded_at` set.
 
-On later synchronize deploys, seeding is skipped when `seeded_at` is
-already set. Same image + hostname: seed-only (no app container replace).
-Image or hostname change still replaces the app, then runs seed after
-healthy when `seeded_at` is unset (or `--reseed` was passed). Seed
+On later synchronize deploys, seeding is skipped only when the incoming
+seed image matches the last successful one. Same image + hostname:
+seed-only (no app container replace). A changed seed image alone re-runs
+the seed without replacing the app container. Image or hostname change
+still replaces the app, then runs seed after
+healthy when `seeded_at` is unset, the seed image changed, or `--reseed`
+was passed. Seed
 wall-clock is the gateway env `SPROUT_SEED_TIMEOUT` (seconds, default
 `180`, applied internally as `seedTimeoutMs`); health timeout is separate
 and never starts the seed. Seed failure outcomes (exit non-zero, timeout,
@@ -274,7 +279,7 @@ contract; test pointers live in [Test coverage](#test-coverage-maintainers).
 | | `--clear-services` | Remove all companions (`services: []` on the API). Cannot combine with `--service`. |
 | | `--tail N` | Gateway log lines printed when the deploy fails (default `200`; must be a positive integer, checked before building). |
 | | `--dotenv-file PATH` | Dotenv artifact the CLI writes `PREVIEW_URL=` to (default `sprout-preview.env`, relative to the workspace root). Emitted only once the preview is healthy. |
-| | `--reseed` | Force the gateway to re-run the seed against the existing database (requires a `seed` block). Needed when the seed inputs changed on an existing MR: the new content-addressed tag deploys, but the gateway skips seeding while `seeded_at` is set. Without seed changes, omit it — a reused image still seeds every fresh PR (`seeded_at` unset). |
+| | `--reseed` | Force the gateway to re-run the seed against the existing database (requires a `seed` block) — re-seeds even when the seed image is unchanged. A changed seed image already re-seeds automatically; without seed changes, omit it — a reused image still seeds every fresh PR (`seeded_at` unset). |
 | `sprout ci teardown` | *(no flags — extra args are rejected)* | Tear down this MR's preview. Idempotent; rewrites the MR note in place ("preview was removed"). Note failures only warn so gateway success owns the exit code. |
 | `sprout ci reseed` | `-s <seed-image>` (required) | Re-run the seed job against the existing database (no image build; app tag from `CI_REGISTRY_IMAGE` + SHA). Body is a reseed request, so companions stay as last deployed by construction. |
 | | `--seed-env`, `--seed-env-file`, `--seed-arg`, `--app-env`, `--app-env-file` | Same env layering as `preview` (yaml + blob + files + flags). |
@@ -437,8 +442,8 @@ parse errors name the key or file without echoing the value.
 | Deploy never becomes healthy | `health_timeout` (gateway log tail printed first), `deploy_timeout` on poll expiry | Pull `sprout logs <mr_id> --tail 200`: app crash-loop (migrations, missing env, wrong port) is the usual cause. Reviewers may see brief 502s while the app migrates — Traefik routes exist before the app is healthy. |
 | Seed fails | `seed_failed` (exit code or `timeout` in `last_error_detail`); app **stays up** and routable, `seeded_at` unset | Fix the seed image and redeploy with `-s` (resume path — no Traefik replace when image + hostname are unchanged). Seed wall-clock is `SPROUT_SEED_TIMEOUT` (default `180s`); health timeout is separate and never starts the seed. |
 | Redeploy after a failed seed without `-s` | `422 seed_image_required_to_resume_seeding` | Redeploy with `-s` (resume needs the seed image); `--reseed` is not required for first-seed failure resume. Tear down only for a fresh database, not fresh fixtures. |
-| Synchronize deploy skips seeding | no error; `seeded_at` already set | Pass `--reseed` with `-s` (or `sprout ci reseed -s …`) to force a re-seed against the existing database. A failed reseed clears `seeded_at` and keeps the app up. |
-| Seed inputs changed but fixtures look stale | job log shows a new `seed-<shorthash>` tag built, yet no seed run | Same `seeded_at` short-circuit with a new tag: run the pipeline once with `sprout ci preview --reseed` (or `sprout ci reseed -s <ref>`). See [After-healthy hook](#after-healthy-hook-seed-image). |
+| Synchronize deploy skips seeding | no error; incoming seed image matches the last successful one | Pass `--reseed` with `-s` (or `sprout ci reseed -s …`) to force a re-seed against the existing database. A failed reseed clears `seeded_at` and keeps the app up, leaving the stored seed image unchanged so the next deploy retries. |
+| Seed inputs changed but fixtures look stale | job log shows a new `seed-<shorthash>` tag built, yet no seed run | The gateway re-runs the seed automatically when the incoming seed image differs from the last successful one — no `--reseed` needed. If fixtures still look stale, check the seed job logs (`sprout ci logs`) for a `seed_failed` outcome. See [After-healthy hook](#after-healthy-hook-seed-image). |
 | `sprout ci reseed` without an image | `ci reseed requires -s <seed-image>` | Pass `-s` with the seed image; reseed runs against the existing database without rebuilding. |
 
 ## App image: migrate at startup
@@ -574,14 +579,15 @@ sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" --reseed
 ```
 
 With `sprout ci preview` the same flag applies (`sprout ci preview
---reseed`). Adopting pipelines need it exactly once per seed change: when
-`seed.inputs` change on an existing MR, the new tag builds, pushes, and
-deploys, but the gateway skips the seed run because that PR already seeded
-(`seeded_at` set) — `--reseed` clears the way for one run. Fresh MRs never
-need it (first seed always runs), and syncs without seed changes reuse the
-image with no flag. The component does not pass `--reseed` itself; add it to
-the `sprout ci preview` invocation (component override or hand-rolled job)
-for the pipeline that lands the seed change, then remove it.
+--reseed`) — it re-seeds even when the seed image is unchanged. When
+`seed.inputs` change on an existing MR, the new tag builds, pushes,
+deploys, and re-seeds automatically with no flag (a seed-tag change alone
+never replaces the app container). Fresh MRs never need `--reseed`
+(first seed always runs), and syncs without seed changes reuse the
+image with no flag. The component does not pass `--reseed` itself; add it
+to the `sprout ci preview` invocation (component override or hand-rolled
+job) only for pipelines that must re-run an unchanged seed image, then
+remove it.
 
 ## Multi-image previews (app + services)
 

@@ -4,6 +4,7 @@ import { withDbNameLock } from "./locks.ts";
 import { markPreviewFailed, markStickyPreviewFailed } from "./mark-failed.ts";
 import {
   canSeedWithoutAppReplace,
+  isSeedImageChanged,
   promoteAfterHealthy,
   resumeIncompleteSeed,
 } from "./seed-phase.ts";
@@ -247,8 +248,10 @@ async function attachThenPromote(
   if (!attached.ok) return attached;
   let starting = attached.value;
   // Clear after healthy attach so pull/health failure cannot erase a prior
-  // successful seed marker; promote's seed gate is `seededAt == null`.
-  if (input.reseed === true && starting.seededAt != null) {
+  // successful seed marker; promote's seed gate is `seededAt == null` or a
+  // changed seed image.
+  const seedChanged = isSeedImageChanged(starting, input.seed?.image);
+  if ((input.reseed === true || seedChanged) && starting.seededAt != null) {
     starting = await updatePreviewRow(
       deps.db,
       starting,

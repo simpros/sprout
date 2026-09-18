@@ -10,7 +10,7 @@ import {
   utcIsoNow,
   type PreviewRow,
 } from "./row.ts";
-import { canSeedWithoutAppReplace } from "./seed-phase.ts";
+import { canSeedWithoutAppReplace, isSeedImageChanged } from "./seed-phase.ts";
 import type { Result } from "./result.ts";
 import type {
   BringUpPlan,
@@ -178,6 +178,7 @@ async function writeProvisioningIntent(
       appImage: null,
       containerId: null,
       seededAt: null,
+      seededSeedImage: null,
       ...clearLastError,
       // New generation: TTL means age of this intent, not birth of the row key.
       createdAt: now,
@@ -273,6 +274,9 @@ function planAcceptBringUp(
     return { status: "provisioning", plan: "full_replace" };
   }
   if (input.reseed === true && sameApp) {
+    return { status: "seeding", plan: "seed_resume" };
+  }
+  if (sameApp && input.seed && isSeedImageChanged(row, input.seed.image)) {
     return { status: "seeding", plan: "seed_resume" };
   }
   return { status: "provisioning", plan: "full_replace" };
