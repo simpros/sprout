@@ -172,6 +172,9 @@ export function createDockerEngineClient(
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ Name: name }),
       });
+      // Volume create is an ensure: re-creating an existing name succeeds
+      // (201) on stock daemons, and 409 on ones that treat it as a conflict.
+      if (res.status === 409) return;
       if (!res.ok) {
         const body = await res.text();
         throw new Error(

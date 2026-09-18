@@ -1,13 +1,35 @@
 import { describe, expect, test } from "bun:test";
+import { defaultDbSpec } from "@sprout/preview-env";
 import { createFakeDockerClient } from "../docker/fake.ts";
-import { runSeedImage } from "./seed.ts";
+import { runSeedImage, type SeedImageInput } from "./seed.ts";
+import {
+  createPreviewRuntime,
+  resolvePreviewPlan,
+} from "../preview/runtime.ts";
 
-const PG = {
-  host: "pg",
-  port: 5432,
-  user: "u",
-  password: "p",
-};
+function input(overrides: Partial<SeedImageInput> = {}): SeedImageInput {
+  return {
+    slug: "app",
+    prId: 1,
+    image: "seed:test",
+    env: [],
+    args: [],
+    plan: resolvePreviewPlan(
+      createPreviewRuntime({
+        pg: { host: "pg", port: 5432, user: "u", password: "p" },
+        traefikNetwork: "traefik-net",
+        postgresNetwork: "pg-net",
+      }),
+      { spec: defaultDbSpec(), dbName: "db", slug: "app", prId: 1 },
+    ),
+    ...overrides,
+  };
+}
+
+const deps = (docker: ReturnType<typeof createFakeDockerClient>) => ({
+  docker,
+  seedTimeoutMs: 5_000,
+});
 
 describe("runSeedImage", () => {
   test("captures logs before remove on non-zero exit", async () => {
@@ -21,22 +43,7 @@ describe("runSeedImage", () => {
       return created;
     };
 
-    const result = await runSeedImage(
-      {
-        docker,
-        pg: PG,
-        networks: { traefik: "traefik-net", postgres: "pg-net" },
-        seedTimeoutMs: 5_000,
-      },
-      {
-        slug: "app",
-        prId: 1,
-        image: "seed:test",
-        dbName: "db",
-        env: [],
-        args: [],
-      },
-    );
+    const result = await runSeedImage(deps(docker), input());
 
     expect(result).toEqual({
       ok: false,
@@ -59,22 +66,7 @@ describe("runSeedImage", () => {
       throw new Error("Docker wait cid returned no StatusCode");
     };
 
-    const result = await runSeedImage(
-      {
-        docker,
-        pg: PG,
-        networks: { traefik: "traefik-net", postgres: "pg-net" },
-        seedTimeoutMs: 5_000,
-      },
-      {
-        slug: "app",
-        prId: 1,
-        image: "seed:test",
-        dbName: "db",
-        env: [],
-        args: [],
-      },
-    );
+    const result = await runSeedImage(deps(docker), input());
 
     expect(result).toEqual({
       ok: false,
@@ -91,22 +83,7 @@ describe("runSeedImage", () => {
       throw new Error("docker create boom");
     };
 
-    const result = await runSeedImage(
-      {
-        docker,
-        pg: PG,
-        networks: { traefik: "traefik-net", postgres: "pg-net" },
-        seedTimeoutMs: 5_000,
-      },
-      {
-        slug: "app",
-        prId: 1,
-        image: "seed:test",
-        dbName: "db",
-        env: [],
-        args: [],
-      },
-    );
+    const result = await runSeedImage(deps(docker), input());
 
     expect(result).toEqual({
       ok: false,

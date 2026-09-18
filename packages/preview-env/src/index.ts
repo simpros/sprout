@@ -1,3 +1,5 @@
+import type { DbProvider } from "./db.ts";
+
 export const OWNER_ENV_KEYS = [
   "PGHOST",
   "PGPORT",
@@ -32,7 +34,17 @@ export type PreviewEnvMap = Partial<Record<CanonicalEnvKey, string>>;
 
 export const ENV_TARGET_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-import type { DbProvider } from "./db.ts";
+/** Single home table for every canonical key; partitions derive from it. */
+export const ENV_KEY_HOME: Record<CanonicalEnvKey, DbProvider> = {
+  PGHOST: "postgres",
+  PGPORT: "postgres",
+  PGUSER: "postgres",
+  PGPASSWORD: "postgres",
+  PGDATABASE: "postgres",
+  PGAPPUSER: "postgres",
+  PGAPPPASSWORD: "postgres",
+  DATABASE_URL: "sqlite",
+};
 
 export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
   return (CANONICAL_ENV_KEYS as readonly string[]).includes(key);
@@ -41,18 +53,11 @@ export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
 export function envKeysForProvider(
   provider: DbProvider,
 ): readonly CanonicalEnvKey[] {
-  return provider === "sqlite" ? SQLITE_ENV_KEYS : POSTGRES_ENV_KEYS;
-}
-
-export function isEnvKeyForProvider(
-  key: CanonicalEnvKey,
-  provider: DbProvider,
-): boolean {
-  return (envKeysForProvider(provider) as readonly string[]).includes(key);
+  return CANONICAL_ENV_KEYS.filter((key) => ENV_KEY_HOME[key] === provider);
 }
 
 export function providerForEnvKey(key: CanonicalEnvKey): DbProvider {
-  return key === "DATABASE_URL" ? "sqlite" : "postgres";
+  return ENV_KEY_HOME[key];
 }
 
 export function envProviderMismatch(
@@ -61,8 +66,8 @@ export function envProviderMismatch(
 ): { key: CanonicalEnvKey; home: DbProvider } | null {
   for (const key of Object.keys(env ?? {})) {
     const canonical = key as CanonicalEnvKey;
-    if (!isEnvKeyForProvider(canonical, provider)) {
-      return { key: canonical, home: providerForEnvKey(canonical) };
+    if (ENV_KEY_HOME[canonical] !== provider) {
+      return { key: canonical, home: ENV_KEY_HOME[canonical] };
     }
   }
   return null;
@@ -78,6 +83,12 @@ export type PreviewEnvIssue =
       target: string;
       priorKey: string;
     };
+
+export type EnvProviderIssue = {
+  code: "env_requires_provider";
+  key: CanonicalEnvKey;
+  home: DbProvider;
+};
 
 export function parsePreviewEnvMap(
   raw: Record<string, unknown> | undefined,
@@ -120,6 +131,25 @@ export function parsePreviewEnvMap(
   return { ok: true, value: env };
 }
 
+/** Parse plus provider-scope check: the single entry both CLI and server call. */
+export function parsePreviewEnvForProvider(
+  raw: Record<string, unknown> | undefined,
+  provider: DbProvider,
+):
+  | { ok: true; value: PreviewEnvMap | undefined }
+  | { ok: false; issue: PreviewEnvIssue | EnvProviderIssue } {
+  const parsed = parsePreviewEnvMap(raw);
+  if (!parsed.ok) return parsed;
+  const mismatch = envProviderMismatch(parsed.value, provider);
+  if (mismatch) {
+    return {
+      ok: false,
+      issue: { code: "env_requires_provider", ...mismatch },
+    };
+  }
+  return parsed;
+}
+
 export {
   resolveHostnameValue,
   validateHostname,
@@ -146,9 +176,13 @@ export {
   isDbProvider,
   normalizeDbSpec,
   parseDbSpec,
-  resolveSqliteDatabaseUrl,
   sqliteDatabaseUrl,
   type DbProvider,
   type DbSpec,
   type DbSpecIssue,
 } from "./db.ts";
+
+export {
+  parseSqliteVolumeName,
+  sqliteVolumeName,
+} from "./naming.ts";

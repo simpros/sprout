@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   CANONICAL_ENV_KEYS,
   COMPANION_ENV_KEYS,
+  ENV_KEY_HOME,
   OWNER_ENV_KEYS,
   POSTGRES_ENV_KEYS,
   SQLITE_ENV_KEYS,
   envKeysForProvider,
   envProviderMismatch,
+  parsePreviewEnvForProvider,
   parsePreviewEnvMap,
 } from "./index.ts";
 
@@ -35,6 +37,14 @@ describe("env key partitions", () => {
   test("provider key sets stay disjoint", () => {
     expect(envKeysForProvider("postgres")).toEqual([...POSTGRES_ENV_KEYS]);
     expect(envKeysForProvider("sqlite")).toEqual(["DATABASE_URL"]);
+  });
+
+  test("every canonical key has a home in the map", () => {
+    expect(Object.keys(ENV_KEY_HOME).sort()).toEqual(
+      [...CANONICAL_ENV_KEYS].sort(),
+    );
+    expect(ENV_KEY_HOME.DATABASE_URL).toBe("sqlite");
+    expect(ENV_KEY_HOME.PGHOST).toBe("postgres");
   });
 });
 
@@ -136,5 +146,38 @@ describe("envProviderMismatch", () => {
       envProviderMismatch({ DATABASE_URL: "U" }, "sqlite"),
     ).toBeNull();
     expect(envProviderMismatch(undefined, "sqlite")).toBeNull();
+  });
+});
+
+describe("parsePreviewEnvForProvider", () => {
+  test("accepts in-scope keys", () => {
+    expect(
+      parsePreviewEnvForProvider({ PGHOST: "H" }, "postgres"),
+    ).toEqual({ ok: true, value: { PGHOST: "H" } });
+    expect(
+      parsePreviewEnvForProvider({ DATABASE_URL: "U" }, "sqlite"),
+    ).toEqual({ ok: true, value: { DATABASE_URL: "U" } });
+  });
+
+  test("rejects out-of-scope keys with their home provider", () => {
+    expect(
+      parsePreviewEnvForProvider({ DATABASE_URL: "U" }, "postgres"),
+    ).toEqual({
+      ok: false,
+      issue: {
+        code: "env_requires_provider",
+        key: "DATABASE_URL",
+        home: "sqlite",
+      },
+    });
+  });
+
+  test("still surfaces shape issues first", () => {
+    expect(parsePreviewEnvForProvider({ REDIS_URL: "R" }, "postgres")).toEqual(
+      {
+        ok: false,
+        issue: { code: "unknown_env_key", key: "REDIS_URL" },
+      },
+    );
   });
 });

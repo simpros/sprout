@@ -30,11 +30,11 @@ const docker = createDockerEngineClient({
 
 // Only this wiring decides which database adapters exist; per-deploy
 // dispatch lives in the PreviewDb / PreviewRuntime seam modules.
-const postgresDb = isPostgresConfigured(config)
+const postgresDb = config.postgres
   ? createPostgresPreviewDb({
-      url: config.previewPostgresUrl,
-      previewRole: config.previewPgUser,
-      previewPassword: config.previewPgPassword,
+      url: config.postgres.url,
+      previewRole: config.postgres.user,
+      previewPassword: config.postgres.password,
     })
   : undefined;
 if (postgresDb) await postgresDb.ensurePreviewRole();
@@ -45,33 +45,24 @@ const previewDb = createRoutingPreviewDb({
 });
 
 const runtime = createPreviewRuntime({
-  pg: {
-    host: config.previewPgHost,
-    port: config.previewPgPort,
-    user: config.previewPgUser,
-    password: config.previewPgPassword,
-  },
+  pg: config.postgres
+    ? {
+        host: config.postgres.host,
+        port: config.postgres.port,
+        user: config.postgres.user,
+        password: config.postgres.password,
+      }
+    : undefined,
   traefikNetwork: config.traefikNetwork,
-  postgresNetwork: config.postgresNetwork,
+  postgresNetwork: config.postgres?.network ?? "",
 });
 
 const app = bindPreviewOps({
   docker,
-  pg: {
-    host: config.previewPgHost,
-    port: config.previewPgPort,
-    user: config.previewPgUser,
-    password: config.previewPgPassword,
-  },
-  networks: {
-    traefik: config.traefikNetwork,
-    postgres: config.postgresNetwork,
-  },
   previewPortDefault: config.previewPortDefault,
   traefikTls: config.traefikTls,
   traefikForwardAuth: config.traefikForwardAuth,
   seedTimeoutMs: config.seedTimeout * 1000,
-  runtime,
 });
 
 const postgresGate = {
@@ -79,7 +70,7 @@ const postgresGate = {
   detail: (repo: string) => postgresNotConfiguredDetail(config, repo),
 };
 
-startServer({ config, db, previewDb, app, postgresGate });
+startServer({ config, db, previewDb, app, runtime, postgresGate });
 startGatewaySweep({ config, db, previewDb, app });
 console.log(
   `sweep scheduled: first pass in ${config.sweepMinutes}m, then every ${config.sweepMinutes}m`,

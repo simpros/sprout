@@ -1,4 +1,4 @@
-import { normalizeDbSpec, type DbSpec } from "@sprout/preview-env";
+import type { DbProvider } from "@sprout/preview-env";
 import type { CatalogDatabase, PreviewDb } from "./port.ts";
 
 export type RoutingPreviewDbOptions = {
@@ -6,54 +6,75 @@ export type RoutingPreviewDbOptions = {
   sqlite?: PreviewDb;
 };
 
+/**
+ * Selector over the configured backends plus the merged read view.
+ * Adapters stay provider-agnostic: create picks a backend up front, and
+ * teardown reads the stored provider off the preview row, so drops route
+ * deterministically. Only row-less sweep orphans fall back to broadcast.
+ */
+export type PreviewDbRouter = {
+  forCreate(provider: DbProvider): PreviewDb;
+  forDrop(provider: DbProvider | undefined): Pick<PreviewDb, "dropDatabase">;
+  listPreviewDatabases(): Promise<CatalogDatabase[]>;
+  ensurePreviewRole(): Promise<void>;
+  ping(): Promise<void>;
+};
+
 function missingBackend(provider: string): Error {
   return new Error(`preview database provider not configured: ${provider}`);
 }
 
+function backendFor(
+  options: RoutingPreviewDbOptions,
+  provider: DbProvider,
+): PreviewDb {
+  if (provider === "sqlite") {
+    if (!options.sqlite) throw missingBackend("sqlite");
+    return options.sqlite;
+  }
+  if (!options.postgres) throw missingBackend("postgres");
+  return options.postgres;
+}
+
 export function createRoutingPreviewDb(
   options: RoutingPreviewDbOptions,
-): PreviewDb {
+): PreviewDbRouter {
   const { postgres, sqlite } = options;
 
-  function forCreate(db: DbSpec | undefined): PreviewDb {
-    const provider = normalizeDbSpec(db).provider;
-    if (provider === "sqlite") {
-      if (!sqlite) throw missingBackend("sqlite");
-      return sqlite;
-    }
-    if (!postgres) throw missingBackend("postgres");
-    return postgres;
+  /** Row-less sweep path: both backends are missing-tolerant, so a throw is real. */
+  async function broadcastDrop(dbName: string): Promise<void> {
+    const results = await Promise.allSettled([
+      ...(postgres ? [postgres.dropDatabase(dbName)] : []),
+      ...(sqlite ? [sqlite.dropDatabase(dbName)] : []),
+    ]);
+    const failures = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (failures.length > 0) throw new AggregateError(failures);
   }
 
   return {
-    async createDatabase(dbName, db) {
-      await forCreate(db).createDatabase(dbName, db);
+    forCreate(provider) {
+      return backendFor(options, provider);
     },
 
-    async dropDatabase(dbName) {
-      const failures: unknown[] = [];
-      if (postgres) {
-        try {
-          await postgres.dropDatabase(dbName);
-        } catch (err) {
-          failures.push(err);
-        }
-      }
-      if (sqlite) {
-        try {
-          await sqlite.dropDatabase(dbName);
-        } catch (err) {
-          failures.push(err);
-        }
-      }
-      if (failures.length > 0) throw failures[0];
+    forDrop(provider) {
+      if (provider === undefined) return { dropDatabase: broadcastDrop };
+      const backend = backendFor(options, provider);
+      return { dropDatabase: (dbName) => backend.dropDatabase(dbName) };
     },
 
     async listPreviewDatabases() {
+      const seen = new Set<string>();
       const out: CatalogDatabase[] = [];
       if (postgres) out.push(...(await postgres.listPreviewDatabases()));
       if (sqlite) out.push(...(await sqlite.listPreviewDatabases()));
-      return out;
+      // Both backends share one dbName space; a collision is one resource.
+      return out.filter((entry) => {
+        if (seen.has(entry.dbName)) return false;
+        seen.add(entry.dbName);
+        return true;
+      });
     },
 
     async ensurePreviewRole() {

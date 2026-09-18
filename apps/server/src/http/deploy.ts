@@ -1,9 +1,8 @@
 import {
   dbSpecIssueMessage,
-  envProviderMismatch,
   normalizeDbSpec,
   parseDbSpec,
-  parsePreviewEnvMap,
+  parsePreviewEnvForProvider,
   resolveHealthSpec,
   validateHostname,
   type DbSpec,
@@ -19,6 +18,11 @@ import {
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
+import { previewDbName } from "../preview-db/names.ts";
+import {
+  resolvePreviewPlan,
+  type PreviewRuntime,
+} from "../preview/runtime.ts";
 import {
   acceptAsyncDeploy,
   runAsyncDeploy,
@@ -104,34 +108,57 @@ export type PostgresGate = {
   detail: (repo: string) => string;
 };
 
-export function resolveDbRequest(
-  body: Pick<DeployBody, "db">,
-): { ok: true; value: DbSpec | undefined } | { ok: false; error: string; detail: string } {
+export type DeployDbAndEnv = {
+  spec: DbSpec;
+  connectionEnv?: PreviewEnvMap;
+};
+
+/**
+ * One validation pipeline for db + env: parse the db block, enforce the
+ * postgres gate, then parse and provider-scope the env map. A single call
+ * site maps the result to a status, so the wire codes stay in one place.
+ */
+export function resolveDeployDbAndEnv(
+  body: Pick<DeployBody, "db" | "env">,
+  gate: PostgresGate,
+  repo: string,
+):
+  | { ok: true; value: DeployDbAndEnv }
+  | { ok: false; status: number; error: string; detail?: string } {
   const parsed = parseDbSpec(body.db);
   if (!parsed.ok) {
     return {
       ok: false,
+      status: 422,
       error: "invalid_db",
       detail: dbSpecIssueMessage(parsed.issue),
     };
   }
-  return { ok: true, value: parsed.value };
-}
-
-export function checkEnvForProvider(
-  env: PreviewEnvMap | undefined,
-  db: DbSpec | undefined,
-): { ok: true } | { ok: false; error: string; detail: string } {
-  const provider = normalizeDbSpec(db).provider;
-  const mismatch = envProviderMismatch(env, provider);
-  if (mismatch) {
+  const spec = normalizeDbSpec(parsed.value);
+  if (spec.provider === "postgres" && !gate.configured) {
     return {
       ok: false,
-      error: "invalid_env_for_provider",
-      detail: `preview.env.${mismatch.key} requires db.provider ${mismatch.home}`,
+      status: 500,
+      error: "postgres_not_configured",
+      detail: gate.detail(repo),
     };
   }
-  return { ok: true };
+  const connectionEnv = parsePreviewEnvForProvider(body.env, spec.provider);
+  if (!connectionEnv.ok) {
+    if (connectionEnv.issue.code === "env_requires_provider") {
+      return {
+        ok: false,
+        status: 422,
+        error: "invalid_env_for_provider",
+        detail: `preview.env.${connectionEnv.issue.key} requires db.provider ${connectionEnv.issue.home}`,
+      };
+    }
+    if (connectionEnv.issue.code === "empty_env_target") {
+      return { ok: false, status: 422, error: "invalid_env_target" };
+    }
+    return { ok: false, status: 422, error: connectionEnv.issue.code };
+  }
+  return { ok: true, value: { spec, connectionEnv: connectionEnv.value } };
 }
 
 function validateKvEnvEntries(
@@ -260,7 +287,9 @@ export type PreviewQuery = {
   pr_id: string;
 };
 
-export function deploy(deps: LifecycleDeps & { postgresGate?: PostgresGate }) {
+export function deploy(
+  deps: LifecycleDeps & { postgresGate: PostgresGate; runtime: PreviewRuntime },
+) {
   return async ({
     body,
     auth,
@@ -286,36 +315,20 @@ export function deploy(deps: LifecycleDeps & { postgresGate?: PostgresGate }) {
       set.status = 422;
       return { error: "invalid_hostname" };
     }
-    const db = resolveDbRequest(body);
-    if (!db.ok) {
-      set.status = 422;
-      return { error: db.error, detail: db.detail };
+    const dbAndEnv = resolveDeployDbAndEnv(body, deps.postgresGate, repo.value);
+    if (!dbAndEnv.ok) {
+      set.status = dbAndEnv.status;
+      return dbAndEnv.detail
+        ? { error: dbAndEnv.error, detail: dbAndEnv.detail }
+        : { error: dbAndEnv.error };
     }
-    if (
-      normalizeDbSpec(db.value).provider === "postgres" &&
-      deps.postgresGate &&
-      !deps.postgresGate.configured
-    ) {
-      set.status = 500;
-      return {
-        error: "postgres_not_configured",
-        detail: deps.postgresGate.detail(repo.value),
-      };
-    }
-    const connectionEnv = parsePreviewEnvMap(body.env);
-    if (!connectionEnv.ok) {
-      set.status = 422;
-      const code =
-        connectionEnv.issue.code === "empty_env_target"
-          ? "invalid_env_target"
-          : connectionEnv.issue.code;
-      return { error: code };
-    }
-    const envScope = checkEnvForProvider(connectionEnv.value, db.value);
-    if (!envScope.ok) {
-      set.status = 422;
-      return { error: envScope.error, detail: envScope.detail };
-    }
+    const plan = resolvePreviewPlan(deps.runtime, {
+      spec: dbAndEnv.value.spec,
+      dbName: previewDbName(body.slug, body.pr_id),
+      slug: body.slug,
+      prId: body.pr_id,
+      connectionEnv: dbAndEnv.value.connectionEnv,
+    });
     const seed = resolveSeedRequest(body);
     if (!seed.ok) {
       set.status = 422;
@@ -347,8 +360,7 @@ export function deploy(deps: LifecycleDeps & { postgresGate?: PostgresGate }) {
       seed: seed.value,
       appEnv: appEnv.value,
       services: services.value,
-      connectionEnv: connectionEnv.value,
-      db: db.value,
+      plan,
       reseed: body.reseed === true,
     };
 

@@ -5,20 +5,31 @@ import {
 } from "../docker/fake.ts";
 import { bindTestPreviewApp, createTestDb } from "../http/test-helpers.ts";
 import { previews, repos } from "../infrastructure/db/schema.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
+import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import { createLiveSweepPorts } from "./live-ports.ts";
 import { runSweepPass } from "./reconcile.ts";
 
 function stubPreviewDb(
-  partial: Partial<PreviewDb> & Pick<PreviewDb, "listPreviewDatabases">,
-): PreviewDb {
+  partial: Partial<PreviewDbRouter> &
+    Pick<PreviewDbRouter, "listPreviewDatabases">,
+): PreviewDbRouter {
   return {
-    createDatabase: async () => {},
-    dropDatabase: async () => {},
+    forCreate: () => {
+      throw new Error("unexpected createDatabase in sweep test");
+    },
+    forDrop: () => ({ dropDatabase: async () => {} }),
     ensurePreviewRole: async () => {},
     ping: async () => {},
     ...partial,
   };
+}
+
+function dropRecorder(dropped: string[]) {
+  return () => ({
+    dropDatabase: async (dbName: string) => {
+      dropped.push(dbName);
+    },
+  });
 }
 
 describe("createLiveSweepPorts", () => {
@@ -57,9 +68,7 @@ describe("createLiveSweepPorts", () => {
       listPreviewDatabases: async () => [
         { dbName: "sprout_widgets_pr10", slug: "widgets", prId: 10 },
       ],
-      dropDatabase: async (dbName) => {
-        droppedDbs.push(dbName);
-      },
+      forDrop: dropRecorder(droppedDbs),
     });
 
     const ports = createLiveSweepPorts({
@@ -153,9 +162,7 @@ describe("createLiveSweepPorts", () => {
         listPreviewDatabases: async () => [
           { dbName: "sprout_widgets_pr1", slug: "widgets", prId: 1 },
         ],
-        dropDatabase: async (dbName) => {
-          droppedDbs.push(dbName);
-        },
+        forDrop: dropRecorder(droppedDbs),
       }),
       forge: { listOpenPrIds: async () => [1] },
       ttlHours: 72,
@@ -208,9 +215,7 @@ describe("createLiveSweepPorts", () => {
         listPreviewDatabases: async () => [
           { dbName: "sprout_widgets_pr1", slug: "widgets", prId: 1 },
         ],
-        dropDatabase: async (dbName) => {
-          droppedDbs.push(dbName);
-        },
+        forDrop: dropRecorder(droppedDbs),
       }),
       forge: { listOpenPrIds: async () => [1] },
       ttlHours: 1,
@@ -260,9 +265,11 @@ describe("createLiveSweepPorts", () => {
       app: bindTestPreviewApp(docker),
       previewDb: stubPreviewDb({
         listPreviewDatabases: async () => [],
-        dropDatabase: async () => {
-          throw new Error("postgres busy");
-        },
+        forDrop: () => ({
+          dropDatabase: async () => {
+            throw new Error("postgres busy");
+          },
+        }),
       }),
       forge: { listOpenPrIds: async () => [] },
       ttlHours: 72,
@@ -315,9 +322,7 @@ describe("createLiveSweepPorts", () => {
         listPreviewDatabases: async () => [
           { dbName: "sprout_widgets_pr10", slug: "widgets", prId: 10 },
         ],
-        dropDatabase: async (dbName) => {
-          droppedDbs.push(dbName);
-        },
+        forDrop: dropRecorder(droppedDbs),
       }),
       forge: { listOpenPrIds: async () => [] },
       ttlHours: 72,
@@ -371,9 +376,7 @@ describe("createLiveSweepPorts", () => {
       app: bindTestPreviewApp(docker),
       previewDb: stubPreviewDb({
         listPreviewDatabases: async () => [],
-        dropDatabase: async (dbName) => {
-          droppedDbs.push(dbName);
-        },
+        forDrop: dropRecorder(droppedDbs),
       }),
       forge: { listOpenPrIds: async () => [42] },
       ttlHours: 72,
@@ -422,9 +425,7 @@ describe("createLiveSweepPorts", () => {
       app: bindTestPreviewApp(docker),
       previewDb: stubPreviewDb({
         listPreviewDatabases: async () => [],
-        dropDatabase: async (dbName) => {
-          droppedDbs.push(dbName);
-        },
+        forDrop: dropRecorder(droppedDbs),
       }),
       forge: { listOpenPrIds: async () => [42] },
       ttlHours: 72,
@@ -473,9 +474,7 @@ describe("createLiveSweepPorts", () => {
       app: bindTestPreviewApp(docker),
       previewDb: stubPreviewDb({
         listPreviewDatabases: async () => [],
-        dropDatabase: async (dbName) => {
-          droppedDbs.push(dbName);
-        },
+        forDrop: dropRecorder(droppedDbs),
       }),
       forge: {
         listOpenPrIds: async () => {
@@ -526,9 +525,7 @@ describe("createLiveSweepPorts", () => {
       app: bindTestPreviewApp(docker),
       previewDb: stubPreviewDb({
         listPreviewDatabases: async () => [],
-        dropDatabase: async (dbName) => {
-          droppedDbs.push(dbName);
-        },
+        forDrop: dropRecorder(droppedDbs),
       }),
       forge: { listOpenPrIds: async () => [42] },
       ttlHours: 72,
@@ -554,9 +551,11 @@ describe("createLiveSweepPorts", () => {
       app: bindTestPreviewApp(docker),
       previewDb: stubPreviewDb({
         listPreviewDatabases: async () => [],
-        dropDatabase: async () => {
-          throw new Error("postgres busy");
-        },
+        forDrop: () => ({
+          dropDatabase: async () => {
+            throw new Error("postgres busy");
+          },
+        }),
       }),
       forge: { listOpenPrIds: async () => [] },
       ttlHours: 72,

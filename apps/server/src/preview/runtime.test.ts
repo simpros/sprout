@@ -3,7 +3,8 @@ import {
   deriveRestrictedPassword,
   restrictedRoleName,
 } from "@sprout/preview-db";
-import { createPreviewRuntime } from "./runtime.ts";
+import { defaultDbSpec } from "@sprout/preview-env";
+import { createPreviewRuntime, resolvePreviewPlan } from "./runtime.ts";
 
 const PG = {
   host: "postgres",
@@ -26,7 +27,7 @@ function runtime() {
 
 describe("preview runtime binding", () => {
   test("postgres connection env matches the legacy PG* layout", () => {
-    expect(runtime().connectionEnv(undefined, "sprout_myapp_pr42")).toEqual([
+    expect(runtime().connectionEnv(defaultDbSpec(), "sprout_myapp_pr42")).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
       "PGUSER=sprout_preview",
@@ -39,19 +40,19 @@ describe("preview runtime binding", () => {
 
   test("postgres remap still replaces names", () => {
     expect(
-      runtime().connectionEnv(undefined, "sprout_myapp_pr42", {
+      runtime().connectionEnv(defaultDbSpec(), "sprout_myapp_pr42", {
         PGHOST: "DATABASE_HOST",
       })[0],
     ).toBe("DATABASE_HOST=postgres");
   });
 
   test("postgres uses no volumes and both networks", () => {
-    expect(runtime().volumes(undefined, "myapp", 42)).toEqual([]);
-    expect(runtime().appNetworks(undefined)).toEqual([
+    expect(runtime().volumes(defaultDbSpec(), "myapp", 42)).toEqual([]);
+    expect(runtime().appNetworks(defaultDbSpec())).toEqual([
       "sprout-traefik",
       "sprout-postgres",
     ]);
-    expect(runtime().seedNetworks(undefined)).toEqual(["sprout-postgres"]);
+    expect(runtime().seedNetworks(defaultDbSpec())).toEqual(["sprout-postgres"]);
   });
 
   test("sqlite injects a single DATABASE_URL and no PG* keys", () => {
@@ -86,5 +87,22 @@ describe("preview runtime binding", () => {
   test("sqlite containers join traefik only; seed reuses it", () => {
     expect(runtime().appNetworks(SQLITE_DB)).toEqual(["sprout-traefik"]);
     expect(runtime().seedNetworks(SQLITE_DB)).toEqual(["sprout-traefik"]);
+  });
+
+  test("resolvePreviewPlan answers every materialization question once", () => {
+    expect(
+      resolvePreviewPlan(runtime(), {
+        spec: SQLITE_DB,
+        dbName: "sprout_myapp_pr42",
+        slug: "myapp",
+        prId: 42,
+      }),
+    ).toEqual({
+      provider: "sqlite",
+      gatewayEnv: ["DATABASE_URL=file:/data/preview.db"],
+      volumes: ["sprout-myapp-pr-42-sqlite:/data"],
+      appNetworks: ["sprout-traefik"],
+      seedNetworks: ["sprout-traefik"],
+    });
   });
 });

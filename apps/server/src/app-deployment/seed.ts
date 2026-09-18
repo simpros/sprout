@@ -1,9 +1,7 @@
-import type { DbSpec, PreviewEnvMap } from "@sprout/preview-env";
 import { withGatewayConnectionEnv } from "./pg-env.ts";
-import type { AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { seedImageRunName } from "../preview/naming.ts";
-import { resolveRuntime, type PreviewRuntime } from "../preview/runtime.ts";
+import type { PreviewDbPlan } from "../preview/runtime.ts";
 
 export type SeedImageSpec = {
   image: string;
@@ -14,9 +12,7 @@ export type SeedImageSpec = {
 export type SeedImageInput = SeedImageSpec & {
   slug: string;
   prId: number;
-  dbName: string;
-  db?: DbSpec;
-  connectionEnv?: PreviewEnvMap;
+  plan: PreviewDbPlan;
 };
 
 const SEED_LOG_TAIL = 10_000;
@@ -28,10 +24,7 @@ export type SeedImageResult =
 
 export type RunSeedImageDeps = {
   docker: PreviewDocker;
-  pg: AppDeployPg;
-  networks: { traefik: string; postgres: string };
   seedTimeoutMs: number;
-  runtime?: PreviewRuntime;
 };
 
 async function captureSeedLogs(
@@ -57,19 +50,15 @@ export async function runSeedImage(
     // Log key count only, never values (may contain secrets).
     console.log("seed:env", input.env.length);
 
-    const runtime = resolveRuntime(deps);
-    const volumes = runtime.volumes(input.db, input.slug, input.prId);
-
     const { id } = await deps.docker.createAndStart({
       name,
       image: input.image,
-      env: withGatewayConnectionEnv(
-        input.env,
-        runtime.connectionEnv(input.db, input.dbName, input.connectionEnv),
-      ),
+      env: withGatewayConnectionEnv(input.env, input.plan.gatewayEnv),
       labels: {},
-      networkNames: runtime.seedNetworks(input.db),
-      ...(volumes.length > 0 ? { volumes } : {}),
+      networkNames: input.plan.seedNetworks,
+      ...(input.plan.volumes.length > 0
+        ? { volumes: input.plan.volumes }
+        : {}),
       ...(input.args.length > 0 ? { cmd: input.args } : {}),
     });
 

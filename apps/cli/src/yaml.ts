@@ -1,8 +1,8 @@
 import {
   dbSpecIssueMessage,
-  envProviderMismatch,
+  normalizeDbSpec,
   parseDbSpec,
-  parsePreviewEnvMap,
+  parsePreviewEnvForProvider,
   resolveHealthSpec,
   validateHostnameValue,
   type DbSpec,
@@ -123,7 +123,7 @@ function parsePreviewEnv(
     return { ok: false, error: "preview.env must be a mapping" };
   }
 
-  const parsed = parsePreviewEnvMap(raw);
+  const parsed = parsePreviewEnvForProvider(raw, provider);
   if (!parsed.ok) {
     const { issue } = parsed;
     switch (issue.code) {
@@ -138,14 +138,12 @@ function parsePreviewEnv(
           ok: false,
           error: `preview.env: target collision: ${issue.target}`,
         };
+      case "env_requires_provider":
+        return {
+          ok: false,
+          error: `preview.env.${issue.key} requires db.provider ${issue.home}`,
+        };
     }
-  }
-  const mismatch = envProviderMismatch(parsed.value, provider);
-  if (mismatch) {
-    return {
-      ok: false,
-      error: `preview.env.${mismatch.key} requires db.provider ${mismatch.home}`,
-    };
   }
   return { ok: true, value: parsed.value };
 }
@@ -425,7 +423,7 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
 
   const env = parsePreviewEnv(
     parsed.preview.env,
-    db.value?.provider ?? "postgres",
+    normalizeDbSpec(db.value).provider,
   );
   if (!env.ok) return env;
 

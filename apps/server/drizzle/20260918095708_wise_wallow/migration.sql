@@ -1,0 +1,1 @@
+ALTER TABLE `previews` ADD `db_provider` text DEFAULT 'postgres' NOT NULL;

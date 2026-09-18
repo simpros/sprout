@@ -1,4 +1,3 @@
-import type { DbSpec, PreviewEnvMap } from "@sprout/preview-env";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { SeedImageResult, SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
@@ -16,11 +15,12 @@ export type SeedPhaseDeps = {
   app: Pick<PreviewAppOps, "runSeed">;
 };
 
+import type { PreviewDbPlan } from "./runtime.ts";
+
 export type DeployEphemerals = {
   seed?: SeedImageSpec;
   reseed?: boolean;
-  connectionEnv?: PreviewEnvMap;
-  db?: DbSpec;
+  plan: PreviewDbPlan;
   fleetPending?: boolean;
 };
 
@@ -52,7 +52,7 @@ async function runSeedPhase(
   row: PreviewRow,
   ephemerals: DeployEphemerals & { seed: SeedImageSpec },
 ): Promise<Result<true>> {
-  const { seed, connectionEnv } = ephemerals;
+  const { seed, plan } = ephemerals;
   await updatePreviewRow(
     deps.db,
     row,
@@ -65,11 +65,9 @@ async function runSeedPhase(
       slug: row.slug,
       prId: row.prId,
       image: seed.image,
-      dbName: row.dbName,
-      db: ephemerals.db,
       env: seed.env,
       args: seed.args,
-      connectionEnv,
+      plan,
     });
 
     if (!seedResult.ok) {
@@ -125,7 +123,7 @@ async function runSeedPhase(
 export async function promoteAfterHealthy(
   deps: SeedPhaseDeps,
   starting: PreviewRow,
-  ephemerals: DeployEphemerals = {},
+  ephemerals: DeployEphemerals,
 ): Promise<Result<true>> {
   const { seed } = ephemerals;
   const shouldSeed = seedWorkOutstanding(starting, seed, ephemerals.reseed);

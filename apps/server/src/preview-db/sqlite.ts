@@ -11,18 +11,21 @@ import {
 import type { CatalogDatabase, PreviewDb } from "./port.ts";
 
 export function createSqlitePreviewDb(docker: PreviewDocker): PreviewDb {
+  function parseOrThrow(dbName: string): { slug: string; prId: number } {
+    assertPreviewDbName(dbName);
+    const parsed = parsePreviewDatabaseName(dbName);
+    if (!parsed) throw new Error(`refusing unsafe preview database name: ${dbName}`);
+    return parsed;
+  }
+
   return {
     async createDatabase(dbName) {
-      assertPreviewDbName(dbName);
-      const parsed = parsePreviewDatabaseName(dbName);
-      if (!parsed) throw new Error(`refusing unsafe preview database name: ${dbName}`);
+      const parsed = parseOrThrow(dbName);
       await docker.createVolume(sqliteVolumeName(parsed.slug, parsed.prId));
     },
 
     async dropDatabase(dbName) {
-      assertPreviewDbName(dbName);
-      const parsed = parsePreviewDatabaseName(dbName);
-      if (!parsed) throw new Error(`refusing unsafe preview database name: ${dbName}`);
+      const parsed = parseOrThrow(dbName);
       await docker.removeVolume(sqliteVolumeName(parsed.slug, parsed.prId));
     },
 

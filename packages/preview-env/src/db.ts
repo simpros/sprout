@@ -64,13 +64,10 @@ export function parseDbSpec(
   }
   let path = DEFAULT_DB_PATH;
   if (raw.path !== undefined) {
-    if (typeof raw.path !== "string" || !raw.path.startsWith("/")) {
+    if (typeof raw.path !== "string") {
       return {
         ok: false,
-        issue: {
-          code: "invalid_db_path",
-          path: typeof raw.path === "string" ? raw.path : "",
-        },
+        issue: { code: "invalid_db_path", path: "" },
       };
     }
     const trimmed = raw.path.trim();
@@ -122,8 +119,4 @@ export function normalizeDbSpec(spec: DbSpec | undefined): DbSpec {
 export function sqliteDatabaseUrl(path: string, file: string): string {
   const dir = path.endsWith("/") ? path.slice(0, -1) : path;
   return `file:${dir}/${file}`;
-}
-
-export function resolveSqliteDatabaseUrl(db: DbSpec): string {
-  return sqliteDatabaseUrl(db.path, db.file);
 }

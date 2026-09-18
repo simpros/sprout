@@ -4,50 +4,65 @@ import { createFakePreviewDb } from "./fake.ts";
 import { createRoutingPreviewDb } from "./routing.ts";
 import { createSqlitePreviewDb } from "./sqlite.ts";
 
-const SQLITE_DB = { provider: "sqlite" as const, path: "/data", file: "preview.db" };
-
 describe("routing preview database", () => {
-  test("creates postgres by default and sqlite on request", async () => {
+  test("forCreate selects the backend by provider", async () => {
     const docker = createFakeDockerClient();
     const postgres = createFakePreviewDb();
     const db = createRoutingPreviewDb({
       postgres,
       sqlite: createSqlitePreviewDb(docker),
     });
-    await db.createDatabase("sprout_myapp_pr42");
-    await db.createDatabase("sprout_other_pr7", SQLITE_DB);
+    await db.forCreate("postgres").createDatabase("sprout_myapp_pr42");
+    await db.forCreate("sqlite").createDatabase("sprout_other_pr7");
     expect(postgres.created).toEqual(["sprout_myapp_pr42"]);
     expect(docker.volumesCreated).toEqual(["sprout-other-pr-7-sqlite"]);
   });
 
-  test("drop broadcasts across backends and tolerates missing resources", async () => {
+  test("forDrop routes to the stored provider without touching the other", async () => {
     const docker = createFakeDockerClient();
     const postgres = createFakePreviewDb();
     const db = createRoutingPreviewDb({
       postgres,
       sqlite: createSqlitePreviewDb(docker),
     });
-    await db.createDatabase("sprout_myapp_pr42", SQLITE_DB);
-    await db.dropDatabase("sprout_myapp_pr42");
-    expect(postgres.dropped).toEqual(["sprout_myapp_pr42"]);
+    await db.forCreate("sqlite").createDatabase("sprout_myapp_pr42");
+    await db.forDrop("sqlite").dropDatabase("sprout_myapp_pr42");
+    expect(postgres.dropped).toEqual([]);
     expect(docker.volumesRemoved).toEqual(["sprout-myapp-pr-42-sqlite"]);
-    await db.dropDatabase("sprout_gone_pr1");
+    await db.forDrop("postgres").dropDatabase("sprout_myapp_pr42");
+    expect(postgres.dropped).toEqual(["sprout_myapp_pr42"]);
   });
 
-  test("drop surfaces real backend failures", async () => {
+  test("unknown-provider drop broadcasts and aggregates real failures", async () => {
     const postgres = createFakePreviewDb();
     postgres.dropDatabase = async () => {
       throw new Error("boom");
     };
     const db = createRoutingPreviewDb({ postgres });
-    expect(db.dropDatabase("sprout_myapp_pr42")).rejects.toThrow("boom");
+    const err = await db
+      .forDrop(undefined)
+      .dropDatabase("sprout_myapp_pr42")
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AggregateError);
+    expect((err as AggregateError).errors.map(String)).toEqual([
+      "Error: boom",
+    ]);
   });
 
-  test("lists the merged postgres + sqlite catalogs", async () => {
+  test("unknown-provider drop tolerates missing resources", async () => {
+    const db = createRoutingPreviewDb({
+      postgres: createFakePreviewDb(),
+      sqlite: createSqlitePreviewDb(createFakeDockerClient()),
+    });
+    await db.forDrop(undefined).dropDatabase("sprout_gone_pr1");
+  });
+
+  test("lists the merged postgres + sqlite catalogs without duplicates", async () => {
     const docker = createFakeDockerClient();
     docker.volumes.add("sprout-sqliteapp-pr-3-sqlite");
     const postgres = createFakePreviewDb();
     await postgres.createDatabase("sprout_pgapp_pr9");
+    await postgres.createDatabase("sprout_sqliteapp_pr3");
     const db = createRoutingPreviewDb({
       postgres,
       sqlite: createSqlitePreviewDb(docker),
@@ -58,19 +73,19 @@ describe("routing preview database", () => {
     ]);
   });
 
-  test("create fails fast when the requested backend is absent", async () => {
+  test("selection fails fast when the requested backend is absent", async () => {
     const sqliteOnly = createRoutingPreviewDb({
       sqlite: createSqlitePreviewDb(createFakeDockerClient()),
     });
-    expect(sqliteOnly.createDatabase("sprout_myapp_pr42")).rejects.toThrow(
+    expect(() => sqliteOnly.forCreate("postgres")).toThrow(
       "preview database provider not configured: postgres",
     );
     const postgresOnly = createRoutingPreviewDb({
       postgres: createFakePreviewDb(),
     });
-    expect(
-      postgresOnly.createDatabase("sprout_myapp_pr42", SQLITE_DB),
-    ).rejects.toThrow("preview database provider not configured: sqlite");
+    expect(() => postgresOnly.forCreate("sqlite")).toThrow(
+      "preview database provider not configured: sqlite",
+    );
   });
 
   test("ensurePreviewRole and ping delegate to configured backends", async () => {

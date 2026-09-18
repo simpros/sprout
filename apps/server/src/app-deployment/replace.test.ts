@@ -3,29 +3,53 @@ import {
   deriveRestrictedPassword,
   restrictedRoleName,
 } from "@sprout/preview-db";
+import { defaultDbSpec, type PreviewEnvMap } from "@sprout/preview-env";
 import { createFakeDockerClient } from "../docker/fake.ts";
 import { bindPreviewOps } from "./ops.ts";
 import { removePreviewFleet } from "./preview-containers.ts";
 import { replacePreviewApp } from "./replace.ts";
+import {
+  createPreviewRuntime,
+  resolvePreviewPlan,
+  type PreviewDbPlan,
+} from "../preview/runtime.ts";
+
+const PG_PASSWORD = "sekrit";
 
 const baseDeps = {
-  pg: {
-    host: "postgres",
-    port: 5432,
-    user: "sprout_preview",
-    password: "sekrit",
-  },
-  networks: {
-    traefik: "sprout-traefik",
-    postgres: "sprout-postgres",
-  },
   previewPortDefault: 8080,
 };
+
+function runtime() {
+  return createPreviewRuntime({
+    pg: {
+      host: "postgres",
+      port: 5432,
+      user: "sprout_preview",
+      password: PG_PASSWORD,
+    },
+    traefikNetwork: "sprout-traefik",
+    postgresNetwork: "sprout-postgres",
+  });
+}
+
+function postgresPlan(
+  dbName = "sprout_myapp_pr42",
+  connectionEnv?: PreviewEnvMap,
+): PreviewDbPlan {
+  return resolvePreviewPlan(runtime(), {
+    spec: defaultDbSpec(),
+    dbName,
+    slug: "myapp",
+    prId: 42,
+    connectionEnv,
+  });
+}
 
 function companionEnv(dbName: string) {
   return [
     `PGAPPUSER=${restrictedRoleName(dbName)}`,
-    `PGAPPPASSWORD=${deriveRestrictedPassword(baseDeps.pg.password, dbName)}`,
+    `PGAPPPASSWORD=${deriveRestrictedPassword(PG_PASSWORD, dbName)}`,
   ];
 }
 
@@ -55,8 +79,8 @@ describe("replacePreviewApp", () => {
         prId: 42,
         hostname: "pr-42.myapp.preview.example.com",
         image: "ghcr.io/org/app:sha",
-        dbName: "sprout_myapp_pr42",
         appEnv: [],
+        plan: postgresPlan(),
       },
     );
 
@@ -103,8 +127,8 @@ describe("replacePreviewApp", () => {
         prId: 42,
         hostname: "pr-42.myapp.preview.example.com",
         image: "ghcr.io/org/app:sha",
-        dbName: "sprout_myapp_pr42",
         appEnv: [],
+        plan: postgresPlan(),
       },
     );
 
@@ -134,8 +158,8 @@ describe("replacePreviewApp", () => {
         prId: 42,
         hostname: "pr-42.myapp.preview.example.com",
         image: "ghcr.io/org/app:sha",
-        dbName: "sprout_myapp_pr42",
         appEnv: [],
+        plan: postgresPlan(),
       },
     );
 
@@ -162,12 +186,11 @@ describe("replacePreviewApp", () => {
         prId: 42,
         hostname: "pr-42.myapp.preview.example.com",
         image: "ghcr.io/org/app:sha",
-        dbName: "prev_myapp_pr42",
         appEnv: [],
-        connectionEnv: {
+        plan: postgresPlan("prev_myapp_pr42", {
           PGHOST: "DATABASE_HOST",
           PGUSER: "DATABASE_USER",
-        },
+        }),
       },
     );
 
@@ -193,16 +216,15 @@ describe("replacePreviewApp", () => {
         prId: 42,
         hostname: "pr-42.myapp.preview.example.com",
         image: "ghcr.io/org/app:sha",
-        dbName: "sprout_myapp_pr42",
         appEnv: [
           "BETTER_AUTH_SECRET=sekrit",
           "DATABASE_HOST=attacker",
           "PGPASSWORD=stolen",
           "PGHOST=leftover",
         ],
-        connectionEnv: {
+        plan: postgresPlan("sprout_myapp_pr42", {
           PGHOST: "DATABASE_HOST",
-        },
+        }),
       },
     );
 
@@ -226,8 +248,8 @@ describe("replacePreviewApp", () => {
         prId: 7,
         hostname: "pr-7.example.com",
         image: "ghcr.io/org/app:noexpose",
-        dbName: "sprout_myapp_pr7",
         appEnv: [],
+        plan: postgresPlan("sprout_myapp_pr7"),
       },
     );
     expect(result.containerId).toBe("fake-1");
@@ -246,8 +268,8 @@ describe("replacePreviewApp", () => {
       slug: "widgets",
       prId: 3,
       hostname: "pr-3.widgets.example.com",
-      dbName: "sprout_widgets_pr3",
       appEnv: [] as string[],
+      plan: postgresPlan("sprout_widgets_pr3"),
     };
     await replacePreviewApp(
       { docker, ...baseDeps },
@@ -275,8 +297,8 @@ describe("bindPreviewOps", () => {
       prId: 1,
       hostname: "pr-1.example.com",
       image: "img:1",
-      dbName: "sprout_myapp_pr1",
       appEnv: [],
+      plan: postgresPlan("sprout_myapp_pr1"),
     });
     expect(containerId).toBe("fake-1");
     expect(docker.pulls).toEqual(["img:1"]);
@@ -285,7 +307,7 @@ describe("bindPreviewOps", () => {
     expect(await app.list()).toEqual([]);
   });
 
-  test("waitHealthy polls postgres-network IP via injected probe", async () => {
+  test("waitHealthy probes the plan networks in order via injected probe", async () => {
     const docker = createFakeDockerClient({
       exposedPorts: { "img:1": 3000 },
     });
@@ -305,17 +327,22 @@ describe("bindPreviewOps", () => {
       prId: 1,
       hostname: "pr-1.example.com",
       image: "img:1",
-      dbName: "sprout_myapp_pr1",
       appEnv: [],
+      plan: postgresPlan("sprout_myapp_pr1"),
     });
     expect(
-      await app.waitHealthy(containerId, port, {
-        path: "/health",
-        intervalMs: 1,
-        timeoutMs: 5_000,
-        expectStatus: 200,
-      }),
+      await app.waitHealthy(
+        containerId,
+        port,
+        {
+          path: "/health",
+          intervalMs: 1,
+          timeoutMs: 5_000,
+          expectStatus: 200,
+        },
+        ["sprout-traefik", "sprout-postgres"],
+      ),
     ).toBe("ok");
-    expect(hits).toEqual(["http://10.99.0.2:3000/health"]);
+    expect(hits).toEqual(["http://10.99.0.1:3000/health"]);
   });
 });

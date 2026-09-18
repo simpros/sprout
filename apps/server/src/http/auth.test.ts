@@ -5,6 +5,7 @@ import { hashToken } from "../auth/tokens.ts";
 import { createFakeDockerClient } from "../docker/fake.ts";
 import { repos } from "../infrastructure/db/schema.ts";
 import { createFakePreviewDb } from "../preview-db/fake.ts";
+import { createPreviewRuntime } from "../preview/runtime.ts";
 import { createRoutes } from "./routes.ts";
 import {
   bearer,
@@ -305,6 +306,11 @@ describe("ensureAdminToken", () => {
       db: testDb.db,
       previewDb: createFakePreviewDb(),
       app: bindTestPreviewApp(createFakeDockerClient()),
+      runtime: createPreviewRuntime({
+        traefikNetwork: "sprout-traefik",
+        postgresNetwork: "sprout-postgres",
+      }),
+      postgresGate: { configured: true, detail: () => "postgres not configured" },
     });
     const res = await app.handle(
       new Request("http://localhost/v1/admin/tokens", {

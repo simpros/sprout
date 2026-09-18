@@ -4,7 +4,6 @@ import {
   defaultDbSpec,
   normalizeDbSpec,
   parseDbSpec,
-  resolveSqliteDatabaseUrl,
   sqliteDatabaseUrl,
 } from "./db.ts";
 
@@ -92,13 +91,7 @@ describe("sqlite connection string", () => {
     expect(sqliteDatabaseUrl("/data", "preview.db")).toBe(
       "file:/data/preview.db",
     );
-    expect(
-      resolveSqliteDatabaseUrl({
-        provider: "sqlite",
-        path: "/data",
-        file: "app.db",
-      }),
-    ).toBe("file:/data/app.db");
+    expect(sqliteDatabaseUrl("/data", "app.db")).toBe("file:/data/app.db");
   });
 
   test("normalizeDbSpec falls back to the postgres default", () => {

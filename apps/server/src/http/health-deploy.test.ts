@@ -21,7 +21,7 @@ import {
   type TestApp,
 } from "./test-helpers.ts";
 
-const POSTGRES_IP = "10.99.0.2";
+const PLAN_FIRST_IP = "10.99.0.1";
 
 let testApp: TestApp | undefined;
 let fakePreviewDb: FakePreviewDb | undefined;
@@ -158,17 +158,16 @@ describe("POST /v1/deploy health polling", () => {
       )
       .limit(1);
     expect(row?.status).toBe("running");
-    expect(healthHits[0]).toBe(`http://${POSTGRES_IP}:3000/health`);
+    expect(healthHits[0]).toBe(`http://${PLAN_FIRST_IP}:3000/health`);
   });
 
-  test("polls container IP on postgres network, not Traefik hostname", async () => {
+  test("polls container IP from plan networks, not Traefik hostname", async () => {
     const { deployToken } = await setup();
     await postDeploy(deployToken, deployBody());
     expect(healthHits.length).toBeGreaterThan(0);
     for (const url of healthHits) {
-      expect(url.startsWith(`http://${POSTGRES_IP}:`)).toBe(true);
+      expect(url.startsWith(`http://${PLAN_FIRST_IP}:`)).toBe(true);
       expect(url.includes("pr-42.myapp.preview.example.com")).toBe(false);
-      expect(url.startsWith("http://10.99.0.1:")).toBe(false); // traefik IP
     }
   });
 
@@ -193,7 +192,7 @@ describe("POST /v1/deploy health polling", () => {
       }),
     );
     expect(res.settleStatus).toBe(200);
-    expect(healthHits[0]).toBe(`http://${POSTGRES_IP}:3000/readyz`);
+    expect(healthHits[0]).toBe(`http://${PLAN_FIRST_IP}:3000/readyz`);
   });
 
   test("health timeout removes container, marks failed, logs health:timeout", async () => {

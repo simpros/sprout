@@ -15,7 +15,8 @@ import {
 import type { PreviewDocker } from "../docker/port.ts";
 import { connectState, type StateDb } from "../infrastructure/db/client.ts";
 import { createFakePreviewDb } from "../preview-db/fake.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
+import type { PreviewDbRouter } from "../preview-db/routing.ts";
+import { createPreviewRuntime } from "../preview/runtime.ts";
 import { runMigrations } from "../scripts/migrate.ts";
 import { createRoutes } from "./routes.ts";
 import type { PostgresGate } from "./deploy.ts";
@@ -29,25 +30,27 @@ export type TestApp = {
   app: ReturnType<typeof createRoutes>;
   db: StateDb;
   adminToken: string;
-  previewDb: PreviewDb;
+  previewDb: PreviewDbRouter;
   docker: FakeDockerClient | PreviewDocker;
   cleanup: () => Promise<void>;
 };
 
 const defaultOpsDeps: Omit<BindPreviewOpsDeps, "docker"> = {
-  pg: {
-    host: "postgres",
-    port: 5432,
-    user: "sprout_preview",
-    password: "preview-secret",
-  },
-  networks: {
-    traefik: "sprout-traefik",
-    postgres: "sprout-postgres",
-  },
   previewPortDefault: 8080,
   seedTimeoutMs: 180_000,
 };
+
+const defaultTestRuntime = () =>
+  createPreviewRuntime({
+    pg: {
+      host: "postgres",
+      port: 5432,
+      user: "sprout_preview",
+      password: "preview-secret",
+    },
+    traefikNetwork: "sprout-traefik",
+    postgresNetwork: "sprout-postgres",
+  });
 
 export function bindTestPreviewApp(
   docker: PreviewDocker,
@@ -83,7 +86,7 @@ export async function createTestApp(
   options:
     | {
         adminToken?: string;
-        previewDb?: PreviewDb;
+        previewDb?: PreviewDbRouter;
         docker?: PreviewDocker;
         replaceDeps?: Partial<Omit<BindPreviewOpsDeps, "docker">>;
         healthProbe?: HealthProbe;
@@ -109,9 +112,11 @@ export async function createTestApp(
       db,
       previewDb,
       app: appOps,
-      ...(opts.postgresGate === undefined
-        ? {}
-        : { postgresGate: opts.postgresGate }),
+      runtime: defaultTestRuntime(),
+      postgresGate: opts.postgresGate ?? {
+        configured: true,
+        detail: () => "postgres not configured",
+      },
     }),
     db,
     adminToken,

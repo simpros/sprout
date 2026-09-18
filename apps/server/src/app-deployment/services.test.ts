@@ -3,28 +3,42 @@ import {
   deriveRestrictedPassword,
   restrictedRoleName,
 } from "@sprout/preview-db";
+import { defaultDbSpec } from "@sprout/preview-env";
 import { createFakeDockerClient } from "../docker/fake.ts";
 import { removePreviewFleet } from "./preview-containers.ts";
 import { replacePreviewServices } from "./services.ts";
+import {
+  createPreviewRuntime,
+  resolvePreviewPlan,
+  type PreviewDbPlan,
+} from "../preview/runtime.ts";
+
+const PG_PASSWORD = "sekrit";
 
 const baseDeps = {
-  pg: {
-    host: "postgres",
-    port: 5432,
-    user: "sprout_preview",
-    password: "sekrit",
-  },
-  networks: {
-    traefik: "sprout-traefik",
-    postgres: "sprout-postgres",
-  },
   previewPortDefault: 8080,
 };
+
+function postgresPlan(dbName: string): PreviewDbPlan {
+  return resolvePreviewPlan(
+    createPreviewRuntime({
+      pg: {
+        host: "postgres",
+        port: 5432,
+        user: "sprout_preview",
+        password: PG_PASSWORD,
+      },
+      traefikNetwork: "sprout-traefik",
+      postgresNetwork: "sprout-postgres",
+    }),
+    { spec: defaultDbSpec(), dbName, slug: "myapp", prId: 42 },
+  );
+}
 
 function companionEnv(dbName: string) {
   return [
     `PGAPPUSER=${restrictedRoleName(dbName)}`,
-    `PGAPPPASSWORD=${deriveRestrictedPassword(baseDeps.pg.password, dbName)}`,
+    `PGAPPPASSWORD=${deriveRestrictedPassword(PG_PASSWORD, dbName)}`,
   ];
 }
 
@@ -43,7 +57,7 @@ describe("replacePreviewServices", () => {
         slug: "myapp",
         prId: 42,
         appHostname: "pr-42.myapp.preview.example.com",
-        dbName: "sprout_myapp_pr42",
+        plan: postgresPlan("sprout_myapp_pr42"),
         services: [
           {
             name: "api",
@@ -92,7 +106,7 @@ describe("replacePreviewServices", () => {
         slug: "myapp",
         prId: 42,
         appHostname: "pr-42.myapp.preview.example.com",
-        dbName: "sprout_myapp_pr42",
+        plan: postgresPlan("sprout_myapp_pr42"),
         services: [
           {
             name: "admin",
@@ -128,7 +142,7 @@ describe("replacePreviewServices", () => {
         slug: "myapp",
         prId: 42,
         appHostname: "pr-42.myapp.preview.example.com",
-        dbName: "sprout_myapp_pr42",
+        plan: postgresPlan("sprout_myapp_pr42"),
         services: [
           {
             name: "api",
@@ -164,7 +178,7 @@ describe("replacePreviewServices", () => {
         slug: "myapp",
         prId: 42,
         appHostname: "pr-42.myapp.preview.example.com",
-        dbName: "sprout_myapp_pr42",
+        plan: postgresPlan("sprout_myapp_pr42"),
         services: [{ name: "worker", image: "ghcr.io/org/worker:sha" }],
       },
     );
@@ -182,7 +196,7 @@ describe("replacePreviewServices", () => {
         slug: "myapp",
         prId: 1,
         appHostname: "pr-1.example.com",
-        dbName: "sprout_myapp_pr1",
+        plan: postgresPlan("sprout_myapp_pr1"),
         services: [{ name: "api", image: "img:1" }],
       },
     );
@@ -192,7 +206,7 @@ describe("replacePreviewServices", () => {
         slug: "myapp",
         prId: 1,
         appHostname: "pr-1.example.com",
-        dbName: "sprout_myapp_pr1",
+        plan: postgresPlan("sprout_myapp_pr1"),
         services: [],
       },
     );
@@ -219,7 +233,7 @@ describe("replacePreviewServices", () => {
           slug: "myapp",
           prId: 1,
           appHostname: "pr-1.example.com",
-          dbName: "sprout_myapp_pr1",
+          plan: postgresPlan("sprout_myapp_pr1"),
           services: [
             { name: "ok", image: "img:ok" },
             { name: "bad", image: "img:bad" },

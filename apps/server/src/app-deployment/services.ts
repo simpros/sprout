@@ -1,13 +1,11 @@
-import type { DbSpec, PreviewEnvMap } from "@sprout/preview-env";
 import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
-import type { AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewServiceContainerName } from "../preview/naming.ts";
+import type { PreviewDbPlan } from "../preview/runtime.ts";
 import {
   materializePreviewWorkload,
   removePreviewServices,
 } from "./preview-containers.ts";
-import { resolveRuntime, type PreviewRuntime } from "../preview/runtime.ts";
 
 export type PreviewServiceSpec = {
   name: string;
@@ -18,22 +16,17 @@ export type PreviewServiceSpec = {
 
 export type ReplacePreviewServicesDeps = {
   docker: PreviewDocker;
-  pg: AppDeployPg;
-  networks: { traefik: string; postgres: string };
   previewPortDefault: number;
   traefikTls?: TraefikTls;
   traefikForwardAuth?: TraefikForwardAuth;
-  runtime?: PreviewRuntime;
 };
 
 export type ReplacePreviewServicesInput = {
   slug: string;
   prId: number;
   appHostname: string;
-  dbName: string;
-  db?: DbSpec;
   services: PreviewServiceSpec[];
-  connectionEnv?: PreviewEnvMap;
+  plan: PreviewDbPlan;
 };
 
 export async function replacePreviewServices(
@@ -42,7 +35,6 @@ export async function replacePreviewServices(
 ): Promise<void> {
   await removePreviewServices(deps.docker, input.slug, input.prId);
 
-  const runtime = resolveRuntime(deps);
   try {
     await Promise.all(
       input.services.map(async (service) => {
@@ -65,13 +57,9 @@ export async function replacePreviewServices(
                 forwardAuth: deps.traefikForwardAuth,
               }
             : { kind: "internal" },
-          gatewayEnv: runtime.connectionEnv(
-            input.db,
-            input.dbName,
-            input.connectionEnv,
-          ),
-          volumes: runtime.volumes(input.db, input.slug, input.prId),
-          networkNames: runtime.appNetworks(input.db),
+          gatewayEnv: input.plan.gatewayEnv,
+          volumes: input.plan.volumes,
+          networkNames: input.plan.appNetworks,
           previewPortDefault: deps.previewPortDefault,
         });
       }),

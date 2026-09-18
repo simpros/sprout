@@ -1,4 +1,7 @@
+import { sqliteVolumeName } from "@sprout/preview-env";
 import { run } from "./exec.ts";
+
+export { sqliteVolumeName };
 
 export function previewAppContainerName(slug: string, prId: number): string {
   return `sprout-${slug}-pr-${prId}`;
@@ -38,10 +41,6 @@ export function envMap(entries: string[]): Map<string, string> {
     out.set(entry.slice(0, eq), entry.slice(eq + 1));
   }
   return out;
-}
-
-export function sqliteVolumeName(slug: string, prId: number): string {
-  return `sprout-${slug}-pr-${prId}-sqlite`;
 }
 
 export type ContainerMount = {

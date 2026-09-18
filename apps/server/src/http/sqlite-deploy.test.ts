@@ -5,6 +5,7 @@ import {
   type FakeDockerClient,
 } from "../docker/fake.ts";
 import { previews } from "../infrastructure/db/schema.ts";
+import { createFakePreviewDb } from "../preview-db/fake.ts";
 import { createRoutingPreviewDb } from "../preview-db/routing.ts";
 import { createSqlitePreviewDb } from "../preview-db/sqlite.ts";
 import {
@@ -168,5 +169,54 @@ describe("sqlite previews", () => {
     });
     expect(fakeDocker!.creates).toEqual([]);
     expect(fakeDocker!.volumesCreated).toEqual([]);
+  });
+
+  test("provider switch drops the old backend and teardowns the stored one", async () => {
+    fakeDocker = createFakeDockerClient({
+      exposedPorts: { [APP_IMAGE]: 3000 },
+    });
+    const postgres = createFakePreviewDb();
+    testApp = await createTestApp({
+      previewDb: createRoutingPreviewDb({
+        postgres,
+        sqlite: createSqlitePreviewDb(fakeDocker),
+      }),
+      docker: fakeDocker,
+    });
+    const { body } = await postDeployToken(testApp, {
+      canonical_repo_id: REPO,
+      slug: "myapp",
+    });
+    const deployToken = body.token as string;
+
+    const first = await postDeploy(
+      deployToken,
+      deployBody({ db: { provider: "sqlite" } }),
+    );
+    expect(first.outcome).toBe("ready");
+    expect([...fakeDocker.volumes]).toEqual(["sprout-myapp-pr-42-sqlite"]);
+
+    const second = await postDeploy(deployToken, deployBody({}));
+    expect(second.outcome).toBe("ready");
+    expect([...fakeDocker.volumes]).toEqual([]);
+    expect(fakeDocker.volumesRemoved).toEqual(["sprout-myapp-pr-42-sqlite"]);
+    expect(postgres.created).toEqual(["sprout_myapp_pr42"]);
+
+    const row = async () =>
+      (
+        await testApp!.db
+          .select()
+          .from(previews)
+          .where(
+            and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+          )
+          .limit(1)
+      )[0];
+    expect((await row())?.dbProvider).toBe("postgres");
+
+    const torn = await teardown(deployToken);
+    expect(torn.status).toBe(200);
+    expect(postgres.dropped).toEqual(["sprout_myapp_pr42"]);
+    expect(fakeDocker.volumesRemoved).toEqual(["sprout-myapp-pr-42-sqlite"]);
   });
 });

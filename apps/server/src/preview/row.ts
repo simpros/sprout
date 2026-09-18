@@ -1,8 +1,16 @@
 import { and, eq } from "drizzle-orm";
+import type { DbProvider } from "@sprout/preview-env";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 
 export type PreviewRow = typeof previews.$inferSelect;
+
+/** Stored provider, defaulting pre-column rows to postgres. */
+export function storedProvider(
+  row: Pick<PreviewRow, "dbProvider">,
+): DbProvider {
+  return row.dbProvider === "sqlite" ? "sqlite" : "postgres";
+}
 
 export function utcIsoNow(): string {
   return new Date().toISOString();

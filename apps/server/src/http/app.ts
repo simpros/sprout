@@ -1,16 +1,18 @@
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { Config } from "../config.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
+import type { PreviewDbRouter } from "../preview-db/routing.ts";
+import type { PreviewRuntime } from "../preview/runtime.ts";
 import type { PostgresGate } from "./deploy.ts";
 import { createRoutes } from "./routes.ts";
 
 export type ServerDeps = {
   config: Config;
   db: StateDb;
-  previewDb: PreviewDb;
+  previewDb: PreviewDbRouter;
   app: PreviewAppOps;
-  postgresGate?: PostgresGate;
+  runtime: PreviewRuntime;
+  postgresGate: PostgresGate;
 };
 
 export function startServer(deps: ServerDeps) {
@@ -18,8 +20,7 @@ export function startServer(deps: ServerDeps) {
     db: deps.db,
     previewDb: deps.previewDb,
     app: deps.app,
-    ...(deps.postgresGate === undefined
-      ? {}
-      : { postgresGate: deps.postgresGate }),
+    runtime: deps.runtime,
+    postgresGate: deps.postgresGate,
   }).listen(deps.config.port);
 }

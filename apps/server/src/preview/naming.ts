@@ -1,5 +1,7 @@
 import type { CatalogContainer } from "../docker/port.ts";
 
+export { parseSqliteVolumeName, sqliteVolumeName } from "@sprout/preview-env";
+
 const PREVIEW_APP_CONTAINER_RE = /^sprout-([a-zA-Z0-9]+)-pr-(\d+)$/;
 const PREVIEW_SERVICE_CONTAINER_RE =
   /^sprout-([a-zA-Z0-9]+)-pr-(\d+)-svc-([a-zA-Z0-9]+)$/;
@@ -19,23 +21,6 @@ export function previewServiceContainerName(
 /** One-shot seed run name; the suffix stays outside the catalog regex. */
 export function seedImageRunName(slug: string, prId: number): string {
   return `sprout-${slug}-pr-${prId}-seed`;
-}
-
-/** -sqlite suffix stays outside the container and Postgres catalogs. */
-export function sqliteVolumeName(slug: string, prId: number): string {
-  return `sprout-${slug}-pr-${prId}-sqlite`;
-}
-
-const SQLITE_VOLUME_RE = /^sprout-([a-zA-Z0-9]+)-pr-(\d+)-sqlite$/;
-
-export function parseSqliteVolumeName(
-  name: string,
-): { slug: string; prId: number } | null {
-  const match = SQLITE_VOLUME_RE.exec(name);
-  if (!match) return null;
-  const prId = Number(match[2]);
-  if (!Number.isInteger(prId) || prId <= 0) return null;
-  return { slug: match[1]!, prId };
 }
 
 export function parsePreviewContainerName(

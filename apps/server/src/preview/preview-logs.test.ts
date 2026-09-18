@@ -35,16 +35,6 @@ describe("mergePreviewLogs", () => {
 
 describe("readPreviewLogs", () => {
   const opsDeps = {
-    pg: {
-      host: "postgres",
-      port: 5432,
-      user: "sprout_preview",
-      password: "preview-secret",
-    },
-    networks: {
-      traefik: "sprout-traefik",
-      postgres: "sprout-postgres",
-    },
     previewPortDefault: 8080,
     seedTimeoutMs: 180_000,
   };
