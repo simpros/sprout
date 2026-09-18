@@ -49,9 +49,6 @@ export async function runCiReseed(
   const yaml = await loadYaml(ctx.deps);
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
 
-  // Body via the shared deploy assembler (same base fields, health gate, and
-  // yaml seed layering as `deploy`); companions stay as last deployed because
-  // `ReseedRequest` cannot carry `services`.
   const assembled = buildReseedRequest(yaml.value, identity, {
     appImage: imageRef.value,
     seedImage: flags.value.seedImage,

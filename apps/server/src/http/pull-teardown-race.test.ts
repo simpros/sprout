@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 /**
- * Pull-fail persistence must not resurrect a torn-down preview (round-6).
+ * Pull-fail persistence must not resurrect a torn-down preview.
  * Gate the registry pull, teardown mid-flight, then let pull fail under lock.
  */
 describe("deploy pull vs teardown race", () => {

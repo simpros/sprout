@@ -56,7 +56,7 @@ spec:
 # (dot-prefixed) so it never runs as a job itself. Runs on a minimal Alpine
 # image: teardown is gateway HTTP and never needs a Docker client. Only the
 # preview job gets Docker (it overrides the image and adds the daemon below).
-# Teardown must never pay for dind, a Docker pull, or a registry login.
+# Teardown avoids dind, Docker pulls, and registry logins.
 .sprout-cli:
   image: alpine:3.20
   before_script:
@@ -166,9 +166,9 @@ sprout-stop-preview:
   extends: .sprout-cli
   stage: $[[ inputs.stage ]]
   # Optional manual stop: `when: manual` at job level (NOT inside `rules`)
-  # keeps MR pipelines green with zero clicks and no `allow_failure`
-  # band-aid — job-level manual defaults to optional, while `when: manual`
-  # inside `rules` defaults to blocking (#163). The job stays playable on
+  # keeps MR pipelines green with zero clicks and no `allow_failure`:
+  # job-level manual defaults to optional, while `when: manual`
+  # inside `rules` defaults to blocking. The job stays playable on
   # demand and GitLab auto-runs this `on_stop` target on MR close/merge +
   # `auto_stop_in` expiry (the deploy job's `environment: on_stop` is the
   # trigger wire — `on_stop` only fires when the deploying job defines an

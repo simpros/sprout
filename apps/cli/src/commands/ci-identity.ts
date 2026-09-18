@@ -29,7 +29,7 @@ export type CiIdentity = CiSource & {
   commitSha: string | undefined;
 };
 
-/** Preview-only fields (#120) — image + hostname from yaml. */
+/** Preview-only fields: image + hostname from yaml. */
 export type CiPreviewIdentity = CiIdentity & {
   imageRef: string;
   hostname: string;
@@ -152,7 +152,7 @@ export async function resolveCiIdentity(
   };
 }
 
-/** Preview (#120): group identity plus image ref and hostname from yaml. */
+/** Preview: group identity plus image ref and hostname from yaml. */
 export async function resolveCiPreviewIdentity(
   deps: CliDeps,
 ): Promise<Result<CiPreviewIdentity>> {

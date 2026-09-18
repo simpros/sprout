@@ -288,7 +288,7 @@ function planAcceptBringUp(
     ) {
       return { status: "seeding", plan: "seed_resume" };
     }
-    // Legacy: seed done before close plan existed.
+    // Back-compat: rows seeded before close plans existed resume as close.
     if (status === "seeding" && row.seededAt != null) {
       return { status: "provisioning", plan: "close" };
     }

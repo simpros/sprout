@@ -32,7 +32,7 @@ export function shortSeedHash(entries: SeedContent[]): string {
  * carries a `:tag` suffix. Returns the repository prefix (everything before
  * the last `:`); scoped push credentials (GitLab `CI_JOB_TOKEN`,
  * least-privilege registry credentials) can only write under the project's
- * own repository, so both seed shapes stay on that prefix (#148).
+ * own repository, so both seed shapes stay on that prefix.
  */
 function splitTaggedImageRef(appImageRef: string): Result<string> {
   const cut = appImageRef.lastIndexOf(":");

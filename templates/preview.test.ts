@@ -6,7 +6,7 @@ const DIR = import.meta.dir;
 const COMPONENT = await Bun.file(join(DIR, "preview.yml")).text();
 const README = await Bun.file(join(DIR, "README.md")).text();
 
-/** Every `spec:inputs` entry the component contract requires (#127). */
+/** Every `spec:inputs` entry the component contract requires. */
 const REQUIRED_INPUTS = [
   "sprout_version",
   "stage",
@@ -98,7 +98,7 @@ describe("preview component contract", () => {
     // Blocking manual (when: manual INSIDE rules) leaves MR pipelines at
     // `manual` and breaks auto-merge/MWPS. Job-level `when: manual` defaults
     // to optional, so the pipeline reaches `success` with zero clicks and no
-    // `allow_failure` band-aid — while staying playable on demand and
+    // `allow_failure` — while staying playable on demand and
     // auto-runnable on MR close/merge + auto_stop_in expiry via the deploy
     // job's `environment: on_stop` wire.
     expect(stop.when).toBe("manual");
@@ -140,12 +140,11 @@ describe("preview component contract", () => {
 
 /**
  * Parse `preview.yml` as multi-document YAML (spec doc + jobs doc) and return
- * the spec plus the job mapping. A hand-rolled indent scraper used to live
- * here; it truncated `before_script` at the first column-0 comment and
- * green-checked a file GitLab could not parse, so every guarantee above
- * comes from a real YAML parse — if the file stops parsing, the contract
- * fails with it. Raw-text checks survive only for the sentinel string and
- * for asserting removed inputs stay removed.
+ * the spec plus the job mapping. Indent scrapers truncate `before_script` at
+ * the first column-0 comment while the raw text still contains it, so every
+ * guarantee above comes from a real YAML parse — if the file stops parsing,
+ * the contract fails with it. Raw-text checks survive only for the sentinel
+ * string and for asserting removed inputs stay removed.
  */
 function componentDocs(): {
   spec: { inputs: Record<string, { default?: unknown }> };
@@ -226,9 +225,9 @@ describe("preview component shell syntax", () => {
 
   test("before_script carries the full install/checksum sequence", () => {
     const base = cliBeforeScript();
-    // Regression: a column-0 comment once ended the `|` block scalar early,
+    // A column-0 comment inside a `|` block scalar ends the block early,
     // silently dropping everything below from the job while the raw text
-    // still contained it. Assert on the PARSED block, not the raw file.
+    // still contains it. Assert on the PARSED block, not the raw file.
     // This is the single owner of the install guarantee (no duplicate
     // checksum needle test elsewhere).
     for (const needle of [
@@ -246,7 +245,7 @@ describe("preview component shell syntax", () => {
 
   test("checksum verifies the downloaded asset via a single ASSET binding", () => {
     const base = cliBeforeScript();
-    // Regression (#146): the binary was downloaded as `$INSTALL_TMP/sprout`
+    // The binary was downloaded as `$INSTALL_TMP/sprout`
     // but verified as `sprout-linux-x64-musl`, so `sha256sum -c` could never
     // find the file. The asset basename now lives in exactly one `ASSET=`
     // assignment; download, checksum, and install all reuse it, so the names

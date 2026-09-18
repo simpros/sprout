@@ -32,7 +32,6 @@ function bodyDetail(body: unknown): string {
       const raw = JSON.stringify(body);
       if (raw && raw !== "{}") return raw.slice(0, 500);
     } catch {
-      // ignore
     }
   }
   return "request failed";

@@ -108,7 +108,7 @@ export async function runSeedImage(
     try {
       await deps.docker.removeByName(name);
     } catch {
-      /* best-effort scrub */
+      /* Scrub remove must not mask the seed failure. */
     }
     return { ok: false, timedOut: false, exitCode: null, logs: "" };
   }
