@@ -66,8 +66,8 @@ Prerequisites on the GitLab side:
 | `sprout_url` | `""` (use `$SPROUT_URL`) | Gateway URL override. |
 | `app_context` | `.` | Directory holding `.sprout.yaml`; the CLI builds (`docker build … .`) and resolves Dockerfiles relative to it. |
 | `auto_stop_in` | `1 week` | `environment:auto_stop_in` for the preview. |
-| `app_env_file` | `""` | Project-root-relative extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). Resolved before `cd` into `app_context`, same rule as `dotenv_file`. Do NOT pass a file-type CI variable (e.g. `$MY_ENV_FILE`) here — `include: inputs:` interpolate at pipeline-config time, when file-type values are not yet materialized, so the value expands to empty and `--app-env-file` is skipped silently. Export file-type blobs at job runtime instead (`before_script: export SPROUT_APP_ENV="$MY_ENV_FILE"`), which the CLI reads automatically. |
-| `seed_env_file` | `""` | Project-root-relative extra seed dotenv file passed as `--seed-env-file` (on top of `SPROUT_SEED_ENV`). Same rule. Same file-type restriction as `app_env_file`: never pass a file-type CI variable via `inputs:` — export it at job runtime instead (`before_script: export SPROUT_SEED_ENV="$MY_SEED_FILE"`). |
+| `app_env_file` | `""` | Project-root-relative extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). Resolved before `cd` into `app_context`, same rule as `dotenv_file`. Repo-relative path only — not a File CI variable ([Troubleshooting](#troubleshooting)). |
+| `seed_env_file` | `""` | Project-root-relative extra seed dotenv file passed as `--seed-env-file` (on top of `SPROUT_SEED_ENV`). Same rule. Repo-relative path only — not a File CI variable ([Troubleshooting](#troubleshooting)). |
 | `dotenv_file` | `sprout-preview.env` | Project-root-relative dotenv artifact carrying `PREVIEW_URL` to `environment:url`. Parent directories must already exist (a bare filename always works). |
 | `tail` | `200` | Gateway log lines printed when `sprout ci preview` fails. |
 

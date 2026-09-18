@@ -307,8 +307,8 @@ component inputs — companions go through `sprout ci preview --service`.
 | `sprout_url` | `""` (use `$SPROUT_URL`) | Gateway URL override. |
 | `app_context` | `.` | Directory holding `.sprout.yaml`; the CLI builds (`docker build … .`) and resolves Dockerfiles relative to it. |
 | `auto_stop_in` | `1 week` | `environment:auto_stop_in` for the preview. |
-| `app_env_file` | `""` | Project-root-relative extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). Resolved before `cd` into `app_context`. Do NOT pass a file-type CI variable (e.g. `$MY_ENV_FILE`) here — `include: inputs:` interpolate at pipeline-config time, when file-type values are not yet materialized, so the value expands to empty and `--app-env-file` is skipped silently. Export file-type blobs at job runtime instead (`before_script: export SPROUT_APP_ENV="$MY_ENV_FILE"`), which the CLI reads automatically. |
-| `seed_env_file` | `""` | Project-root-relative extra seed dotenv file passed as `--seed-env-file`. Same rule. Same file-type restriction as `app_env_file`: never pass a file-type CI variable via `inputs:` — export it at job runtime instead (`before_script: export SPROUT_SEED_ENV="$MY_SEED_FILE"`). |
+| `app_env_file` | `""` | Project-root-relative extra dotenv file passed as `--app-env-file` (on top of `SPROUT_APP_ENV`). Resolved before `cd` into `app_context`. Repo-relative path only — not a File CI variable (see [component Troubleshooting](../templates/README.md#troubleshooting)). |
+| `seed_env_file` | `""` | Project-root-relative extra seed dotenv file passed as `--seed-env-file` (on top of `SPROUT_SEED_ENV`). Same rule. Repo-relative path only — not a File CI variable (see [component Troubleshooting](../templates/README.md#troubleshooting)). |
 | `dotenv_file` | `sprout-preview.env` | Project-root-relative dotenv artifact carrying `PREVIEW_URL` to `environment:url`. Parent directories must already exist. |
 | `tail` | `200` | Gateway log lines printed when `sprout ci preview` fails. |
 
@@ -432,7 +432,7 @@ parse errors name the key or file without echoing the value.
 | Unknown manifest key | `unknown key: <path>` (top-level, `preview.*`, `health.*`, `seed.*`, `preview.env.*`) | Rename to a key in the [manifest table](#manifest-keys-sproutyaml); check `preview.env` against the canonical `PG*` set and services against `name/image/hostname/path`. |
 | Seed configured without health | `health block required in .sprout.yaml when seed block is configured` (or `when -s is passed`) | Add the `health:` block (quickstart snippet). The gate runs before any `docker build`. |
 | Secret not supplied | deploy fails before the gateway call naming the key (declared `{ required: true }`, no file/flag provided it) | Provide it via the `SPROUT_APP_ENV` / `SPROUT_SEED_ENV` file-type variable or `--app-env[-file]` / `--seed-env[-file]`. Never commit the secret to the manifest. |
-| File-type CI variable passed via `app_env_file` / `seed_env_file` input (e.g. `inputs: { app_env_file: $MY_ENV_FILE }`) | `preview.app_env.<KEY>: required value missing` (nothing points at the input) — had the flag been passed with a bad path, the CLI would say `cannot read --app-env-file: <path>` instead; the required-missing error means the flag never reached the CLI | Never pass file-type variables via `inputs:` — they expand to empty at pipeline-config time and the component's `[ -n "$APP_ENV_FILE" ]` guard skips `--app-env-file` silently. Export the blob at job runtime instead (`before_script: export SPROUT_APP_ENV="$MY_ENV_FILE"`, seed: `export SPROUT_SEED_ENV="$MY_SEED_FILE"`), which the CLI reads automatically. `app_env_file` / `seed_env_file` are only for repo-relative dotenv paths. |
+| File-type CI variable passed via `app_env_file` / `seed_env_file` input (e.g. `inputs: { app_env_file: $MY_ENV_FILE }`) | `preview.app_env.<KEY>: required value missing` (nothing points at the input) — had the flag been passed with a bad path, the CLI would say `cannot read --app-env-file: <path>` instead | Repo-relative dotenv paths only — never pass File vars via `inputs:`; export the blob at job runtime (`before_script: export SPROUT_APP_ENV="$MY_ENV_FILE"`, seed: `export SPROUT_SEED_ENV="$MY_SEED_FILE"`). Full diagnostic in [component Troubleshooting](../templates/README.md#troubleshooting). |
 | Invalid dotenv line or flag | names the offending key or file, value never echoed | Fix the `KEY=value` line (blank lines, `#` comments, optional `export ` prefix; values may contain `=`); check `--tail` is a positive integer (`--tail must be a positive integer`). |
 | Deploy never becomes healthy | `health_timeout` (gateway log tail printed first), `deploy_timeout` on poll expiry | Pull `sprout logs <mr_id> --tail 200`: app crash-loop (migrations, missing env, wrong port) is the usual cause. Reviewers may see brief 502s while the app migrates — Traefik routes exist before the app is healthy. |
 | Seed fails | `seed_failed` (exit code or `timeout` in `last_error_detail`); app **stays up** and routable, `seeded_at` unset | Fix the seed image and redeploy with `-s` (resume path — no Traefik replace when image + hostname are unchanged). Seed wall-clock is `SPROUT_SEED_TIMEOUT` (default `180s`); health timeout is separate and never starts the seed. |
@@ -483,9 +483,9 @@ file-type `SPROUT_APP_ENV` / `SPROUT_SEED_ENV` dotenv blob, repeatable
 `--seed-env KEY=VALUE`. Forge File-var wiring lives in
 [`templates/README.md`](../templates/README.md); placeholders expand in
 every layer (see the [Reference](#reference)). File-type CI variables do NOT
-survive component `inputs:` expansion — pass another project's file-type blob
-at job runtime (`before_script: export SPROUT_APP_ENV="$MY_ENV_FILE"`), never
-as `app_env_file: $MY_ENV_FILE` (same for `SPROUT_SEED_ENV` / `seed_env_file`).
+survive component `inputs:` expansion — pass file-type blobs at job runtime,
+never as `app_env_file:` inputs (details in
+[`templates/README.md`](../templates/README.md#troubleshooting)).
 
 Example:
 
