@@ -1,4 +1,5 @@
 import type { CliContext } from "../context.ts";
+import { requiresDatabase, seedRequiresDatabaseMessage } from "@sprout/preview-env";
 import {
   defaultWriteTextFile,
   fail,
@@ -63,11 +64,12 @@ export async function runCiPreview(
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
 
   // None previews have no database to reseed; fail before any image build.
-  if (yaml.value.db?.provider === "none" && flags.value.reseed) {
-    return fail(
-      ctx.deps.io,
-      "seed requires db.provider postgres or sqlite (db.provider is none)",
-    );
+  if (
+    yaml.value.db != null &&
+    !requiresDatabase(yaml.value.db.provider) &&
+    flags.value.reseed
+  ) {
+    return fail(ctx.deps.io, seedRequiresDatabaseMessage());
   }
 
   const appDockerfile = yaml.value.build?.dockerfile ?? "Dockerfile";

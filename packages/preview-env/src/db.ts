@@ -121,6 +121,10 @@ export function requiresDatabase(provider: DbProvider): boolean {
   return provider !== "none";
 }
 
+export function seedRequiresDatabaseMessage(): string {
+  return "seed requires db.provider postgres or sqlite (db.provider is none)";
+}
+
 export function sqliteDatabaseUrl(path: string, file: string): string {
   const dir = path.endsWith("/") ? path.slice(0, -1) : path;
   return `file:${dir}/${file}`;

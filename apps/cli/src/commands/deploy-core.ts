@@ -1,5 +1,9 @@
 import type { ApiClient, PreviewSnapshot } from "@sprout/api-client";
-import { resolveHealthSpec } from "@sprout/preview-env";
+import {
+  requiresDatabase,
+  resolveHealthSpec,
+  seedRequiresDatabaseMessage,
+} from "@sprout/preview-env";
 import {
   mergeAppEnv,
   mergeSeedEnv,
@@ -257,10 +261,14 @@ export function buildDeployRequest(
   inputs: BuildDeployRequestInputs,
 ): Result<DeployRequest> {
   // A seed job populates a database; with no database the flags have nothing to act on.
-  if (yaml.db?.provider === "none" && (inputs.seedImage || inputs.reseed)) {
+  if (
+    yaml.db != null &&
+    !requiresDatabase(yaml.db.provider) &&
+    (inputs.seedImage || inputs.reseed)
+  ) {
     return {
       ok: false,
-      error: "seed requires db.provider postgres or sqlite (db.provider is none)",
+      error: seedRequiresDatabaseMessage(),
     };
   }
 

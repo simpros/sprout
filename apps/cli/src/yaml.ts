@@ -3,7 +3,9 @@ import {
   normalizeDbSpec,
   parseDbSpec,
   parsePreviewEnvForProvider,
+  requiresDatabase,
   resolveHealthSpec,
+  seedRequiresDatabaseMessage,
   validateHostnameValue,
   type DbSpec,
   type HealthIssue,
@@ -440,10 +442,10 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   if (!seed.ok) return seed;
 
   // A seed job populates a database; with no database it has nothing to act on.
-  if (normalizeDbSpec(db.value).provider === "none" && seed.value) {
+  if (!requiresDatabase(normalizeDbSpec(db.value).provider) && seed.value) {
     return {
       ok: false,
-      error: "seed requires db.provider postgres or sqlite (db.provider is none)",
+      error: seedRequiresDatabaseMessage(),
     };
   }
 

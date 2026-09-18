@@ -114,6 +114,7 @@ describe("resolvePreviewPlan", () => {
       ),
     ).toEqual({
       provider: "sqlite",
+      dbName: "sprout_myapp_pr42",
       gatewayEnv: ["DATABASE_URL=file:/data/preview.db"],
       volumes: ["sprout-myapp-pr-42-sqlite:/data"],
       appNetworks: ["sprout-traefik"],
@@ -145,10 +146,11 @@ describe("resolvePreviewPlan", () => {
       }),
     ).toEqual({
       provider: "none",
+      dbName: null,
       gatewayEnv: [],
       volumes: [],
       appNetworks: ["sprout-traefik"],
-      seedNetworks: ["sprout-traefik"],
+      seedNetworks: [],
     });
   });
 
@@ -165,5 +167,23 @@ describe("resolvePreviewPlan", () => {
         },
       ).provider,
     ).toBe("none");
+  });
+
+  test("dbName resolves from slug/prId when omitted", () => {
+    expect(
+      resolvePreviewPlan(ctx(), { spec: defaultDbSpec(), slug: "myapp", prId: 42 })
+        .dbName,
+    ).toBe("sprout_myapp_pr42");
+    expect(
+      resolvePreviewPlan(ctx(), { spec: SQLITE_DB, slug: "myapp", prId: 42 })
+        .dbName,
+    ).toBe("sprout_myapp_pr42");
+    expect(
+      resolvePreviewPlan(ctx(), {
+        spec: { provider: "none", path: "/data", file: "preview.db" },
+        slug: "myapp",
+        prId: 42,
+      }).dbName,
+    ).toBeNull();
   });
 });

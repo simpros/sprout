@@ -1,4 +1,3 @@
-import { previewDbName } from "../preview-db/names.ts";
 import type { Result } from "./result.ts";
 import {
   claimDeployIntent,
@@ -25,10 +24,7 @@ export async function acceptAsyncDeploy(
   input: ProvisionInput,
 ): Promise<Result<{ snapshot: PreviewSnapshot; launch: boolean }>> {
   return withPreviewLock(input.repo, input.prId, async () => {
-    const requestedDbName =
-      input.plan.provider === "none"
-        ? null
-        : previewDbName(input.slug, input.prId);
+    const requestedDbName = input.plan.dbName;
     const key = previewKey(input.repo, input.prId);
     const pending = inFlightDeploys.get(key);
 

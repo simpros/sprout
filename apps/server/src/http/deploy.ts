@@ -3,7 +3,9 @@ import {
   normalizeDbSpec,
   parseDbSpec,
   parsePreviewEnvForProvider,
+  requiresDatabase,
   resolveHealthSpec,
+  seedRequiresDatabaseMessage,
   validateHostname,
   type DbSpec,
   type HealthRequest,
@@ -21,7 +23,6 @@ import {
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
-import { previewDbName } from "../preview-db/names.ts";
 import {
   resolvePreviewPlan,
   type PreviewMaterializationCtx,
@@ -182,7 +183,7 @@ export function resolveSeedRequest(
     DeployBody,
     "seed_image" | "seed_env" | "seed_arg" | "health" | "reseed"
   >,
-  provider?: DbSpec["provider"],
+  provider: DbSpec["provider"],
 ):
   | { ok: true; value: SeedImageSpec | undefined }
   | { ok: false; error: string; detail?: string } {
@@ -191,11 +192,14 @@ export function resolveSeedRequest(
   const seedArg = body.seed_arg ?? [];
 
   // None previews have no database for a seed job to populate.
-  if (provider === "none" && (seedImage || body.reseed === true || seedEnv.length > 0 || seedArg.length > 0)) {
+  if (
+    !requiresDatabase(provider) &&
+    (seedImage || body.reseed === true || seedEnv.length > 0 || seedArg.length > 0)
+  ) {
     return {
       ok: false,
       error: "seed_requires_database",
-      detail: "seed requires db.provider postgres or sqlite (db.provider is none)",
+      detail: seedRequiresDatabaseMessage(),
     };
   }
 
@@ -337,10 +341,6 @@ export function deploy(
     }
     const plan = resolvePreviewPlan(deps.materialization, {
       spec: dbAndEnv.value.spec,
-      dbName:
-        dbAndEnv.value.spec.provider === "none"
-          ? null
-          : previewDbName(body.slug, body.pr_id),
       slug: body.slug,
       prId: body.pr_id,
       connectionEnv: dbAndEnv.value.connectionEnv,
@@ -348,7 +348,7 @@ export function deploy(
     const seed = resolveSeedRequest(body, dbAndEnv.value.spec.provider);
     if (!seed.ok) {
       set.status = 422;
-      return "detail" in seed && seed.detail
+      return seed.detail != null
         ? { error: seed.error, detail: seed.detail }
         : { error: seed.error };
     }

@@ -1,7 +1,6 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
-import { previewDbName } from "../preview-db/names.ts";
 import { completeBringUp, pullImagesOutsideLock } from "./bring-up.ts";
 import { withDbNameLock, withPreviewLock } from "./locks.ts";
 import { markPreviewFailed } from "./mark-failed.ts";
@@ -284,10 +283,7 @@ export async function claimDeployIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
-  const requestedDbName =
-    input.plan.provider === "none"
-      ? null
-      : previewDbName(input.slug, input.prId);
+  const requestedDbName = input.plan.dbName;
   const row = await getPreviewRow(deps.db, input.repo, input.prId);
 
   if (!row) {
@@ -315,18 +311,15 @@ export async function claimDeployIntent(
 
   // A provider switch is a fresh generation: seed_resume and companion sync
   // assume the stored backend, so fall through to a full_replace intent that
-  // bring-up reconciles (old backend dropped, new one created). Switching to
-  // none keeps the old name through the intent so bring-up can drop it
-  // before nulling the column.
+  // bring-up reconciles (old backend dropped, new one created). A null
+  // desired name keeps the stale name through the intent so bring-up can
+  // drop it before nulling the column.
   if (
     status.value !== "removing" &&
     needsBackendRemint(row, input.plan.provider)
   ) {
-    const intent = await writeProvisioningIntent(
-      deps,
-      input,
-      input.plan.provider === "none" ? row.dbName : requestedDbName,
-    );
+    const intentDbName = requestedDbName ?? row.dbName;
+    const intent = await writeProvisioningIntent(deps, input, intentDbName);
     return { ok: true, value: previewSnapshotFromRow(intent) };
   }
 
@@ -444,62 +437,44 @@ async function destroyPreviewRow(
     );
   }
 
-  // None previews hold no database resource: no catalog lock, no drop call.
-  if (existing.dbName == null) {
-    if (disposition === "purge") {
-      await deps.db
-        .delete(previews)
-        .where(
-          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-        );
-    } else {
-      await deps.db
-        .update(previews)
-        .set({
-          status: "removed",
-          containerId: null,
-          updatedAt: utcIsoNow(),
-        })
-        .where(
-          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-        );
-    }
-
-    return { ok: true, value: { ok: true, status: "removed" } };
+  // Previews without a named resource skip the catalog lock and drop call;
+  // finalize runs once for both cases.
+  if (existing.dbName != null) {
+    const dbName = existing.dbName;
+    const dropped = await withDbNameLock(dbName, async () => {
+      try {
+        await deps.previewDb
+          .forDrop(storedProvider(existing))
+          .dropDatabase(dbName);
+      } catch {
+        await markPreviewFailed(deps.db, repo, prId, "preview_db_drop_failed");
+        return { ok: false as const, status: 500, error: "preview_db_drop_failed" };
+      }
+      return { ok: true as const, value: true };
+    });
+    if (!dropped.ok) return dropped;
   }
 
-  const dbName = existing.dbName;
-  return withDbNameLock(dbName, async () => {
-    try {
-      await deps.previewDb
-        .forDrop(storedProvider(existing))
-        .dropDatabase(dbName);
-    } catch {
-      await markPreviewFailed(deps.db, repo, prId, "preview_db_drop_failed");
-      return { ok: false, status: 500, error: "preview_db_drop_failed" };
-    }
+  if (disposition === "purge") {
+    await deps.db
+      .delete(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+      );
+  } else {
+    await deps.db
+      .update(previews)
+      .set({
+        status: "removed",
+        containerId: null,
+        updatedAt: utcIsoNow(),
+      })
+      .where(
+        and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+      );
+  }
 
-    if (disposition === "purge") {
-      await deps.db
-        .delete(previews)
-        .where(
-          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-        );
-    } else {
-      await deps.db
-        .update(previews)
-        .set({
-          status: "removed",
-          containerId: null,
-          updatedAt: utcIsoNow(),
-        })
-        .where(
-          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-        );
-    }
-
-    return { ok: true, value: { ok: true, status: "removed" } };
-  });
+  return { ok: true, value: { ok: true, status: "removed" } };
 }
 
 async function teardownUnlocked(
