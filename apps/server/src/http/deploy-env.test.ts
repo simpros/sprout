@@ -103,10 +103,43 @@ describe("POST /v1/deploy connection env remap", () => {
     const { deployToken } = await setup();
     const unknown = await postDeploy(
       deployToken,
-      deployBody({ env: { DATABASE_URL: "DATABASE_URL" } }),
+      deployBody({ env: { REDIS_URL: "REDIS_URL" } }),
     );
     expect(unknown.settleStatus).toBe(422);
     expect(unknown.body).toEqual({ error: "unknown_env_key" });
+
+    const wrongProvider = await postDeploy(
+      deployToken,
+      deployBody({ env: { DATABASE_URL: "DATABASE_URL" } }),
+    );
+    expect(wrongProvider.settleStatus).toBe(422);
+    expect(wrongProvider.body).toEqual({
+      error: "invalid_env_for_provider",
+      detail: "preview.env.DATABASE_URL requires db.provider sqlite",
+    });
+
+    const sqlitePgKeys = await postDeploy(
+      deployToken,
+      deployBody({
+        env: { PGHOST: "DATABASE_HOST" },
+        db: { provider: "sqlite" },
+      }),
+    );
+    expect(sqlitePgKeys.settleStatus).toBe(422);
+    expect(sqlitePgKeys.body).toEqual({
+      error: "invalid_env_for_provider",
+      detail: "preview.env.PGHOST requires db.provider postgres",
+    });
+
+    const invalidDb = await postDeploy(
+      deployToken,
+      deployBody({ db: { provider: "mysql" } }),
+    );
+    expect(invalidDb.settleStatus).toBe(422);
+    expect(invalidDb.body).toEqual({
+      error: "invalid_db",
+      detail: 'db.provider must be postgres or sqlite (got "mysql")',
+    });
 
     const collision = await postDeploy(
       deployToken,

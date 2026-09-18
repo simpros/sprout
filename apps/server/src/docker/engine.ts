@@ -166,6 +166,51 @@ export function createDockerEngineClient(
 
     removeByName,
 
+    async createVolume(name) {
+      const res = await engine("/volumes/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ Name: name }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(
+          `Docker create volume ${name} failed: ${res.status} ${body}`,
+        );
+      }
+    },
+
+    async removeVolume(name) {
+      const res = await engine(
+        `/volumes/${encodeURIComponent(name)}?force=true`,
+        { method: "DELETE" },
+      );
+      if (res.status !== 204 && res.status !== 404) {
+        const body = await res.text();
+        throw new Error(
+          `Docker remove volume ${name} failed: ${res.status} ${body}`,
+        );
+      }
+    },
+
+    async listVolumes() {
+      const res = await engine("/volumes", { method: "GET" });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Docker list volumes failed: ${res.status} ${body}`);
+      }
+      const payload = (await res.json()) as {
+        Volumes?: { Name?: string }[] | null;
+      };
+      const out: string[] = [];
+      for (const volume of payload.Volumes ?? []) {
+        if (typeof volume.Name === "string" && volume.Name !== "") {
+          out.push(volume.Name);
+        }
+      }
+      return out;
+    },
+
     async createAndStart(spec: ContainerCreateSpec) {
       if (spec.networkNames.length === 0) {
         throw new Error("createAndStart requires at least one network");
@@ -184,6 +229,9 @@ export function createDockerEngineClient(
             Env: spec.env,
             Labels: spec.labels,
             ...(spec.cmd !== undefined ? { Cmd: spec.cmd } : {}),
+            ...(spec.volumes !== undefined && spec.volumes.length > 0
+              ? { HostConfig: { Binds: spec.volumes } }
+              : {}),
             NetworkingConfig: {
               EndpointsConfig: endpoints,
             },

@@ -1,7 +1,11 @@
 import {
+  dbSpecIssueMessage,
+  envProviderMismatch,
+  parseDbSpec,
   parsePreviewEnvMap,
   resolveHealthSpec,
   validateHostnameValue,
+  type DbSpec,
   type HealthIssue,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
@@ -12,6 +16,7 @@ import type { Result } from "./result.ts";
 export const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
 
 export type { PreviewEnvMap };
+export type { DbSpec };
 
 export type SproutHealth = {
   path: string;
@@ -53,12 +58,13 @@ export type SproutYaml = {
     app_env?: Record<string, ManifestEnvValue>;
     services?: SproutYamlService[];
   };
+  db?: DbSpec;
   health?: SproutHealth;
   build?: SproutBuild;
   seed?: SproutSeed;
 };
 
-const TOP_KEYS = new Set(["slug", "preview", "health", "build", "seed"]);
+const TOP_KEYS = new Set(["slug", "preview", "health", "build", "seed", "db"]);
 const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 const SERVICE_KEYS = new Set(["name", "image", "hostname", "path"]);
@@ -110,6 +116,7 @@ function requireString(
 
 function parsePreviewEnv(
   raw: unknown,
+  provider: DbSpec["provider"],
 ): Result<PreviewEnvMap | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!isPlainObject(raw)) {
@@ -132,6 +139,25 @@ function parsePreviewEnv(
           error: `preview.env: target collision: ${issue.target}`,
         };
     }
+  }
+  const mismatch = envProviderMismatch(parsed.value, provider);
+  if (mismatch) {
+    return {
+      ok: false,
+      error: `preview.env.${mismatch.key} requires db.provider ${mismatch.home}`,
+    };
+  }
+  return { ok: true, value: parsed.value };
+}
+
+function parseDbBlock(raw: unknown): Result<DbSpec | undefined> {
+  const parsed = parseDbSpec(raw);
+  if (!parsed.ok) {
+    const { issue } = parsed;
+    if (issue.code === "unknown_db_key") {
+      return unknownKey(`db.${issue.key}`);
+    }
+    return { ok: false, error: dbSpecIssueMessage(issue) };
   }
   return { ok: true, value: parsed.value };
 }
@@ -394,7 +420,13 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   );
   if (!template.ok) return template;
 
-  const env = parsePreviewEnv(parsed.preview.env);
+  const db = parseDbBlock(parsed.db);
+  if (!db.ok) return db;
+
+  const env = parsePreviewEnv(
+    parsed.preview.env,
+    db.value?.provider ?? "postgres",
+  );
   if (!env.ok) return env;
 
   const appEnv = parseAppEnv(parsed.preview.app_env, "preview.app_env");
@@ -416,6 +448,7 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   if (env.value) value.preview.env = env.value;
   if (appEnv.value) value.preview.app_env = appEnv.value;
   if (services.value) value.preview.services = services.value;
+  if (db.value) value.db = db.value;
   if (build.value) value.build = build.value;
   if (seed.value) value.seed = seed.value;
 

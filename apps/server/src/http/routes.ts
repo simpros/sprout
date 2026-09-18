@@ -11,6 +11,7 @@ import {
   revokeToken,
 } from "./admin-tokens.ts";
 import { deploy, deployBody, getPreview, previewQuery, teardown, teardownBody } from "./deploy.ts";
+import type { PostgresGate } from "./deploy.ts";
 import { doctor, drop, dropBody, listPreviews } from "./introspection.ts";
 import {
   getPreviewLogs,
@@ -22,6 +23,7 @@ export type RouteDeps = {
   db: StateDb;
   previewDb: PreviewDb;
   app: PreviewAppOps;
+  postgresGate?: PostgresGate;
 };
 
 function stubNotImplemented({
@@ -39,6 +41,10 @@ export function createRoutes(deps: RouteDeps) {
     previewDb: deps.previewDb,
     app: deps.app,
   };
+  const deployDeps =
+    deps.postgresGate === undefined
+      ? lifecycle
+      : { ...lifecycle, postgresGate: deps.postgresGate };
   return new Elysia()
     .get("/healthz", () => ({ ok: true }))
     .group("/v1", (v1) =>
@@ -68,7 +74,7 @@ export function createRoutes(deps: RouteDeps) {
           beforeHandle: requireAdmin,
           body: dropBody,
         })
-        .post("/deploy", deploy(lifecycle), { body: deployBody })
+        .post("/deploy", deploy(deployDeps), { body: deployBody })
         .get("/preview", getPreview(lifecycle), { query: previewQuery })
         .post("/teardown", teardown(lifecycle), { body: teardownBody })
         .all("/*", stubNotImplemented),

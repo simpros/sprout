@@ -18,6 +18,7 @@ import { createFakePreviewDb } from "../preview-db/fake.ts";
 import type { PreviewDb } from "../preview-db/port.ts";
 import { runMigrations } from "../scripts/migrate.ts";
 import { createRoutes } from "./routes.ts";
+import type { PostgresGate } from "./deploy.ts";
 
 export type TestDb = {
   db: StateDb;
@@ -87,6 +88,7 @@ export async function createTestApp(
         replaceDeps?: Partial<Omit<BindPreviewOpsDeps, "docker">>;
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
+        postgresGate?: PostgresGate;
       }
     | string = {},
 ): Promise<TestApp> {
@@ -107,6 +109,9 @@ export async function createTestApp(
       db,
       previewDb,
       app: appOps,
+      ...(opts.postgresGate === undefined
+        ? {}
+        : { postgresGate: opts.postgresGate }),
     }),
     db,
     adminToken,

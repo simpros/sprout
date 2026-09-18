@@ -122,12 +122,102 @@ slug: myapp
 preview:
   hostname: "pr-{pr_id}.example.com"
   env:
-    DATABASE_URL: DATABASE_URL
+    REDIS_URL: REDIS_URL
 `),
     ).toEqual({
       ok: false,
-      error: "unknown key: preview.env.DATABASE_URL",
+      error: "unknown key: preview.env.REDIS_URL",
     });
+  });
+
+  test("parses a sqlite db block with DATABASE_URL remap", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    DATABASE_URL: APP_DATABASE_URL
+db:
+  provider: sqlite
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          env: { DATABASE_URL: "APP_DATABASE_URL" },
+        },
+        db: { provider: "sqlite", path: "/data", file: "preview.db" },
+      },
+    });
+  });
+
+  test("omits db when the block is absent (postgres default)", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.db).toBeUndefined();
+  });
+
+  test("rejects sqlite env keys on postgres previews", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    DATABASE_URL: APP_DATABASE_URL
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.env.DATABASE_URL requires db.provider sqlite",
+    });
+  });
+
+  test("rejects postgres env keys on sqlite previews", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGHOST: DATABASE_HOST
+db:
+  provider: sqlite
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.env.PGHOST requires db.provider postgres",
+    });
+  });
+
+  test("rejects unknown db providers and keys", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  provider: mysql
+`),
+    ).toEqual({
+      ok: false,
+      error: 'db.provider must be postgres or sqlite (got "mysql")',
+    });
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  engine: sqlite
+`),
+    ).toEqual({ ok: false, error: "unknown key: db.engine" });
   });
 
   test("rejects empty or invalid preview.env targets", () => {

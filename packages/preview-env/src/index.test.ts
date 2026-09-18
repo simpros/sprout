@@ -3,14 +3,19 @@ import {
   CANONICAL_ENV_KEYS,
   COMPANION_ENV_KEYS,
   OWNER_ENV_KEYS,
+  POSTGRES_ENV_KEYS,
+  SQLITE_ENV_KEYS,
+  envKeysForProvider,
+  envProviderMismatch,
   parsePreviewEnvMap,
 } from "./index.ts";
 
 describe("env key partitions", () => {
-  test("CANONICAL is owner then companion", () => {
+  test("CANONICAL is owner then companion then sqlite", () => {
     expect([...CANONICAL_ENV_KEYS]).toEqual([
       ...OWNER_ENV_KEYS,
       ...COMPANION_ENV_KEYS,
+      ...SQLITE_ENV_KEYS,
     ]);
     expect(OWNER_ENV_KEYS).toEqual([
       "PGHOST",
@@ -20,6 +25,16 @@ describe("env key partitions", () => {
       "PGDATABASE",
     ]);
     expect(COMPANION_ENV_KEYS).toEqual(["PGAPPUSER", "PGAPPPASSWORD"]);
+    expect(SQLITE_ENV_KEYS).toEqual(["DATABASE_URL"]);
+    expect([...POSTGRES_ENV_KEYS]).toEqual([
+      ...OWNER_ENV_KEYS,
+      ...COMPANION_ENV_KEYS,
+    ]);
+  });
+
+  test("provider key sets stay disjoint", () => {
+    expect(envKeysForProvider("postgres")).toEqual([...POSTGRES_ENV_KEYS]);
+    expect(envKeysForProvider("sqlite")).toEqual(["DATABASE_URL"]);
   });
 });
 
@@ -56,10 +71,17 @@ describe("parsePreviewEnvMap", () => {
     });
   });
 
+  test("accepts DATABASE_URL remap for sqlite previews", () => {
+    expect(parsePreviewEnvMap({ DATABASE_URL: "APP_DATABASE_URL" })).toEqual({
+      ok: true,
+      value: { DATABASE_URL: "APP_DATABASE_URL" },
+    });
+  });
+
   test("rejects unknown keys", () => {
-    expect(parsePreviewEnvMap({ DATABASE_URL: "DATABASE_URL" })).toEqual({
+    expect(parsePreviewEnvMap({ REDIS_URL: "REDIS_URL" })).toEqual({
       ok: false,
-      issue: { code: "unknown_env_key", key: "DATABASE_URL" },
+      issue: { code: "unknown_env_key", key: "REDIS_URL" },
     });
   });
 
@@ -96,5 +118,23 @@ describe("parsePreviewEnvMap", () => {
         priorKey: "PGHOST",
       },
     });
+  });
+});
+
+describe("envProviderMismatch", () => {
+  test("flags keys from the other provider", () => {
+    expect(envProviderMismatch({ PGHOST: "H" }, "sqlite")).toEqual({
+      key: "PGHOST",
+      home: "postgres",
+    });
+    expect(envProviderMismatch({ DATABASE_URL: "U" }, "postgres")).toEqual({
+      key: "DATABASE_URL",
+      home: "sqlite",
+    });
+    expect(envProviderMismatch({ PGHOST: "H" }, "postgres")).toBeNull();
+    expect(
+      envProviderMismatch({ DATABASE_URL: "U" }, "sqlite"),
+    ).toBeNull();
+    expect(envProviderMismatch(undefined, "sqlite")).toBeNull();
   });
 });

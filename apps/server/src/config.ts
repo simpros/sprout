@@ -8,12 +8,13 @@ import {
   type RegistryPullAuth,
 } from "./registry-auth.ts";
 
-export const REQUIRED_ENV = [
+export const REQUIRED_ENV = ["SPROUT_TRAEFIK_NETWORK"] as const;
+
+export const POSTGRES_REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
   "SPROUT_PG_HOST",
   "SPROUT_PG_USER",
   "SPROUT_PG_PASSWORD",
-  "SPROUT_TRAEFIK_NETWORK",
   "SPROUT_POSTGRES_NETWORK",
 ] as const;
 
@@ -41,6 +42,7 @@ export const OPTIONAL_STRING_ENV = [
 
 export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
   ...REQUIRED_ENV,
+  ...POSTGRES_REQUIRED_ENV,
   ...Object.keys(OPTIONAL_ENV_DEFAULTS),
   ...OPTIONAL_STRING_ENV,
   "SPROUT_ADMIN_TOKEN",
@@ -92,6 +94,10 @@ function requiredEnv(key: (typeof REQUIRED_ENV)[number]): string {
 }
 
 function optionalStringEnv(key: (typeof OPTIONAL_STRING_ENV)[number]): string {
+  return process.env[key]?.trim() ?? "";
+}
+
+function optionalEnv(key: string): string {
   return process.env[key]?.trim() ?? "";
 }
 
@@ -164,7 +170,6 @@ export function loadConfig(): Config {
   }
 
   const adminTokenRaw = process.env.SPROUT_ADMIN_TOKEN?.trim();
-
   const registryPullAuth = buildRegistryPullAuth({
     authsJson: optionalStringEnv("SPROUT_REGISTRY_AUTHS_JSON"),
     legacyUser: optionalStringEnv("SPROUT_REGISTRY_USER"),
@@ -172,17 +177,17 @@ export function loadConfig(): Config {
   });
 
   return {
-    previewPostgresUrl: requiredEnv("SPROUT_PREVIEW_POSTGRES_URL"),
-    previewPgHost: requiredEnv("SPROUT_PG_HOST"),
+    previewPostgresUrl: optionalEnv("SPROUT_PREVIEW_POSTGRES_URL"),
+    previewPgHost: optionalEnv("SPROUT_PG_HOST"),
     previewPgPort: parsePositiveInt(
       "SPROUT_PG_PORT",
       process.env.SPROUT_PG_PORT,
       OPTIONAL_ENV_DEFAULTS.SPROUT_PG_PORT,
     ),
-    previewPgUser: requiredEnv("SPROUT_PG_USER"),
-    previewPgPassword: requiredEnv("SPROUT_PG_PASSWORD"),
+    previewPgUser: optionalEnv("SPROUT_PG_USER"),
+    previewPgPassword: optionalEnv("SPROUT_PG_PASSWORD"),
     traefikNetwork: requiredEnv("SPROUT_TRAEFIK_NETWORK"),
-    postgresNetwork: requiredEnv("SPROUT_POSTGRES_NETWORK"),
+    postgresNetwork: optionalEnv("SPROUT_POSTGRES_NETWORK"),
     registryPullAuth,
     githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
     gitlabToken: optionalStringEnv("SPROUT_GITLAB_TOKEN"),
@@ -220,15 +225,48 @@ export function loadConfig(): Config {
   };
 }
 
+export function missingPostgresEnv(config: Config): string[] {
+  const missing: string[] = [];
+  if (config.previewPostgresUrl === "") {
+    missing.push("SPROUT_PREVIEW_POSTGRES_URL");
+  }
+  if (config.previewPgHost === "") missing.push("SPROUT_PG_HOST");
+  if (config.previewPgUser === "") missing.push("SPROUT_PG_USER");
+  if (config.previewPgPassword === "") missing.push("SPROUT_PG_PASSWORD");
+  if (config.postgresNetwork === "") missing.push("SPROUT_POSTGRES_NETWORK");
+  return missing;
+}
+
+export function isPostgresConfigured(config: Config): boolean {
+  return missingPostgresEnv(config).length === 0;
+}
+
+export function postgresNotConfiguredDetail(
+  config: Config,
+  repo: string,
+): string {
+  const missing = missingPostgresEnv(config);
+  return (
+    `repo ${repo} declares db.provider postgres but the gateway has no Postgres configured: ` +
+    `missing ${missing.join(", ")}`
+  );
+}
+
 export function configSummary(config: Config): Record<string, string | number> {
   return {
-    previewPostgresUrl: redactUrl(config.previewPostgresUrl),
-    previewPgHost: config.previewPgHost,
+    previewPostgresUrl:
+      config.previewPostgresUrl === ""
+        ? "[unset]"
+        : redactUrl(config.previewPostgresUrl),
+    previewPgHost:
+      config.previewPgHost === "" ? "[unset]" : config.previewPgHost,
     previewPgPort: config.previewPgPort,
-    previewPgUser: config.previewPgUser,
+    previewPgUser:
+      config.previewPgUser === "" ? "[unset]" : config.previewPgUser,
     previewPgPassword: config.previewPgPassword === "" ? "[empty]" : "[set]",
     traefikNetwork: config.traefikNetwork,
-    postgresNetwork: config.postgresNetwork,
+    postgresNetwork:
+      config.postgresNetwork === "" ? "[unset]" : config.postgresNetwork,
     registryPullAuthHosts: config.registryPullAuth.byHost.size,
     registryPullAuthFallback: config.registryPullAuth.fallback
       ? "[set]"

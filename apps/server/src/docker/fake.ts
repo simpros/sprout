@@ -13,6 +13,9 @@ export type FakeDockerClient = PreviewDocker & {
   pulls: string[];
   creates: ContainerCreateSpec[];
   removed: string[];
+  volumesCreated: string[];
+  volumesRemoved: string[];
+  volumes: Set<string>;
   exposedPorts: Map<string, number | null>;
   running: Map<string, { id: string; spec: ContainerCreateSpec }>;
   ips: Map<string, Map<string, string>>;
@@ -38,6 +41,9 @@ export function createFakeDockerClient(
     Object.entries(options.waitResults ?? {}),
   );
   const logs = new Map<string, string>();
+  const volumes = new Set<string>();
+  const volumesCreated: string[] = [];
+  const volumesRemoved: string[] = [];
   let nextId = 1;
   let nextIp = 1;
 
@@ -45,6 +51,9 @@ export function createFakeDockerClient(
     pulls,
     creates,
     removed,
+    volumesCreated,
+    volumesRemoved,
+    volumes,
     exposedPorts,
     running,
     ips,
@@ -62,6 +71,17 @@ export function createFakeDockerClient(
       if (prior) ips.delete(prior.id);
       running.delete(name);
       logs.delete(name);
+    },
+    async createVolume(name) {
+      volumesCreated.push(name);
+      volumes.add(name);
+    },
+    async removeVolume(name) {
+      volumesRemoved.push(name);
+      volumes.delete(name);
+    },
+    async listVolumes() {
+      return [...volumes];
     },
     async createAndStart(spec) {
       creates.push(spec);

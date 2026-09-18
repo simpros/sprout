@@ -1,4 +1,4 @@
-import type { PreviewEnvMap } from "@sprout/preview-env";
+import type { DbSpec, PreviewEnvMap } from "@sprout/preview-env";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { SeedImageResult, SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
@@ -20,6 +20,7 @@ export type DeployEphemerals = {
   seed?: SeedImageSpec;
   reseed?: boolean;
   connectionEnv?: PreviewEnvMap;
+  db?: DbSpec;
   fleetPending?: boolean;
 };
 
@@ -65,6 +66,7 @@ async function runSeedPhase(
       prId: row.prId,
       image: seed.image,
       dbName: row.dbName,
+      db: ephemerals.db,
       env: seed.env,
       args: seed.args,
       connectionEnv,

@@ -1,24 +1,34 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   configSummary,
+  isPostgresConfigured,
   loadConfig,
+  missingPostgresEnv,
   OPTIONAL_ENV_DEFAULTS,
+  POSTGRES_REQUIRED_ENV,
+  postgresNotConfiguredDetail,
   parseExtraGitlabHosts,
   REQUIRED_ENV,
 } from "./config.ts";
 
-const TEST_REQUIRED_VALUES: Record<(typeof REQUIRED_ENV)[number], string> = {
+const TEST_POSTGRES_VALUES: Record<(typeof POSTGRES_REQUIRED_ENV)[number], string> = {
   SPROUT_PREVIEW_POSTGRES_URL: "postgres://admin:sekrit@localhost:5432/postgres",
   SPROUT_PG_HOST: "postgres",
   SPROUT_PG_USER: "sprout_preview",
   SPROUT_PG_PASSWORD: "preview-secret",
-  SPROUT_TRAEFIK_NETWORK: "traefik",
   SPROUT_POSTGRES_NETWORK: "postgres",
+};
+
+const TEST_REQUIRED_VALUES: Record<(typeof REQUIRED_ENV)[number], string> = {
+  SPROUT_TRAEFIK_NETWORK: "traefik",
 };
 
 function setRequiredEnv(): void {
   for (const key of REQUIRED_ENV) {
     process.env[key] = TEST_REQUIRED_VALUES[key];
+  }
+  for (const key of POSTGRES_REQUIRED_ENV) {
+    process.env[key] = TEST_POSTGRES_VALUES[key];
   }
   process.env.SPROUT_GITHUB_TOKEN = "gh-token";
   process.env.SPROUT_GITLAB_TOKEN = "gl-token";
@@ -28,6 +38,9 @@ function setRequiredEnv(): void {
 
 function clearGatewayEnv(): void {
   for (const key of REQUIRED_ENV) {
+    delete process.env[key];
+  }
+  for (const key of POSTGRES_REQUIRED_ENV) {
     delete process.env[key];
   }
   delete process.env.SPROUT_GITHUB_TOKEN;
@@ -86,6 +99,30 @@ describe("loadConfig", () => {
     expect(() => loadConfig()).toThrow(
       `Missing required environment variables: ${REQUIRED_ENV.join(", ")}`,
     );
+  });
+
+  test("boots without Postgres env for sqlite-only gateways", () => {
+    clearGatewayEnv();
+    process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
+    const config = loadConfig();
+    expect(config.traefikNetwork).toBe("traefik");
+    expect(config.previewPostgresUrl).toBe("");
+    expect(config.postgresNetwork).toBe("");
+    expect(isPostgresConfigured(config)).toBe(false);
+    expect(missingPostgresEnv(config)).toEqual([...POSTGRES_REQUIRED_ENV]);
+    expect(
+      postgresNotConfiguredDetail(config, "https://github.com/org/repo"),
+    ).toContain("https://github.com/org/repo");
+    expect(
+      postgresNotConfiguredDetail(config, "https://github.com/org/repo"),
+    ).toContain("SPROUT_PREVIEW_POSTGRES_URL");
+  });
+
+  test("reports Postgres configured when all provider vars are set", () => {
+    setRequiredEnv();
+    const config = loadConfig();
+    expect(isPostgresConfigured(config)).toBe(true);
+    expect(missingPostgresEnv(config)).toEqual([]);
   });
 
   test("loads per-forge tokens without a gateway-wide forge switch", () => {
@@ -203,10 +240,18 @@ describe("loadConfig", () => {
 
   test("rejects whitespace-only required env vars", () => {
     setRequiredEnv();
-    process.env.SPROUT_PREVIEW_POSTGRES_URL = "   ";
+    process.env.SPROUT_TRAEFIK_NETWORK = "   ";
     expect(() => loadConfig()).toThrow(
-      "Missing required environment variables: SPROUT_PREVIEW_POSTGRES_URL",
+      "Missing required environment variables: SPROUT_TRAEFIK_NETWORK",
     );
+  });
+
+  test("treats blank Postgres vars as unconfigured, not boot failure", () => {
+    setRequiredEnv();
+    process.env.SPROUT_PREVIEW_POSTGRES_URL = "   ";
+    const config = loadConfig();
+    expect(config.previewPostgresUrl).toBe("");
+    expect(isPostgresConfigured(config)).toBe(false);
   });
 
   test("normalizes legacy registry pair into registryPullAuth.fallback", () => {

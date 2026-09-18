@@ -1,4 +1,4 @@
-import type { PreviewEnvMap } from "@sprout/preview-env";
+import type { DbSpec, PreviewEnvMap } from "@sprout/preview-env";
 import type { HealthSpec } from "@sprout/preview-env";
 import type {
   PreviewAppOps,
@@ -53,6 +53,7 @@ export type ProvisionInput = {
   appEnv: string[];
   services?: PreviewServiceSpec[];
   connectionEnv?: PreviewEnvMap;
+  db?: DbSpec;
   reseed?: boolean;
 };
 

@@ -40,8 +40,11 @@ teardown. Health gating covers the app only.
 _Avoid_: Sidecar, dependency container, compose service (prefer "service")
 
 **Preview database**:
-The logical Postgres database that belongs to exactly one preview, named
-`sprout_<slug>_pr<id>`. Created empty; the preview app migrates it at startup.
+The preview's private data store, belonging to exactly one preview:
+a logical Postgres database on the shared instance named
+`sprout_<slug>_pr<id>` (created empty; the preview app migrates it at
+startup), or — for `db.provider: sqlite` repos — a SQLite file on a
+named per-preview volume.
 _Avoid_: Test database, branch database, ephemeral db
 
 **Shared instance**:
@@ -82,8 +85,9 @@ _Avoid_: Client repo, tenant repo
 The config-as-code file in an adopting repo: slug, preview hostname template,
 optional health-check settings, optional companion service routing
 metadata, optional `build`/`seed` image blocks (seed-as-manifest: `seed`
-drives `sprout ci preview` image build + after-healthy seed), and computed
-env values (`preview.app_env` / `seed.env` with `{hostname}` / `{pr_id}` /
+drives `sprout ci preview` image build + after-healthy seed), optional `db`
+provider block (`postgres` default, or `sqlite` with container path + file),
+and computed env values (`preview.app_env` / `seed.env` with `{hostname}` / `{pr_id}` /
 `{commit_sha}` interpolation, `{ generate: stable_per_pr }` secrets, and
 `{ required: true }` CI-supplied keys).
 _Avoid_: previewdb.yml, pb config

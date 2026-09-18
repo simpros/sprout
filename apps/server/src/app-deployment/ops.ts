@@ -89,11 +89,18 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
       pollHealth(
         probe,
         async () => {
-          const ip = await deps.docker.containerIpOnNetwork(
-            containerId,
+          for (const network of [
             deps.networks.postgres,
-          );
-          return ip ? healthUrl(ip, port, health.path) : null;
+            deps.networks.traefik,
+          ]) {
+            if (!network) continue;
+            const ip = await deps.docker.containerIpOnNetwork(
+              containerId,
+              network,
+            );
+            if (ip) return healthUrl(ip, port, health.path);
+          }
+          return null;
         },
         health,
         deps.healthClock,
@@ -103,8 +110,12 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
         {
           docker: deps.docker,
           pg: deps.pg,
-          networks: { postgres: deps.networks.postgres },
+          networks: {
+            traefik: deps.networks.traefik,
+            postgres: deps.networks.postgres,
+          },
           seedTimeoutMs: deps.seedTimeoutMs,
+          runtime: deps.runtime,
         },
         input,
       ),

@@ -46,8 +46,13 @@ export function createPostgresPreviewDb(
   }
 
   return {
-    async createDatabase(dbName) {
+    async createDatabase(dbName, db) {
       assertPreviewDbName(dbName);
+      if (db !== undefined && db.provider !== "postgres") {
+        throw new Error(
+          `postgres adapter cannot create a ${db.provider} database: ${dbName}`,
+        );
+      }
       await ensurePreviewRole();
       await ensureDatabase(sql, { name: dbName, owner: previewRole });
       await ensureRestrictedRole(sql, {

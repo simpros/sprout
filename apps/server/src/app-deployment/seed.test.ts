@@ -25,7 +25,7 @@ describe("runSeedImage", () => {
       {
         docker,
         pg: PG,
-        networks: { postgres: "pg-net" },
+        networks: { traefik: "traefik-net", postgres: "pg-net" },
         seedTimeoutMs: 5_000,
       },
       {
@@ -63,7 +63,7 @@ describe("runSeedImage", () => {
       {
         docker,
         pg: PG,
-        networks: { postgres: "pg-net" },
+        networks: { traefik: "traefik-net", postgres: "pg-net" },
         seedTimeoutMs: 5_000,
       },
       {
@@ -95,7 +95,7 @@ describe("runSeedImage", () => {
       {
         docker,
         pg: PG,
-        networks: { postgres: "pg-net" },
+        networks: { traefik: "traefik-net", postgres: "pg-net" },
         seedTimeoutMs: 5_000,
       },
       {

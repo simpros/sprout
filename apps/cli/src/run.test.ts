@@ -242,6 +242,51 @@ preview:
     });
   });
 
+  test("deploy includes db provider on the request body", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-42.myapp.preview.example.com",
+      });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  env:
+    DATABASE_URL: APP_DATABASE_URL
+db:
+  provider: sqlite
+`);
+    const code = await runCli(
+      ["deploy", "-i", "ghcr.io/org/app:sha"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "deploy-token",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/42/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(captured[0]?.body).toMatchObject({
+      db: { provider: "sqlite", path: "/data", file: "preview.db" },
+      env: { DATABASE_URL: "APP_DATABASE_URL" },
+    });
+  });
+
   test("deploy rejects invalid preview.env before calling the gateway", async () => {
     const baseUrl = startGateway(async (req, url) => {
       captured.push({

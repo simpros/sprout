@@ -1,8 +1,14 @@
 import {
+  dbSpecIssueMessage,
+  envProviderMismatch,
+  normalizeDbSpec,
+  parseDbSpec,
   parsePreviewEnvMap,
   resolveHealthSpec,
   validateHostname,
+  type DbSpec,
   type HealthRequest,
+  type PreviewEnvMap,
 } from "@sprout/preview-env";
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
@@ -43,6 +49,12 @@ const MAX_SEED_ARG = 16;
 const MAX_APP_ENV = 32;
 const MAX_SERVICES = 8;
 
+const dbBody = t.Object({
+  provider: t.Optional(t.String()),
+  path: t.Optional(t.String()),
+  file: t.Optional(t.String()),
+});
+
 export const deployBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   pr_id: t.Number(),
@@ -50,6 +62,7 @@ export const deployBody = t.Object({
   hostname: t.String({ minLength: 1 }),
   app_image: t.String({ minLength: 1 }),
   env: t.Optional(t.Record(t.String(), t.String())),
+  db: t.Optional(dbBody),
   health: t.Optional(healthBody),
   seed_image: t.Optional(t.String({ minLength: 1 })),
   seed_env: t.Optional(t.Array(t.String())),
@@ -76,6 +89,7 @@ export type DeployBody = {
   hostname: string;
   app_image: string;
   env?: Record<string, string>;
+  db?: { provider?: string; path?: string; file?: string };
   health?: HealthRequest;
   seed_image?: string;
   seed_env?: string[];
@@ -84,6 +98,41 @@ export type DeployBody = {
   services?: PreviewServiceSpec[];
   reseed?: boolean;
 };
+
+export type PostgresGate = {
+  configured: boolean;
+  detail: (repo: string) => string;
+};
+
+export function resolveDbRequest(
+  body: Pick<DeployBody, "db">,
+): { ok: true; value: DbSpec | undefined } | { ok: false; error: string; detail: string } {
+  const parsed = parseDbSpec(body.db);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      error: "invalid_db",
+      detail: dbSpecIssueMessage(parsed.issue),
+    };
+  }
+  return { ok: true, value: parsed.value };
+}
+
+export function checkEnvForProvider(
+  env: PreviewEnvMap | undefined,
+  db: DbSpec | undefined,
+): { ok: true } | { ok: false; error: string; detail: string } {
+  const provider = normalizeDbSpec(db).provider;
+  const mismatch = envProviderMismatch(env, provider);
+  if (mismatch) {
+    return {
+      ok: false,
+      error: "invalid_env_for_provider",
+      detail: `preview.env.${mismatch.key} requires db.provider ${mismatch.home}`,
+    };
+  }
+  return { ok: true };
+}
 
 function validateKvEnvEntries(
   entries: string[],
@@ -211,7 +260,7 @@ export type PreviewQuery = {
   pr_id: string;
 };
 
-export function deploy(deps: LifecycleDeps) {
+export function deploy(deps: LifecycleDeps & { postgresGate?: PostgresGate }) {
   return async ({
     body,
     auth,
@@ -220,7 +269,7 @@ export function deploy(deps: LifecycleDeps) {
     body: DeployBody;
     auth: AuthContext | null;
     set: { status?: number | string };
-  }): Promise<PreviewSnapshot | { error: string }> => {
+  }): Promise<PreviewSnapshot | { error: string; detail?: string }> => {
     if (!auth) {
       set.status = 401;
       return { error: "unauthorized" };
@@ -237,6 +286,22 @@ export function deploy(deps: LifecycleDeps) {
       set.status = 422;
       return { error: "invalid_hostname" };
     }
+    const db = resolveDbRequest(body);
+    if (!db.ok) {
+      set.status = 422;
+      return { error: db.error, detail: db.detail };
+    }
+    if (
+      normalizeDbSpec(db.value).provider === "postgres" &&
+      deps.postgresGate &&
+      !deps.postgresGate.configured
+    ) {
+      set.status = 500;
+      return {
+        error: "postgres_not_configured",
+        detail: deps.postgresGate.detail(repo.value),
+      };
+    }
     const connectionEnv = parsePreviewEnvMap(body.env);
     if (!connectionEnv.ok) {
       set.status = 422;
@@ -245,6 +310,11 @@ export function deploy(deps: LifecycleDeps) {
           ? "invalid_env_target"
           : connectionEnv.issue.code;
       return { error: code };
+    }
+    const envScope = checkEnvForProvider(connectionEnv.value, db.value);
+    if (!envScope.ok) {
+      set.status = 422;
+      return { error: envScope.error, detail: envScope.detail };
     }
     const seed = resolveSeedRequest(body);
     if (!seed.ok) {
@@ -278,6 +348,7 @@ export function deploy(deps: LifecycleDeps) {
       appEnv: appEnv.value,
       services: services.value,
       connectionEnv: connectionEnv.value,
+      db: db.value,
       reseed: body.reseed === true,
     };
 

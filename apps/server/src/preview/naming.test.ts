@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   parsePreviewContainerName,
+  parseSqliteVolumeName,
   previewContainerName,
   previewServiceContainerName,
   seedImageRunName,
+  sqliteVolumeName,
 } from "./naming.ts";
 
 describe("parsePreviewContainerName", () => {
@@ -38,5 +40,23 @@ describe("parsePreviewContainerName", () => {
     expect(parsePreviewContainerName("widgets-pr-7")).toBeNull();
     expect(parsePreviewContainerName("sprout-widgets-pr-")).toBeNull();
     expect(parsePreviewContainerName("pb-widgets-pr-7")).toBeNull();
+  });
+});
+
+describe("sqlite volume names", () => {
+  test("round-trips sprout-<slug>-pr-<id>-sqlite", () => {
+    expect(sqliteVolumeName("myapp", 42)).toBe("sprout-myapp-pr-42-sqlite");
+    expect(parseSqliteVolumeName("sprout-myapp-pr-42-sqlite")).toEqual({
+      slug: "myapp",
+      prId: 42,
+    });
+  });
+
+  test("rejects app, service, seed, and foreign volume names", () => {
+    expect(parseSqliteVolumeName("sprout-myapp-pr-42")).toBeNull();
+    expect(parseSqliteVolumeName("sprout-myapp-pr-42-svc-api")).toBeNull();
+    expect(parseSqliteVolumeName("sprout-myapp-pr-42-seed")).toBeNull();
+    expect(parseSqliteVolumeName("sprout-myapp-pr-0-sqlite")).toBeNull();
+    expect(parseSqliteVolumeName("some-other-volume")).toBeNull();
   });
 });

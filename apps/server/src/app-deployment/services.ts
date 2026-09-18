@@ -1,4 +1,4 @@
-import type { PreviewEnvMap } from "@sprout/preview-env";
+import type { DbSpec, PreviewEnvMap } from "@sprout/preview-env";
 import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
 import type { AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
@@ -7,6 +7,7 @@ import {
   materializePreviewWorkload,
   removePreviewServices,
 } from "./preview-containers.ts";
+import { resolveRuntime, type PreviewRuntime } from "../preview/runtime.ts";
 
 export type PreviewServiceSpec = {
   name: string;
@@ -22,6 +23,7 @@ export type ReplacePreviewServicesDeps = {
   previewPortDefault: number;
   traefikTls?: TraefikTls;
   traefikForwardAuth?: TraefikForwardAuth;
+  runtime?: PreviewRuntime;
 };
 
 export type ReplacePreviewServicesInput = {
@@ -29,6 +31,7 @@ export type ReplacePreviewServicesInput = {
   prId: number;
   appHostname: string;
   dbName: string;
+  db?: DbSpec;
   services: PreviewServiceSpec[];
   connectionEnv?: PreviewEnvMap;
 };
@@ -39,6 +42,7 @@ export async function replacePreviewServices(
 ): Promise<void> {
   await removePreviewServices(deps.docker, input.slug, input.prId);
 
+  const runtime = resolveRuntime(deps);
   try {
     await Promise.all(
       input.services.map(async (service) => {
@@ -61,10 +65,13 @@ export async function replacePreviewServices(
                 forwardAuth: deps.traefikForwardAuth,
               }
             : { kind: "internal" },
-          networks: deps.networks,
-          pg: deps.pg,
-          dbName: input.dbName,
-          connectionEnv: input.connectionEnv,
+          gatewayEnv: runtime.connectionEnv(
+            input.db,
+            input.dbName,
+            input.connectionEnv,
+          ),
+          volumes: runtime.volumes(input.db, input.slug, input.prId),
+          networkNames: runtime.appNetworks(input.db),
           previewPortDefault: deps.previewPortDefault,
         });
       }),

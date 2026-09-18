@@ -42,10 +42,11 @@ function parseBringUpPlan(raw: string | null): BringUpPlan {
 async function ensureDatabase(
   deps: LifecycleDeps,
   row: PreviewRow,
+  db: ProvisionInput["db"],
 ): Promise<Result<true>> {
   return withDbNameLock(row.dbName, async () => {
     try {
-      await deps.previewDb.createDatabase(row.dbName);
+      await deps.previewDb.createDatabase(row.dbName, db);
       return { ok: true, value: true };
     } catch {
       return { ok: false, status: 500, error: "preview_db_create_failed" };
@@ -100,6 +101,7 @@ async function syncPreviewServices(
       prId: row.prId,
       appHostname: input.hostname,
       dbName: row.dbName,
+      db: input.db,
       services: input.services,
       connectionEnv: input.connectionEnv,
     });
@@ -180,6 +182,7 @@ function deployEphemerals(input: ProvisionInput) {
     seed: input.seed,
     reseed: input.reseed,
     connectionEnv: input.connectionEnv,
+    db: input.db,
     fleetPending: input.services !== undefined,
   };
 }
@@ -198,6 +201,7 @@ async function attachAppContainer(
       hostname: input.hostname,
       image: input.appImage,
       dbName: row.dbName,
+      db: input.db,
       appEnv: input.appEnv,
       connectionEnv: input.connectionEnv,
     }));
@@ -261,7 +265,7 @@ async function ensureThenAttach(
   row: PreviewRow,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
-  const ensured = await ensureDatabase(deps, row);
+  const ensured = await ensureDatabase(deps, row, input.db);
   if (!ensured.ok) {
     await markPreviewFailed(
       deps.db,
