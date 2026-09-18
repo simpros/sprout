@@ -165,7 +165,7 @@ async function persistPullFailure(
 async function writeProvisioningIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
-  dbName: string,
+  dbName: string | null,
 ): Promise<PreviewRow> {
   const now = utcIsoNow();
   return updatePreviewRow(
@@ -221,7 +221,7 @@ async function patchAccept(
 function dbIdentityMatches(
   row: PreviewRow,
   input: ProvisionInput,
-  requestedDbName: string,
+  requestedDbName: string | null,
 ): boolean {
   return row.slug === input.slug && row.dbName === requestedDbName;
 }
@@ -229,7 +229,7 @@ function dbIdentityMatches(
 function requireDbIdentity(
   row: PreviewRow,
   input: ProvisionInput,
-  requestedDbName: string,
+  requestedDbName: string | null,
 ): Result<true> {
   if (!dbIdentityMatches(row, input, requestedDbName)) {
     return {
@@ -284,7 +284,10 @@ export async function claimDeployIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
-  const requestedDbName = previewDbName(input.slug, input.prId);
+  const requestedDbName =
+    input.plan.provider === "none"
+      ? null
+      : previewDbName(input.slug, input.prId);
   const row = await getPreviewRow(deps.db, input.repo, input.prId);
 
   if (!row) {
@@ -312,7 +315,9 @@ export async function claimDeployIntent(
 
   // A provider switch is a fresh generation: seed_resume and companion sync
   // assume the stored backend, so fall through to a full_replace intent that
-  // bring-up reconciles (old backend dropped, new one created).
+  // bring-up reconciles (old backend dropped, new one created). Switching to
+  // none keeps the old name through the intent so bring-up can drop it
+  // before nulling the column.
   if (
     status.value !== "removing" &&
     needsBackendRemint(row, input.plan.provider)
@@ -320,7 +325,7 @@ export async function claimDeployIntent(
     const intent = await writeProvisioningIntent(
       deps,
       input,
-      requestedDbName,
+      input.plan.provider === "none" ? row.dbName : requestedDbName,
     );
     return { ok: true, value: previewSnapshotFromRow(intent) };
   }
@@ -439,11 +444,36 @@ async function destroyPreviewRow(
     );
   }
 
-  return withDbNameLock(existing.dbName, async () => {
+  // None previews hold no database resource: no catalog lock, no drop call.
+  if (existing.dbName == null) {
+    if (disposition === "purge") {
+      await deps.db
+        .delete(previews)
+        .where(
+          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+        );
+    } else {
+      await deps.db
+        .update(previews)
+        .set({
+          status: "removed",
+          containerId: null,
+          updatedAt: utcIsoNow(),
+        })
+        .where(
+          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+        );
+    }
+
+    return { ok: true, value: { ok: true, status: "removed" } };
+  }
+
+  const dbName = existing.dbName;
+  return withDbNameLock(dbName, async () => {
     try {
       await deps.previewDb
         .forDrop(storedProvider(existing))
-        .dropDatabase(existing.dbName);
+        .dropDatabase(dbName);
     } catch {
       await markPreviewFailed(deps.db, repo, prId, "preview_db_drop_failed");
       return { ok: false, status: 500, error: "preview_db_drop_failed" };

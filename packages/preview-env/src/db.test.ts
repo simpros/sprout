@@ -4,6 +4,7 @@ import {
   defaultDbSpec,
   normalizeDbSpec,
   parseDbSpec,
+  requiresDatabase,
   sqliteDatabaseUrl,
 } from "./db.ts";
 
@@ -32,6 +33,13 @@ describe("parseDbSpec", () => {
     });
   });
 
+  test("parses a none block", () => {
+    expect(parseDbSpec({ provider: "none" })).toEqual({
+      ok: true,
+      value: { provider: "none", path: "/data", file: "preview.db" },
+    });
+  });
+
   test("trims a trailing slash from path", () => {
     expect(parseDbSpec({ provider: "sqlite", path: "/data/" })).toEqual({
       ok: true,
@@ -52,7 +60,7 @@ describe("parseDbSpec", () => {
       issue: { code: "invalid_db_provider", provider: "mysql" },
     });
     expect(dbSpecIssueMessage({ code: "invalid_db_provider", provider: "x" })).toBe(
-      'db.provider must be postgres or sqlite (got "x")',
+      'db.provider must be postgres, sqlite or none (got "x")',
     );
   });
 
@@ -97,5 +105,11 @@ describe("sqlite connection string", () => {
   test("normalizeDbSpec falls back to the postgres default", () => {
     expect(normalizeDbSpec(undefined)).toEqual(defaultDbSpec());
     expect(defaultDbSpec().provider).toBe("postgres");
+  });
+
+  test("requiresDatabase is false only for none", () => {
+    expect(requiresDatabase("postgres")).toBe(true);
+    expect(requiresDatabase("sqlite")).toBe(true);
+    expect(requiresDatabase("none")).toBe(false);
   });
 });

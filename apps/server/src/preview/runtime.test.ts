@@ -134,4 +134,36 @@ describe("resolvePreviewPlan", () => {
       ),
     ).toThrow("without postgres config");
   });
+
+  test("none injects no env, mounts no volumes, joins traefik only", () => {
+    expect(
+      resolvePreviewPlan(ctx(), {
+        spec: { provider: "none", path: "/data", file: "preview.db" },
+        dbName: null,
+        slug: "myapp",
+        prId: 42,
+      }),
+    ).toEqual({
+      provider: "none",
+      gatewayEnv: [],
+      volumes: [],
+      appNetworks: ["sprout-traefik"],
+      seedNetworks: ["sprout-traefik"],
+    });
+  });
+
+  test("none resolves without postgres config and ignores connection env", () => {
+    expect(
+      resolvePreviewPlan(
+        { traefikNetwork: NETWORKS.traefik },
+        {
+          spec: { provider: "none", path: "/data", file: "preview.db" },
+          dbName: null,
+          slug: "myapp",
+          prId: 42,
+          connectionEnv: undefined,
+        },
+      ).provider,
+    ).toBe("none");
+  });
 });

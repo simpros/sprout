@@ -15,7 +15,7 @@ export type ListedPreview = {
   canonical_repo_id: string;
   pr_id: number;
   slug: string;
-  db_name: string;
+  db_name: string | null;
   hostname: string;
   status: ReturnType<typeof toDisplayStatus>;
   created_at: string;

@@ -172,6 +172,7 @@ export {
   isDbProvider,
   normalizeDbSpec,
   parseDbSpec,
+  requiresDatabase,
   sqliteDatabaseUrl,
   type DbProvider,
   type DbSpec,

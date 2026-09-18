@@ -47,14 +47,13 @@ async function ensureDatabase(
   input: ProvisionInput,
 ): Promise<Result<true>> {
   const provider = input.plan.provider;
-  return withDbNameLock(row.dbName, async () => {
-    try {
+  // None previews hold no database: never touch the PreviewDb port. A
+  // provider switch still rewrites the stored provider so teardown and
+  // sweep route deterministically on retry.
+  if (provider === "none") {
+    if (needsBackendRemint(row, provider)) {
       const stored = storedProvider(row);
-      const remint = needsBackendRemint(row, provider);
-      if (remint) {
-        // Provider switch: drop the old backend first so a failed create
-        // never strands a resource the row no longer points at. Missing-tolerant
-        // drops make a partially switched preview converge on retry.
+      if (stored !== "none" && row.dbName != null) {
         try {
           await deps.previewDb.forDrop(stored).dropDatabase(row.dbName);
         } catch (err) {
@@ -64,12 +63,47 @@ async function ensureDatabase(
           );
         }
       }
-      await deps.previewDb.forCreate(provider).createDatabase(row.dbName);
+      await updatePreviewRow(
+        deps.db,
+        row,
+        { dbProvider: provider, dbName: null, updatedAt: utcIsoNow() },
+        "preview_row_missing_on_provider_switch",
+      );
+    }
+    return { ok: true, value: true };
+  }
+  if (row.dbName == null) {
+    // None-to-backend switch on a stale row: the name is derived at claim
+    // time, so a null here means a missed intent write; fail loudly.
+    return { ok: false, status: 500, error: "preview_db_create_failed" };
+  }
+  const dbName: string = row.dbName;
+  return withDbNameLock(dbName, async () => {
+    try {
+      const stored = storedProvider(row);
+      const remint = needsBackendRemint(row, provider);
+      if (remint) {
+        // Provider switch: drop the old backend first so a failed create
+        // never strands a resource the row no longer points at. Missing-tolerant
+        // drops make a partially switched preview converge on retry.
+        // A stale none needs no drop; only named backends hold resources.
+        if (row.dbName != null && stored !== "none") {
+          try {
+            await deps.previewDb.forDrop(stored).dropDatabase(row.dbName);
+          } catch (err) {
+            console.warn(
+              `stale ${stored} database drop failed for ${row.dbName}; continuing`,
+              err,
+            );
+          }
+        }
+      }
+      await deps.previewDb.forCreate(provider).createDatabase(dbName);
       if (remint) {
         await updatePreviewRow(
           deps.db,
           row,
-          { dbProvider: provider, updatedAt: utcIsoNow() },
+          { dbProvider: provider, dbName, updatedAt: utcIsoNow() },
           "preview_row_missing_on_provider_switch",
         );
       }

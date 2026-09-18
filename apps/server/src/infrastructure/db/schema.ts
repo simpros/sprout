@@ -9,7 +9,7 @@ export const previews = sqliteTable(
     canonicalRepoId: text("canonical_repo_id").notNull(),
     prId: integer("pr_id").notNull(),
     slug: text("slug").notNull(),
-    dbName: text("db_name").notNull(),
+    dbName: text("db_name"),
     dbProvider: text("db_provider").notNull().default("postgres"),
     hostname: text("hostname").notNull(),
     appImage: text("app_image"),

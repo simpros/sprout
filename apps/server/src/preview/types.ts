@@ -65,7 +65,7 @@ export type TeardownInput = {
 export type RemovePreviewInput = {
   repo: string;
   prId: number;
-  expectedDbName: string;
+  expectedDbName: string | null;
   expectedCreatedAt: string;
 };
 
@@ -74,7 +74,7 @@ export type PreviewSnapshot = {
   canonical_repo_id: string;
   pr_id: number;
   slug: string;
-  db_name: string;
+  db_name: string | null;
   hostname: string;
   status: PreviewStatus;
   preview_url?: string;

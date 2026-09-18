@@ -37,6 +37,7 @@ describe("env key partitions", () => {
   test("provider key sets stay disjoint", () => {
     expect(envKeysForProvider("postgres")).toEqual([...POSTGRES_ENV_KEYS]);
     expect(envKeysForProvider("sqlite")).toEqual(["DATABASE_URL"]);
+    expect(envKeysForProvider("none")).toEqual([]);
   });
 
   test("every canonical key has a home in the map", () => {
@@ -147,6 +148,18 @@ describe("envProviderMismatch", () => {
     ).toBeNull();
     expect(envProviderMismatch(undefined, "sqlite")).toBeNull();
   });
+
+  test("none mismatches every database key", () => {
+    expect(envProviderMismatch({ PGHOST: "H" }, "none")).toEqual({
+      key: "PGHOST",
+      home: "postgres",
+    });
+    expect(envProviderMismatch({ DATABASE_URL: "U" }, "none")).toEqual({
+      key: "DATABASE_URL",
+      home: "sqlite",
+    });
+    expect(envProviderMismatch(undefined, "none")).toBeNull();
+  });
 });
 
 describe("parsePreviewEnvForProvider", () => {
@@ -168,6 +181,14 @@ describe("parsePreviewEnvForProvider", () => {
         code: "env_requires_provider",
         key: "DATABASE_URL",
         home: "sqlite",
+      },
+    });
+    expect(parsePreviewEnvForProvider({ PGHOST: "H" }, "none")).toEqual({
+      ok: false,
+      issue: {
+        code: "env_requires_provider",
+        key: "PGHOST",
+        home: "postgres",
       },
     });
   });

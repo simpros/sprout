@@ -129,14 +129,14 @@ pointers live in [Test coverage](#test-coverage-maintainers).
 |---|---|---|---|
 | `slug` | yes | — | Short name used in database names (`sprout_<slug>_pr<id>`) and container names. Alphanumeric. |
 | `preview.hostname` | yes | — | Per-PR host template. Must contain `{pr_id}`; no scheme, port, path, or other placeholders. The CLI owns substitution and prints `preview_url=` — CI never reconstructs it. |
-| `preview.env` | no | canonical `PG*` / `PGAPP*` (`postgres`) or `DATABASE_URL` (`sqlite`) | Rename injected connection env (see Connection env). |
+| `preview.env` | no | canonical `PG*` / `PGAPP*` (`postgres`) or `DATABASE_URL` (`sqlite`); rejected on `none` | Rename injected connection env (see Connection env). |
 | `preview.app_env` | no | — | Extra app env (see Value grammar, Merge order, Connection env reservation). |
 | `preview.services` | no | leave companions | Companion routing entries (see Service images). |
 | `preview.services[].name` | per entry | — | Service name (validated, unique). |
 | `preview.services[].image` | per entry unless `--service` | — | Pinned image for the service. |
 | `preview.services[].hostname` | no | internal-only | Distinct `Host()` for the service. |
 | `preview.services[].path` | no | internal-only | `PathPrefix()` for the service (must start with `/`). |
-| `db.provider` | no | `postgres` | Preview database provider: `postgres` (shared instance) or `sqlite` (named volume). See [SQLite previews](#sqlite-previews). |
+| `db.provider` | no | `postgres` | Preview database provider: `postgres` (shared instance), `sqlite` (named volume), or `none` (no database). See [SQLite previews](#sqlite-previews) and [No-database previews](#no-database-previews). |
 | `db.path` | no | `/data` | Container directory the SQLite volume mounts at (`sqlite` only). |
 | `db.file` | no | `preview.db` | SQLite file name inside `db.path` (`sqlite` only). |
 | `health.path` | when seeding | `/health` | HTTP path the gateway polls on the Postgres-network container IP. |
@@ -166,6 +166,13 @@ SQLite (`db.provider: sqlite`):
 ```
 DATABASE_URL=file:<db.path>/<db.file>   (default file:/data/preview.db)
 ```
+
+No-database (`db.provider: none`): no connection variables are injected
+at all — every `preview.env` entry is rejected at manifest parse
+(`preview.env.PGHOST requires db.provider postgres`) and at the gateway
+deploy route, and a `seed:` block is rejected the same way
+(`seed requires db.provider postgres or sqlite (db.provider is none)`).
+See [No-database previews](#no-database-previews) for the lifecycle.
 
 No `PG*` keys are injected for a SQLite preview, and no `DATABASE_URL`
 for a Postgres one — `preview.env` entries for the other backend fail at
@@ -223,9 +230,11 @@ companions in place; `--clear-services` removes all (cannot combine with
 `--clear-services`). Reseed bodies carry no service list, so companions
 stay as last deployed by construction.
 
-Each service joins the **Traefik** and **Postgres** networks (same as the
-app) and receives the **same connection env** as the app (including any
-`preview.env` remap). Services are force-removed on **teardown** (and on
+Each service joins the same networks as the app (Traefik + Postgres for
+`postgres` previews, Traefik only for `sqlite` and `none`) and receives
+the **same connection env** as the app (including any
+`preview.env` remap; `none` previews inject no connection env at all).
+Services are force-removed on **teardown** (and on
 replace) with the app. The health gate covers **only the app**: after the
 app passes `health.expect`, seed runs (when configured), then companion
 services start. There is no per-service health poll in this release.
@@ -320,6 +329,42 @@ env at all (`SPROUT_PREVIEW_POSTGRES_URL`, `SPROUT_PG_HOST/USER/PASSWORD`,
 `SPROUT_POSTGRES_NETWORK` are required only for `postgres` deploys). A
 `postgres` deploy on such a gateway fails fast with
 `postgres_not_configured`, naming the repo and the missing variables.
+
+### No-database previews
+
+For apps with no database — static or SSR frontends, apps whose data
+lives behind an external API, worker-only services — set `db.provider` to
+`none`. `sprout ci preview` picks it up from `.sprout.yaml` (no new flag):
+
+```yaml
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+db:
+  provider: none
+```
+
+The preview is app container + optional companion services + routing +
+health, with no database at all: bring-up provisions nothing and injects
+no connection env, teardown removes only containers, and the status and
+`previews` rows carry `db_name: null`. Companion services keep working
+exactly as today minus the database env (Traefik network only, no
+`PG*` / `DATABASE_URL` keys).
+
+Two combinations are validation errors rather than silent no-ops, both at
+manifest parse and at the gateway deploy route: a `seed:` block (`seed
+requires db.provider postgres or sqlite (db.provider is none)`) and any
+`preview.env` database-key remap (`preview.env.PGHOST requires
+db.provider postgres`). `sprout ci reseed`, `sprout deploy -s …`, and
+`--reseed` fail fast with the seed error on a `none` repo instead of a
+5xx.
+
+Operators: a gateway whose repos are all `none` boots with no
+`SPROUT_*PG*` / `SPROUT_POSTGRES_NETWORK` set; with any `postgres` repo
+onboarded it still fails fast when they are missing (same conditional
+requirement as SQLite). Switching a repo between `none` and a database
+provider redeploys as a fresh generation: the old backend is dropped
+before the row is rewritten, so no resource strands.
 
 ### CLI `ci` commands
 
@@ -507,6 +552,9 @@ parse errors name the key or file without echoing the value.
 | Synchronize deploy skips seeding | no error; incoming seed image matches the last successful one | Pass `--reseed` with `-s` (or `sprout ci reseed -s …`) to force a re-seed against the existing database. A failed reseed clears `seeded_at` and keeps the app up, leaving the stored seed image unchanged so the next deploy retries. |
 | Seed inputs changed but fixtures look stale | job log shows a new `seed-<shorthash>` tag built, yet no seed run | The gateway re-runs the seed automatically when the incoming seed image differs from the last successful one — no `--reseed` needed. If fixtures still look stale, check the seed job logs (`sprout ci logs`) for a `seed_failed` outcome. See [After-healthy hook](#after-healthy-hook-seed-image). |
 | `sprout ci reseed` without an image | `ci reseed requires -s <seed-image>` | Pass `-s` with the seed image; reseed runs against the existing database without rebuilding. |
+| `seed:` block with `db.provider: none` | `seed requires db.provider postgres or sqlite (db.provider is none)` (manifest parse and `422 seed_requires_database` at the deploy route) | Remove the `seed:` block — a no-database preview has nothing to seed. If the app needs fixtures, it is not a `none` repo; use `postgres` or `sqlite`. |
+| `-s` / `--reseed` / `sprout ci reseed -s …` on a `none` repo | `seed requires db.provider postgres or sqlite (db.provider is none)` (`422 seed_requires_database` from the gateway) | Drop the seed flags — there is no database to re-seed. The CLI fails before any network call; the gateway agrees on the message. |
+| `preview.env` database key with `db.provider: none` | `preview.env.<KEY> requires db.provider <postgres\|sqlite>` (manifest parse and `422 invalid_env_for_provider` at the deploy route) | Remove the entry — `none` previews inject no connection env. Keep only `preview.app_env` / `--app-env` for non-connection values. |
 
 ## App image: migrate at startup
 

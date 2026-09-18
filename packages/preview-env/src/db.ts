@@ -1,4 +1,4 @@
-export const DB_PROVIDERS = ["postgres", "sqlite"] as const;
+export const DB_PROVIDERS = ["postgres", "sqlite", "none"] as const;
 
 export type DbProvider = (typeof DB_PROVIDERS)[number];
 
@@ -104,7 +104,7 @@ export function dbSpecIssueMessage(issue: DbSpecIssue): string {
     case "unknown_db_key":
       return `unknown key: db.${issue.key}`;
     case "invalid_db_provider":
-      return `db.provider must be postgres or sqlite (got ${JSON.stringify(issue.provider)})`;
+      return `db.provider must be postgres, sqlite or none (got ${JSON.stringify(issue.provider)})`;
     case "invalid_db_path":
       return `db.path must be an absolute container path (got ${JSON.stringify(issue.path)})`;
     case "invalid_db_file":
@@ -114,6 +114,11 @@ export function dbSpecIssueMessage(issue: DbSpecIssue): string {
 
 export function normalizeDbSpec(spec: DbSpec | undefined): DbSpec {
   return spec ?? defaultDbSpec();
+}
+
+/** None previews have no database: no provision, no connection env, no seed. */
+export function requiresDatabase(provider: DbProvider): boolean {
+  return provider !== "none";
 }
 
 export function sqliteDatabaseUrl(path: string, file: string): string {

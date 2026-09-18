@@ -535,7 +535,7 @@ describe("POST /v1/deploy", () => {
         and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
       )
       .limit(1);
-    expect(names.has(row!.dbName)).toBe(true);
+    expect(names.has(row!.dbName!)).toBe(true);
     expect(row!.slug).toBe((winner.body as { slug: string }).slug);
   });
 

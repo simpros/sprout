@@ -439,6 +439,14 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const seed = parseSeedBlock(parsed.seed);
   if (!seed.ok) return seed;
 
+  // A seed job populates a database; with no database it has nothing to act on.
+  if (normalizeDbSpec(db.value).provider === "none" && seed.value) {
+    return {
+      ok: false,
+      error: "seed requires db.provider postgres or sqlite (db.provider is none)",
+    };
+  }
+
   const value: SproutYaml = {
     slug: slug.value,
     preview: { hostname: hostname.value },

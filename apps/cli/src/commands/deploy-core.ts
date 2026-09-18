@@ -256,6 +256,14 @@ export function buildDeployRequest(
   identity: DeployIdentity,
   inputs: BuildDeployRequestInputs,
 ): Result<DeployRequest> {
+  // A seed job populates a database; with no database the flags have nothing to act on.
+  if (yaml.db?.provider === "none" && (inputs.seedImage || inputs.reseed)) {
+    return {
+      ok: false,
+      error: "seed requires db.provider postgres or sqlite (db.provider is none)",
+    };
+  }
+
   const gate = requireHealthWhenSeeding(
     yaml,
     inputs.seedImage

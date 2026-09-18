@@ -103,4 +103,15 @@ describe("routing preview database", () => {
     await sqliteOnly.ensurePreviewRole();
     await sqliteOnly.ping();
   });
+
+  test("none has no backend to create and a no-op drop", async () => {
+    const db = createRoutingPreviewDb({
+      postgres: createFakePreviewDb(),
+      sqlite: createSqlitePreviewDb(createFakeDockerClient()),
+    });
+    expect(() => db.forCreate("none")).toThrow(
+      "provider none has no database backend",
+    );
+    await db.forDrop("none").dropDatabase("sprout_myapp_pr42");
+  });
 });

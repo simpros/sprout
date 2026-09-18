@@ -35,12 +35,22 @@ export function resolvePreviewPlan(
   ctx: PreviewMaterializationCtx,
   input: {
     spec: DbSpec;
-    dbName: string;
+    dbName: string | null;
     slug: string;
     prId: number;
     connectionEnv?: PreviewEnvMap;
   },
 ): PreviewDbPlan {
+  if (input.spec.provider === "none") {
+    return {
+      provider: "none",
+      gatewayEnv: [],
+      volumes: [],
+      appNetworks: [ctx.traefikNetwork],
+      // Seed never runs for none; traefik is the network that always exists.
+      seedNetworks: [ctx.traefikNetwork],
+    };
+  }
   if (input.spec.provider === "sqlite") {
     const target = input.connectionEnv?.DATABASE_URL ?? "DATABASE_URL";
     return {
@@ -59,6 +69,9 @@ export function resolvePreviewPlan(
     throw new Error(
       `postgres plan requested for ${input.dbName} without postgres config`,
     );
+  }
+  if (input.dbName == null) {
+    throw new Error("postgres plan requested without a database name");
   }
   return {
     provider: "postgres",

@@ -471,4 +471,42 @@ preview:
     );
     expect(captured).toEqual([]);
   });
+
+  test("deploy -s and --reseed fail fast on db.provider none with no network call", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      captured.push({
+        method: req.method,
+        path: url.pathname,
+        body: await req.json(),
+        authorization: req.headers.get("authorization"),
+      });
+      return Response.json({ ok: true, status: "running", preview_url: "x" });
+    });
+
+    const cwd = await withWorkspace(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  provider: none
+`);
+    const seedCode = await runCli(
+      ["deploy", "-i", "app:1", "-s", "seed:1"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_REF: "refs/pull/9/merge",
+        },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(seedCode).toBe(1);
+    expect(stderr[0]).toBe(
+      "seed requires db.provider postgres or sqlite (db.provider is none)",
+    );
+    expect(captured).toEqual([]);
+  });
 });

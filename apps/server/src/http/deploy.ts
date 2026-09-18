@@ -182,12 +182,22 @@ export function resolveSeedRequest(
     DeployBody,
     "seed_image" | "seed_env" | "seed_arg" | "health" | "reseed"
   >,
+  provider?: DbSpec["provider"],
 ):
   | { ok: true; value: SeedImageSpec | undefined }
-  | { ok: false; error: string } {
+  | { ok: false; error: string; detail?: string } {
   const seedImage = body.seed_image?.trim();
   const seedEnv = body.seed_env ?? [];
   const seedArg = body.seed_arg ?? [];
+
+  // None previews have no database for a seed job to populate.
+  if (provider === "none" && (seedImage || body.reseed === true || seedEnv.length > 0 || seedArg.length > 0)) {
+    return {
+      ok: false,
+      error: "seed_requires_database",
+      detail: "seed requires db.provider postgres or sqlite (db.provider is none)",
+    };
+  }
 
   if (!seedImage) {
     if (body.reseed) {
@@ -327,15 +337,20 @@ export function deploy(
     }
     const plan = resolvePreviewPlan(deps.materialization, {
       spec: dbAndEnv.value.spec,
-      dbName: previewDbName(body.slug, body.pr_id),
+      dbName:
+        dbAndEnv.value.spec.provider === "none"
+          ? null
+          : previewDbName(body.slug, body.pr_id),
       slug: body.slug,
       prId: body.pr_id,
       connectionEnv: dbAndEnv.value.connectionEnv,
     });
-    const seed = resolveSeedRequest(body);
+    const seed = resolveSeedRequest(body, dbAndEnv.value.spec.provider);
     if (!seed.ok) {
       set.status = 422;
-      return { error: seed.error };
+      return "detail" in seed && seed.detail
+        ? { error: seed.error, detail: seed.detail }
+        : { error: seed.error };
     }
     const appEnv = resolveAppEnvRequest(body);
     if (!appEnv.ok) {

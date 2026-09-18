@@ -62,6 +62,14 @@ export async function runCiPreview(
   const yaml = await loadYaml(ctx.deps);
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
 
+  // None previews have no database to reseed; fail before any image build.
+  if (yaml.value.db?.provider === "none" && flags.value.reseed) {
+    return fail(
+      ctx.deps.io,
+      "seed requires db.provider postgres or sqlite (db.provider is none)",
+    );
+  }
+
   const appDockerfile = yaml.value.build?.dockerfile ?? "Dockerfile";
   const seedBlock = yaml.value.seed;
   const seedGate = requireHealthWhenSeeding(yaml.value, {
