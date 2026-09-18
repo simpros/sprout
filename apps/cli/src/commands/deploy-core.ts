@@ -112,6 +112,8 @@ export async function applyDeployEnv<T extends DeployRequest>(
     prId: body.pr_id,
     commitSha: inputs.commitSha,
     repo: body.canonical_repo_id,
+    // HMAC key is SPROUT_TOKEN only (not local admin fallback) so CI and
+    // local agree when the same deploy token is used.
     deployToken: deps.env.SPROUT_TOKEN?.trim() ?? "",
   };
 

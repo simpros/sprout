@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Acceptance stays non-blocking until compose smoke is confirmed in CI.
   acceptance:
     continue-on-error: true
     runs-on: ubuntu-latest

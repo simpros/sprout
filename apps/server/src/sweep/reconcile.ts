@@ -41,6 +41,7 @@ export type SweepPorts = {
   listCatalogDatabases: () => Promise<CatalogDbRef[]>;
   listPreviewContainers: () => Promise<PreviewRef[]>;
   listOpenPrIds: (canonicalRepoId: string) => Promise<number[]>;
+  /** True if resources were removed; false if the plan was stale. */
   drop: (deletion: SweepDeletion) => Promise<boolean>;
   ttlHours: number;
   log?: (message: string, deletion?: SweepDeletion) => void;
@@ -68,6 +69,7 @@ async function dropSettled(
     const result = results[i]!;
     const deletion = candidates[i]!;
     if (result.status === "fulfilled") {
+      // Stale plan — not a success.
       if (!result.value.removed) continue;
       ports.log?.(successLog(deletion), deletion);
       succeeded.push(deletion);
@@ -195,6 +197,7 @@ export async function runSweepPass(ports: SweepPorts): Promise<SweepPassResult> 
 
   const prNotOpenDeletions: SweepDeletion[] = [];
   for (const preview of remainingPreviews) {
+    // Missing map entry = forge failed for that repo — do not delete.
     const openSet = openByRepo.get(preview.canonicalRepoId);
     if (!openSet || openSet.has(preview.prId)) continue;
 

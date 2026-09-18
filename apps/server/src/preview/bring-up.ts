@@ -246,6 +246,8 @@ async function attachThenPromote(
   const attached = await attachAppContainer(deps, row, input);
   if (!attached.ok) return attached;
   let starting = attached.value;
+  // Clear after healthy attach so pull/health failure cannot erase a prior
+  // successful seed marker; promote's seed gate is `seededAt == null`.
   if (input.reseed === true && starting.seededAt != null) {
     starting = await updatePreviewRow(
       deps.db,
@@ -334,6 +336,8 @@ export async function completeBringUp(
 ): Promise<Result<PreviewSnapshot>> {
   switch (parseBringUpPlan(row.bringUpPlan)) {
     case "seed_resume": {
+      // Accept already gated sameApp before writing this plan. Silent
+      // escalate to replace would hide accept bugs behind Traefik flaps.
       if (!canSeedWithoutAppReplace(row, input)) {
         return {
           ok: false,

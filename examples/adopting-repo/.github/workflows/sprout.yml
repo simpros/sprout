@@ -19,7 +19,7 @@ jobs:
 
       - name: Install sprout
         env:
-          SPROUT_CLI_TAG: v0.6.0
+          SPROUT_CLI_TAG: v0.6.0 # >= release with glibc sprout-linux-x64 (not v0.5.0)
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
           curl -fsSL -o "$RUNNER_TEMP/bin/sprout" \

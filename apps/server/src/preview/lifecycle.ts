@@ -179,6 +179,7 @@ async function writeProvisioningIntent(
       containerId: null,
       seededAt: null,
       ...clearLastError,
+      // New generation: TTL means age of this intent, not birth of the row key.
       createdAt: now,
       updatedAt: now,
     },
