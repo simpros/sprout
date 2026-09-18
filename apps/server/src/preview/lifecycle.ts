@@ -8,6 +8,7 @@ import { markPreviewFailed } from "./mark-failed.ts";
 import {
   updatePreviewRow,
   utcIsoNow,
+  needsBackendRemint,
   storedProvider,
   type PreviewRow,
 } from "./row.ts";
@@ -312,7 +313,10 @@ export async function claimDeployIntent(
   // A provider switch is a fresh generation: seed_resume and companion sync
   // assume the stored backend, so fall through to a full_replace intent that
   // bring-up reconciles (old backend dropped, new one created).
-  if (status.value !== "removing" && storedProvider(row) !== input.plan.provider) {
+  if (
+    status.value !== "removing" &&
+    needsBackendRemint(row, input.plan.provider)
+  ) {
     const intent = await writeProvisioningIntent(
       deps,
       input,

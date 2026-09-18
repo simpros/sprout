@@ -11,6 +11,7 @@ import type { Result } from "./result.ts";
 import {
   updatePreviewRow,
   utcIsoNow,
+  needsBackendRemint,
   storedProvider,
   type PreviewRow,
 } from "./row.ts";
@@ -49,7 +50,8 @@ async function ensureDatabase(
   return withDbNameLock(row.dbName, async () => {
     try {
       const stored = storedProvider(row);
-      if (stored !== provider) {
+      const remint = needsBackendRemint(row, provider);
+      if (remint) {
         // Provider switch: drop the old backend first so a failed create
         // never strands a resource the row no longer points at. Missing-tolerant
         // drops make a partially switched preview converge on retry.
@@ -63,7 +65,7 @@ async function ensureDatabase(
         }
       }
       await deps.previewDb.forCreate(provider).createDatabase(row.dbName);
-      if (stored !== provider) {
+      if (remint) {
         await updatePreviewRow(
           deps.db,
           row,

@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { DbProvider } from "@sprout/preview-env";
+import { isDbProvider, type DbProvider } from "@sprout/preview-env";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 
@@ -9,7 +9,15 @@ export type PreviewRow = typeof previews.$inferSelect;
 export function storedProvider(
   row: Pick<PreviewRow, "dbProvider">,
 ): DbProvider {
-  return row.dbProvider === "sqlite" ? "sqlite" : "postgres";
+  return isDbProvider(row.dbProvider) ? row.dbProvider : "postgres";
+}
+
+/** A provider switch is a fresh backend generation, not an identity conflict. */
+export function needsBackendRemint(
+  row: Pick<PreviewRow, "dbProvider">,
+  provider: DbProvider,
+): boolean {
+  return storedProvider(row) !== provider;
 }
 
 export function utcIsoNow(): string {

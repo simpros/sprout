@@ -9,9 +9,9 @@ import { bindPreviewOps } from "./ops.ts";
 import { removePreviewFleet } from "./preview-containers.ts";
 import { replacePreviewApp } from "./replace.ts";
 import {
-  createPreviewRuntime,
   resolvePreviewPlan,
   type PreviewDbPlan,
+  type PreviewMaterializationCtx,
 } from "../preview/runtime.ts";
 
 const PG_PASSWORD = "sekrit";
@@ -20,24 +20,26 @@ const baseDeps = {
   previewPortDefault: 8080,
 };
 
-function runtime() {
-  return createPreviewRuntime({
-    pg: {
-      host: "postgres",
-      port: 5432,
-      user: "sprout_preview",
-      password: PG_PASSWORD,
-    },
+function materialization(): PreviewMaterializationCtx {
+  return {
     traefikNetwork: "sprout-traefik",
-    postgresNetwork: "sprout-postgres",
-  });
+    postgres: {
+      pg: {
+        host: "postgres",
+        port: 5432,
+        user: "sprout_preview",
+        password: PG_PASSWORD,
+      },
+      network: "sprout-postgres",
+    },
+  };
 }
 
 function postgresPlan(
   dbName = "sprout_myapp_pr42",
   connectionEnv?: PreviewEnvMap,
 ): PreviewDbPlan {
-  return resolvePreviewPlan(runtime(), {
+  return resolvePreviewPlan(materialization(), {
     spec: defaultDbSpec(),
     dbName,
     slug: "myapp",

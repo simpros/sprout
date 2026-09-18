@@ -16,10 +16,10 @@ import type { PreviewDocker } from "../docker/port.ts";
 import { connectState, type StateDb } from "../infrastructure/db/client.ts";
 import { createFakePreviewDb } from "../preview-db/fake.ts";
 import type { PreviewDbRouter } from "../preview-db/routing.ts";
-import { createPreviewRuntime } from "../preview/runtime.ts";
+import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
 import { runMigrations } from "../scripts/migrate.ts";
 import { createRoutes } from "./routes.ts";
-import type { PostgresGate } from "./deploy.ts";
+import type { PostgresConfig } from "../config.ts";
 
 export type TestDb = {
   db: StateDb;
@@ -40,17 +40,27 @@ const defaultOpsDeps: Omit<BindPreviewOpsDeps, "docker"> = {
   seedTimeoutMs: 180_000,
 };
 
-const defaultTestRuntime = () =>
-  createPreviewRuntime({
+const defaultTestMaterialization = (): PreviewMaterializationCtx => ({
+  traefikNetwork: "sprout-traefik",
+  postgres: {
     pg: {
       host: "postgres",
       port: 5432,
       user: "sprout_preview",
       password: "preview-secret",
     },
-    traefikNetwork: "sprout-traefik",
-    postgresNetwork: "sprout-postgres",
-  });
+    network: "sprout-postgres",
+  },
+});
+
+const defaultTestPostgres: PostgresConfig = {
+  url: "postgres://sprout_preview:preview-secret@postgres:5432/sprout",
+  host: "postgres",
+  port: 5432,
+  user: "sprout_preview",
+  password: "preview-secret",
+  network: "sprout-postgres",
+};
 
 export function bindTestPreviewApp(
   docker: PreviewDocker,
@@ -91,7 +101,7 @@ export async function createTestApp(
         replaceDeps?: Partial<Omit<BindPreviewOpsDeps, "docker">>;
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
-        postgresGate?: PostgresGate;
+        postgres?: PostgresConfig;
       }
     | string = {},
 ): Promise<TestApp> {
@@ -112,11 +122,9 @@ export async function createTestApp(
       db,
       previewDb,
       app: appOps,
-      runtime: defaultTestRuntime(),
-      postgresGate: opts.postgresGate ?? {
-        configured: true,
-        detail: () => "postgres not configured",
-      },
+      materialization: defaultTestMaterialization(),
+      // Explicit `postgres: undefined` opts into a sqlite-only gateway.
+      postgres: "postgres" in opts ? opts.postgres : defaultTestPostgres,
     }),
     db,
     adminToken,

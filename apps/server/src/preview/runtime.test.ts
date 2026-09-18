@@ -3,8 +3,11 @@ import {
   deriveRestrictedPassword,
   restrictedRoleName,
 } from "@sprout/preview-db";
-import { defaultDbSpec } from "@sprout/preview-env";
-import { createPreviewRuntime, resolvePreviewPlan } from "./runtime.ts";
+import { defaultDbSpec, type DbSpec } from "@sprout/preview-env";
+import {
+  resolvePreviewPlan,
+  type PreviewMaterializationCtx,
+} from "./runtime.ts";
 
 const PG = {
   host: "postgres",
@@ -15,19 +18,35 @@ const PG = {
 
 const NETWORKS = { traefik: "sprout-traefik", postgres: "sprout-postgres" };
 
-const SQLITE_DB = { provider: "sqlite" as const, path: "/data", file: "preview.db" };
+const SQLITE_DB: DbSpec = {
+  provider: "sqlite",
+  path: "/data",
+  file: "preview.db",
+};
 
-function runtime() {
-  return createPreviewRuntime({
-    pg: PG,
+function ctx(): PreviewMaterializationCtx {
+  return {
     traefikNetwork: NETWORKS.traefik,
-    postgresNetwork: NETWORKS.postgres,
+    postgres: { pg: PG, network: NETWORKS.postgres },
+  };
+}
+
+function plan(
+  spec: DbSpec = defaultDbSpec(),
+  extra?: Partial<Parameters<typeof resolvePreviewPlan>[1]>,
+) {
+  return resolvePreviewPlan(ctx(), {
+    spec,
+    dbName: "sprout_myapp_pr42",
+    slug: "myapp",
+    prId: 42,
+    ...extra,
   });
 }
 
-describe("preview runtime binding", () => {
+describe("resolvePreviewPlan", () => {
   test("postgres connection env matches the legacy PG* layout", () => {
-    expect(runtime().connectionEnv(defaultDbSpec(), "sprout_myapp_pr42")).toEqual([
+    expect(plan().gatewayEnv).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
       "PGUSER=sprout_preview",
@@ -40,63 +59,59 @@ describe("preview runtime binding", () => {
 
   test("postgres remap still replaces names", () => {
     expect(
-      runtime().connectionEnv(defaultDbSpec(), "sprout_myapp_pr42", {
-        PGHOST: "DATABASE_HOST",
-      })[0],
+      plan(defaultDbSpec(), { connectionEnv: { PGHOST: "DATABASE_HOST" } })
+        .gatewayEnv[0],
     ).toBe("DATABASE_HOST=postgres");
   });
 
   test("postgres uses no volumes and both networks", () => {
-    expect(runtime().volumes(defaultDbSpec(), "myapp", 42)).toEqual([]);
-    expect(runtime().appNetworks(defaultDbSpec())).toEqual([
-      "sprout-traefik",
-      "sprout-postgres",
-    ]);
-    expect(runtime().seedNetworks(defaultDbSpec())).toEqual(["sprout-postgres"]);
+    expect(plan()).toMatchObject({
+      provider: "postgres",
+      volumes: [],
+      appNetworks: ["sprout-traefik", "sprout-postgres"],
+      seedNetworks: ["sprout-postgres"],
+    });
   });
 
   test("sqlite injects a single DATABASE_URL and no PG* keys", () => {
-    expect(
-      runtime().connectionEnv(SQLITE_DB, "sprout_myapp_pr42"),
-    ).toEqual(["DATABASE_URL=file:/data/preview.db"]);
+    expect(plan(SQLITE_DB).gatewayEnv).toEqual([
+      "DATABASE_URL=file:/data/preview.db",
+    ]);
   });
 
   test("sqlite remap replaces the name without a dual alias", () => {
     expect(
-      runtime().connectionEnv(SQLITE_DB, "sprout_myapp_pr42", {
-        DATABASE_URL: "APP_DATABASE_URL",
-      }),
+      plan(SQLITE_DB, { connectionEnv: { DATABASE_URL: "APP_DATABASE_URL" } })
+        .gatewayEnv,
     ).toEqual(["APP_DATABASE_URL=file:/data/preview.db"]);
   });
 
   test("sqlite honors custom path and file", () => {
     expect(
-      runtime().connectionEnv(
-        { provider: "sqlite", path: "/sqlite", file: "app.db" },
-        "sprout_myapp_pr42",
-      ),
+      plan({ provider: "sqlite", path: "/sqlite", file: "app.db" }).gatewayEnv,
     ).toEqual(["DATABASE_URL=file:/sqlite/app.db"]);
   });
 
-  test("sqlite mounts one named volume on the app path", () => {
-    expect(runtime().volumes(SQLITE_DB, "myapp", 42)).toEqual([
-      "sprout-myapp-pr-42-sqlite:/data",
-    ]);
+  test("sqlite mounts one named volume and joins traefik only", () => {
+    expect(plan(SQLITE_DB)).toMatchObject({
+      provider: "sqlite",
+      volumes: ["sprout-myapp-pr-42-sqlite:/data"],
+      appNetworks: ["sprout-traefik"],
+      seedNetworks: ["sprout-traefik"],
+    });
   });
 
-  test("sqlite containers join traefik only; seed reuses it", () => {
-    expect(runtime().appNetworks(SQLITE_DB)).toEqual(["sprout-traefik"]);
-    expect(runtime().seedNetworks(SQLITE_DB)).toEqual(["sprout-traefik"]);
-  });
-
-  test("resolvePreviewPlan answers every materialization question once", () => {
+  test("sqlite resolves without postgres config", () => {
     expect(
-      resolvePreviewPlan(runtime(), {
-        spec: SQLITE_DB,
-        dbName: "sprout_myapp_pr42",
-        slug: "myapp",
-        prId: 42,
-      }),
+      resolvePreviewPlan(
+        { traefikNetwork: NETWORKS.traefik },
+        {
+          spec: SQLITE_DB,
+          dbName: "sprout_myapp_pr42",
+          slug: "myapp",
+          prId: 42,
+        },
+      ),
     ).toEqual({
       provider: "sqlite",
       gatewayEnv: ["DATABASE_URL=file:/data/preview.db"],
@@ -104,5 +119,19 @@ describe("preview runtime binding", () => {
       appNetworks: ["sprout-traefik"],
       seedNetworks: ["sprout-traefik"],
     });
+  });
+
+  test("postgres without postgres config throws instead of emitting empty networks", () => {
+    expect(() =>
+      resolvePreviewPlan(
+        { traefikNetwork: NETWORKS.traefik },
+        {
+          spec: defaultDbSpec(),
+          dbName: "sprout_myapp_pr42",
+          slug: "myapp",
+          prId: 42,
+        },
+      ),
+    ).toThrow("without postgres config");
   });
 });

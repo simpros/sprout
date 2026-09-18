@@ -14,6 +14,11 @@ import type { AuthContext } from "../auth/middleware.ts";
 import type { PreviewServiceSpec } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
+  isPostgresConfigured,
+  postgresNotConfiguredDetail,
+  type PostgresConfig,
+} from "../config.ts";
+import {
   teardownPreview,
   type LifecycleDeps,
   type PreviewSnapshot,
@@ -21,7 +26,7 @@ import {
 import { previewDbName } from "../preview-db/names.ts";
 import {
   resolvePreviewPlan,
-  type PreviewRuntime,
+  type PreviewMaterializationCtx,
 } from "../preview/runtime.ts";
 import {
   acceptAsyncDeploy,
@@ -103,11 +108,6 @@ export type DeployBody = {
   reseed?: boolean;
 };
 
-export type PostgresGate = {
-  configured: boolean;
-  detail: (repo: string) => string;
-};
-
 export type DeployDbAndEnv = {
   spec: DbSpec;
   connectionEnv?: PreviewEnvMap;
@@ -120,7 +120,7 @@ export type DeployDbAndEnv = {
  */
 export function resolveDeployDbAndEnv(
   body: Pick<DeployBody, "db" | "env">,
-  gate: PostgresGate,
+  postgres: PostgresConfig | undefined,
   repo: string,
 ):
   | { ok: true; value: DeployDbAndEnv }
@@ -135,12 +135,12 @@ export function resolveDeployDbAndEnv(
     };
   }
   const spec = normalizeDbSpec(parsed.value);
-  if (spec.provider === "postgres" && !gate.configured) {
+  if (spec.provider === "postgres" && !isPostgresConfigured({ postgres })) {
     return {
       ok: false,
       status: 500,
       error: "postgres_not_configured",
-      detail: gate.detail(repo),
+      detail: postgresNotConfiguredDetail({ postgres }, repo),
     };
   }
   const connectionEnv = parsePreviewEnvForProvider(body.env, spec.provider);
@@ -288,7 +288,10 @@ export type PreviewQuery = {
 };
 
 export function deploy(
-  deps: LifecycleDeps & { postgresGate: PostgresGate; runtime: PreviewRuntime },
+  deps: LifecycleDeps & {
+    postgres: PostgresConfig | undefined;
+    materialization: PreviewMaterializationCtx;
+  },
 ) {
   return async ({
     body,
@@ -315,14 +318,14 @@ export function deploy(
       set.status = 422;
       return { error: "invalid_hostname" };
     }
-    const dbAndEnv = resolveDeployDbAndEnv(body, deps.postgresGate, repo.value);
+    const dbAndEnv = resolveDeployDbAndEnv(body, deps.postgres, repo.value);
     if (!dbAndEnv.ok) {
       set.status = dbAndEnv.status;
       return dbAndEnv.detail
         ? { error: dbAndEnv.error, detail: dbAndEnv.detail }
         : { error: dbAndEnv.error };
     }
-    const plan = resolvePreviewPlan(deps.runtime, {
+    const plan = resolvePreviewPlan(deps.materialization, {
       spec: dbAndEnv.value.spec,
       dbName: previewDbName(body.slug, body.pr_id),
       slug: body.slug,

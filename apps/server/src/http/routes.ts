@@ -4,7 +4,8 @@ import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import type { LifecycleDeps } from "../preview/lifecycle.ts";
-import type { PreviewRuntime } from "../preview/runtime.ts";
+import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
+import type { PostgresConfig } from "../config.ts";
 import {
   createDeployToken,
   createDeployTokenBody,
@@ -12,7 +13,6 @@ import {
   revokeToken,
 } from "./admin-tokens.ts";
 import { deploy, deployBody, getPreview, previewQuery, teardown, teardownBody } from "./deploy.ts";
-import type { PostgresGate } from "./deploy.ts";
 import { doctor, drop, dropBody, listPreviews } from "./introspection.ts";
 import {
   getPreviewLogs,
@@ -24,8 +24,8 @@ export type RouteDeps = {
   db: StateDb;
   previewDb: PreviewDbRouter;
   app: PreviewAppOps;
-  runtime: PreviewRuntime;
-  postgresGate: PostgresGate;
+  materialization: PreviewMaterializationCtx;
+  postgres: PostgresConfig | undefined;
 };
 
 function stubNotImplemented({
@@ -45,8 +45,8 @@ export function createRoutes(deps: RouteDeps) {
   };
   const deployDeps = {
     ...lifecycle,
-    runtime: deps.runtime,
-    postgresGate: deps.postgresGate,
+    materialization: deps.materialization,
+    postgres: deps.postgres,
   };
   return new Elysia()
     .get("/healthz", () => ({ ok: true }))

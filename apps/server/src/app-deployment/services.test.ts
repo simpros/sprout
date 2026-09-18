@@ -8,9 +8,9 @@ import { createFakeDockerClient } from "../docker/fake.ts";
 import { removePreviewFleet } from "./preview-containers.ts";
 import { replacePreviewServices } from "./services.ts";
 import {
-  createPreviewRuntime,
   resolvePreviewPlan,
   type PreviewDbPlan,
+  type PreviewMaterializationCtx,
 } from "../preview/runtime.ts";
 
 const PG_PASSWORD = "sekrit";
@@ -19,20 +19,28 @@ const baseDeps = {
   previewPortDefault: 8080,
 };
 
-function postgresPlan(dbName: string): PreviewDbPlan {
-  return resolvePreviewPlan(
-    createPreviewRuntime({
+function materialization(): PreviewMaterializationCtx {
+  return {
+    traefikNetwork: "sprout-traefik",
+    postgres: {
       pg: {
         host: "postgres",
         port: 5432,
         user: "sprout_preview",
         password: PG_PASSWORD,
       },
-      traefikNetwork: "sprout-traefik",
-      postgresNetwork: "sprout-postgres",
-    }),
-    { spec: defaultDbSpec(), dbName, slug: "myapp", prId: 42 },
-  );
+      network: "sprout-postgres",
+    },
+  };
+}
+
+function postgresPlan(dbName: string): PreviewDbPlan {
+  return resolvePreviewPlan(materialization(), {
+    spec: defaultDbSpec(),
+    dbName,
+    slug: "myapp",
+    prId: 42,
+  });
 }
 
 function companionEnv(dbName: string) {

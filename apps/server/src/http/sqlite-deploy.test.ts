@@ -37,11 +37,7 @@ async function setupSqliteOnly() {
       sqlite: createSqlitePreviewDb(fakeDocker),
     }),
     docker: fakeDocker,
-    postgresGate: {
-      configured: false,
-      detail: (repo) =>
-        `repo ${repo} declares db.provider postgres but the gateway has no Postgres configured: missing SPROUT_PREVIEW_POSTGRES_URL`,
-    },
+    postgres: undefined,
   });
   const { body } = await postDeployToken(testApp, {
     canonical_repo_id: REPO,
@@ -165,7 +161,7 @@ describe("sqlite previews", () => {
     expect(res.outcome).toBe("rejected");
     expect(res.body).toEqual({
       error: "postgres_not_configured",
-      detail: `repo ${REPO} declares db.provider postgres but the gateway has no Postgres configured: missing SPROUT_PREVIEW_POSTGRES_URL`,
+      detail: `repo ${REPO} declares db.provider postgres but the gateway has no Postgres configured: missing SPROUT_PREVIEW_POSTGRES_URL, SPROUT_PG_HOST, SPROUT_PG_USER, SPROUT_PG_PASSWORD, SPROUT_POSTGRES_NETWORK`,
     });
     expect(fakeDocker!.creates).toEqual([]);
     expect(fakeDocker!.volumesCreated).toEqual([]);

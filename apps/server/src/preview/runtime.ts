@@ -7,22 +7,16 @@ import {
 import { pgConnectionEnv, type AppDeployPg } from "../app-deployment/pg-env.ts";
 import { sqliteVolumeName } from "./naming.ts";
 
-/** Normalized specs only: callers normalize once via resolvePreviewPlan. */
-export type PreviewRuntime = {
-  connectionEnv(
-    spec: DbSpec,
-    dbName: string,
-    remap?: PreviewEnvMap,
-  ): string[];
-  volumes(spec: DbSpec, slug: string, prId: number): string[];
-  appNetworks(spec: DbSpec): string[];
-  seedNetworks(spec: DbSpec): string[];
-};
-
-export type PreviewRuntimeOptions = {
-  pg?: AppDeployPg;
+/**
+ * Materialization inputs. Postgres is present only when the gateway
+ * configures it, so a postgres plan on a sqlite-only gateway fails by type.
+ */
+export type PreviewMaterializationCtx = {
   traefikNetwork: string;
-  postgresNetwork: string;
+  postgres?: {
+    pg: AppDeployPg;
+    network: string;
+  };
 };
 
 /**
@@ -38,7 +32,7 @@ export type PreviewDbPlan = {
 };
 
 export function resolvePreviewPlan(
-  runtime: PreviewRuntime,
+  ctx: PreviewMaterializationCtx,
   input: {
     spec: DbSpec;
     dbName: string;
@@ -47,50 +41,30 @@ export function resolvePreviewPlan(
     connectionEnv?: PreviewEnvMap;
   },
 ): PreviewDbPlan {
-  return {
-    provider: input.spec.provider,
-    gatewayEnv: runtime.connectionEnv(
-      input.spec,
-      input.dbName,
-      input.connectionEnv,
-    ),
-    volumes: runtime.volumes(input.spec, input.slug, input.prId),
-    appNetworks: runtime.appNetworks(input.spec),
-    seedNetworks: runtime.seedNetworks(input.spec),
-  };
-}
-
-export function createPreviewRuntime(
-  options: PreviewRuntimeOptions,
-): PreviewRuntime {
-  const { pg, traefikNetwork, postgresNetwork } = options;
-  return {
-    connectionEnv(spec, dbName, remap) {
-      if (spec.provider === "sqlite") {
-        const target = remap?.DATABASE_URL ?? "DATABASE_URL";
-        return [`${target}=${sqliteDatabaseUrl(spec.path, spec.file)}`];
-      }
-      if (!pg) {
-        throw new Error(
-          `postgres connection env requested for ${dbName} without postgres config`,
-        );
-      }
-      return pgConnectionEnv(pg, dbName, remap);
-    },
-    volumes(spec, slug, prId) {
-      if (spec.provider === "sqlite") {
-        return [`${sqliteVolumeName(slug, prId)}:${spec.path}`];
-      }
-      return [];
-    },
-    appNetworks(spec) {
-      if (spec.provider === "sqlite") return [traefikNetwork];
-      return [traefikNetwork, postgresNetwork];
-    },
-    seedNetworks(spec) {
+  if (input.spec.provider === "sqlite") {
+    const target = input.connectionEnv?.DATABASE_URL ?? "DATABASE_URL";
+    return {
+      provider: "sqlite",
+      gatewayEnv: [
+        `${target}=${sqliteDatabaseUrl(input.spec.path, input.spec.file)}`,
+      ],
+      volumes: [`${sqliteVolumeName(input.slug, input.prId)}:${input.spec.path}`],
+      appNetworks: [ctx.traefikNetwork],
       // Seed needs no postgres data; traefik is the network that always exists.
-      if (spec.provider === "sqlite") return [traefikNetwork];
-      return [postgresNetwork];
-    },
+      seedNetworks: [ctx.traefikNetwork],
+    };
+  }
+  const postgres = ctx.postgres;
+  if (!postgres) {
+    throw new Error(
+      `postgres plan requested for ${input.dbName} without postgres config`,
+    );
+  }
+  return {
+    provider: "postgres",
+    gatewayEnv: pgConnectionEnv(postgres.pg, input.dbName, input.connectionEnv),
+    volumes: [],
+    appNetworks: [ctx.traefikNetwork, postgres.network],
+    seedNetworks: [postgres.network],
   };
 }

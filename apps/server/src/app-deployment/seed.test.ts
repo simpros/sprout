@@ -3,9 +3,19 @@ import { defaultDbSpec } from "@sprout/preview-env";
 import { createFakeDockerClient } from "../docker/fake.ts";
 import { runSeedImage, type SeedImageInput } from "./seed.ts";
 import {
-  createPreviewRuntime,
   resolvePreviewPlan,
+  type PreviewMaterializationCtx,
 } from "../preview/runtime.ts";
+
+function materialization(): PreviewMaterializationCtx {
+  return {
+    traefikNetwork: "traefik-net",
+    postgres: {
+      pg: { host: "pg", port: 5432, user: "u", password: "p" },
+      network: "pg-net",
+    },
+  };
+}
 
 function input(overrides: Partial<SeedImageInput> = {}): SeedImageInput {
   return {
@@ -14,14 +24,12 @@ function input(overrides: Partial<SeedImageInput> = {}): SeedImageInput {
     image: "seed:test",
     env: [],
     args: [],
-    plan: resolvePreviewPlan(
-      createPreviewRuntime({
-        pg: { host: "pg", port: 5432, user: "u", password: "p" },
-        traefikNetwork: "traefik-net",
-        postgresNetwork: "pg-net",
-      }),
-      { spec: defaultDbSpec(), dbName: "db", slug: "app", prId: 1 },
-    ),
+    plan: resolvePreviewPlan(materialization(), {
+      spec: defaultDbSpec(),
+      dbName: "db",
+      slug: "app",
+      prId: 1,
+    }),
     ...overrides,
   };
 }

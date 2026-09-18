@@ -56,12 +56,8 @@ export function envKeysForProvider(
   return CANONICAL_ENV_KEYS.filter((key) => ENV_KEY_HOME[key] === provider);
 }
 
-export function providerForEnvKey(key: CanonicalEnvKey): DbProvider {
-  return ENV_KEY_HOME[key];
-}
-
 export function envProviderMismatch(
-  env: Partial<Record<CanonicalEnvKey, string>> | undefined,
+  env: PreviewEnvMap | undefined,
   provider: DbProvider,
 ): { key: CanonicalEnvKey; home: DbProvider } | null {
   for (const key of Object.keys(env ?? {})) {

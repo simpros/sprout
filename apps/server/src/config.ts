@@ -260,16 +260,20 @@ export function loadConfig(): Config {
   };
 }
 
-export function missingPostgresEnv(config: Config): string[] {
+export function missingPostgresEnv(
+  config: Pick<Config, "postgres">,
+): string[] {
   return config.postgres ? [] : [...POSTGRES_REQUIRED_ENV];
 }
 
-export function isPostgresConfigured(config: Config): boolean {
+export function isPostgresConfigured(
+  config: Pick<Config, "postgres">,
+): boolean {
   return config.postgres !== undefined;
 }
 
 export function postgresNotConfiguredDetail(
-  config: Config,
+  config: Pick<Config, "postgres">,
   repo: string,
 ): string {
   const missing = missingPostgresEnv(config);
