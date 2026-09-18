@@ -97,6 +97,12 @@
       "skillPath": "skills/engineering/triage/SKILL.md",
       "computedHash": "b954d74c219c805bf353d6642251a713c9b2e9cfdb11babfe588bcfe7dfd16d5"
     },
+    "visual-pr": {
+      "source": "humanlayer/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/visual-pr/skills/visual-pr/SKILL.md",
+      "computedHash": "197904ade976018d9ce28e706323f969a6a87947994f46e3ffad78c46e70a716"
+    },
     "wayfinder": {
       "source": "mattpocock/skills",
       "sourceType": "github",
