@@ -1,7 +1,6 @@
 import { forgeApiError } from "./types.ts";
 
-export const FORGE_KINDS = ["github", "gitlab"] as const;
-export type ForgeKind = (typeof FORGE_KINDS)[number];
+export type ForgeKind = "github" | "gitlab";
 
 export const GITHUB_HOSTS = new Set(["github.com", "www.github.com"]);
 

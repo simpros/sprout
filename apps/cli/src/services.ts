@@ -1,6 +1,8 @@
 import type { Result } from "./result.ts";
-import { SERVICE_NAME_RE } from "./service-name.ts";
 import type { SproutYamlService } from "./yaml.ts";
+
+/** Alphanumeric service id (same grammar as slug / server validateServiceName). */
+const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
 
 /** Mirror server MAX_SERVICES — fail before POST. */
 export const MAX_SERVICES = 8;

@@ -24,8 +24,6 @@ import {
 } from "../preview-db/names.ts";
 import { mapResult, requireReadablePreview, resolveRepo } from "./result-map.ts";
 
-export type { LifecycleDeps };
-
 const healthBody = t.Object({
   path: t.String({ minLength: 1 }),
   interval: t.String({ minLength: 1 }),

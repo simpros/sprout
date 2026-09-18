@@ -12,7 +12,6 @@ import { runWorktreeDb } from "./commands/worktree-db.ts";
 import {
   authedContext,
   fail,
-  resolveGatewayUrl,
   unauthedContext,
   type CliContext,
   type CliDeps,
@@ -21,7 +20,6 @@ import {
 import { cliVersion } from "./version.ts";
 
 export type { CliDeps, CliIo };
-export { resolveGatewayUrl };
 
 type Command = {
   needsToken: boolean;

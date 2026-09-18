@@ -7,7 +7,7 @@ import {
   type ForgeClient,
 } from "./types.ts";
 
-export { FORGE_KINDS, resolveForgeKind, type ForgeKind } from "./kind.ts";
+export { resolveForgeKind, type ForgeKind } from "./kind.ts";
 
 export type CreateForgeClientOptions = {
   githubToken?: string;
@@ -80,4 +80,4 @@ export function createForgeClient(
 }
 
 export type { ForgeClient } from "./types.ts";
-export { forgeApiError, isForgeApiError } from "./types.ts";
+export { isForgeApiError } from "./types.ts";
