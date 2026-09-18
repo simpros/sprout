@@ -9,7 +9,7 @@ import { hostnameIssueMessage } from "./hostname.ts";
 import type { Result } from "./result.ts";
 
 /** Alphanumeric service id (same grammar as slug / server validateServiceName). */
-const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
+export const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
 
 export type { PreviewEnvMap };
 
