@@ -1,8 +1,7 @@
-import type { PreviewEnvMap } from "@sprout/preview-env";
 import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
-import type { AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewServiceContainerName } from "../preview/naming.ts";
+import type { PreviewDbPlan } from "../preview/runtime.ts";
 import {
   materializePreviewWorkload,
   removePreviewServices,
@@ -17,8 +16,6 @@ export type PreviewServiceSpec = {
 
 export type ReplacePreviewServicesDeps = {
   docker: PreviewDocker;
-  pg: AppDeployPg;
-  networks: { traefik: string; postgres: string };
   previewPortDefault: number;
   traefikTls?: TraefikTls;
   traefikForwardAuth?: TraefikForwardAuth;
@@ -28,9 +25,8 @@ export type ReplacePreviewServicesInput = {
   slug: string;
   prId: number;
   appHostname: string;
-  dbName: string;
   services: PreviewServiceSpec[];
-  connectionEnv?: PreviewEnvMap;
+  plan: PreviewDbPlan;
 };
 
 export async function replacePreviewServices(
@@ -61,10 +57,9 @@ export async function replacePreviewServices(
                 forwardAuth: deps.traefikForwardAuth,
               }
             : { kind: "internal" },
-          networks: deps.networks,
-          pg: deps.pg,
-          dbName: input.dbName,
-          connectionEnv: input.connectionEnv,
+          gatewayEnv: input.plan.gatewayEnv,
+          volumes: input.plan.volumes,
+          networkNames: input.plan.appNetworks,
           previewPortDefault: deps.previewPortDefault,
         });
       }),

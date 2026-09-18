@@ -8,6 +8,8 @@ import { markPreviewFailed } from "./mark-failed.ts";
 import {
   updatePreviewRow,
   utcIsoNow,
+  needsBackendRemint,
+  storedProvider,
   type PreviewRow,
 } from "./row.ts";
 import { canSeedWithoutAppReplace, seedWorkOutstanding } from "./seed-phase.ts";
@@ -293,6 +295,7 @@ export async function claimDeployIntent(
         prId: input.prId,
         slug: input.slug,
         dbName: requestedDbName,
+        dbProvider: input.plan.provider,
         hostname: input.hostname,
         status: "provisioning",
         bringUpPlan: "full_replace",
@@ -306,6 +309,21 @@ export async function claimDeployIntent(
 
   const status = parsePreviewStatus(row.status);
   if (!status.ok) return status;
+
+  // A provider switch is a fresh generation: seed_resume and companion sync
+  // assume the stored backend, so fall through to a full_replace intent that
+  // bring-up reconciles (old backend dropped, new one created).
+  if (
+    status.value !== "removing" &&
+    needsBackendRemint(row, input.plan.provider)
+  ) {
+    const intent = await writeProvisioningIntent(
+      deps,
+      input,
+      requestedDbName,
+    );
+    return { ok: true, value: previewSnapshotFromRow(intent) };
+  }
 
   switch (status.value) {
     case "removing":
@@ -423,7 +441,9 @@ async function destroyPreviewRow(
 
   return withDbNameLock(existing.dbName, async () => {
     try {
-      await deps.previewDb.dropDatabase(existing.dbName);
+      await deps.previewDb
+        .forDrop(storedProvider(existing))
+        .dropDatabase(existing.dbName);
     } catch {
       await markPreviewFailed(deps.db, repo, prId, "preview_db_drop_failed");
       return { ok: false, status: 500, error: "preview_db_drop_failed" };
@@ -564,7 +584,7 @@ export function dropOrphanDatabase(
       .where(and(eq(previews.dbName, dbName), ne(previews.status, "removed")))
       .limit(1);
     if (claim) return false;
-    await deps.previewDb.dropDatabase(dbName);
+    await deps.previewDb.forDrop(undefined).dropDatabase(dbName);
     return true;
   });
 }

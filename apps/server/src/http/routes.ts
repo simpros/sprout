@@ -2,8 +2,9 @@ import { Elysia } from "elysia";
 import { authPlugin, requireAdmin, requireAuth } from "../auth/middleware.ts";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
+import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import type { LifecycleDeps } from "../preview/lifecycle.ts";
+import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
 import {
   createDeployToken,
   createDeployTokenBody,
@@ -20,8 +21,9 @@ import {
 
 export type RouteDeps = {
   db: StateDb;
-  previewDb: PreviewDb;
+  previewDb: PreviewDbRouter;
   app: PreviewAppOps;
+  materialization: PreviewMaterializationCtx;
 };
 
 function stubNotImplemented({
@@ -38,6 +40,10 @@ export function createRoutes(deps: RouteDeps) {
     db: deps.db,
     previewDb: deps.previewDb,
     app: deps.app,
+  };
+  const deployDeps = {
+    ...lifecycle,
+    materialization: deps.materialization,
   };
   return new Elysia()
     .get("/healthz", () => ({ ok: true }))
@@ -68,7 +74,7 @@ export function createRoutes(deps: RouteDeps) {
           beforeHandle: requireAdmin,
           body: dropBody,
         })
-        .post("/deploy", deploy(lifecycle), { body: deployBody })
+        .post("/deploy", deploy(deployDeps), { body: deployBody })
         .get("/preview", getPreview(lifecycle), { query: previewQuery })
         .post("/teardown", teardown(lifecycle), { body: teardownBody })
         .all("/*", stubNotImplemented),

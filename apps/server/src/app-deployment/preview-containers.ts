@@ -1,14 +1,9 @@
-import type { PreviewEnvMap } from "@sprout/preview-env";
 import {
   traefikLabels,
   type TraefikForwardAuth,
   type TraefikTls,
 } from "./labels.ts";
-import {
-  pgConnectionEnv,
-  withGatewayConnectionEnv,
-  type AppDeployPg,
-} from "./pg-env.ts";
+import { withGatewayConnectionEnv } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
 
@@ -27,10 +22,9 @@ export type MaterializePreviewWorkloadInput = {
   image: string;
   userEnv: string[];
   routing: PreviewWorkloadRouting;
-  networks: { traefik: string; postgres: string };
-  pg: AppDeployPg;
-  dbName: string;
-  connectionEnv?: PreviewEnvMap;
+  gatewayEnv: string[];
+  volumes: string[];
+  networkNames: string[];
   previewPortDefault: number;
 };
 
@@ -54,12 +48,10 @@ export async function materializePreviewWorkload(
   const { id } = await docker.createAndStart({
     name: input.name,
     image: input.image,
-    env: withGatewayConnectionEnv(
-      input.userEnv,
-      pgConnectionEnv(input.pg, input.dbName, input.connectionEnv),
-    ),
+    env: withGatewayConnectionEnv(input.userEnv, input.gatewayEnv),
     labels,
-    networkNames: [input.networks.traefik, input.networks.postgres],
+    networkNames: input.networkNames,
+    ...(input.volumes.length > 0 ? { volumes: input.volumes } : {}),
   });
   return { containerId: id, port };
 }

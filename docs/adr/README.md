@@ -13,3 +13,4 @@ only.
 | [0005](0005-self-made-bearer-tokens.md) | Self-made bearer tokens in SQLite, not better-auth |
 | [0006](0006-sprout-durable-identity.md) | `sprout*` durable identity (accepted, implemented) |
 | [0007](0007-preview-env-injection-names.md) | Adopter `preview.env` remaps injection names (accepted, implemented) |
+| [0008](0008-preview-db-providers.md) | Preview database providers: Postgres + SQLite behind one port (accepted, implemented) |

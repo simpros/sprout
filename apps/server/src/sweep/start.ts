@@ -2,7 +2,7 @@ import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import { createForgeClient } from "../forge/client.ts";
 import type { Config } from "../config.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
+import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import { createLiveSweepPorts } from "./live-ports.ts";
 import { runSweepPass } from "./reconcile.ts";
 import { startSweepTimer, type SweepTimerHandle } from "./timer.ts";
@@ -10,7 +10,7 @@ import { startSweepTimer, type SweepTimerHandle } from "./timer.ts";
 export function startGatewaySweep(deps: {
   config: Config;
   db: StateDb;
-  previewDb: PreviewDb;
+  previewDb: PreviewDbRouter;
   app: PreviewAppOps;
 }): SweepTimerHandle {
   const forge = createForgeClient({

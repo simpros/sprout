@@ -45,6 +45,7 @@ export type PreviewAppOps = {
     containerId: string,
     port: number,
     health: HealthSpec,
+    networkNames: string[],
   ) => Promise<"ok" | "timeout">;
   runSeed: (input: SeedImageInput) => Promise<SeedImageResult>;
   remove: (slug: string, prId: number) => Promise<void>;
@@ -85,15 +86,19 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
     pullImage: (image) => deps.docker.pullImage(image),
     replace: (input) => replacePreviewApp(deps, input),
     replaceServices: (input) => replacePreviewServices(deps, input),
-    waitHealthy: (containerId, port, health) =>
+    waitHealthy: (containerId, port, health, networkNames) =>
       pollHealth(
         probe,
         async () => {
-          const ip = await deps.docker.containerIpOnNetwork(
-            containerId,
-            deps.networks.postgres,
+          const ips = await Promise.all(
+            networkNames.map((network) =>
+              deps.docker.containerIpOnNetwork(containerId, network),
+            ),
           );
-          return ip ? healthUrl(ip, port, health.path) : null;
+          for (const ip of ips) {
+            if (ip) return healthUrl(ip, port, health.path);
+          }
+          return null;
         },
         health,
         deps.healthClock,
@@ -102,8 +107,6 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
       runSeedImage(
         {
           docker: deps.docker,
-          pg: deps.pg,
-          networks: { postgres: deps.networks.postgres },
           seedTimeoutMs: deps.seedTimeoutMs,
         },
         input,

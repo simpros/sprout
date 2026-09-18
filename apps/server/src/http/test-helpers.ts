@@ -15,9 +15,11 @@ import {
 import type { PreviewDocker } from "../docker/port.ts";
 import { connectState, type StateDb } from "../infrastructure/db/client.ts";
 import { createFakePreviewDb } from "../preview-db/fake.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
+import type { PreviewDbRouter } from "../preview-db/routing.ts";
+import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
 import { runMigrations } from "../scripts/migrate.ts";
 import { createRoutes } from "./routes.ts";
+import type { PostgresConfig } from "../config.ts";
 
 export type TestDb = {
   db: StateDb;
@@ -28,24 +30,36 @@ export type TestApp = {
   app: ReturnType<typeof createRoutes>;
   db: StateDb;
   adminToken: string;
-  previewDb: PreviewDb;
+  previewDb: PreviewDbRouter;
   docker: FakeDockerClient | PreviewDocker;
   cleanup: () => Promise<void>;
 };
 
 const defaultOpsDeps: Omit<BindPreviewOpsDeps, "docker"> = {
-  pg: {
-    host: "postgres",
-    port: 5432,
-    user: "sprout_preview",
-    password: "preview-secret",
-  },
-  networks: {
-    traefik: "sprout-traefik",
-    postgres: "sprout-postgres",
-  },
   previewPortDefault: 8080,
   seedTimeoutMs: 180_000,
+};
+
+const defaultTestMaterialization = (): PreviewMaterializationCtx => ({
+  traefikNetwork: "sprout-traefik",
+  postgres: {
+    pg: {
+      host: "postgres",
+      port: 5432,
+      user: "sprout_preview",
+      password: "preview-secret",
+    },
+    network: "sprout-postgres",
+  },
+});
+
+const defaultTestPostgres: PostgresConfig = {
+  url: "postgres://sprout_preview:preview-secret@postgres:5432/sprout",
+  host: "postgres",
+  port: 5432,
+  user: "sprout_preview",
+  password: "preview-secret",
+  network: "sprout-postgres",
 };
 
 export function bindTestPreviewApp(
@@ -82,11 +96,12 @@ export async function createTestApp(
   options:
     | {
         adminToken?: string;
-        previewDb?: PreviewDb;
+        previewDb?: PreviewDbRouter;
         docker?: PreviewDocker;
         replaceDeps?: Partial<Omit<BindPreviewOpsDeps, "docker">>;
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
+        postgres?: PostgresConfig;
       }
     | string = {},
 ): Promise<TestApp> {
@@ -102,11 +117,15 @@ export async function createTestApp(
   });
   const { db, cleanup } = await createTestDb();
   await ensureAdminToken(db, adminToken);
+  // Postgres presence lives only on the materialization context: an explicit
+  // `postgres: undefined` opts into a sqlite-only gateway with no pg block.
+  const pg = "postgres" in opts ? opts.postgres : defaultTestPostgres;
   return {
     app: createRoutes({
       db,
       previewDb,
       app: appOps,
+      materialization: pg ? defaultTestMaterialization() : { traefikNetwork: "sprout-traefik" },
     }),
     db,
     adminToken,

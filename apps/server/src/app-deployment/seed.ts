@@ -1,11 +1,7 @@
-import type { PreviewEnvMap } from "@sprout/preview-env";
-import {
-  pgConnectionEnv,
-  withGatewayConnectionEnv,
-  type AppDeployPg,
-} from "./pg-env.ts";
+import { withGatewayConnectionEnv } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { seedImageRunName } from "../preview/naming.ts";
+import type { PreviewDbPlan } from "../preview/runtime.ts";
 
 export type SeedImageSpec = {
   image: string;
@@ -16,8 +12,7 @@ export type SeedImageSpec = {
 export type SeedImageInput = SeedImageSpec & {
   slug: string;
   prId: number;
-  dbName: string;
-  connectionEnv?: PreviewEnvMap;
+  plan: PreviewDbPlan;
 };
 
 const SEED_LOG_TAIL = 10_000;
@@ -29,8 +24,6 @@ export type SeedImageResult =
 
 export type RunSeedImageDeps = {
   docker: PreviewDocker;
-  pg: AppDeployPg;
-  networks: { postgres: string };
   seedTimeoutMs: number;
 };
 
@@ -60,12 +53,12 @@ export async function runSeedImage(
     const { id } = await deps.docker.createAndStart({
       name,
       image: input.image,
-      env: withGatewayConnectionEnv(
-        input.env,
-        pgConnectionEnv(deps.pg, input.dbName, input.connectionEnv),
-      ),
+      env: withGatewayConnectionEnv(input.env, input.plan.gatewayEnv),
       labels: {},
-      networkNames: [deps.networks.postgres],
+      networkNames: input.plan.seedNetworks,
+      ...(input.plan.volumes.length > 0
+        ? { volumes: input.plan.volumes }
+        : {}),
       ...(input.args.length > 0 ? { cmd: input.args } : {}),
     });
 

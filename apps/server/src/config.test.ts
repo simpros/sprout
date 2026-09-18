@@ -1,24 +1,34 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   configSummary,
+  isPostgresConfigured,
   loadConfig,
+  missingPostgresEnv,
   OPTIONAL_ENV_DEFAULTS,
+  POSTGRES_REQUIRED_ENV,
+  postgresNotConfiguredDetail,
   parseExtraGitlabHosts,
   REQUIRED_ENV,
 } from "./config.ts";
 
-const TEST_REQUIRED_VALUES: Record<(typeof REQUIRED_ENV)[number], string> = {
+const TEST_POSTGRES_VALUES: Record<(typeof POSTGRES_REQUIRED_ENV)[number], string> = {
   SPROUT_PREVIEW_POSTGRES_URL: "postgres://admin:sekrit@localhost:5432/postgres",
   SPROUT_PG_HOST: "postgres",
   SPROUT_PG_USER: "sprout_preview",
   SPROUT_PG_PASSWORD: "preview-secret",
-  SPROUT_TRAEFIK_NETWORK: "traefik",
   SPROUT_POSTGRES_NETWORK: "postgres",
+};
+
+const TEST_REQUIRED_VALUES: Record<(typeof REQUIRED_ENV)[number], string> = {
+  SPROUT_TRAEFIK_NETWORK: "traefik",
 };
 
 function setRequiredEnv(): void {
   for (const key of REQUIRED_ENV) {
     process.env[key] = TEST_REQUIRED_VALUES[key];
+  }
+  for (const key of POSTGRES_REQUIRED_ENV) {
+    process.env[key] = TEST_POSTGRES_VALUES[key];
   }
   process.env.SPROUT_GITHUB_TOKEN = "gh-token";
   process.env.SPROUT_GITLAB_TOKEN = "gl-token";
@@ -28,6 +38,9 @@ function setRequiredEnv(): void {
 
 function clearGatewayEnv(): void {
   for (const key of REQUIRED_ENV) {
+    delete process.env[key];
+  }
+  for (const key of POSTGRES_REQUIRED_ENV) {
     delete process.env[key];
   }
   delete process.env.SPROUT_GITHUB_TOKEN;
@@ -88,6 +101,29 @@ describe("loadConfig", () => {
     );
   });
 
+  test("boots without Postgres env for sqlite-only gateways", () => {
+    clearGatewayEnv();
+    process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
+    const config = loadConfig();
+    expect(config.traefikNetwork).toBe("traefik");
+    expect(config.postgres).toBeUndefined();
+    expect(isPostgresConfigured(config.postgres)).toBe(false);
+    expect(missingPostgresEnv(config.postgres)).toEqual([...POSTGRES_REQUIRED_ENV]);
+    expect(
+      postgresNotConfiguredDetail(config.postgres, "https://github.com/org/repo"),
+    ).toContain("https://github.com/org/repo");
+    expect(
+      postgresNotConfiguredDetail(config.postgres, "https://github.com/org/repo"),
+    ).toContain("SPROUT_PREVIEW_POSTGRES_URL");
+  });
+
+  test("reports Postgres configured when all provider vars are set", () => {
+    setRequiredEnv();
+    const config = loadConfig();
+    expect(isPostgresConfigured(config.postgres)).toBe(true);
+    expect(missingPostgresEnv(config.postgres)).toEqual([]);
+  });
+
   test("loads per-forge tokens without a gateway-wide forge switch", () => {
     setRequiredEnv();
     const config = loadConfig();
@@ -98,9 +134,14 @@ describe("loadConfig", () => {
   test("applies defaults for optional vars", () => {
     setRequiredEnv();
     const config = loadConfig();
-    expect(config.previewPgHost).toBe("postgres");
-    expect(config.previewPgPassword).toBe("preview-secret");
-    expect(config.previewPgPort).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_PG_PORT);
+    expect(config.postgres).toEqual({
+      url: "postgres://admin:sekrit@localhost:5432/postgres",
+      host: "postgres",
+      port: OPTIONAL_ENV_DEFAULTS.SPROUT_PG_PORT,
+      user: "sprout_preview",
+      password: "preview-secret",
+      network: "postgres",
+    });
     expect(config.ttlHours).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_TTL_HOURS);
     expect(config.sweepMinutes).toBe(OPTIONAL_ENV_DEFAULTS.SPROUT_SWEEP_MINUTES);
     expect(config.previewPortDefault).toBe(
@@ -203,10 +244,27 @@ describe("loadConfig", () => {
 
   test("rejects whitespace-only required env vars", () => {
     setRequiredEnv();
+    process.env.SPROUT_TRAEFIK_NETWORK = "   ";
+    expect(() => loadConfig()).toThrow(
+      "Missing required environment variables: SPROUT_TRAEFIK_NETWORK",
+    );
+  });
+
+  test("fails boot on partial Postgres config instead of limping", () => {
+    setRequiredEnv();
     process.env.SPROUT_PREVIEW_POSTGRES_URL = "   ";
     expect(() => loadConfig()).toThrow(
-      "Missing required environment variables: SPROUT_PREVIEW_POSTGRES_URL",
+      "Incomplete Postgres configuration: missing SPROUT_PREVIEW_POSTGRES_URL",
     );
+  });
+
+  test("treats blank Postgres vars as unconfigured when all are blank", () => {
+    clearGatewayEnv();
+    process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
+    process.env.SPROUT_PREVIEW_POSTGRES_URL = "   ";
+    const config = loadConfig();
+    expect(config.postgres).toBeUndefined();
+    expect(isPostgresConfigured(config.postgres)).toBe(false);
   });
 
   test("normalizes legacy registry pair into registryPullAuth.fallback", () => {
@@ -281,13 +339,15 @@ describe("loadConfig", () => {
 
   test("configSummary marks unset forge tokens", () => {
     const summary = configSummary({
-      previewPostgresUrl: "postgres://admin@localhost:5432/postgres",
-      previewPgHost: "postgres",
-      previewPgPort: 5432,
-      previewPgUser: "sprout_preview",
-      previewPgPassword: "x",
+      postgres: {
+        url: "postgres://admin@localhost:5432/postgres",
+        host: "postgres",
+        port: 5432,
+        user: "sprout_preview",
+        password: "x",
+        network: "postgres",
+      },
       traefikNetwork: "traefik",
-      postgresNetwork: "postgres",
       registryPullAuth: { byHost: new Map() },
       githubToken: "",
       gitlabToken: "",
@@ -304,13 +364,15 @@ describe("loadConfig", () => {
 
   test("configSummary redacts secrets", () => {
     const summary = configSummary({
-      previewPostgresUrl: "postgres://admin:sekrit@localhost:5432/postgres",
-      previewPgHost: "postgres",
-      previewPgPort: 5432,
-      previewPgUser: "sprout_preview",
-      previewPgPassword: "preview-secret",
+      postgres: {
+        url: "postgres://admin:sekrit@localhost:5432/postgres",
+        host: "postgres",
+        port: 5432,
+        user: "sprout_preview",
+        password: "preview-secret",
+        network: "postgres",
+      },
       traefikNetwork: "traefik",
-      postgresNetwork: "postgres",
       registryPullAuth: {
         byHost: new Map([
           ["ghcr.io", { username: "gh", password: "secret" }],
@@ -347,13 +409,15 @@ describe("loadConfig", () => {
 
   test("configSummary marks anonymous registry auth", () => {
     const summary = configSummary({
-      previewPostgresUrl: "postgres://admin@localhost:5432/postgres",
-      previewPgHost: "postgres",
-      previewPgPort: 5432,
-      previewPgUser: "sprout_preview",
-      previewPgPassword: "x",
+      postgres: {
+        url: "postgres://admin@localhost:5432/postgres",
+        host: "postgres",
+        port: 5432,
+        user: "sprout_preview",
+        password: "x",
+        network: "postgres",
+      },
       traefikNetwork: "traefik",
-      postgresNetwork: "postgres",
       registryPullAuth: { byHost: new Map() },
       githubToken: "",
       gitlabToken: "",

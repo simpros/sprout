@@ -129,13 +129,16 @@ pointers live in [Test coverage](#test-coverage-maintainers).
 |---|---|---|---|
 | `slug` | yes | — | Short name used in database names (`sprout_<slug>_pr<id>`) and container names. Alphanumeric. |
 | `preview.hostname` | yes | — | Per-PR host template. Must contain `{pr_id}`; no scheme, port, path, or other placeholders. The CLI owns substitution and prints `preview_url=` — CI never reconstructs it. |
-| `preview.env` | no | canonical `PG*` / `PGAPP*` | Rename injected connection env (see Connection env). |
+| `preview.env` | no | canonical `PG*` / `PGAPP*` (`postgres`) or `DATABASE_URL` (`sqlite`) | Rename injected connection env (see Connection env). |
 | `preview.app_env` | no | — | Extra app env (see Value grammar, Merge order, Connection env reservation). |
 | `preview.services` | no | leave companions | Companion routing entries (see Service images). |
 | `preview.services[].name` | per entry | — | Service name (validated, unique). |
 | `preview.services[].image` | per entry unless `--service` | — | Pinned image for the service. |
 | `preview.services[].hostname` | no | internal-only | Distinct `Host()` for the service. |
 | `preview.services[].path` | no | internal-only | `PathPrefix()` for the service (must start with `/`). |
+| `db.provider` | no | `postgres` | Preview database provider: `postgres` (shared instance) or `sqlite` (named volume). See [SQLite previews](#sqlite-previews). |
+| `db.path` | no | `/data` | Container directory the SQLite volume mounts at (`sqlite` only). |
+| `db.file` | no | `preview.db` | SQLite file name inside `db.path` (`sqlite` only). |
 | `health.path` | when seeding | `/health` | HTTP path the gateway polls on the Postgres-network container IP. |
 | `health.interval` | when seeding | `2s` | Poll interval (`Ns` form; malformed durations fail at manifest parse). |
 | `health.timeout` | when seeding | `120s` | How long the gateway polls before `health_timeout`. Never starts the seed. |
@@ -149,12 +152,25 @@ pointers live in [Test coverage](#test-coverage-maintainers).
 #### Connection env: names, roles, reservation, port
 
 The gateway injects these connection variables into preview app, service,
-and seed containers:
+and seed containers. Which set you get follows `db.provider`:
+
+Postgres (`db.provider: postgres`, the default):
 
 ```
 PGHOST  PGPORT  PGUSER  PGPASSWORD  PGDATABASE
 PGAPPUSER  PGAPPPASSWORD
 ```
+
+SQLite (`db.provider: sqlite`):
+
+```
+DATABASE_URL=file:<db.path>/<db.file>   (default file:/data/preview.db)
+```
+
+No `PG*` keys are injected for a SQLite preview, and no `DATABASE_URL`
+for a Postgres one — `preview.env` entries for the other backend fail at
+manifest parse (`preview.env.PGHOST requires db.provider postgres`).
+See [SQLite previews](#sqlite-previews) for the volume behaviour.
 
 - **Owner** (`PGUSER` / `PGPASSWORD`): the static preview login
   (`SPROUT_PG_USER`). Owns each preview database — use this for migrations.
@@ -258,6 +274,52 @@ preview:
 Seeded manifest (as in the quickstart): add `health:` + `seed:` as shown
 above. `seed: {}` alone enables seeding with the conventional
 `Dockerfile.seed`.
+
+### SQLite previews
+
+For stacks that run on SQLite instead of Postgres, set `db.provider` —
+`sprout ci preview` picks it up from `.sprout.yaml` (no new flag):
+
+```yaml
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  env:
+    DATABASE_URL: APP_DATABASE_URL
+db:
+  provider: sqlite
+  path: /data
+  file: preview.db
+```
+
+Env keys: the gateway injects exactly one connection variable,
+`DATABASE_URL=file:<db.path>/<db.file>` (remap replaces the name, no
+dual alias). `PG*` remaps are rejected for SQLite previews, and
+`DATABASE_URL` is rejected for Postgres ones — both at manifest parse
+and at the gateway deploy route.
+
+Volume and seed behaviour: bring-up creates one named Docker volume per
+preview (`sprout-<slug>-pr-<id>-sqlite`) mounted at `db.path` in the
+app, companion-service, and seed containers (seed inputs still own the
+fixtures; `--reseed` semantics are unchanged). An app-image replace
+keeps the volume, so preview data survives; teardown removes the
+containers and the volume on the same paths that drop a Postgres
+database today. Health, TTL, sweep, and teardown are otherwise unchanged.
+
+Hand-rolled migration notes (moving an app from a Postgres preview to a
+SQLite one): point the app at the injected `DATABASE_URL` instead of the
+`PG*` set (SQLite opens the file directly — no host, port, user, or
+password); run file-level migrations at container startup as before (the
+file persists on the volume across replaces); keep companion `PGAPP*`
+assumptions out of the SQLite path (there is no restricted role — the
+file is the database). There is no gateway tooling that copies a
+Postgres preview into a SQLite volume in this release.
+
+Operators: a gateway that only serves SQLite previews needs no Postgres
+env at all (`SPROUT_PREVIEW_POSTGRES_URL`, `SPROUT_PG_HOST/USER/PASSWORD`,
+`SPROUT_POSTGRES_NETWORK` are required only for `postgres` deploys). A
+`postgres` deploy on such a gateway fails fast with
+`postgres_not_configured`, naming the repo and the missing variables.
 
 ### CLI `ci` commands
 

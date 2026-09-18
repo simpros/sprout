@@ -21,6 +21,7 @@ export type ContainerCreateSpec = {
   env: string[];
   labels: Record<string, string>;
   networkNames: string[];
+  volumes?: string[];
   cmd?: string[];
 };
 
@@ -33,6 +34,9 @@ export type PreviewDocker = {
   firstExposedPort(image: string): Promise<number | null>;
   removeByName(name: string): Promise<void>;
   createAndStart(spec: ContainerCreateSpec): Promise<{ id: string }>;
+  createVolume(name: string): Promise<void>;
+  removeVolume(name: string): Promise<void>;
+  listVolumes(): Promise<string[]>;
   waitForExit(
     containerId: string,
     timeoutMs: number,

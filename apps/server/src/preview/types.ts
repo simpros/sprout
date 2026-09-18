@@ -1,4 +1,3 @@
-import type { PreviewEnvMap } from "@sprout/preview-env";
 import type { HealthSpec } from "@sprout/preview-env";
 import type {
   PreviewAppOps,
@@ -6,7 +5,7 @@ import type {
 } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
+import type { PreviewDbRouter } from "../preview-db/routing.ts";
 
 export type PreviewStatus =
   | "provisioning"
@@ -30,15 +29,17 @@ export type DisplayPreviewStatus =
   | "removing"
   | "removed";
 
+import type { PreviewDbPlan } from "./runtime.ts";
+
 export type TeardownDeps = {
   db: StateDb;
-  previewDb: PreviewDb;
+  previewDb: PreviewDbRouter;
   app: Pick<PreviewAppOps, "remove">;
 };
 
 export type LifecycleDeps = {
   db: StateDb;
-  previewDb: PreviewDb;
+  previewDb: PreviewDbRouter;
   app: PreviewAppOps;
 };
 
@@ -52,7 +53,7 @@ export type ProvisionInput = {
   seed?: SeedImageSpec;
   appEnv: string[];
   services?: PreviewServiceSpec[];
-  connectionEnv?: PreviewEnvMap;
+  plan: PreviewDbPlan;
   reseed?: boolean;
 };
 

@@ -11,6 +11,8 @@ import type { Result } from "./result.ts";
 import {
   updatePreviewRow,
   utcIsoNow,
+  needsBackendRemint,
+  storedProvider,
   type PreviewRow,
 } from "./row.ts";
 import type {
@@ -42,10 +44,35 @@ function parseBringUpPlan(raw: string | null): BringUpPlan {
 async function ensureDatabase(
   deps: LifecycleDeps,
   row: PreviewRow,
+  input: ProvisionInput,
 ): Promise<Result<true>> {
+  const provider = input.plan.provider;
   return withDbNameLock(row.dbName, async () => {
     try {
-      await deps.previewDb.createDatabase(row.dbName);
+      const stored = storedProvider(row);
+      const remint = needsBackendRemint(row, provider);
+      if (remint) {
+        // Provider switch: drop the old backend first so a failed create
+        // never strands a resource the row no longer points at. Missing-tolerant
+        // drops make a partially switched preview converge on retry.
+        try {
+          await deps.previewDb.forDrop(stored).dropDatabase(row.dbName);
+        } catch (err) {
+          console.warn(
+            `stale ${stored} database drop failed for ${row.dbName}; continuing`,
+            err,
+          );
+        }
+      }
+      await deps.previewDb.forCreate(provider).createDatabase(row.dbName);
+      if (remint) {
+        await updatePreviewRow(
+          deps.db,
+          row,
+          { dbProvider: provider, updatedAt: utcIsoNow() },
+          "preview_row_missing_on_provider_switch",
+        );
+      }
       return { ok: true, value: true };
     } catch {
       return { ok: false, status: 500, error: "preview_db_create_failed" };
@@ -99,9 +126,8 @@ async function syncPreviewServices(
       slug: row.slug,
       prId: row.prId,
       appHostname: input.hostname,
-      dbName: row.dbName,
       services: input.services,
-      connectionEnv: input.connectionEnv,
+      plan: input.plan,
     });
     return { ok: true, value: true };
   } catch {
@@ -179,7 +205,7 @@ function deployEphemerals(input: ProvisionInput) {
   return {
     seed: input.seed,
     reseed: input.reseed,
-    connectionEnv: input.connectionEnv,
+    plan: input.plan,
     fleetPending: input.services !== undefined,
   };
 }
@@ -197,9 +223,8 @@ async function attachAppContainer(
       prId: row.prId,
       hostname: input.hostname,
       image: input.appImage,
-      dbName: row.dbName,
       appEnv: input.appEnv,
-      connectionEnv: input.connectionEnv,
+      plan: input.plan,
     }));
   } catch {
     await markPreviewFailed(
@@ -230,6 +255,7 @@ async function attachAppContainer(
     containerId,
     port,
     input.health,
+    input.plan.appNetworks,
   );
   if (outcome === "timeout") {
     console.warn("health:timeout");
@@ -261,7 +287,7 @@ async function ensureThenAttach(
   row: PreviewRow,
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
-  const ensured = await ensureDatabase(deps, row);
+  const ensured = await ensureDatabase(deps, row, input);
   if (!ensured.ok) {
     await markPreviewFailed(
       deps.db,

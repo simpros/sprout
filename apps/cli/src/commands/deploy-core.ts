@@ -14,7 +14,12 @@ import { readEden } from "../eden.ts";
 import { resolveDeployHostname } from "../hostname.ts";
 import type { Result } from "../result.ts";
 import { mergeServices, type DeployService } from "../services.ts";
-import type { ManifestEnvValue, PreviewEnvMap, SproutYaml } from "../yaml.ts";
+import type {
+  DbSpec,
+  ManifestEnvValue,
+  PreviewEnvMap,
+  SproutYaml,
+} from "../yaml.ts";
 import { deployOutcome } from "./deploy-outcome.ts";
 import { DEPLOY_POLL_BUFFER_MS, pollPreviewReady } from "./deploy-poll.ts";
 
@@ -31,6 +36,7 @@ export type DeployRequest = {
   app_env?: string[];
   services?: DeployService[];
   env?: PreviewEnvMap;
+  db?: DbSpec;
   reseed?: boolean;
 };
 
@@ -275,6 +281,7 @@ export function buildDeployRequest(
   if (seed.seed_arg) body.seed_arg = seed.seed_arg;
   if (inputs.reseed) body.reseed = true;
   if (yaml.preview.env) body.env = yaml.preview.env;
+  if (yaml.db) body.db = yaml.db;
 
   const services = resolveDeployServices(yaml, identity.prId, {
     service: inputs.service,

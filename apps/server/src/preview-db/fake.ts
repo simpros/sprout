@@ -1,18 +1,21 @@
+import type { DbProvider } from "@sprout/preview-env";
 import { parsePreviewDatabaseName } from "./names.ts";
 import type { CatalogDatabase, PreviewDb } from "./port.ts";
+import type { PreviewDbRouter } from "./routing.ts";
 
-export type FakePreviewDb = PreviewDb & {
-  created: string[];
-  dropped: string[];
-  restrictedEnsured: string[];
-};
+export type FakePreviewDb = PreviewDb &
+  PreviewDbRouter & {
+    created: string[];
+    dropped: string[];
+    restrictedEnsured: string[];
+  };
 
-export function createFakePreviewDb(): FakePreviewDb {
+export function createFakePreviewDb(): FakePreviewDb & PreviewDbRouter {
   const created: string[] = [];
   const dropped: string[] = [];
   const restrictedEnsured: string[] = [];
 
-  return {
+  const fake: FakePreviewDb & PreviewDbRouter = {
     created,
     dropped,
     restrictedEnsured,
@@ -40,5 +43,12 @@ export function createFakePreviewDb(): FakePreviewDb {
     },
     async ensurePreviewRole() {},
     async ping() {},
+    forCreate(_provider: DbProvider) {
+      return fake;
+    },
+    forDrop(_provider: DbProvider | undefined) {
+      return fake;
+    },
   };
+  return fake;
 }

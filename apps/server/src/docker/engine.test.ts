@@ -141,6 +141,25 @@ describe("createDockerEngineClient", () => {
     expect(createBody.Entrypoint).toBeUndefined();
   });
 
+  test("createVolume treats name-conflict 409 as ensure-success", async () => {
+    const docker = createDockerEngineClient({
+      fetch: async (input) => {
+        expect(String(input)).toBe("http://localhost/volumes/create");
+        return new Response("volume exists", { status: 409 });
+      },
+    });
+    await docker.createVolume("sprout-myapp-pr-1-sqlite");
+  });
+
+  test("createVolume throws on non-conflict failures", async () => {
+    const docker = createDockerEngineClient({
+      fetch: async () => new Response("engine error", { status: 500 }),
+    });
+    await expect(docker.createVolume("vol")).rejects.toThrow(
+      /Docker create volume vol failed: 500/,
+    );
+  });
+
   test("waitForExit returns StatusCode from Docker wait", async () => {
     const docker = createDockerEngineClient({
       fetch: async (input, init) => {

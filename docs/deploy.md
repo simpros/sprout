@@ -128,8 +128,11 @@ networks:
     name: ${SPROUT_POSTGRES_NETWORK:-sprout-postgres}
 ```
 
-When the gateway creates a preview app container it attaches **both** networks.
-Seed containers get **Postgres only** — they never need Traefik reachability.
+When the gateway creates a Postgres preview app container it attaches **both**
+networks. Postgres seed containers get **Postgres only** — they never need
+Traefik reachability. SQLite preview containers (app, services, seed) mount
+their named volume instead and join **Traefik only**; a SQLite-only gateway
+needs no `SPROUT_POSTGRES_NETWORK` at all.
 
 ## Production-shaped deploy (external / Coolify Traefik)
 
@@ -402,13 +405,13 @@ DSN from the raw password in YAML.
 | `POSTGRES_USER` | yes (bundled) | Postgres image bootstrap user (default `sprout_admin`) |
 | `POSTGRES_PASSWORD` | yes (bundled) | Must match the password embedded in `SPROUT_PREVIEW_POSTGRES_URL` |
 | `POSTGRES_DB` | no | Bootstrap DB (default `postgres`) |
-| `SPROUT_PREVIEW_POSTGRES_URL` | yes | Admin DSN for role ensure, `CREATE DATABASE`, `DROP DATABASE` (needs `CREATEROLE` or superuser). URL-encode special chars in the password. |
-| `SPROUT_PG_HOST` | yes | Hostname preview app+seed containers use for `PGHOST` on `SPROUT_POSTGRES_NETWORK` (bundled: `postgres`) |
+| `SPROUT_PREVIEW_POSTGRES_URL` | postgres previews | Admin DSN for role ensure, `CREATE DATABASE`, `DROP DATABASE` (needs `CREATEROLE` or superuser). URL-encode special chars in the password. A gateway that only serves `sqlite` previews boots without it. |
+| `SPROUT_PG_HOST` | postgres previews | Hostname preview app+seed containers use for `PGHOST` on `SPROUT_POSTGRES_NETWORK` (bundled: `postgres`) |
 | `SPROUT_PG_PORT` | no | `PGPORT` for preview containers (default `5432`) |
-| `SPROUT_PG_USER` | yes | Static preview login; gateway ensures it exists |
-| `SPROUT_PG_PASSWORD` | yes | Preview `PGPASSWORD`; synced onto the role on every gateway boot |
+| `SPROUT_PG_USER` | postgres previews | Static preview login; gateway ensures it exists |
+| `SPROUT_PG_PASSWORD` | postgres previews | Preview `PGPASSWORD`; synced onto the role on every gateway boot |
 | `SPROUT_TRAEFIK_NETWORK` | yes | Docker network name for Traefik-facing containers |
-| `SPROUT_POSTGRES_NETWORK` | yes | Docker network name for database reachability |
+| `SPROUT_POSTGRES_NETWORK` | postgres previews | Docker network name for database reachability |
 | `SPROUT_GATEWAY_HOST_PORT` | no | Host port published for the gateway (default `7331`) |
 | `TRAEFIK_HTTP_PORT` | no | Host port published for Traefik HTTP (default `8880`) |
 | `SPROUT_ADMIN_TOKEN` | no | Pin bootstrap admin bearer; omit/blank to auto-generate |

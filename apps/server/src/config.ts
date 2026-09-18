@@ -8,12 +8,13 @@ import {
   type RegistryPullAuth,
 } from "./registry-auth.ts";
 
-export const REQUIRED_ENV = [
+export const REQUIRED_ENV = ["SPROUT_TRAEFIK_NETWORK"] as const;
+
+export const POSTGRES_REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
   "SPROUT_PG_HOST",
   "SPROUT_PG_USER",
   "SPROUT_PG_PASSWORD",
-  "SPROUT_TRAEFIK_NETWORK",
   "SPROUT_POSTGRES_NETWORK",
 ] as const;
 
@@ -41,6 +42,7 @@ export const OPTIONAL_STRING_ENV = [
 
 export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
   ...REQUIRED_ENV,
+  ...POSTGRES_REQUIRED_ENV,
   ...Object.keys(OPTIONAL_ENV_DEFAULTS),
   ...OPTIONAL_STRING_ENV,
   "SPROUT_ADMIN_TOKEN",
@@ -48,14 +50,19 @@ export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
   "SPROUT_ADMIN_TOKEN_PATH",
 ];
 
+export type PostgresConfig = {
+  url: string;
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  network: string;
+};
+
 export type Config = {
-  previewPostgresUrl: string;
-  previewPgHost: string;
-  previewPgPort: number;
-  previewPgUser: string;
-  previewPgPassword: string;
+  /** Absent on sqlite-only gateways; all-or-nothing (partial fails boot). */
+  postgres?: PostgresConfig;
   traefikNetwork: string;
-  postgresNetwork: string;
   registryPullAuth: RegistryPullAuth;
   githubToken: string;
   gitlabToken: string;
@@ -91,22 +98,26 @@ function requiredEnv(key: (typeof REQUIRED_ENV)[number]): string {
   return raw.trim();
 }
 
-function optionalStringEnv(key: (typeof OPTIONAL_STRING_ENV)[number]): string {
+function optionalEnv(
+  key:
+    | (typeof OPTIONAL_STRING_ENV)[number]
+    | (typeof POSTGRES_REQUIRED_ENV)[number],
+): string {
   return process.env[key]?.trim() ?? "";
 }
 
 function parseTraefikTls(): TraefikTls | undefined {
-  const entrypoints = optionalStringEnv("SPROUT_TRAEFIK_ENTRYPOINTS");
+  const entrypoints = optionalEnv("SPROUT_TRAEFIK_ENTRYPOINTS");
   if (entrypoints === "") return undefined;
-  const certResolver = optionalStringEnv("SPROUT_TRAEFIK_CERTRESOLVER");
+  const certResolver = optionalEnv("SPROUT_TRAEFIK_CERTRESOLVER");
   return certResolver === ""
     ? { entrypoints }
     : { entrypoints, certResolver };
 }
 
 function parseTraefikForwardAuth(): TraefikForwardAuth | undefined {
-  const middleware = optionalStringEnv("SPROUT_TRAEFIK_MIDDLEWARES");
-  const address = optionalStringEnv("SPROUT_FORWARDAUTH_ADDRESS");
+  const middleware = optionalEnv("SPROUT_TRAEFIK_MIDDLEWARES");
+  const address = optionalEnv("SPROUT_FORWARDAUTH_ADDRESS");
   if (middleware === "" && address === "") return undefined;
   if (middleware === "" || address === "") {
     throw new Error(
@@ -152,6 +163,45 @@ export function parseExtraGitlabHosts(raw: string): ReadonlySet<string> {
   return out;
 }
 
+/** Postgres is all-or-nothing: partial sets fail boot instead of limping. */
+function parsePostgresConfig(): PostgresConfig | undefined {
+  const values = {
+    url: optionalEnv("SPROUT_PREVIEW_POSTGRES_URL"),
+    host: optionalEnv("SPROUT_PG_HOST"),
+    user: optionalEnv("SPROUT_PG_USER"),
+    password: optionalEnv("SPROUT_PG_PASSWORD"),
+    network: optionalEnv("SPROUT_POSTGRES_NETWORK"),
+  };
+  const set = (
+    Object.entries(values) as [keyof typeof values, string][]
+  ).filter(([, value]) => value !== "");
+  if (set.length === 0) return undefined;
+  if (set.length !== POSTGRES_REQUIRED_ENV.length) {
+    const have = new Set(set.map(([key]) => key));
+    const keyFor: Record<keyof typeof values, string> = {
+      url: "SPROUT_PREVIEW_POSTGRES_URL",
+      host: "SPROUT_PG_HOST",
+      user: "SPROUT_PG_USER",
+      password: "SPROUT_PG_PASSWORD",
+      network: "SPROUT_POSTGRES_NETWORK",
+    };
+    const missing = (Object.keys(values) as (keyof typeof values)[])
+      .filter((key) => !have.has(key))
+      .map((key) => keyFor[key]);
+    throw new Error(
+      `Incomplete Postgres configuration: missing ${missing.join(", ")}`,
+    );
+  }
+  return {
+    ...values,
+    port: parsePositiveInt(
+      "SPROUT_PG_PORT",
+      process.env.SPROUT_PG_PORT,
+      OPTIONAL_ENV_DEFAULTS.SPROUT_PG_PORT,
+    ),
+  };
+}
+
 export function loadConfig(): Config {
   const missing = REQUIRED_ENV.filter((key) => {
     const raw = process.env[key];
@@ -164,30 +214,20 @@ export function loadConfig(): Config {
   }
 
   const adminTokenRaw = process.env.SPROUT_ADMIN_TOKEN?.trim();
-
   const registryPullAuth = buildRegistryPullAuth({
-    authsJson: optionalStringEnv("SPROUT_REGISTRY_AUTHS_JSON"),
-    legacyUser: optionalStringEnv("SPROUT_REGISTRY_USER"),
-    legacyPassword: optionalStringEnv("SPROUT_REGISTRY_PASSWORD"),
+    authsJson: optionalEnv("SPROUT_REGISTRY_AUTHS_JSON"),
+    legacyUser: optionalEnv("SPROUT_REGISTRY_USER"),
+    legacyPassword: optionalEnv("SPROUT_REGISTRY_PASSWORD"),
   });
 
   return {
-    previewPostgresUrl: requiredEnv("SPROUT_PREVIEW_POSTGRES_URL"),
-    previewPgHost: requiredEnv("SPROUT_PG_HOST"),
-    previewPgPort: parsePositiveInt(
-      "SPROUT_PG_PORT",
-      process.env.SPROUT_PG_PORT,
-      OPTIONAL_ENV_DEFAULTS.SPROUT_PG_PORT,
-    ),
-    previewPgUser: requiredEnv("SPROUT_PG_USER"),
-    previewPgPassword: requiredEnv("SPROUT_PG_PASSWORD"),
+    postgres: parsePostgresConfig(),
     traefikNetwork: requiredEnv("SPROUT_TRAEFIK_NETWORK"),
-    postgresNetwork: requiredEnv("SPROUT_POSTGRES_NETWORK"),
     registryPullAuth,
-    githubToken: optionalStringEnv("SPROUT_GITHUB_TOKEN"),
-    gitlabToken: optionalStringEnv("SPROUT_GITLAB_TOKEN"),
+    githubToken: optionalEnv("SPROUT_GITHUB_TOKEN"),
+    gitlabToken: optionalEnv("SPROUT_GITLAB_TOKEN"),
     extraGitlabHosts: parseExtraGitlabHosts(
-      optionalStringEnv("SPROUT_FORGE_HOSTS"),
+      optionalEnv("SPROUT_FORGE_HOSTS"),
     ),
     adminToken: adminTokenRaw === "" ? undefined : adminTokenRaw,
     ttlHours: parsePositiveInt(
@@ -220,15 +260,39 @@ export function loadConfig(): Config {
   };
 }
 
+export function missingPostgresEnv(
+  postgres: PostgresConfig | undefined,
+): string[] {
+  return postgres ? [] : [...POSTGRES_REQUIRED_ENV];
+}
+
+export function isPostgresConfigured(
+  postgres: PostgresConfig | undefined,
+): boolean {
+  return postgres !== undefined;
+}
+
+export function postgresNotConfiguredDetail(
+  postgres: PostgresConfig | undefined,
+  repo: string,
+): string {
+  const missing = missingPostgresEnv(postgres);
+  return (
+    `repo ${repo} declares db.provider postgres but the gateway has no Postgres configured: ` +
+    `missing ${missing.join(", ")}`
+  );
+}
+
 export function configSummary(config: Config): Record<string, string | number> {
+  const pg = config.postgres;
   return {
-    previewPostgresUrl: redactUrl(config.previewPostgresUrl),
-    previewPgHost: config.previewPgHost,
-    previewPgPort: config.previewPgPort,
-    previewPgUser: config.previewPgUser,
-    previewPgPassword: config.previewPgPassword === "" ? "[empty]" : "[set]",
+    previewPostgresUrl: pg ? redactUrl(pg.url) : "[unset]",
+    previewPgHost: pg ? pg.host : "[unset]",
+    previewPgPort: pg ? pg.port : "[unset]",
+    previewPgUser: pg ? pg.user : "[unset]",
+    previewPgPassword: pg ? "[set]" : "[empty]",
     traefikNetwork: config.traefikNetwork,
-    postgresNetwork: config.postgresNetwork,
+    postgresNetwork: pg ? pg.network : "[unset]",
     registryPullAuthHosts: config.registryPullAuth.byHost.size,
     registryPullAuthFallback: config.registryPullAuth.fallback
       ? "[set]"

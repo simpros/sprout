@@ -8,7 +8,7 @@ import {
   removePreview,
   type TeardownDeps,
 } from "../preview/lifecycle.ts";
-import type { PreviewDb } from "../preview-db/port.ts";
+import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import type {
   SweepDeletion,
   SweepPorts,
@@ -17,7 +17,7 @@ import type {
 
 export type LiveSweepDeps = {
   db: StateDb;
-  previewDb: PreviewDb;
+  previewDb: PreviewDbRouter;
   app: Pick<PreviewAppOps, "list" | "remove">;
   forge: ForgeClient;
   ttlHours: number;

@@ -1,4 +1,7 @@
+import { sqliteVolumeName } from "@sprout/preview-env";
 import { run } from "./exec.ts";
+
+export { sqliteVolumeName };
 
 export function previewAppContainerName(slug: string, prId: number): string {
   return `sprout-${slug}-pr-${prId}`;
@@ -38,4 +41,39 @@ export function envMap(entries: string[]): Map<string, string> {
     out.set(entry.slice(0, eq), entry.slice(eq + 1));
   }
   return out;
+}
+
+export type ContainerMount = {
+  Name?: string;
+  Source?: string;
+  Destination?: string;
+};
+
+export async function containerMounts(name: string): Promise<ContainerMount[]> {
+  const stdout = await dockerText([
+    "inspect",
+    "-f",
+    "{{json .Mounts}}",
+    name,
+  ]);
+  const parsed = JSON.parse(stdout.trim()) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(`unexpected Mounts from docker inspect ${name}: ${stdout}`);
+  }
+  return parsed as ContainerMount[];
+}
+
+export async function execInContainer(
+  name: string,
+  args: string[],
+): Promise<string> {
+  const { stdout } = await run(["docker", "exec", name, ...args]);
+  return stdout;
+}
+
+export async function volumeExists(name: string): Promise<boolean> {
+  const { exitCode } = await run(["docker", "volume", "inspect", name], {
+    allowFailure: true,
+  });
+  return exitCode === 0;
 }
