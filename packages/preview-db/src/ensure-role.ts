@@ -50,7 +50,6 @@ async function roleDdl(
 
 /**
  * Create or sync a LOGIN role password via the admin connection.
- * CREATE if missing, else ALTER.
  */
 export async function ensureLoginRole(
   sql: SQL,
