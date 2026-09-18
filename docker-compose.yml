@@ -1,17 +1,3 @@
-# Operator smoke stack: Postgres + gateway + Traefik.
-# See docs/deploy.md for wiring notes and external Traefik coexistence.
-#
-# Quick start:
-#   cp compose.env.example compose.env   # edit secrets
-#   docker compose --env-file compose.env up -d --build
-#   curl -sf http://127.0.0.1:7331/healthz
-#
-# External Traefik/Postgres (Coolify, etc.):
-#   docker compose -f docker-compose.yml -f docker-compose.external.yml \
-#     --env-file compose.env up -d --build gateway
-
-# Compose project name pins Docker volume identity (`sprout_*`).
-# Upgrading from legacy preview-buddy* defaults: wipe volumes/networks and redeploy.
 name: sprout
 
 networks:
@@ -52,7 +38,6 @@ services:
     networks:
       - traefik
     ports:
-      # Host port overridable for e2e (see e2e/compose.e2e.env).
       - "${TRAEFIK_HTTP_PORT:-8880}:80"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -69,7 +54,6 @@ services:
       - traefik
       - postgres
     ports:
-      # Host port overridable for e2e (see e2e/compose.e2e.env).
       - "${SPROUT_GATEWAY_HOST_PORT:-7331}:7331"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -95,10 +79,8 @@ services:
       SPROUT_GITHUB_TOKEN: ${SPROUT_GITHUB_TOKEN:-}
       SPROUT_GITLAB_TOKEN: ${SPROUT_GITLAB_TOKEN:-}
       SPROUT_FORGE_HOSTS: ${SPROUT_FORGE_HOSTS:-}
-      # Blank/unset → loadConfig treats as undefined → auto-generate
       SPROUT_ADMIN_TOKEN: ${SPROUT_ADMIN_TOKEN:-}
       SPROUT_STATE_DB_PATH: ${SPROUT_STATE_DB_PATH:-/data/sprout.db}
-      # Published path for in-container CLI fallback (do not derive from DB path in CLI)
       SPROUT_ADMIN_TOKEN_PATH: ${SPROUT_ADMIN_TOKEN_PATH:-/data/admin-token}
       SPROUT_PORT: "7331"
     healthcheck:

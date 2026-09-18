@@ -85,7 +85,6 @@ describe("POST /v1/deploy connection env remap", () => {
       "DATABASE_NAME=sprout_myapp_pr42",
       ...companion,
     ]);
-    // Remap is request-scoped — not written to SQLite.
     const [row] = await testApp!.db
       .select()
       .from(previews)

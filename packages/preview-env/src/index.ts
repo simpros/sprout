@@ -1,11 +1,3 @@
-/**
- * Preview wire grammar shared by CLI and gateway:
- * - connection-env remap (`preview.env`)
- * - hostname template / host validation
- * - health request-shape (durations, path, expect)
- */
-
-/** Owner / primary connection env names (single-role surfaces). */
 export const OWNER_ENV_KEYS = [
   "PGHOST",
   "PGPORT",
@@ -14,10 +6,8 @@ export const OWNER_ENV_KEYS = [
   "PGDATABASE",
 ] as const;
 
-/** Restricted companion LOGIN env names (gateway dual-role injection). */
 export const COMPANION_ENV_KEYS = ["PGAPPUSER", "PGAPPPASSWORD"] as const;
 
-/** Canonical gateway-emitted connection env names (owner + companion). */
 export const CANONICAL_ENV_KEYS = [
   ...OWNER_ENV_KEYS,
   ...COMPANION_ENV_KEYS,
@@ -27,10 +17,8 @@ export type OwnerEnvKey = (typeof OWNER_ENV_KEYS)[number];
 export type CompanionEnvKey = (typeof COMPANION_ENV_KEYS)[number];
 export type CanonicalEnvKey = (typeof CANONICAL_ENV_KEYS)[number];
 
-/** Partial remap of canonical connection env names → adopter names. */
 export type PreviewEnvMap = Partial<Record<CanonicalEnvKey, string>>;
 
-/** Shell-safe env name: letter/underscore start, then alnum/underscore. */
 export const ENV_TARGET_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
@@ -48,10 +36,6 @@ export type PreviewEnvIssue =
       priorKey: string;
     };
 
-/**
- * Validate a connection-env remap map (canonical key → adopter name).
- * Absent or empty → undefined (no remapping). Values must be non-empty strings.
- */
 export function parsePreviewEnvMap(
   raw: Record<string, unknown> | undefined,
 ):

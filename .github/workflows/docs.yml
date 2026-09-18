@@ -1,10 +1,6 @@
 name: docs
 
-# Publish docs/site (plus linked markdown targets) to GitHub Pages.
-# Repo setting: Settings → Pages → Source = GitHub Actions.
-# Path filters are intentionally broader than the publish set (see
-# docs/site/assemble.ts): anything a published page can link to must
-# retrigger the deploy when it changes.
+# Path filters stay broader than the publish set: any linked target must retrigger deploy.
 on:
   push:
     branches: [main]

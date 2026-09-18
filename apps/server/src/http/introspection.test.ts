@@ -28,7 +28,6 @@ function fakeDocker(): FakeDockerClient {
   return testApp!.docker as FakeDockerClient;
 }
 
-/** Seed a catalog sprout-* container without going through deploy. */
 function seedOrphanContainer(slug: string, prId: number, id = "orphan") {
   const name = previewContainerName(slug, prId);
   fakeDocker().running.set(name, {
@@ -128,9 +127,7 @@ describe("GET /v1/doctor", () => {
 
   test("returns API error shape when orphans exist", async () => {
     await setup();
-    // Catalog DB with no SQLite row → orphan-db
     await fakePreviewDb!.createDatabase("sprout_myapp_pr99");
-    // Container with no SQLite row → orphan-container (same catalog as sweep)
     seedOrphanContainer("myapp", 99, "c-99");
 
     const res = await testApp!.app.handle(
@@ -326,7 +323,6 @@ describe("POST /v1/drop", () => {
     expect(res.body).toEqual({ ok: true, status: "removed" });
     expect(fakePreviewDb!.dropped).toEqual(["sprout_myapp_pr42"]);
 
-    // Restore list path so doctor can see the leftover container.
     docker.removeByName = realRemove;
     const doctorRes = await testApp!.app.handle(
       new Request("http://localhost/v1/doctor", {

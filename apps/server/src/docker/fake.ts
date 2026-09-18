@@ -13,14 +13,10 @@ export type FakeDockerClient = PreviewDocker & {
   pulls: string[];
   creates: ContainerCreateSpec[];
   removed: string[];
-  /** Image → first exposed port; unset images return null. */
   exposedPorts: Map<string, number | null>;
   running: Map<string, { id: string; spec: ContainerCreateSpec }>;
-  /** containerId → networkName → IP */
   ips: Map<string, Map<string, string>>;
-  /** container name → wait outcome (default exit 0). */
   waitResults: Map<string, { exitCode: number } | "timeout">;
-  /** container name → full log text (cleared on remove). */
   logs: Map<string, string>;
 };
 

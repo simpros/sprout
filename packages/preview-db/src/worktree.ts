@@ -57,7 +57,6 @@ function resolveObjectName(rawKey: string): {
 
 export type WorktreeConnection = {
   worktreeKey: string;
-  /** Database and login role name (`sprout_wt_…`). */
   objectName: string;
   password: string;
   host: string;
@@ -68,11 +67,6 @@ export type WorktreeConnection = {
 export type ProvisionWorktreeDbOptions = {
   adminUrl: string;
   worktreeKey: string;
-  /**
-   * When omitted, a random password is generated and synced.
-   * Callers that want stable credentials across re-provision should pass the
-   * existing password (e.g. from the env file).
-   */
   password?: string;
 };
 
@@ -81,10 +75,6 @@ function randomPassword(): string {
   return Buffer.from(bytes).toString("base64url");
 }
 
-/**
- * Idempotent ensure of worktree DB + LOGIN role (`sprout_wt_<key>`).
- * CREATE the role or ALTER its password.
- */
 export async function provisionWorktreeDb(
   options: ProvisionWorktreeDbOptions,
 ): Promise<WorktreeConnection> {
@@ -117,15 +107,10 @@ export type DropWorktreeDbResult = {
   objectName: string;
 };
 
-/**
- * Drop worktree DB + role. Touches only `sprout_wt_`-prefixed objects;
- * refuses anything else via assertWorktreeObjectName.
- */
 export async function dropWorktreeDb(
   options: DropWorktreeDbOptions,
 ): Promise<DropWorktreeDbResult> {
   const { worktreeKey, objectName } = resolveObjectName(options.worktreeKey);
-  // Defense in depth: never run DROP on a non-prefixed name.
   assertWorktreeObjectName(objectName);
 
   const sql = new SQL(options.adminUrl);

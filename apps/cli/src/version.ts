@@ -1,8 +1,4 @@
-/**
- * Injected by `bun run compile` via `--define SPROUT_CLI_VERSION=...`
- * (from env `SPROUT_CLI_VERSION`, default `dev`). Unset when running from
- * source → "dev".
- */
+/** Injected by `bun run compile` via `--define`; unset when running from source, so `dev`. */
 declare const SPROUT_CLI_VERSION: string | undefined;
 
 export function cliVersion(): string {

@@ -19,10 +19,8 @@ jobs:
 
       - name: Install sprout
         env:
-          SPROUT_CLI_TAG: v0.6.0 # ≥ release with glibc sprout-linux-x64 (not v0.5.0)
+          SPROUT_CLI_TAG: v0.6.0
         run: |
-          # glibc runners: sprout-linux-x64. Alpine: sprout-linux-x64-musl
-          # (+ apk add libstdc++). See docs/adoption.md#install-from-a-release-asset.
           mkdir -p "$RUNNER_TEMP/bin"
           curl -fsSL -o "$RUNNER_TEMP/bin/sprout" \
             "https://github.com/simpros/sprout/releases/download/${SPROUT_CLI_TAG}/sprout-linux-x64"
@@ -55,9 +53,6 @@ jobs:
         env:
           SPROUT_APP_ENV_BLOB: ${{ secrets.SPROUT_APP_ENV }}
         run: |
-          # One masked variable holding a dotenv blob; the CLI reads it via
-          # SPROUT_APP_ENV automatically (see docs/adoption.md). Empty when
-          # the secret is unset — deploys without app secrets still work.
           printf '%s\n' "$SPROUT_APP_ENV_BLOB" > "$RUNNER_TEMP/preview.app.env"
           echo "SPROUT_APP_ENV=$RUNNER_TEMP/preview.app.env" >> "$GITHUB_ENV"
 
@@ -65,9 +60,6 @@ jobs:
         if: github.event.action != 'closed'
         id: deploy
         run: |
-          # The preview URL comes from the CLI's preview_url= output only;
-          # never reconstruct the hostname here (the CLI owns {pr_id}
-          # substitution from .sprout.yaml).
           sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" | tee deploy.log
           line=$(grep '^preview_url=' deploy.log || true)
           if [ -n "$line" ]; then

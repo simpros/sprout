@@ -18,7 +18,6 @@ const DEFS = [
 
 export type WorktreeFlagName = (typeof DEFS)[number]["flag"];
 
-/** Parse worktree-db argv; does not widen the shared gateway FlagBag. */
 export function parseWorktreeDbFlags(
   tokens: string[],
   allowed: readonly WorktreeFlagName[],

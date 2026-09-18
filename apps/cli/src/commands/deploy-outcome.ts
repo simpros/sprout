@@ -1,4 +1,3 @@
-/** Snapshot fields the deploy poller interprets (GET /v1/preview after 202). */
 export type DeploySnapshotFields = {
   status?: string;
   preview_url?: string | null;
@@ -11,11 +10,6 @@ export type DeployOutcome =
   | { kind: "failed"; message: string }
   | { kind: "pending" };
 
-/**
- * Pure deploy settle interpretation: sticky last_error and status=failed are
- * terminal; running + non-empty preview_url + no error is ready (the URL is
- * carried so callers never re-derive it with a fallback); else keep polling.
- */
 export function deployOutcome(data: DeploySnapshotFields): DeployOutcome {
   if (data.last_error) {
     if (

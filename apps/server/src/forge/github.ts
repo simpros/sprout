@@ -10,7 +10,6 @@ export type GitHubForgeOptions = {
 
 const PER_PAGE = 100;
 
-/** Parse https://github.com/owner/repo → { owner, repo }. */
 function parseGitHubRepo(canonicalRepoId: string): {
   owner: string;
   repo: string;

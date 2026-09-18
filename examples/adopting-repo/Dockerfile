@@ -1,7 +1,6 @@
 FROM oven/bun:1.4.0
 WORKDIR /app
 
-# Install postgresql-client for pg_isready in entrypoint
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client \
   && rm -rf /var/lib/apt/lists/*
 

@@ -2,7 +2,6 @@ export type WorktreeInputErrorCode =
   | "invalid_admin_url"
   | "invalid_worktree_key";
 
-/** Typed input validation failure from worktree provision/drop. */
 export class WorktreeInputError extends Error {
   readonly code: WorktreeInputErrorCode;
   readonly value: string;
@@ -25,7 +24,6 @@ export function isWorktreeInputError(
   return err instanceof WorktreeInputError;
 }
 
-/** Package-internal; not re-exported from the public index. */
 export function throwWorktreeInputError(
   code: WorktreeInputErrorCode,
   value: string,

@@ -103,11 +103,6 @@ export type EnsureAdminTokenResult =
   | { status: "generated"; raw: string }
   | { status: "existing" };
 
-/**
- * Ensures an active admin token hash exists.
- * Returns the raw bearer when known (pinned or freshly generated); `existing`
- * means only the hash is in SQLite (CLI must use the persisted file).
- */
 export async function ensureAdminToken(
   db: StateDb,
   configured?: string,

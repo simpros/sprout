@@ -10,7 +10,6 @@ import {
 import type { Result } from "../preview/result.ts";
 import { validatePrId } from "../preview-db/names.ts";
 
-/** Deploy-token repo gate shared by lifecycle HTTP handlers. */
 export function resolveRepo(
   auth: AuthContext,
   requested: string,
@@ -21,10 +20,6 @@ export function resolveRepo(
   return { ok: true, value: requested };
 }
 
-/**
- * Auth → repo scope → pr_id → readable preview row (includes seed_log).
- * Shared by GET /v1/preview (mapped to snapshot) and GET …/logs.
- */
 export async function requireReadablePreviewRow(
   deps: Pick<LifecycleDeps, "db">,
   auth: AuthContext | null,
@@ -45,7 +40,6 @@ export async function requireReadablePreviewRow(
   return gateReadablePreviewRow(row);
 }
 
-/** Auth → readable preview as the public status snapshot. */
 export async function requireReadablePreview(
   deps: Pick<LifecycleDeps, "db">,
   auth: AuthContext | null,
@@ -57,7 +51,6 @@ export async function requireReadablePreview(
   return { ok: true, value: previewSnapshotFromRow(row.value) };
 }
 
-/** Map a domain `Result` onto Elysia's `set.status` + error body. */
 export function mapResult<T>(
   result: Result<T>,
   set: { status?: number | string },

@@ -1,5 +1,4 @@
 #!/bin/sh
-# Copy into your app repo root. Gateway sets PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE.
 set -eu
 
 : "${PGHOST:?PGHOST required}"

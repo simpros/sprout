@@ -1,7 +1,6 @@
 import { sql } from "drizzle-orm";
 import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-/** SQLite DEFAULT that emits unambiguous UTC ISO-8601 with Z (Date.parse-safe). */
 const utcIsoNow = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
 export const previews = sqliteTable(
@@ -22,24 +21,10 @@ export const previews = sqliteTable(
       .notNull()
       .default(utcIsoNow),
     seededAt: text("seeded_at"),
-    /** Terminal async provision failure for GET /v1/preview polling. */
     lastError: text("last_error"),
-    /** Short sticky diagnostic (e.g. exit=7, timeout) — not log blobs. */
     lastErrorDetail: text("last_error_detail"),
-    /**
-     * Sticky `failed` diagnostic family (API / logs). Survives accept until
-     * success/replace. Recovery path is {@link bringUpPlan}, written with the
-     * sticky mark — do not re-derive plan from this column at accept.
-     */
     failureFamily: text("failure_family"),
-    /**
-     * Durable bring-up plan. Accept preserves sticky/crash plans; promote/seed
-     * advances to `sync_close` (fleet pending) or `close` (no companions).
-     * Sticky fail writes `seed_resume` / `sync_close` with the family.
-     * Bring-up consumes this blindly. Cleared on `running`.
-     */
     bringUpPlan: text("bring_up_plan"),
-    /** Captured one-shot seed stdout/stderr for GET …/logs (cleared on success/remint). */
     seedLog: text("seed_log"),
   },
   (table) => [

@@ -4,13 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { utcIsoNow } from "./row.ts";
 import type { BringUpPlan } from "./types.ts";
 
-/**
- * Pre-healthy / ensure / drop failure: clear containerId so Traefik orphans
- * are not claimed. Callers that run outside a held preview lock (background
- * catch) must wrap with withPreviewLock and skip `removing` / `removed` so
- * teardown cannot be resurrected.
- * Do not use for post-healthy sticky failure — see {@link markStickyPreviewFailed}.
- */
+/** Must run under withPreviewLock; skips removing/removed rows. */
 export async function markPreviewFailed(
   db: StateDb,
   repo: string,
@@ -38,10 +32,8 @@ export type StickyFailureFamily = "seed_incomplete" | "post_healthy";
 
 export type StickyPreviewFailure = {
   error: string;
-  /** Diagnostic family; also selects the durable recovery {@link BringUpPlan}. */
   family: StickyFailureFamily;
   detail?: string | null;
-  /** Captured seed container stdout/stderr; omit to leave seed_log unchanged. */
   seedLog?: string | null;
 };
 
@@ -54,12 +46,6 @@ function recoveryPlanFor(family: StickyFailureFamily): BringUpPlan {
   }
 }
 
-/**
- * Post-healthy sticky failure (seed / companion sync): keep containerId so the
- * routable app stays reclaimable. Writes the recovery {@link BringUpPlan}
- * with the family so accept preserves it — do not clear the plan for accept
- * to rebuild from failureFamily.
- */
 export async function markStickyPreviewFailed(
   db: StateDb,
   repo: string,

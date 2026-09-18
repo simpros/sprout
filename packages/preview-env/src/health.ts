@@ -1,9 +1,3 @@
-/**
- * Preview health request-shape grammar (CLI yaml + gateway resolveHealthSpec).
- * Polling / probe runtime stays in the gateway.
- */
-
-/** Resolved health poll settings (defaults when yaml/request omits the block). */
 export type HealthSpec = {
   path: string;
   intervalMs: number;
@@ -18,7 +12,6 @@ export const DEFAULT_HEALTH: HealthSpec = {
   expectStatus: 200,
 };
 
-/** Wire shape of optional `health` on POST /v1/deploy (yaml-shaped durations). */
 export type HealthRequest = {
   path: string;
   interval: string;
@@ -32,7 +25,6 @@ export type HealthIssue =
   | { code: "invalid_health_expect" }
   | { code: "invalid_health_path" };
 
-/** Parse `"2s"` / `"120s"` style durations into milliseconds. */
 export function parseDurationMs(raw: string): number | null {
   const match = /^(\d+)s$/.exec(raw.trim());
   if (!match) return null;
@@ -41,10 +33,6 @@ export function parseDurationMs(raw: string): number | null {
   return seconds * 1000;
 }
 
-/**
- * Validate + resolve a yaml/HTTP health block into poll settings.
- * Absent input → {@link DEFAULT_HEALTH}.
- */
 export function resolveHealthSpec(
   input?: HealthRequest,
 ):

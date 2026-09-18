@@ -20,8 +20,6 @@ COPY packages/preview-env packages/preview-env
 COPY packages/preview-db packages/preview-db
 COPY packages/api-client packages/api-client
 
-# Operator exec path: `docker exec <gateway> sprout …` against localhost.
-# Same wrapper shape as examples/adopting-repo CI (exec bun …/index.ts).
 RUN printf '%s\n' '#!/usr/bin/env bash' \
   'exec bun /app/apps/cli/src/index.ts "$@"' \
   > /usr/local/bin/sprout \

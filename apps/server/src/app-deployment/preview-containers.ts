@@ -21,7 +21,6 @@ export type PreviewWorkloadRouting =
       hostname: string;
       pathPrefix?: string;
       tls?: TraefikTls;
-      /** Public Host/PathPrefix routes inherit gateway SSO when set. */
       forwardAuth?: TraefikForwardAuth;
     }
   | { kind: "internal" };
@@ -29,7 +28,6 @@ export type PreviewWorkloadRouting =
 export type MaterializePreviewWorkloadInput = {
   name: string;
   image: string;
-  /** Adopter KEY=VALUE; colliding connection keys are stripped. */
   userEnv: string[];
   routing: PreviewWorkloadRouting;
   networks: { traefik: string; postgres: string };
@@ -39,11 +37,6 @@ export type MaterializePreviewWorkloadInput = {
   previewPortDefault: number;
 };
 
-/**
- * Create+start one preview workload (app or service): resolve EXPOSE, build
- * connection env + optional Traefik labels, dual-network attach.
- * Caller owns naming and any prior remove.
- */
 export async function materializePreviewWorkload(
   docker: PreviewDocker,
   input: MaterializePreviewWorkloadInput,
@@ -74,7 +67,6 @@ export async function materializePreviewWorkload(
   return { containerId: id, port };
 }
 
-/** Force-remove every cataloged container for one preview (app + services). */
 export async function removePreviewFleet(
   docker: PreviewDocker,
   slug: string,
@@ -89,7 +81,6 @@ export async function removePreviewFleet(
   await Promise.all([...names].map((name) => docker.removeByName(name)));
 }
 
-/** Remove only service containers for one preview (leave the app). */
 export async function removePreviewServices(
   docker: PreviewDocker,
   slug: string,

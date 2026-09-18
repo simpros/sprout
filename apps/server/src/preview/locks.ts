@@ -1,14 +1,7 @@
-/**
- * Serialize control-plane mutations per (repo, prId).
- * One gateway process — in-process queue is the concurrency design.
- * ponytail: global Map; upgrade to shared lock if multi-process ever lands.
- */
+/** Control-plane mutations serialize per (repo, prId) via an in-process queue. */
 const previewLocks = new Map<string, Promise<void>>();
 
-/**
- * Serialize catalog DROP/CREATE per dbName so orphan sweep cannot race provision.
- * Taken inside the (repo, prId) lock for lifecycle paths; alone for orphan drops.
- */
+/** Catalog DROP/CREATE serialize per dbName so sweep cannot race provision. */
 const dbNameLocks = new Map<string, Promise<void>>();
 
 function withKeyedLock<T>(

@@ -39,7 +39,6 @@ function parseBringUpPlan(raw: string | null): BringUpPlan {
   }
 }
 
-/** CREATE under dbName lock only. Callers decide failed vs leave-provisioning. */
 async function ensureDatabase(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -54,10 +53,6 @@ async function ensureDatabase(
   });
 }
 
-/**
- * Pre-healthy failure: fleet remove + clear containerId.
- * App never became healthy — must not leave a claimed Traefik route.
- */
 async function failUnhealthyAttach(
   deps: LifecycleDeps,
   row: Pick<PreviewRow, "slug" | "prId" | "canonicalRepoId">,
@@ -79,11 +74,6 @@ async function failUnhealthyAttach(
   return { ok: false, status: 500, error };
 }
 
-/**
- * Post-healthy companion sync failure: keep the routable app (like seed_failed).
- * replacePreviewServices already clears partial creates locally.
- * Sticky mark writes bringUpPlan=sync_close with the family.
- */
 async function failCompanionSync(
   deps: LifecycleDeps,
   row: Pick<PreviewRow, "canonicalRepoId" | "prId">,
@@ -99,10 +89,6 @@ async function failCompanionSync(
   };
 }
 
-/**
- * Orthogonal companion sync after promote/seed.
- * Caller must pass an explicit set/clear (`services` defined).
- */
 async function syncPreviewServices(
   deps: LifecycleDeps,
   row: Pick<PreviewRow, "slug" | "prId" | "canonicalRepoId" | "dbName">,
@@ -123,7 +109,6 @@ async function syncPreviewServices(
   }
 }
 
-/** Single closer: write `running` only after promote/seed + companion sync. */
 async function closeRunning(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -155,11 +140,6 @@ async function closeRunning(
   };
 }
 
-/**
- * Sync companions then close to `running`.
- * Entered only for durable `sync_close` (fleet work pending). Omit cannot
- * declare victory — require an explicit set/clear.
- */
 async function syncThenCloseRunning(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -184,10 +164,6 @@ async function syncThenCloseRunning(
   return closeRunning(deps, row);
 }
 
-/**
- * After promote/seed: close directly when no fleet work; else sync then close.
- * Matches bringUpPlan close vs sync_close written by seed-phase.
- */
 async function finishAfterPromote(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -199,7 +175,6 @@ async function finishAfterPromote(
   return syncThenCloseRunning(deps, row, input);
 }
 
-/** Project request-scoped seed/remap/fleet fields only at the seed-phase boundary. */
 function deployEphemerals(input: ProvisionInput) {
   return {
     seed: input.seed,
@@ -208,11 +183,6 @@ function deployEphemerals(input: ProvisionInput) {
   };
 }
 
-/**
- * Replace + health only. Ends at healthy `starting` — seed/promote and
- * service sync are separate phases owned by the bring-up pipeline.
- * Accept owns generation remint; attach never touches createdAt.
- */
 async function attachAppContainer(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -262,18 +232,12 @@ async function attachAppContainer(
   );
   if (outcome === "timeout") {
     console.warn("health:timeout");
-    // Best-effort remove: failed must not leave a Traefik-routed container
-    // claimed by the row (orphan sweep skips keys still in previews).
     return failUnhealthyAttach(deps, row, "health_timeout");
   }
 
   return { ok: true, value: starting };
 }
 
-/**
- * One bring-up pipeline for replace path:
- * attach (app → healthy) → promote/seed → sync companions → running.
- */
 async function attachThenPromote(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -282,8 +246,6 @@ async function attachThenPromote(
   const attached = await attachAppContainer(deps, row, input);
   if (!attached.ok) return attached;
   let starting = attached.value;
-  // Clear after healthy attach so pull/health failure cannot erase a prior
-  // successful seed marker; promote's seed gate is `seededAt == null`.
   if (input.reseed === true && starting.seededAt != null) {
     starting = await updatePreviewRow(
       deps.db,
@@ -301,10 +263,6 @@ async function attachThenPromote(
   return finishAfterPromote(deps, starting, input);
 }
 
-/**
- * Ensure catalog DB under lock; mark failed on ensure error; then
- * attach → promote/seed → sync.
- */
 async function ensureThenAttach(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -341,7 +299,6 @@ async function pullImageOrFail(
   }
 }
 
-/** Pull app (+ optional seed + services) outside the preview lock. */
 export async function pullImagesOutsideLock(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -370,11 +327,6 @@ export async function pullImagesOutsideLock(
   return { ok: true, value: true };
 }
 
-/**
- * Post-accept bring-up under the preview lock (caller holds lock).
- * Consumes `bringUpPlan` written at accept / sticky fail / promote.
- * Do not re-parse status / failureFamily here.
- */
 export async function completeBringUp(
   deps: LifecycleDeps,
   row: PreviewRow,
@@ -382,8 +334,6 @@ export async function completeBringUp(
 ): Promise<Result<PreviewSnapshot>> {
   switch (parseBringUpPlan(row.bringUpPlan)) {
     case "seed_resume": {
-      // Accept already gated sameApp before writing this plan. Silent
-      // escalate to replace would hide accept bugs behind Traefik flaps.
       if (!canSeedWithoutAppReplace(row, input)) {
         return {
           ok: false,

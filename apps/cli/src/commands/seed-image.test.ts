@@ -34,7 +34,6 @@ describe("shortSeedHash", () => {
         { path: "b", content: "1" },
       ]),
     ).not.toBe(shortSeedHash(a));
-    // Same bytes under a different path re-tag.
     expect(shortSeedHash([{ path: "renamed", content: "1" }])).not.toBe(
       shortSeedHash([{ path: "a", content: "1" }]),
     );
@@ -262,8 +261,6 @@ describe("ensureSeedImage", () => {
   const APP_REF = "registry.example.com/group/app:abc123";
 
   test("without inputs always builds + pushes the commit-scoped tag", async () => {
-    // Even when the registry probe would succeed, the commit path never
-    // inspects — reuse is opt-in on explicit inputs.
     const { ctx, calls, stdout } = fakeCtx({ manifestExit: 0 });
     const result = await ensureSeedImage(
       ctx,

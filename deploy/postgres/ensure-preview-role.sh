@@ -1,7 +1,4 @@
 #!/bin/bash
-# Optional: create/sync the static preview login without starting the gateway.
-# Prefer letting the gateway ensure the role on boot via SPROUT_PREVIEW_POSTGRES_URL.
-# Invoked manually against Postgres (TCP via PGHOST/PGPORT/PGPASSWORD).
 set -euo pipefail
 
 preview_user="${SPROUT_PG_USER:-sprout_preview}"

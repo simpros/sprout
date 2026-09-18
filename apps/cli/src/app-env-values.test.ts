@@ -62,7 +62,6 @@ describe("resolveAppEnvValues", () => {
     );
     expect(first).toEqual({
       ok: true,
-      // HMAC-SHA256("test-token", "sprout-stable-per-pr:https://github.com/org/repo:42:BETTER_AUTH_SECRET") base64url
       value: {
         values: {
           BETTER_AUTH_SECRET: "anVkFMualWiVildhvR9ixQ2bSJXuAZO6m13Hj1y1cfU",

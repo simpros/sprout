@@ -16,17 +16,9 @@ export type SeedPhaseDeps = {
   app: Pick<PreviewAppOps, "runSeed">;
 };
 
-/**
- * Request-scoped deploy fields that are not persisted on the preview row.
- * seed and connectionEnv are siblings — do not hitch connectionEnv onto SeedImageSpec.
- * Whether to seed is answered by seeded_at on the row (lifecycle clears it
- * after healthy attach for replace+reseed; runSeedPhase clears on entry).
- * fleetPending selects close vs sync_close after promote/seed success.
- */
 export type DeployEphemerals = {
   seed?: SeedImageSpec;
   connectionEnv?: PreviewEnvMap;
-  /** True when ProvisionInput.services is defined (set or clear queued). */
   fleetPending?: boolean;
 };
 
@@ -34,7 +26,6 @@ function planAfterPromote(fleetPending: boolean | undefined): BringUpPlan {
   return fleetPending === true ? "sync_close" : "close";
 }
 
-/** Short sticky detail for status/CLI — never the seed log blob. */
 function seedFailureDetail(
   result: Extract<SeedImageResult, { ok: false }>,
 ): string | null {
@@ -43,20 +34,12 @@ function seedFailureDetail(
   return null;
 }
 
-/**
- * Seed phase ownership: enter seeding → run → seededAt + close|sync_close |
- * failed(keep container). Bring-up syncs companions (if sync_close) then
- * closes to `running`. Any post-enter throw still markStickyPreviewFailed
- * so the row cannot tombstone as seeding.
- */
 async function runSeedPhase(
   deps: SeedPhaseDeps,
   row: PreviewRow,
   ephemerals: DeployEphemerals & { seed: SeedImageSpec },
 ): Promise<Result<true>> {
   const { seed, connectionEnv } = ephemerals;
-  // Clear seeded_at on entry so a failed reseed matches first-seed failure
-  // (null seeded_at) and resume can re-run without another --reseed.
   await updatePreviewRow(
     deps.db,
     row,
@@ -100,10 +83,8 @@ async function runSeedPhase(
       deps.db,
       row,
       {
-        // Stay seeding until bring-up closes to running (after optional sync).
         status: "seeding",
         seededAt,
-        // Durable: sync_close only when fleet work is queued; else close.
         bringUpPlan: planAfterPromote(ephemerals.fleetPending),
         lastError: null,
         lastErrorDetail: null,
@@ -126,19 +107,12 @@ async function runSeedPhase(
   }
 }
 
-/**
- * After-healthy hook entry: no seed → mark close|sync_close; else run seed.
- * Does not write `running` — bring-up owns that after optional companion sync.
- * Seed image is the only after-healthy hook impl in v0.1.
- */
 export async function promoteAfterHealthy(
   deps: SeedPhaseDeps,
   starting: PreviewRow,
   ephemerals: DeployEphemerals = {},
 ): Promise<Result<true>> {
   const { seed } = ephemerals;
-  // Replace+reseed clears seeded_at before promote; seed only when
-  // `seed` is present and `seededAt == null`.
   const shouldSeed = seed !== undefined && starting.seededAt == null;
 
   if (shouldSeed && seed) {
@@ -157,11 +131,6 @@ export async function promoteAfterHealthy(
   return { ok: true, value: true };
 }
 
-/**
- * Live same-app structural check: container + matching image+hostname.
- * Compose with status / reseed at accept — does not mean "seed not done."
- * Service sync is orthogonal (see ProvisionInput.services tri-state).
- */
 export function canSeedWithoutAppReplace(
   row: PreviewRow,
   input: {
@@ -176,17 +145,12 @@ export function canSeedWithoutAppReplace(
   );
 }
 
-/**
- * Resume seed-incomplete row without replace. Requires seed_image — otherwise
- * a synchronize without -s would silently close to running with seededAt null.
- */
 export async function resumeIncompleteSeed(
   deps: SeedPhaseDeps,
   row: PreviewRow,
   ephemerals: DeployEphemerals,
 ): Promise<Result<true>> {
   if (!ephemerals.seed) {
-    // Keep containerId so the healthy app stays reclaimable for a seeded retry.
     await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
       error: "seed_image_required_to_resume_seeding",
       family: "seed_incomplete",

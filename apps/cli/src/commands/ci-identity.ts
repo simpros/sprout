@@ -16,20 +16,13 @@ export type CiSource =
       pipelineSource: "pull_request" | "pull_request_target";
     };
 
-/** Common to all `sprout ci *` subcommands — keeps the forge discriminant. */
 export type CiIdentity = CiSource & {
   repo: string;
   prId: number;
-  /**
-   * Forge-scoped SHA locked at identity time (`resolveCommitSha(env, forge)`).
-   * `undefined` when the forge's var is missing — image-ref resolution fails
-   * on preview/reseed, while teardown/logs/notes carry on without it. Every
-   * consumer reads this field; nobody re-derives the SHA from env.
-   */
+  /** SHA locked at identity time; nobody re-derives it from env. */
   commitSha: string | undefined;
 };
 
-/** Preview-only fields: image + hostname from yaml. */
 export type CiPreviewIdentity = CiIdentity & {
   imageRef: string;
   hostname: string;
@@ -88,12 +81,6 @@ export function requireCiSource(env: NodeJS.ProcessEnv): Result<CiSource> {
   };
 }
 
-/**
- * Image ref from the registry plus the SHA locked on `CiIdentity` at
- * `resolveCiIdentity` time. Reads no SHA env itself — preview and reseed
- * pass the identity through, so the tag cannot disagree with `{commit_sha}`
- * under mixed envs. `forge` only names the missing var in the error.
- */
 export function resolveImageRef(
   env: NodeJS.ProcessEnv,
   identity: Pick<CiIdentity, "forge" | "commitSha">,
@@ -110,12 +97,6 @@ export function resolveImageRef(
   return { ok: true, value: `${registry}:${sha}` };
 }
 
-/**
- * Group-level CI identity: forge-scoped repo + PR under requireCiSource.
- * Does not require image ref or .sprout.yaml (preview-only). PR-id misses
- * surface the shared resolver's error directly so the CI and deploy paths
- * share one error vocabulary.
- */
 export async function resolveCiIdentity(
   deps: CliDeps,
 ): Promise<Result<CiIdentity>> {
@@ -152,7 +133,6 @@ export async function resolveCiIdentity(
   };
 }
 
-/** Preview: group identity plus image ref and hostname from yaml. */
 export async function resolveCiPreviewIdentity(
   deps: CliDeps,
 ): Promise<Result<CiPreviewIdentity>> {

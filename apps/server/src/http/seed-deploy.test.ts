@@ -208,7 +208,6 @@ describe("POST /v1/deploy seed image", () => {
       ...companion,
     ]);
     expect(seedCreate.labels).toEqual({});
-    // Entrypoint must remain unset so the image default runs.
     expect(
       Object.prototype.hasOwnProperty.call(seedCreate, "entrypoint"),
     ).toBe(false);
@@ -227,7 +226,6 @@ describe("POST /v1/deploy seed image", () => {
     expect(fakeDocker!.running.has("sprout-myapp-pr-42")).toBe(true);
   });
 
-  // Remap + merge: app/seed share remapped names; colliding seed_env keys are stripped.
   test("applies the same connection env remap to seed as app", async () => {
     const { deployToken } = await setup();
     const remap = {
@@ -286,12 +284,10 @@ describe("POST /v1/deploy seed image", () => {
     );
     expect(second.settleStatus).toBe(200);
     expect(second.body.status).toBe("running");
-    // App replace only — no second seed create.
     expect(fakeDocker!.creates.length).toBe(createsAfterFirst + 1);
     expect(
       fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
     ).toHaveLength(1);
-    // Named seed_image always pulls (client should omit it on sync to skip).
     expect(fakeDocker!.pulls.slice(pullsAfterFirst)).toEqual([
       APP_IMAGE,
       SEED_IMAGE,
@@ -330,7 +326,6 @@ describe("POST /v1/deploy seed image", () => {
     );
     expect(second.settleStatus).toBe(200);
     expect(second.body.status).toBe("running");
-    // Same image/hostname: seed-only — no second app create.
     expect(
       fakeDocker!.creates.filter((c) => c.name === "sprout-myapp-pr-42"),
     ).toHaveLength(appCreatesAfterFirst);
@@ -688,7 +683,6 @@ describe("POST /v1/deploy seed image", () => {
     );
     expect(retry.settleStatus).toBe(200);
     expect(retry.body.status).toBe("running");
-    // Same image/hostname: seed-only resume — no second app create.
     expect(
       fakeDocker.creates.filter((c) => c.name === "sprout-myapp-pr-42"),
     ).toHaveLength(1);
@@ -709,7 +703,6 @@ describe("POST /v1/deploy seed image", () => {
 
   test("resumes seed when row is stuck in seeding", async () => {
     const { deployToken } = await setup();
-    // Simulate crash after seeding write: healthy app row left mid-seed.
     await testApp!.db.insert(previews).values({
       canonicalRepoId: REPO,
       prId: 42,
@@ -732,7 +725,6 @@ describe("POST /v1/deploy seed image", () => {
     );
     expect(res.settleStatus).toBe(200);
     expect(res.body.status).toBe("running");
-    // Resume must not replace the app — only run the seed container.
     expect(
       fakeDocker!.creates.slice(createsBefore).map((c) => c.name),
     ).toEqual(["sprout-myapp-pr-42-seed"]);

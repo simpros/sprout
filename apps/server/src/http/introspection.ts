@@ -17,7 +17,6 @@ export type ListedPreview = {
   slug: string;
   db_name: string;
   hostname: string;
-  /** Coarse display status (starting/seeding → provisioning). */
   status: ReturnType<typeof toDisplayStatus>;
   created_at: string;
 };
@@ -146,8 +145,6 @@ export function drop(deps: IntrospectionDeps) {
       };
     }
 
-    // Confirmation is intentionally unversioned (repo + prId only); see purgePreview.
-    // Container remove runs inside purgePreview under the preview lock.
     const result = await purgePreview(deps, {
       repo: body.canonical_repo_id,
       prId: body.pr_id,
@@ -161,7 +158,6 @@ export function drop(deps: IntrospectionDeps) {
   };
 }
 
-/** Map reconcile orphan deletions to the doctor wire shape. */
 function toDoctorOrphans(
   previewKeys: Set<string>,
   catalog: { slug: string; prId: number; dbName: string }[],

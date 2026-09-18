@@ -1,12 +1,6 @@
 import { defaultRunCommand, type CliContext } from "../context.ts";
 import type { Result } from "../result.ts";
 
-/**
- * `docker build -f <dockerfile> -t <ref> .` then `docker push <ref>`.
- * The docker CLI inherits the job env, so dind (`DOCKER_HOST`, TLS) and
- * registry auth work unchanged. Build output streams to the job log;
- * only the exit code is captured.
- */
 export async function buildAndPush(
   ctx: CliContext,
   label: string,

@@ -73,7 +73,6 @@ function hasFile(gitDir: string, rev: string, path: string): boolean {
   return proc.exitCode === 0;
 }
 
-/** Seed a bare remote with one commit so `git clone --depth 1` works. */
 function initBareRemote(): string {
   const base = mkdtempSync(join(tmpdir(), "sprout-component-"));
   const remote = join(base, "remote.git");
@@ -129,8 +128,7 @@ describe("sync-gitlab-component.sh", () => {
     const remote = initBareRemote();
     const src = makeSrcDir();
     const tag = "v9.9.9-test";
-    // file:// keeps --depth semantics (plain local paths make git ignore
-    // --depth with a warning), matching the HTTPS shallow clones in release.
+    // file:// preserves --depth; plain local paths make git ignore it.
     const baseEnv = {
       SPROUT_COMPONENT_PROJECT: "group/sprout-ci",
       VERSION_TAG: tag,
@@ -139,8 +137,6 @@ describe("sync-gitlab-component.sh", () => {
       SOURCE_TEMPLATES_DIR: src,
     };
 
-    // Seed an orphan template on the remote: sync must clear it so the tag
-    // carries exactly one file under templates/.
     const orphanSeed = mkdtempSync(join(tmpdir(), "sprout-orphan-"));
     git(orphanSeed, ["clone", "-q", remote, "work"]);
     mkdirSync(join(orphanSeed, "work", "templates"), { recursive: true });
@@ -149,7 +145,6 @@ describe("sync-gitlab-component.sh", () => {
     git(join(orphanSeed, "work"), ["commit", "-qm", "orphan"]);
     git(join(orphanSeed, "work"), ["push", "-q", "origin", "HEAD"]);
 
-    // First sync: pins + clears the orphan + tags.
     const first = runScript(baseEnv);
     expect(`${first.stdout.toString()} ${first.stderr.toString()}`).toContain(
       "component sync ok",
@@ -160,14 +155,10 @@ describe("sync-gitlab-component.sh", () => {
     expect(published).not.toContain("@SPROUT_COMPONENT_VERSION@");
     expect(hasFile(remote, tag, "templates/legacy.yml")).toBe(false);
 
-    // Second sync without changes: tag already points at HEAD, still success.
     const second = runScript(baseEnv);
     expect(second.exitCode).toBe(0);
     expect(second.stdout.toString()).toContain("already points at HEAD");
 
-    // New content under the same tag: must fail, not leave the tag stale —
-    // and must not advance the default branch either (the stale-tag gate
-    // runs before any push, so no orphan commit splits branch from tag).
     appendFileSync(join(src, "preview.yml"), "\n# rebuild probe\n");
     const third = runScript(baseEnv);
     expect(third.exitCode).not.toBe(0);
@@ -191,10 +182,7 @@ describe("sync-gitlab-component.sh", () => {
     expect(first.exitCode).toBe(0);
     const pinned = revParse(remote, tag);
 
-    // Swap the lightweight tag for an annotated one at the same commit, the
-    // way a human retag or alternate release tooling would leave it.
-    // `ls-remote` reports the tag *object* SHA for annotated tags, so a naive
-    // compare would read this as stale forever.
+    // ls-remote reports the tag object SHA for annotated tags; compare the peeled commit.
     const ctl = mkdtempSync(join(tmpdir(), "sprout-annot-"));
     git(ctl, ["clone", "-q", remote, "work"]);
     const wc = join(ctl, "work");
@@ -203,7 +191,6 @@ describe("sync-gitlab-component.sh", () => {
     git(wc, ["tag", "-a", tag, "-m", tag, pinned]);
     git(wc, ["push", "-q", "origin", tag]);
 
-    // Unchanged content with the annotated tag at HEAD: still success.
     const second = runScript(baseEnv);
     expect(second.exitCode).toBe(0);
     expect(second.stdout.toString()).toContain("already points at HEAD");

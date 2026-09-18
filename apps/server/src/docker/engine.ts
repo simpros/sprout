@@ -15,7 +15,6 @@ import {
 
 export type DockerEngineOptions = {
   socketPath?: string;
-  /** Boot-normalized registry pull auth (per-host map + optional fallback). */
   registryPullAuth?: RegistryPullAuth;
   fetch?: (
     input: string | URL | Request,
@@ -52,11 +51,7 @@ function firstExposedPortFromInspect(inspect: ImageInspect): number | null {
   return null;
 }
 
-/**
- * Docker multiplexed log stream: 8-byte header (stream type + big-endian size)
- * then payload. Preview containers are created without Tty, so Engine always
- * multiplexes stdout/stderr — always demux (no raw/TTY fallback).
- */
+/** Engine always multiplexes logs (containers run without Tty): always demux. */
 function demuxDockerLogs(bytes: Uint8Array): string {
   const decoder = new TextDecoder();
   if (bytes.length === 0) return "";
@@ -78,10 +73,7 @@ function demuxDockerLogs(bytes: Uint8Array): string {
   return chunks.join("");
 }
 
-/**
- * Engine `/images/create` often returns HTTP 200 and encodes failure as
- * `{"error":...}` / `errorDetail` lines in the NDJSON progress body.
- */
+/** Engine reports pull failure as error lines in a 200 NDJSON body. */
 function assertPullStreamOk(body: string, image: string): void {
   for (const line of body.split("\n")) {
     const trimmed = line.trim();
@@ -108,7 +100,6 @@ function assertPullStreamOk(body: string, image: string): void {
   }
 }
 
-/** Docker Engine API client over the unix socket (preview-scoped). */
 export function createDockerEngineClient(
   options: DockerEngineOptions = {},
 ): PreviewDocker {
@@ -220,11 +211,9 @@ export function createDockerEngineClient(
         }
         return { id };
       } catch (err) {
-        // Half-built named container blocks the next replace; best-effort scrub.
         try {
           await removeByName(spec.name);
         } catch {
-          // ignore — surface the original start failure
         }
         throw err;
       }

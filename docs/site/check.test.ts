@@ -137,9 +137,7 @@ describe("ADR exclusion (standing rule: never consumer docs)", () => {
     expect(findAdrMention("see ADR 0007")).not.toBeNull();
     expect(findAdrMention("see ADR-0007")).not.toBeNull();
     expect(findAdrMention("our ADRs live elsewhere")).not.toBeNull();
-    // `/` counts as part of a path token, so an `adr` path segment in raw
-    // text is not a vocabulary hit — those report as ADR links via
-    // `isAdrHref`, or as ADR files via `isAdrPath`.
+    // `/` belongs to path tokens, so raw `adr/` segments report via `isAdrHref`/`isAdrPath`.
     expect(findAdrMention("[decisions](docs/adr/README.md)")).toBeNull();
     expect(findAdrMention('<a href="../adr/README.md">x</a>')).toBeNull();
   });
@@ -158,7 +156,6 @@ describe("ADR exclusion (standing rule: never consumer docs)", () => {
   test("fails closed when an ADR file lands in the tree", async () => {
     root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
     await writeCorpusFixture(root);
-    // Temporarily re-add the leak the manifest must exclude.
     await mkdir(join(root, "docs", "adr"), { recursive: true });
     await writeFile(join(root, "docs", "adr", "README.md"), "# adrs\n");
     await expect(check(await defaultCheckPaths(root))).rejects.toThrow(/ADR leak/);

@@ -21,7 +21,6 @@ import {
   type TestApp,
 } from "./test-helpers.ts";
 
-/** Second network on create — fake assigns sequential IPs per attached network. */
 const POSTGRES_IP = "10.99.0.2";
 
 let testApp: TestApp | undefined;
@@ -106,7 +105,6 @@ describe("POST /v1/deploy health polling", () => {
       hostname: "pr-42.myapp.preview.example.com",
     });
     expect((early.body as { preview_url?: string }).preview_url).toBeUndefined();
-    // Health must not have completed before 202 (pull/replace may still be racing).
     expect(healthHits.length).toBe(0);
 
     release();

@@ -125,11 +125,6 @@ function readGitlabPrId(env: NodeJS.ProcessEnv): number | null {
   return positiveInt(env.CI_MERGE_REQUEST_IID);
 }
 
-/**
- * Strict PR-id resolver: reads only the given forge's sources. CI callers
- * pass the forge from `requireCiSource`; the deploy path uses
- * `resolvePrIdAny` (GitHub first, then GitLab).
- */
 export function resolvePrId(input: {
   env: NodeJS.ProcessEnv;
   eventPayload?: unknown;
@@ -152,7 +147,6 @@ export function resolvePrId(input: {
   };
 }
 
-/** Deploy path: forge-blind, GitHub first then GitLab (old aggregator order). */
 export function resolvePrIdAny(input: {
   env: NodeJS.ProcessEnv;
   eventPayload?: unknown;
@@ -168,12 +162,10 @@ export function resolvePrIdAny(input: {
   };
 }
 
-/** Forge → commit-SHA env var name. One map for strict resolution and error copy. */
 export function commitShaEnvVar(forge: Forge): "CI_COMMIT_SHA" | "GITHUB_SHA" {
   return forge === "gitlab" ? "CI_COMMIT_SHA" : "GITHUB_SHA";
 }
 
-/** Strict commit SHA: reads only the given forge's var. CI callers pass the forge from identity. */
 export function resolveCommitSha(
   env: NodeJS.ProcessEnv,
   forge: Forge,
@@ -181,7 +173,6 @@ export function resolveCommitSha(
   return env[commitShaEnvVar(forge)]?.trim() || undefined;
 }
 
-/** Deploy path: forge-blind, GitHub first then GitLab (old aggregator order). */
 export function resolveCommitShaAny(env: NodeJS.ProcessEnv): string | undefined {
   return resolveCommitSha(env, "github") ?? resolveCommitSha(env, "gitlab");
 }

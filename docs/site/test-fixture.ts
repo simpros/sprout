@@ -1,17 +1,7 @@
-/**
- * Minimal repo carrying every path the publish manifest expects.
- *
- * Stubs are generated from `publishFiles`, so adding a standalone file to
- * the manifest can never leave the fixture behind; directory trees
- * (`publishDirs`) are copied wholesale, so only the link-relevant members
- * need samples here. Rich content below overlays the stubs for the pages
- * whose links the tests exercise.
- */
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { publishFiles } from "./assemble.ts";
 
-/** Link-relevant members of the `publishDirs` trees. */
 const dirSamples: Record<string, string> = {
   "templates/README.md": "# templates\n",
   "templates/preview.yml": "# yml\n",
@@ -19,7 +9,6 @@ const dirSamples: Record<string, string> = {
   "examples/adopting-repo/.github/workflows/sprout.yml": "# ci\n",
 };
 
-/** Pages whose outbound links the tests assert on. */
 const overlays: Record<string, string> = {
   "docs/site/index.html":
     `<html><body><a href="../deploy.md">deploy</a><a href="../adoption.md">adopt</a></body></html>\n`,

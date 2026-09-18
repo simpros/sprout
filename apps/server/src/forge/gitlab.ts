@@ -4,13 +4,11 @@ import { forgeApiError, type FetchLike, type ForgeClient } from "./types.ts";
 export type GitLabForgeOptions = {
   token: string;
   fetch?: FetchLike;
-  /** Override API root; default derived from canonical repo host. */
   apiBase?: string;
 };
 
 const PER_PAGE = 100;
 
-/** Parse https://gitlab.example/group/project → { host, path }. */
 export function parseGitLabProject(
   canonicalRepoId: string,
 ): { host: string; path: string } {

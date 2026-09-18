@@ -42,10 +42,7 @@ function printHelp(ctx: CliContext): number {
   return 0;
 }
 
-/**
- * CI group: resolve identity before auth so outside-pipeline errors win over
- * missing-token. After identity succeeds, auth once and pass a real client.
- */
+/** Resolve identity before auth so outside-pipeline errors win over missing-token. */
 export async function runCi(
   tokens: string[],
   ctx: CliContext,
@@ -68,8 +65,6 @@ export async function runCi(
     return printHelp(ctx);
   }
 
-  // Identity before auth so outside-pipeline errors win over missing-token.
-  // Preview returns early so its identity never widens to `| undefined`.
   if (subcommand === "preview") {
     const preview = await resolveCiPreviewIdentity(ctx.deps);
     if (!preview.ok) return fail(ctx.deps.io, preview.error);

@@ -22,7 +22,6 @@ export function createFakePreviewDb(): FakePreviewDb {
       if (!live.has(dbName)) {
         created.push(dbName);
       }
-      // Companion ensure runs on every createDatabase call (incl. sync re-ensure).
       restrictedEnsured.push(dbName);
     },
     async dropDatabase(dbName) {

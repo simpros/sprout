@@ -1,11 +1,3 @@
-/**
- * Assemble the published site once, check that tree, then serve the same
- * tree so docs/site/index.html keeps its real URL path
- * (/docs/site/index.html; / redirects there). Relative hrefs
- * (`../adoption.md`, `../../examples/…`) then resolve with ordinary
- * static-file semantics against exactly what Pages will serve — no URL
- * remapping, no repo-only paths.
- */
 import { mkdtemp } from "node:fs/promises";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,13 +15,11 @@ function docsPort(): number {
 }
 
 const siteRoot = await mkdtemp(join(tmpdir(), "sprout-docs-preview-"));
-// Clean synchronously, then exit: without process.exit the server keeps
-// running after Ctrl+C, and an async rm would race process teardown.
+// Clean synchronously: an async rm would race process teardown.
 function shutdown(): never {
   try {
     rmSync(siteRoot, { recursive: true, force: true });
   } catch {
-    // Best effort — temp cleanup must not mask the shutdown signal.
   }
   process.exit(0);
 }

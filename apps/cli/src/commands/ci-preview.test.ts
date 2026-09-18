@@ -16,8 +16,6 @@ type Captured = {
 let server: ReturnType<typeof Bun.serve> | undefined;
 let captured: Captured[] = [];
 let dockerCalls: string[][] = [];
-// Absent tag by default: `manifest inspect` fails so the seed builds —
-// tests opt into the reuse path by returning 0 for it.
 let dockerBehavior: (argv: string[]) => number = (argv) =>
   argv[1] === "manifest" ? 1 : 0;
 let written: Record<string, string> = {};
@@ -60,7 +58,6 @@ async function withWorkspace(
   return dir;
 }
 
-/** Production-faithful file seam: missing files read as null, not a throw. */
 async function readRealFile(path: string): Promise<string | null> {
   const file = Bun.file(path);
   if (!(await file.exists())) return null;
@@ -147,7 +144,6 @@ const GITLAB_MR_ENV = {
 
 const APP_REF = "registry.gitlab.com/group/repo:abc123";
 
-// Explicit `seed.inputs`: content-addressed tag over the listed paths.
 function seedRefFor(content: string): string {
   return `registry.gitlab.com/group/repo:seed-${shortSeedHash([
     { path: "Dockerfile.seed", content },
@@ -155,7 +151,6 @@ function seedRefFor(content: string): string {
 }
 
 const SEED_DOCKERFILE = "FROM oven/bun:1.4.0\n";
-// No `seed.inputs`: commit-scoped tag, always rebuilt, never probed.
 const COMMIT_SEED_REF = `${APP_REF}-seed`;
 
 const SEED_REF = seedRefFor(SEED_DOCKERFILE);
@@ -199,9 +194,6 @@ describe("sprout ci preview", () => {
     );
     expect(code).toBe(0);
     expect(stderr).toEqual([]);
-    // No `seed.inputs`: commit-scoped tag, always rebuilt, never probed.
-    // The seed ensures before the app build so bad inputs fail with no
-    // docker work at all.
     expect(dockerCalls).toEqual([
       ["docker", "build", "-f", "Dockerfile.seed", "-t", COMMIT_SEED_REF, "."],
       ["docker", "push", COMMIT_SEED_REF],
@@ -270,7 +262,6 @@ describe("sprout ci preview", () => {
     expect(code).toBe(1);
     expect(stderr).toEqual(["seed image build failed (exit 1)"]);
     expect(stdout).toEqual([]);
-    // The seed ensures first, so the app never builds and nothing deploys.
     expect(dockerCalls).toEqual([
       ["docker", "build", "-f", "Dockerfile.seed", "-t", COMMIT_SEED_REF, "."],
     ]);
@@ -593,8 +584,6 @@ preview:
     );
     expect(code).toBe(0);
     expect(stderr).toEqual([]);
-    // Seed build/push would exit 1 here — their absence proves the skip.
-    // The seed probes before the app builds.
     expect(dockerCalls).toEqual([
       ["docker", "manifest", "inspect", SEED_REF],
       ["docker", "build", "-f", "Dockerfile", "-t", APP_REF, "."],
@@ -616,9 +605,6 @@ preview:
 
   test("without seed inputs the registry is never probed: always rebuild", async () => {
     const baseUrl = healthyGateway();
-    // Even a present tag must not skip the seed build — reuse is opt-in on
-    // explicit `seed.inputs`. A probe hit here would wrongly reuse a stale
-    // image after an entrypoint / seed-script change.
     dockerBehavior = (argv) => {
       if (argv[1] === "manifest") return 0;
       return 0;
@@ -692,7 +678,6 @@ preview:
     const secondRef = secondSeedBuilds[0]?.[5];
     expect(firstRef).not.toEqual(secondRef);
     expect(secondRef).toMatch(/^registry\.gitlab\.com\/group\/repo:seed-[0-9a-f]{12}$/);
-    // Both tags stay on the same repository (scoped push credentials).
     expect(String(secondRef).split(":")[0]).toBe(
       "registry.gitlab.com/group/repo",
     );
@@ -700,8 +685,7 @@ preview:
 
   test("failed registry check degrades to build + push, never a silent skip", async () => {
     const baseUrl = healthyGateway();
-    // Unsupported docker (`manifest` unknown) exits non-zero like an
-    // absent tag — the seed must still build.
+    // Unsupported docker (`manifest` unknown) exits non-zero like an absent tag.
     dockerBehavior = (argv) => (argv[1] === "manifest" ? 125 : 0);
     const cwd = await withWorkspace(SEEDED_INPUTS_YAML, {
       "Dockerfile.seed": SEED_DOCKERFILE,
@@ -757,8 +741,6 @@ health:
     expect(stderr).toEqual([
       "seed input not readable: missing-entrypoint.sh",
     ]);
-    // The seed ensures before the app builds, so bad inputs fail with no
-    // docker work at all and nothing deploys.
     expect(dockerCalls).toEqual([]);
     expect(captured).toEqual([]);
   });

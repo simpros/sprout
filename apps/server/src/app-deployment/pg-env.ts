@@ -8,7 +8,6 @@ import {
   restrictedRoleName,
 } from "@sprout/preview-db";
 
-/** Gateway-owned Postgres connection fields for preview containers. */
 export type AppDeployPg = {
   host: string;
   port: number;
@@ -16,12 +15,6 @@ export type AppDeployPg = {
   password: string;
 };
 
-/**
- * Connection vars for preview DB access (gateway-owned).
- * Five owner fields plus per-DB restricted companion (`PGAPPUSER` /
- * `PGAPPPASSWORD`). Optional remap replaces emitted names (no dual alias);
- * unmapped stay canonical.
- */
 export function pgConnectionEnv(
   pg: AppDeployPg,
   dbName: string,
@@ -48,11 +41,6 @@ function envKey(entry: string): string {
   return eq === -1 ? entry : entry.slice(0, eq);
 }
 
-/**
- * Gateway connection keys replace colliding user env keys (app or seed).
- * Reserved = canonical PG* ∪ emitted names (after remap), then append
- * gateway env once — remapping must not reopen override holes on PG*.
- */
 export function withGatewayConnectionEnv(
   userEnv: string[],
   gatewayEnv: string[],

@@ -7,9 +7,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # NOTE: acceptance stays non-blocking until compose smoke is confirmed in CI.
-  # Managed run asserts admin mint-deploy-token only. Lifecycle/sweep remain
-  # test.todo.
   acceptance:
     continue-on-error: true
     runs-on: ubuntu-latest

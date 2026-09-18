@@ -31,7 +31,6 @@ export async function composeDown(): Promise<void> {
   });
 }
 
-/** `docker compose exec -T <service> …` against the e2e stack. Throws on non-zero. */
 export async function composeExec(
   service: string,
   cmd: string[],

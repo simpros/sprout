@@ -2,10 +2,7 @@ import type { CliDeps, CliIo } from "../context.ts";
 import type { Result } from "../result.ts";
 import type { CiIdentity } from "./ci-identity.ts";
 
-/**
- * Hidden marker keying one sprout note per MR. Re-runs edit the existing
- * note instead of stacking comments.
- */
+/** Hidden marker keying one sprout note per MR; re-runs edit in place. */
 export const SPROUT_NOTE_MARKER = "<!-- sprout-preview-note -->";
 
 function fetchFn(deps: CliDeps): (url: string, init?: RequestInit) => Promise<Response> {
@@ -22,7 +19,6 @@ function shortSha(sha: string | undefined): string | undefined {
   return trimmed.slice(0, 7);
 }
 
-/** Markdown for a live preview: URL, short SHA, health, logs hint. */
 export function buildPreviewNote(input: {
   previewUrl: string;
   sha?: string;
@@ -42,7 +38,6 @@ export function buildPreviewNote(input: {
   return lines.join("\n");
 }
 
-/** Markdown replacing the same note after teardown: removed, not deleted. */
 export function buildTeardownNote(input: {
   prId: number;
   sha?: string;
@@ -66,7 +61,6 @@ type GitlabTarget = {
   project: string;
   iid: number;
   token: string;
-  /** Which header carries the token — set by which env var won. */
   tokenHeader: "JOB-TOKEN" | "PRIVATE-TOKEN";
 };
 
@@ -80,10 +74,6 @@ type GithubTarget = {
 
 type ForgeTarget = GitlabTarget | GithubTarget;
 
-/**
- * Explicit skip/target outcome: no forge token is a skip (local runs),
- * never a null smuggled inside the success type.
- */
 type ForgeTargetResolution =
   | { skipped: true }
   | { skipped: false; target: ForgeTarget };
@@ -98,17 +88,6 @@ function repoPathFromCanonical(repo: string, host: string): string | null {
   }
 }
 
-/**
- * Forge target from the already-resolved CI identity plus CI env. Switches
- * on `identity.forge` — the discriminant `requireCiSource` already proved —
- * never re-guesses the forge from the pipeline source.
- *
- * GitLab needs `CI_PROJECT_ID` (numeric, no encoding pitfalls) or
- * `CI_PROJECT_PATH`; there is no host-guessing fallback. GitHub prefers
- * `GITHUB_REPOSITORY` and falls back to the canonical repo id. Missing forge
- * token → skipped (no warning): local runs without a job token are not
- * failures.
- */
 function resolveForgeTarget(
   env: NodeJS.ProcessEnv,
   identity: CiIdentity,
@@ -186,11 +165,6 @@ async function readErrorBody(res: Response): Promise<string> {
 
 type ForgeNote = { id: number; body: string };
 
-/**
- * One forge request: network errors and non-2xx (with the forge's error
- * body, never the token) are errors. `op` names the operation for messages
- * (e.g. "GitLab notes list").
- */
 async function forgeRequest(
   doFetch: (url: string, init?: RequestInit) => Promise<Response>,
   op: string,
@@ -231,21 +205,14 @@ async function parseNotesJson(
   }
 }
 
-/** Forge-specific request shape over one shared upsert (no parallel stacks). */
 type ForgeAdapter = {
   listOp: string;
   writeOp: string;
-  /** List URL without the `page` param (already carries `per_page`). */
   listBaseUrl: string;
   listHeaders: Record<string, string>;
   writeUrl: (existingId: number | null) => string;
   writeMethod: (existingId: number | null) => "POST" | "PUT" | "PATCH";
   writeHeaders: Record<string, string>;
-  /**
-   * Forge-specific pagination policy: GitLab signals via `x-next-page`,
-   * GitHub via `Link: rel="next"`. A short page ends the walk; a full page
-   * with no headers still advances (page-loop fallback, bounded by the cap).
-   */
   hasMorePages: (headers: Headers, pageLength: number) => boolean;
 };
 
@@ -309,12 +276,6 @@ function linkHeaderHasNext(link: string | null): boolean {
   return link.split(",").some((part) => /rel\s*=\s*"next"/.test(part));
 }
 
-/**
- * The sprout note's id, or null when no page carries the hidden marker.
- * Stops at the first page containing the marker so a busy MR never loads
- * the whole thread; a full last page without pagination headers still
- * advances (page-loop fallback) up to the page cap.
- */
 async function findMarkedNoteId(
   doFetch: (url: string, init?: RequestInit) => Promise<Response>,
   adapter: ForgeAdapter,
@@ -358,13 +319,7 @@ async function writeNote(
   return { ok: true, value: undefined };
 }
 
-/**
- * Upsert one sprout note on the MR: create it when no note carries the
- * hidden marker, otherwise edit the existing one in place. Skip (no forge
- * token on local runs) is success; hard misconfiguration and forge
- * rejections are errors carrying the forge's error body. Never includes the
- * token in any message.
- */
+/** Never includes the token in any message. */
 export async function upsertForgeNote(
   deps: CliDeps,
   identity: CiIdentity,
@@ -381,7 +336,6 @@ export async function upsertForgeNote(
   return writeNote(doFetch, adapter, existing.value, body);
 }
 
-/** Preview success → create-or-update the MR note (non-fatal on failure). */
 export async function publishPreviewNote(
   deps: CliDeps,
   identity: CiIdentity,
@@ -394,7 +348,6 @@ export async function publishPreviewNote(
   );
 }
 
-/** Teardown success → rewrite the same note as removed (non-fatal). */
 export async function publishTeardownNote(
   deps: CliDeps,
   identity: CiIdentity,
@@ -406,11 +359,7 @@ export async function publishTeardownNote(
   );
 }
 
-/**
- * Non-fatal forge-note policy in one place: gateway success owns the exit
- * code, note failures only warn (with the forge's error body, never the
- * token).
- */
+/** Gateway success owns the exit code; note failures only warn. */
 export function warnForgeNote(io: CliIo, result: Result<void>): void {
   if (!result.ok) io.stderr(`warning: MR note update failed: ${result.error}`);
 }

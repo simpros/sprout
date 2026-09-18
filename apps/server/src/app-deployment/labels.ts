@@ -1,35 +1,18 @@
-/**
- * Router TLS policy for Traefik Docker labels.
- * Absent/undefined = HTTP (no tls/entrypoints/certresolver labels).
- * Present = coherent HTTPS bundle: tls + entrypoints (+ optional certresolver).
- */
 export type TraefikTls = {
-  /** Comma-separated Traefik entrypoint names (e.g. `https`, `websecure`). */
   entrypoints: string;
-  /** Traefik certificate resolver name; omit for Traefik default/builtin cert. */
   certResolver?: string;
 };
 
-/**
- * ForwardAuth middleware policy for Traefik Docker labels.
- * Absent/undefined = no middleware attachment or definition labels.
- * Present = one router middleware attachment + matching forwardAuth definition
- * (Coolify docker-provider only — no Traefik file/static config).
- */
 export type TraefikForwardAuth = {
-  /** Single Traefik middleware name attached to the router (e.g. `voidauth`). */
   middleware: string;
-  /** ForwardAuth URL Traefik must reach (operator SSO, e.g. VoidAuth). */
   address: string;
 };
 
 const FORWARDAUTH_RESPONSE_HEADERS =
   "Remote-User,Remote-Email,Remote-Groups";
 
-/** Build Traefik router rule: Host, optional PathPrefix. */
 export function traefikRouterRule(input: {
   hostname: string;
-  /** Path prefix (e.g. `/api`); combined with Host via `&&`. */
   pathPrefix?: string;
 }): string {
   const host = `Host(\`${input.hostname}\`)`;
@@ -37,17 +20,12 @@ export function traefikRouterRule(input: {
   return `${host} && PathPrefix(\`${input.pathPrefix}\`)`;
 }
 
-/** Traefik Docker-provider labels for a preview app or service container. */
 export function traefikLabels(input: {
-  /** Stable router/service name (typically the container name). */
   routerName: string;
   hostname: string;
   port: number;
-  /** Optional PathPrefix; combined with Host. */
   pathPrefix?: string;
-  /** When set, emit tls + entrypoints (+ optional certresolver). */
   tls?: TraefikTls;
-  /** When set, emit middleware attachment + forwardAuth definition. */
   forwardAuth?: TraefikForwardAuth;
 }): Record<string, string> {
   const { routerName, hostname, port, pathPrefix, tls, forwardAuth } = input;

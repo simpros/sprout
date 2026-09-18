@@ -8,23 +8,18 @@ const KNOWN_PLACEHOLDERS = new Set(["hostname", "pr_id", "commit_sha"]);
 export type AppEnvResolveContext = {
   hostname: string;
   prId: number;
-  /** Present when CI exposes GITHUB_SHA / CI_COMMIT_SHA. */
   commitSha?: string;
   repo: string;
-  /** Sprout deploy bearer (`SPROUT_TOKEN`); must stay stable for the MR lifetime. */
+  /** Deploy bearer; must stay stable for the MR lifetime. */
   deployToken?: string;
 };
 
-/** Manifest layer for {@link mergeEnvSurface}: templates unexpanded, generates materialized. */
 export type ResolvedAppEnv = {
   values: Record<string, string> | undefined;
   requiredKeys: string[];
 };
 
-/**
- * Expand `{hostname}` / `{pr_id}` / `{commit_sha}` in one value. The error is a
- * bare reason with no key prefix so merge can label with the final key.
- */
+/** The error is a bare reason with no key prefix so merge can label with the final key. */
 export function expandAppEnvValue(
   value: string,
   ctx: AppEnvResolveContext,
@@ -55,12 +50,7 @@ export function expandAppEnvValue(
   return { ok: true, value: replaced };
 }
 
-/**
- * Materialize `generate: stable_per_pr` secrets and collect `{ required: true }`
- * keys. String templates pass through **unexpanded** — {@link mergeEnvSurface}
- * expands each final value once after CI layers merge. `prefix` labels errors
- * and is always explicit (`preview.app_env.` or `seed.env.`).
- */
+/** String templates pass through unexpanded; merge expands each final value once after CI layers merge. */
 export function resolveAppEnvValues(
   appEnv: Record<string, ManifestEnvValue> | undefined,
   ctx: AppEnvResolveContext,

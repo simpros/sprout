@@ -34,7 +34,6 @@ describe("previewDbName / parsePreviewDatabaseName", () => {
   });
 
   test("refuses names that leave no room for companion _app role", () => {
-    // sprout_ (7) + slug + _pr (3) + digits must be ≤ PREVIEW_DB_NAME_MAX (59)
     const longSlug = "a".repeat(PREVIEW_DB_NAME_MAX - "sprout_".length - "_pr1".length + 1);
     const tooLong = previewDbName(longSlug, 1);
     expect(tooLong.length).toBeGreaterThan(PREVIEW_DB_NAME_MAX);

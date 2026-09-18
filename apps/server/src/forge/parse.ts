@@ -1,6 +1,5 @@
 import { forgeApiError } from "./types.ts";
 
-/** Extract finite numeric ids from a forge list payload; fail closed on junk. */
 export function finiteIdsFromArray(
   body: unknown,
   field: "number" | "iid",

@@ -19,7 +19,6 @@ function sqlitePath(): string {
   return join(tmpDir, "state.db");
 }
 
-/** SQLite strftime `%f` → `ss.sss` with a Z suffix. */
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 async function tableNames(sql: ReturnType<typeof connectState>["sql"]) {
@@ -114,7 +113,6 @@ describe("runMigrations", () => {
         Date.parse(preview!.createdAt),
       );
 
-      // Fail-closed: space-separated legacy forms never become an instant.
       expect(parseUnambiguousUtcMs("2026-09-02 12:00:00")).toBeNull();
       expect(parseUnambiguousUtcMs("not-a-timestamp")).toBeNull();
     } finally {

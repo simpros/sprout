@@ -52,7 +52,6 @@ describe("bootstrapAdminToken", () => {
     expect(warnings.length).toBe(1);
     expect(String(warnings[0]?.[1])).toBe(raw);
 
-    // Later boot with hashed-only admin: file must still be present.
     await bootstrapAdminToken(testDb.db);
     expect((await readFile(path, "utf8")).trim()).toBe(raw);
   });
@@ -60,7 +59,7 @@ describe("bootstrapAdminToken", () => {
   test("fails when existing admin has no readable token file", async () => {
     testDb = await createTestDb();
     const path = await withTokenPath();
-    await ensureAdminToken(testDb.db); // generate hash only; no file
+    await ensureAdminToken(testDb.db);
     await expect(bootstrapAdminToken(testDb.db)).rejects.toThrow(
       `Admin token exists in the control-plane DB but ${path} is missing, empty, or does not match an active admin token`,
     );
