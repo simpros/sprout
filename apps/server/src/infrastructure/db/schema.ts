@@ -21,6 +21,7 @@ export const previews = sqliteTable(
       .notNull()
       .default(utcIsoNow),
     seededAt: text("seeded_at"),
+    seededSeedImage: text("seeded_seed_image"),
     lastError: text("last_error"),
     lastErrorDetail: text("last_error_detail"),
     failureFamily: text("failure_family"),

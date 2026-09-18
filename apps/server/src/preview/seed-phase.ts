@@ -18,9 +18,21 @@ export type SeedPhaseDeps = {
 
 export type DeployEphemerals = {
   seed?: SeedImageSpec;
+  reseed?: boolean;
   connectionEnv?: PreviewEnvMap;
   fleetPending?: boolean;
 };
+
+export function seedWorkOutstanding(
+  row: Pick<PreviewRow, "seededAt" | "seededSeedImage">,
+  seed: { image: string } | undefined,
+  reseed: boolean | undefined,
+): boolean {
+  if (seed === undefined) return false;
+  if (reseed === true) return true;
+  if (row.seededAt == null) return true;
+  return row.seededSeedImage !== seed.image;
+}
 
 function planAfterPromote(fleetPending: boolean | undefined): BringUpPlan {
   return fleetPending === true ? "sync_close" : "close";
@@ -85,6 +97,7 @@ async function runSeedPhase(
       {
         status: "seeding",
         seededAt,
+        seededSeedImage: seed.image,
         bringUpPlan: planAfterPromote(ephemerals.fleetPending),
         lastError: null,
         lastErrorDetail: null,
@@ -113,7 +126,7 @@ export async function promoteAfterHealthy(
   ephemerals: DeployEphemerals = {},
 ): Promise<Result<true>> {
   const { seed } = ephemerals;
-  const shouldSeed = seed !== undefined && starting.seededAt == null;
+  const shouldSeed = seedWorkOutstanding(starting, seed, ephemerals.reseed);
 
   if (shouldSeed && seed) {
     return runSeedPhase(deps, starting, { ...ephemerals, seed });

@@ -1,0 +1,1 @@
+ALTER TABLE `previews` ADD `seeded_seed_image` text;

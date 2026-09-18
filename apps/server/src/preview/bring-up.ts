@@ -178,6 +178,7 @@ async function finishAfterPromote(
 function deployEphemerals(input: ProvisionInput) {
   return {
     seed: input.seed,
+    reseed: input.reseed,
     connectionEnv: input.connectionEnv,
     fleetPending: input.services !== undefined,
   };
@@ -245,17 +246,7 @@ async function attachThenPromote(
 ): Promise<Result<PreviewSnapshot>> {
   const attached = await attachAppContainer(deps, row, input);
   if (!attached.ok) return attached;
-  let starting = attached.value;
-  // Clear after healthy attach so pull/health failure cannot erase a prior
-  // successful seed marker; promote's seed gate is `seededAt == null`.
-  if (input.reseed === true && starting.seededAt != null) {
-    starting = await updatePreviewRow(
-      deps.db,
-      starting,
-      { seededAt: null, updatedAt: utcIsoNow() },
-      "preview_row_missing_on_reseed_clear",
-    );
-  }
+  const starting = attached.value;
   const promoted = await promoteAfterHealthy(
     deps,
     starting,
