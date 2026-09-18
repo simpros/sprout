@@ -10,10 +10,7 @@ import {
   type AppDeployPg,
 } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
-import {
-  previewContainerName,
-  previewServiceContainerName,
-} from "../preview/naming.ts";
+import { previewContainerName } from "../preview/naming.ts";
 
 export type PreviewWorkloadRouting =
   | {
@@ -95,5 +92,3 @@ export async function removePreviewServices(
       .map((c) => docker.removeByName(c.containerName)),
   );
 }
-
-export { previewContainerName, previewServiceContainerName };

@@ -2,9 +2,9 @@ import type { PreviewEnvMap } from "@sprout/preview-env";
 import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
 import type { AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
+import { previewServiceContainerName } from "../preview/naming.ts";
 import {
   materializePreviewWorkload,
-  previewServiceContainerName,
   removePreviewServices,
 } from "./preview-containers.ts";
 
@@ -32,8 +32,6 @@ export type ReplacePreviewServicesInput = {
   services: PreviewServiceSpec[];
   connectionEnv?: PreviewEnvMap;
 };
-
-export { removePreviewServices };
 
 export async function replacePreviewServices(
   deps: ReplacePreviewServicesDeps,

@@ -2,15 +2,8 @@ import type { PreviewEnvMap } from "@sprout/preview-env";
 import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
 import type { AppDeployPg } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
-import {
-  materializePreviewWorkload,
-  previewContainerName,
-  removePreviewFleet,
-} from "./preview-containers.ts";
-
-export type { AppDeployPg };
-export type { TraefikForwardAuth, TraefikTls };
-export { removePreviewFleet };
+import { previewContainerName } from "../preview/naming.ts";
+import { materializePreviewWorkload } from "./preview-containers.ts";
 
 export type AppDeployNetworks = {
   traefik: string;

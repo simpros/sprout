@@ -3,10 +3,13 @@ import {
   createDefaultClient,
   readGitRemoteUrl,
   readTextFile,
-  resolveGatewayUrl,
   runCli,
 } from "./run.ts";
-import { defaultRunCommand, defaultWriteTextFile } from "./context.ts";
+import {
+  defaultRunCommand,
+  defaultWriteTextFile,
+  resolveGatewayUrl,
+} from "./context.ts";
 
 export { resolveGatewayUrl };
 

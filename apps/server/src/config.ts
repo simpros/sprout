@@ -8,8 +8,6 @@ import {
   type RegistryPullAuth,
 } from "./registry-auth.ts";
 
-export type { TraefikForwardAuth, TraefikTls };
-
 export const REQUIRED_ENV = [
   "SPROUT_PREVIEW_POSTGRES_URL",
   "SPROUT_PG_HOST",

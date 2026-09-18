@@ -7,7 +7,9 @@ import {
 } from "@sprout/preview-env";
 import { hostnameIssueMessage } from "./hostname.ts";
 import type { Result } from "./result.ts";
-import { SERVICE_NAME_RE } from "./service-name.ts";
+
+/** Alphanumeric service id (same grammar as slug / server validateServiceName). */
+export const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
 
 export type { PreviewEnvMap };
 
@@ -42,9 +44,6 @@ export type ManifestEnvValue =
   | string
   | { generate: "stable_per_pr" }
   | { required: true };
-
-/** Back-compat alias for the shared manifest env value grammar. */
-export type AppEnvValue = ManifestEnvValue;
 
 export type SproutYaml = {
   slug: string;

@@ -112,15 +112,3 @@ export function gateReadablePreviewRow(
 
   return { ok: true, value: row };
 }
-
-export async function readPreviewStatus(
-  deps: Pick<LifecycleDeps, "db">,
-  repo: string,
-  prId: number,
-): Promise<Result<PreviewSnapshot>> {
-  const gated = gateReadablePreviewRow(
-    await getPreviewRow(deps.db, repo, prId),
-  );
-  if (!gated.ok) return gated;
-  return { ok: true, value: previewSnapshotFromRow(gated.value) };
-}

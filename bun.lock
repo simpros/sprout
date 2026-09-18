@@ -6,7 +6,6 @@
       "name": "sprout",
       "devDependencies": {
         "turbo": "^2.5.4",
-        "typescript": "^5.9.3",
       },
     },
     "apps/cli": {

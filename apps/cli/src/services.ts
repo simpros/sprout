@@ -1,6 +1,5 @@
 import type { Result } from "./result.ts";
-import { SERVICE_NAME_RE } from "./service-name.ts";
-import type { SproutYamlService } from "./yaml.ts";
+import { SERVICE_NAME_RE, type SproutYamlService } from "./yaml.ts";
 
 /** Mirror server MAX_SERVICES — fail before POST. */
 export const MAX_SERVICES = 8;
