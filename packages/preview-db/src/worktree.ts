@@ -83,7 +83,7 @@ function randomPassword(): string {
 
 /**
  * Idempotent ensure of worktree DB + LOGIN role (`sprout_wt_<key>`).
- * Reuses #71 ensure-role (CREATE or ALTER password).
+ * CREATE the role or ALTER its password.
  */
 export async function provisionWorktreeDb(
   options: ProvisionWorktreeDbOptions,

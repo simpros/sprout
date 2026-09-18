@@ -1,6 +1,6 @@
 /**
  * Serialize control-plane mutations per (repo, prId).
- * ADR 0001: one gateway process — in-process queue is the concurrency design.
+ * One gateway process — in-process queue is the concurrency design.
  * ponytail: global Map; upgrade to shared lock if multi-process ever lands.
  */
 const previewLocks = new Map<string, Promise<void>>();

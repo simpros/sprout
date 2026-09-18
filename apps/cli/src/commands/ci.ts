@@ -68,9 +68,8 @@ export async function runCi(
     return printHelp(ctx);
   }
 
-  // Identity resolves before auth so outside-pipeline errors win over
-  // missing-token. The preview path returns early so its identity never
-  // widens to `| undefined` at the call site.
+  // Identity before auth so outside-pipeline errors win over missing-token.
+  // Preview returns early so its identity never widens to `| undefined`.
   if (subcommand === "preview") {
     const preview = await resolveCiPreviewIdentity(ctx.deps);
     if (!preview.ok) return fail(ctx.deps.io, preview.error);

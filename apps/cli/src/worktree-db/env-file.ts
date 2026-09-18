@@ -4,7 +4,7 @@ import {
   type OwnerEnvKey,
 } from "@sprout/preview-env";
 
-/** Worktree-local emission beyond the owner PG* keys (ADR-0007). */
+/** Worktree-local emission beyond the owner PG* keys. */
 export const DATABASE_URL_LOGICAL = "DATABASE_URL" as const;
 
 export type WorktreeEnvLogicalKey =
@@ -26,7 +26,7 @@ const WORKTREE_ENV_LOGICAL_KEYS = [
   ...OWNER_ENV_KEYS,
 ] as const satisfies readonly WorktreeEnvLogicalKey[];
 
-/** Connection values keyed by the same logical names as env emission (ADR-0007). */
+/** Connection values keyed by the same logical names as env emission. */
 export type ConnectionEnvValues = Record<WorktreeEnvLogicalKey, string>;
 
 export type EnvKeyNames = Record<WorktreeEnvLogicalKey, string>;
@@ -58,7 +58,7 @@ function isWorktreeEnvLogicalKey(key: string): key is WorktreeEnvLogicalKey {
 
 /**
  * Parse KEY=VALUE rename pairs; unknown logical keys and target collisions
- * (same invariant as parsePreviewEnvMap / ADR-0007) are rejected.
+ * (same invariant as parsePreviewEnvMap) are rejected.
  */
 export function parseEnvRenames(
   pairs: string[],

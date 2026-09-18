@@ -241,7 +241,6 @@ export async function defaultRunCommand(
   }
 }
 
-/** Write a small text file (the preview dotenv artifact). */
 export async function defaultWriteTextFile(
   path: string,
   content: string,

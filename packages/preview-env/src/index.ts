@@ -1,6 +1,6 @@
 /**
  * Preview wire grammar shared by CLI and gateway:
- * - connection-env remap (`preview.env`, ADR-0007)
+ * - connection-env remap (`preview.env`)
  * - hostname template / host validation
  * - health request-shape (durations, path, expect)
  */

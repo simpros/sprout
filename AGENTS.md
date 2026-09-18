@@ -40,6 +40,11 @@ bun run db:migrate   # runtime migrator (apps/server; same as boot)
 - Fail fast at config load for required env vars.
 - DB schema lives in `apps/server/src/infrastructure/db/`; migrations in `apps/server/drizzle/`.
 
+## Comment style
+
+Comments state the why only — never tickets, history, or restatements.
+See `docs/agents/comment-style.md`.
+
 ## Agent skills
 
 ### Issue tracker

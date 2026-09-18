@@ -104,7 +104,7 @@ export async function runAsyncDeploy(
         );
       });
     } catch {
-      // best-effort
+      // Recording the failure must not throw out of background completion.
     }
   } finally {
     inFlightDeploys.delete(key);

@@ -137,8 +137,8 @@ export async function promoteAfterHealthy(
   ephemerals: DeployEphemerals = {},
 ): Promise<Result<true>> {
   const { seed } = ephemerals;
-  // Lifecycle clears seeded_at before promote for replace+reseed; this gate
-  // stays dumb on row state.
+  // Replace+reseed clears seeded_at before promote; seed only when
+  // `seed` is present and `seededAt == null`.
   const shouldSeed = seed !== undefined && starting.seededAt == null;
 
   if (shouldSeed && seed) {

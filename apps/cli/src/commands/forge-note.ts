@@ -4,7 +4,7 @@ import type { CiIdentity } from "./ci-identity.ts";
 
 /**
  * Hidden marker keying one sprout note per MR. Re-runs edit the existing
- * note instead of stacking comments (#121).
+ * note instead of stacking comments.
  */
 export const SPROUT_NOTE_MARKER = "<!-- sprout-preview-note -->";
 

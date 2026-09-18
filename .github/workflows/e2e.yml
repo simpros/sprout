@@ -9,7 +9,7 @@ on:
 jobs:
   # NOTE: acceptance stays non-blocking until compose smoke is confirmed in CI.
   # Managed run asserts admin mint-deploy-token only. Lifecycle/sweep remain
-  # test.todo until #25 / #28 / #30 / #31.
+  # test.todo.
   acceptance:
     continue-on-error: true
     runs-on: ubuntu-latest

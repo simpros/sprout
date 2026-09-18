@@ -39,7 +39,7 @@ export type DeployRequest = {
  * `ci reseed` body: wire `services` has three meanings (absent = leave
  * companions, `[]` = clear, `[...]` = replace) and reseed must always
  * leave. A type that cannot carry `services` makes "leave" the default
- * instead of a forgotten field plus a comment.
+ * instead of a forgotten field.
  */
 export type ReseedRequest = Omit<DeployRequest, "services"> & {
   reseed: true;
