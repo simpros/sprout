@@ -28,12 +28,20 @@ function backendFor(
   options: RoutingPreviewDbOptions,
   provider: DbProvider,
 ): PreviewDb {
+  if (provider === "none") {
+    throw new Error("provider none has no database backend: must not provision");
+  }
   if (provider === "sqlite") {
     if (!options.sqlite) throw missingBackend("sqlite");
     return options.sqlite;
   }
   if (!options.postgres) throw missingBackend("postgres");
   return options.postgres;
+}
+
+/** None previews hold no database resource, so drops are a no-op. */
+function noneDrop(): Pick<PreviewDb, "dropDatabase"> {
+  return { dropDatabase: async () => {} };
 }
 
 export function createRoutingPreviewDb(
@@ -60,6 +68,7 @@ export function createRoutingPreviewDb(
 
     forDrop(provider) {
       if (provider === undefined) return { dropDatabase: broadcastDrop };
+      if (provider === "none") return noneDrop();
       const backend = backendFor(options, provider);
       return { dropDatabase: (dbName) => backend.dropDatabase(dbName) };
     },

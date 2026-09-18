@@ -1,10 +1,12 @@
 import {
+  requiresDatabase,
   sqliteDatabaseUrl,
   type DbProvider,
   type DbSpec,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
 import { pgConnectionEnv, type AppDeployPg } from "../app-deployment/pg-env.ts";
+import { previewDbName } from "../preview-db/names.ts";
 import { sqliteVolumeName } from "./naming.ts";
 
 /**
@@ -22,9 +24,11 @@ export type PreviewMaterializationCtx = {
 /**
  * Concrete materialization resolved once at the deploy boundary.
  * Lifecycle and app-deployment consume the plan; raw DbSpec never travels.
+ * dbName is the owned backend resource name, null when there is none.
  */
 export type PreviewDbPlan = {
   provider: DbProvider;
+  dbName: string | null;
   gatewayEnv: string[];
   volumes: string[];
   appNetworks: string[];
@@ -35,16 +39,35 @@ export function resolvePreviewPlan(
   ctx: PreviewMaterializationCtx,
   input: {
     spec: DbSpec;
-    dbName: string;
     slug: string;
     prId: number;
     connectionEnv?: PreviewEnvMap;
+    /** Test override; deploy omits it so identity resolves in one place. */
+    dbName?: string | null;
   },
 ): PreviewDbPlan {
+  const dbName =
+    input.dbName !== undefined
+      ? input.dbName
+      : requiresDatabase(input.spec.provider)
+        ? previewDbName(input.slug, input.prId)
+        : null;
+  if (input.spec.provider === "none") {
+    return {
+      provider: "none",
+      dbName,
+      gatewayEnv: [],
+      volumes: [],
+      appNetworks: [ctx.traefikNetwork],
+      // Seed is rejected for none, so no seed network ever runs.
+      seedNetworks: [],
+    };
+  }
   if (input.spec.provider === "sqlite") {
     const target = input.connectionEnv?.DATABASE_URL ?? "DATABASE_URL";
     return {
       provider: "sqlite",
+      dbName,
       gatewayEnv: [
         `${target}=${sqliteDatabaseUrl(input.spec.path, input.spec.file)}`,
       ],
@@ -57,12 +80,16 @@ export function resolvePreviewPlan(
   const postgres = ctx.postgres;
   if (!postgres) {
     throw new Error(
-      `postgres plan requested for ${input.dbName} without postgres config`,
+      `postgres plan requested for ${dbName} without postgres config`,
     );
+  }
+  if (dbName == null) {
+    throw new Error("postgres plan requested without a database name");
   }
   return {
     provider: "postgres",
-    gatewayEnv: pgConnectionEnv(postgres.pg, input.dbName, input.connectionEnv),
+    dbName,
+    gatewayEnv: pgConnectionEnv(postgres.pg, dbName, input.connectionEnv),
     volumes: [],
     appNetworks: [ctx.traefikNetwork, postgres.network],
     seedNetworks: [postgres.network],

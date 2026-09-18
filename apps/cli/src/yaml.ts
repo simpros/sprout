@@ -3,7 +3,9 @@ import {
   normalizeDbSpec,
   parseDbSpec,
   parsePreviewEnvForProvider,
+  requiresDatabase,
   resolveHealthSpec,
+  seedRequiresDatabaseMessage,
   validateHostnameValue,
   type DbSpec,
   type HealthIssue,
@@ -438,6 +440,14 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
 
   const seed = parseSeedBlock(parsed.seed);
   if (!seed.ok) return seed;
+
+  // A seed job populates a database; with no database it has nothing to act on.
+  if (!requiresDatabase(normalizeDbSpec(db.value).provider) && seed.value) {
+    return {
+      ok: false,
+      error: seedRequiresDatabaseMessage(),
+    };
+  }
 
   const value: SproutYaml = {
     slug: slug.value,

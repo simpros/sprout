@@ -196,6 +196,74 @@ db:
     });
   });
 
+  test("parses a none provider block", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  provider: none
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+        db: { provider: "none", path: "/data", file: "preview.db" },
+      },
+    });
+  });
+
+  test("rejects any database env key on none previews", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGHOST: DATABASE_HOST
+db:
+  provider: none
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.env.PGHOST requires db.provider postgres",
+    });
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    DATABASE_URL: APP_DATABASE_URL
+db:
+  provider: none
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.env.DATABASE_URL requires db.provider sqlite",
+    });
+  });
+
+  test("rejects a seed block on none previews", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  provider: none
+seed:
+  dockerfile: Dockerfile.seed
+`),
+    ).toEqual({
+      ok: false,
+      error:
+        "seed requires db.provider postgres or sqlite (db.provider is none)",
+    });
+  });
+
   test("rejects unknown db providers and keys", () => {
     expect(
       parseSproutYaml(`
@@ -207,7 +275,7 @@ db:
 `),
     ).toEqual({
       ok: false,
-      error: 'db.provider must be postgres or sqlite (got "mysql")',
+      error: 'db.provider must be postgres, sqlite or none (got "mysql")',
     });
     expect(
       parseSproutYaml(`

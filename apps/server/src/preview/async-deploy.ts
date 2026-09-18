@@ -1,4 +1,3 @@
-import { previewDbName } from "../preview-db/names.ts";
 import type { Result } from "./result.ts";
 import {
   claimDeployIntent,
@@ -14,7 +13,7 @@ import {
   type ProvisionInput,
 } from "./lifecycle.ts";
 
-const inFlightDeploys = new Map<string, { slug: string; dbName: string }>();
+const inFlightDeploys = new Map<string, { slug: string; dbName: string | null }>();
 
 function previewKey(repo: string, prId: number): string {
   return `${repo}\0${prId}`;
@@ -25,7 +24,7 @@ export async function acceptAsyncDeploy(
   input: ProvisionInput,
 ): Promise<Result<{ snapshot: PreviewSnapshot; launch: boolean }>> {
   return withPreviewLock(input.repo, input.prId, async () => {
-    const requestedDbName = previewDbName(input.slug, input.prId);
+    const requestedDbName = input.plan.dbName;
     const key = previewKey(input.repo, input.prId);
     const pending = inFlightDeploys.get(key);
 

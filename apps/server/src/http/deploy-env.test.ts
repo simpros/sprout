@@ -138,7 +138,7 @@ describe("POST /v1/deploy connection env remap", () => {
     expect(invalidDb.settleStatus).toBe(422);
     expect(invalidDb.body).toEqual({
       error: "invalid_db",
-      detail: 'db.provider must be postgres or sqlite (got "mysql")',
+      detail: 'db.provider must be postgres, sqlite or none (got "mysql")',
     });
 
     const collision = await postDeploy(

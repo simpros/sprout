@@ -14,7 +14,7 @@ export type SweepPreview = {
   canonicalRepoId: string;
   prId: number;
   slug: string;
-  dbName: string;
+  dbName: string | null;
   createdAt: string;
   createdAtMs: number | null;
   status: string;
@@ -26,7 +26,7 @@ export type SweepDeletion =
       canonicalRepoId: string;
       prId: number;
       slug: string;
-      dbName: string;
+      dbName: string | null;
       createdAt: string;
     }
   | { reason: "sweep:orphan-db"; slug: string; prId: number; dbName: string }

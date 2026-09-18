@@ -468,6 +468,37 @@ preview:
     expect(stderr[0]).toContain("health block required");
   });
 
+  test("reseed fails fast on db.provider none with no network call", async () => {
+    const baseUrl = startGateway(async () => {
+      captured.push({
+        method: "GET",
+        path: "/unexpected",
+        body: null,
+        authorization: null,
+      });
+      return Response.json({ ok: true });
+    });
+    const cwd = await withWorkspace(`slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  provider: none
+`);
+    const code = await runCli(
+      ["ci", "reseed", "-s", "seed:1"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(1);
+    expect(stderr).toEqual([
+      "seed requires db.provider postgres or sqlite (db.provider is none)",
+    ]);
+    expect(captured).toEqual([]);
+  });
+
   test("surfaces gateway deploy errors with the error code", async () => {
     const baseUrl = startGateway(async () =>
       Response.json(

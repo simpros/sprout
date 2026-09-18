@@ -114,6 +114,7 @@ describe("resolvePreviewPlan", () => {
       ),
     ).toEqual({
       provider: "sqlite",
+      dbName: "sprout_myapp_pr42",
       gatewayEnv: ["DATABASE_URL=file:/data/preview.db"],
       volumes: ["sprout-myapp-pr-42-sqlite:/data"],
       appNetworks: ["sprout-traefik"],
@@ -133,5 +134,56 @@ describe("resolvePreviewPlan", () => {
         },
       ),
     ).toThrow("without postgres config");
+  });
+
+  test("none injects no env, mounts no volumes, joins traefik only", () => {
+    expect(
+      resolvePreviewPlan(ctx(), {
+        spec: { provider: "none", path: "/data", file: "preview.db" },
+        dbName: null,
+        slug: "myapp",
+        prId: 42,
+      }),
+    ).toEqual({
+      provider: "none",
+      dbName: null,
+      gatewayEnv: [],
+      volumes: [],
+      appNetworks: ["sprout-traefik"],
+      seedNetworks: [],
+    });
+  });
+
+  test("none resolves without postgres config and ignores connection env", () => {
+    expect(
+      resolvePreviewPlan(
+        { traefikNetwork: NETWORKS.traefik },
+        {
+          spec: { provider: "none", path: "/data", file: "preview.db" },
+          dbName: null,
+          slug: "myapp",
+          prId: 42,
+          connectionEnv: undefined,
+        },
+      ).provider,
+    ).toBe("none");
+  });
+
+  test("dbName resolves from slug/prId when omitted", () => {
+    expect(
+      resolvePreviewPlan(ctx(), { spec: defaultDbSpec(), slug: "myapp", prId: 42 })
+        .dbName,
+    ).toBe("sprout_myapp_pr42");
+    expect(
+      resolvePreviewPlan(ctx(), { spec: SQLITE_DB, slug: "myapp", prId: 42 })
+        .dbName,
+    ).toBe("sprout_myapp_pr42");
+    expect(
+      resolvePreviewPlan(ctx(), {
+        spec: { provider: "none", path: "/data", file: "preview.db" },
+        slug: "myapp",
+        prId: 42,
+      }).dbName,
+    ).toBeNull();
   });
 });
