@@ -261,22 +261,22 @@ export function loadConfig(): Config {
 }
 
 export function missingPostgresEnv(
-  config: Pick<Config, "postgres">,
+  postgres: PostgresConfig | undefined,
 ): string[] {
-  return config.postgres ? [] : [...POSTGRES_REQUIRED_ENV];
+  return postgres ? [] : [...POSTGRES_REQUIRED_ENV];
 }
 
 export function isPostgresConfigured(
-  config: Pick<Config, "postgres">,
+  postgres: PostgresConfig | undefined,
 ): boolean {
-  return config.postgres !== undefined;
+  return postgres !== undefined;
 }
 
 export function postgresNotConfiguredDetail(
-  config: Pick<Config, "postgres">,
+  postgres: PostgresConfig | undefined,
   repo: string,
 ): string {
-  const missing = missingPostgresEnv(config);
+  const missing = missingPostgresEnv(postgres);
   return (
     `repo ${repo} declares db.provider postgres but the gateway has no Postgres configured: ` +
     `missing ${missing.join(", ")}`

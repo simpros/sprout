@@ -107,21 +107,21 @@ describe("loadConfig", () => {
     const config = loadConfig();
     expect(config.traefikNetwork).toBe("traefik");
     expect(config.postgres).toBeUndefined();
-    expect(isPostgresConfigured(config)).toBe(false);
-    expect(missingPostgresEnv(config)).toEqual([...POSTGRES_REQUIRED_ENV]);
+    expect(isPostgresConfigured(config.postgres)).toBe(false);
+    expect(missingPostgresEnv(config.postgres)).toEqual([...POSTGRES_REQUIRED_ENV]);
     expect(
-      postgresNotConfiguredDetail(config, "https://github.com/org/repo"),
+      postgresNotConfiguredDetail(config.postgres, "https://github.com/org/repo"),
     ).toContain("https://github.com/org/repo");
     expect(
-      postgresNotConfiguredDetail(config, "https://github.com/org/repo"),
+      postgresNotConfiguredDetail(config.postgres, "https://github.com/org/repo"),
     ).toContain("SPROUT_PREVIEW_POSTGRES_URL");
   });
 
   test("reports Postgres configured when all provider vars are set", () => {
     setRequiredEnv();
     const config = loadConfig();
-    expect(isPostgresConfigured(config)).toBe(true);
-    expect(missingPostgresEnv(config)).toEqual([]);
+    expect(isPostgresConfigured(config.postgres)).toBe(true);
+    expect(missingPostgresEnv(config.postgres)).toEqual([]);
   });
 
   test("loads per-forge tokens without a gateway-wide forge switch", () => {
@@ -264,7 +264,7 @@ describe("loadConfig", () => {
     process.env.SPROUT_PREVIEW_POSTGRES_URL = "   ";
     const config = loadConfig();
     expect(config.postgres).toBeUndefined();
-    expect(isPostgresConfigured(config)).toBe(false);
+    expect(isPostgresConfigured(config.postgres)).toBe(false);
   });
 
   test("normalizes legacy registry pair into registryPullAuth.fallback", () => {

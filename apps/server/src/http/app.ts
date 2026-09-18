@@ -1,5 +1,5 @@
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
-import type { Config, PostgresConfig } from "../config.ts";
+import type { Config } from "../config.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
@@ -11,7 +11,6 @@ export type ServerDeps = {
   previewDb: PreviewDbRouter;
   app: PreviewAppOps;
   materialization: PreviewMaterializationCtx;
-  postgres: PostgresConfig | undefined;
 };
 
 export function startServer(deps: ServerDeps) {
@@ -20,6 +19,5 @@ export function startServer(deps: ServerDeps) {
     previewDb: deps.previewDb,
     app: deps.app,
     materialization: deps.materialization,
-    postgres: deps.postgres,
   }).listen(deps.config.port);
 }

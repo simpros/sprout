@@ -14,9 +14,7 @@ import type { AuthContext } from "../auth/middleware.ts";
 import type { PreviewServiceSpec } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
-  isPostgresConfigured,
   postgresNotConfiguredDetail,
-  type PostgresConfig,
 } from "../config.ts";
 import {
   teardownPreview,
@@ -117,10 +115,13 @@ export type DeployDbAndEnv = {
  * One validation pipeline for db + env: parse the db block, enforce the
  * postgres gate, then parse and provider-scope the env map. A single call
  * site maps the result to a status, so the wire codes stay in one place.
+ *
+ * Postgres presence lives only on the materialization context; the gate
+ * reads it from there so deploy has a single source of truth.
  */
 export function resolveDeployDbAndEnv(
   body: Pick<DeployBody, "db" | "env">,
-  postgres: PostgresConfig | undefined,
+  materialization: PreviewMaterializationCtx,
   repo: string,
 ):
   | { ok: true; value: DeployDbAndEnv }
@@ -135,12 +136,12 @@ export function resolveDeployDbAndEnv(
     };
   }
   const spec = normalizeDbSpec(parsed.value);
-  if (spec.provider === "postgres" && !isPostgresConfigured({ postgres })) {
+  if (spec.provider === "postgres" && !materialization.postgres) {
     return {
       ok: false,
       status: 500,
       error: "postgres_not_configured",
-      detail: postgresNotConfiguredDetail({ postgres }, repo),
+      detail: postgresNotConfiguredDetail(undefined, repo),
     };
   }
   const connectionEnv = parsePreviewEnvForProvider(body.env, spec.provider);
@@ -289,7 +290,6 @@ export type PreviewQuery = {
 
 export function deploy(
   deps: LifecycleDeps & {
-    postgres: PostgresConfig | undefined;
     materialization: PreviewMaterializationCtx;
   },
 ) {
@@ -318,7 +318,7 @@ export function deploy(
       set.status = 422;
       return { error: "invalid_hostname" };
     }
-    const dbAndEnv = resolveDeployDbAndEnv(body, deps.postgres, repo.value);
+    const dbAndEnv = resolveDeployDbAndEnv(body, deps.materialization, repo.value);
     if (!dbAndEnv.ok) {
       set.status = dbAndEnv.status;
       return dbAndEnv.detail

@@ -306,7 +306,6 @@ describe("ensureAdminToken", () => {
       previewDb: createFakePreviewDb(),
       app: bindTestPreviewApp(createFakeDockerClient()),
       materialization: { traefikNetwork: "sprout-traefik" },
-      postgres: undefined,
     });
     const res = await app.handle(
       new Request("http://localhost/v1/admin/tokens", {

@@ -5,7 +5,6 @@ import type { StateDb } from "../infrastructure/db/client.ts";
 import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import type { LifecycleDeps } from "../preview/lifecycle.ts";
 import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
-import type { PostgresConfig } from "../config.ts";
 import {
   createDeployToken,
   createDeployTokenBody,
@@ -25,7 +24,6 @@ export type RouteDeps = {
   previewDb: PreviewDbRouter;
   app: PreviewAppOps;
   materialization: PreviewMaterializationCtx;
-  postgres: PostgresConfig | undefined;
 };
 
 function stubNotImplemented({
@@ -46,7 +44,6 @@ export function createRoutes(deps: RouteDeps) {
   const deployDeps = {
     ...lifecycle,
     materialization: deps.materialization,
-    postgres: deps.postgres,
   };
   return new Elysia()
     .get("/healthz", () => ({ ok: true }))

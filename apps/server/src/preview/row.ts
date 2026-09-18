@@ -5,11 +5,14 @@ import { previews } from "../infrastructure/db/schema.ts";
 
 export type PreviewRow = typeof previews.$inferSelect;
 
-/** Stored provider, defaulting pre-column rows to postgres. */
+/** Stored provider, defaulting missing/empty rows to postgres. */
 export function storedProvider(
   row: Pick<PreviewRow, "dbProvider">,
 ): DbProvider {
-  return isDbProvider(row.dbProvider) ? row.dbProvider : "postgres";
+  const raw = row.dbProvider as string | null | undefined;
+  if (raw == null || raw === "") return "postgres";
+  if (isDbProvider(raw)) return raw;
+  throw new Error(`unknown db_provider ${JSON.stringify(raw)}`);
 }
 
 /** A provider switch is a fresh backend generation, not an identity conflict. */

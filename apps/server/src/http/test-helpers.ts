@@ -117,14 +117,15 @@ export async function createTestApp(
   });
   const { db, cleanup } = await createTestDb();
   await ensureAdminToken(db, adminToken);
+  // Postgres presence lives only on the materialization context: an explicit
+  // `postgres: undefined` opts into a sqlite-only gateway with no pg block.
+  const pg = "postgres" in opts ? opts.postgres : defaultTestPostgres;
   return {
     app: createRoutes({
       db,
       previewDb,
       app: appOps,
-      materialization: defaultTestMaterialization(),
-      // Explicit `postgres: undefined` opts into a sqlite-only gateway.
-      postgres: "postgres" in opts ? opts.postgres : defaultTestPostgres,
+      materialization: pg ? defaultTestMaterialization() : { traefikNetwork: "sprout-traefik" },
     }),
     db,
     adminToken,

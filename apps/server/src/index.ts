@@ -3,7 +3,6 @@ import { bootstrapAdminToken } from "./auth/bootstrap-admin.ts";
 import {
   configSummary,
   loadConfig,
-  type PostgresConfig,
 } from "./config.ts";
 import { createDockerEngineClient } from "./docker/engine.ts";
 import { startServer } from "./http/app.ts";
@@ -44,18 +43,19 @@ const previewDb = createRoutingPreviewDb({
 });
 
 // The single materialization input every deploy resolves its plan from.
-const postgres: PostgresConfig | undefined = config.postgres;
-const materialization: PreviewMaterializationCtx = postgres
+// Postgres presence lives only here; the deploy gate reads ctx.postgres.
+const pg = config.postgres;
+const materialization: PreviewMaterializationCtx = pg
   ? {
       traefikNetwork: config.traefikNetwork,
       postgres: {
         pg: {
-          host: postgres.host,
-          port: postgres.port,
-          user: postgres.user,
-          password: postgres.password,
+          host: pg.host,
+          port: pg.port,
+          user: pg.user,
+          password: pg.password,
         },
-        network: postgres.network,
+        network: pg.network,
       },
     }
   : { traefikNetwork: config.traefikNetwork };
@@ -68,7 +68,7 @@ const app = bindPreviewOps({
   seedTimeoutMs: config.seedTimeout * 1000,
 });
 
-startServer({ config, db, previewDb, app, materialization, postgres });
+startServer({ config, db, previewDb, app, materialization });
 startGatewaySweep({ config, db, previewDb, app });
 console.log(
   `sweep scheduled: first pass in ${config.sweepMinutes}m, then every ${config.sweepMinutes}m`,
