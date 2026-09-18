@@ -39,10 +39,10 @@ spec:
       description: "GitLab environment expiry for the preview (e.g. 1 week, 3 days)."
       default: "1 week"
     app_env_file:
-      description: "Optional project-root-relative dotenv file passed as --app-env-file (in addition to the SPROUT_APP_ENV file-type variable the CLI reads automatically). Resolved against the project root before cd into app_context."
+      description: "Optional project-root-relative dotenv file passed as --app-env-file (in addition to the SPROUT_APP_ENV file-type variable the CLI reads automatically). Resolved against the project root before cd into app_context. Repo-relative path only — not a File CI variable (see Troubleshooting in templates/README.md)."
       default: ""
     seed_env_file:
-      description: "Optional project-root-relative seed dotenv file passed as --seed-env-file. Resolved against the project root before cd into app_context."
+      description: "Optional project-root-relative seed dotenv file passed as --seed-env-file (in addition to the SPROUT_SEED_ENV file-type variable the CLI reads automatically). Resolved against the project root before cd into app_context. Repo-relative path only — not a File CI variable (see Troubleshooting in templates/README.md)."
       default: ""
     dotenv_file:
       description: "Dotenv artifact path (project-root-relative) the CLI writes PREVIEW_URL= to for environment:url."
@@ -153,6 +153,11 @@ sprout-preview:
       # The preview URL comes from the CLI's dotenv output only; never
       # reconstruct the hostname here (the CLI owns {pr_id} substitution).
       set -- --tail "$TAIL" --dotenv-file "$DOTENV_FILE"
+      # Silent-skip note: inputs: interpolate at config time, when File-type
+      # values are not yet materialized — a File var passed as app_env_file /
+      # seed_env_file expands to empty here, so the flags below are skipped
+      # with no message. Repo-relative dotenv paths only; File blobs go via
+      # runtime SPROUT_APP_ENV / SPROUT_SEED_ENV (see Troubleshooting).
       if [ -n "$APP_ENV_FILE" ]; then set -- "$@" --app-env-file "$APP_ENV_FILE"; fi
       if [ -n "$SEED_ENV_FILE" ]; then set -- "$@" --seed-env-file "$SEED_ENV_FILE"; fi
       sprout ci preview "$@"
