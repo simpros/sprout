@@ -10,7 +10,7 @@ import {
   utcIsoNow,
   type PreviewRow,
 } from "./row.ts";
-import { canSeedWithoutAppReplace, isSeedImageChanged } from "./seed-phase.ts";
+import { canSeedWithoutAppReplace, seedWorkOutstanding } from "./seed-phase.ts";
 import type { Result } from "./result.ts";
 import type {
   BringUpPlan,
@@ -273,10 +273,7 @@ function planAcceptBringUp(
   if (status === "failed") {
     return { status: "provisioning", plan: "full_replace" };
   }
-  if (input.reseed === true && sameApp) {
-    return { status: "seeding", plan: "seed_resume" };
-  }
-  if (sameApp && input.seed && isSeedImageChanged(row, input.seed.image)) {
+  if (sameApp && seedWorkOutstanding(row, input.seed, input.reseed)) {
     return { status: "seeding", plan: "seed_resume" };
   }
   return { status: "provisioning", plan: "full_replace" };

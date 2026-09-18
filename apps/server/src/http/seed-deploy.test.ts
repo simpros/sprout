@@ -271,6 +271,14 @@ describe("POST /v1/deploy seed image", () => {
       }),
     );
     expect(first.settleStatus).toBe(200);
+    const [seeded] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(seeded?.seededSeedImage).toBe(SEED_IMAGE);
     const createsAfterFirst = fakeDocker!.creates.length;
     const pullsAfterFirst = fakeDocker!.pulls.length;
 
@@ -292,6 +300,15 @@ describe("POST /v1/deploy seed image", () => {
       APP_IMAGE,
       SEED_IMAGE,
     ]);
+
+    const [row] = await testApp!.db
+      .select()
+      .from(previews)
+      .where(
+        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
+      )
+      .limit(1);
+    expect(row?.seededSeedImage).toBe(SEED_IMAGE);
   });
 
   test("reseed runs seed again when seeded_at set without app replace", async () => {
@@ -777,49 +794,6 @@ describe("POST /v1/deploy seed image", () => {
     expect(row?.lastError).toBe("seed_image_required_to_resume_seeding");
     expect(row?.containerId).toBe("fake-stuck");
     expect(row?.seededAt).toBeNull();
-  });
-
-  test("stores the seed image on first success and skips synchronize with the same tag", async () => {
-    const { deployToken } = await setup();
-    const first = await postDeploy(
-      deployToken,
-      deployBody({
-        seed_image: SEED_IMAGE,
-        health: healthBlock(),
-      }),
-    );
-    expect(first.settleStatus).toBe(200);
-
-    const [seeded] = await testApp!.db
-      .select()
-      .from(previews)
-      .where(
-        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
-      )
-      .limit(1);
-    expect(seeded?.seededAt).toMatch(/Z$/);
-    expect(seeded?.seededSeedImage).toBe(SEED_IMAGE);
-
-    const second = await postDeploy(
-      deployToken,
-      deployBody({
-        seed_image: SEED_IMAGE,
-        health: healthBlock(),
-      }),
-    );
-    expect(second.settleStatus).toBe(200);
-    expect(
-      fakeDocker!.creates.filter((c) => c.name.endsWith("-seed")),
-    ).toHaveLength(1);
-
-    const [row] = await testApp!.db
-      .select()
-      .from(previews)
-      .where(
-        and(eq(previews.canonicalRepoId, REPO), eq(previews.prId, 42)),
-      )
-      .limit(1);
-    expect(row?.seededSeedImage).toBe(SEED_IMAGE);
   });
 
   test("auto-reseeds on seed tag change without --reseed and without app replace", async () => {
