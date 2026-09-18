@@ -66,15 +66,14 @@ async function ensureDatabase(
   const desiredDbName = input.plan.dbName;
   const remint = needsBackendRemint(row, provider);
   const stored = storedProvider(row);
-  const staleName =
-    remint && row.dbName != null && stored !== "none" ? row.dbName : null;
+  const staleName = remint && row.dbName != null ? row.dbName : null;
 
-  if (staleName != null) {
-    await withDbNameLock(staleName, async () => {
-      await dropStaleDatabase(deps, stored, staleName);
-    });
-  }
   if (desiredDbName == null) {
+    if (staleName != null) {
+      await withDbNameLock(staleName, async () => {
+        await dropStaleDatabase(deps, stored, staleName);
+      });
+    }
     if (remint) {
       await updatePreviewRow(
         deps.db,
@@ -87,6 +86,9 @@ async function ensureDatabase(
   }
   return withDbNameLock(desiredDbName, async () => {
     try {
+      if (staleName != null) {
+        await dropStaleDatabase(deps, stored, staleName);
+      }
       await deps.previewDb.forCreate(provider).createDatabase(desiredDbName);
       if (remint) {
         await updatePreviewRow(

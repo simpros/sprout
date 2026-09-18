@@ -438,43 +438,46 @@ async function destroyPreviewRow(
   }
 
   // Previews without a named resource skip the catalog lock and drop call;
-  // finalize runs once for both cases.
-  if (existing.dbName != null) {
-    const dbName = existing.dbName;
-    const dropped = await withDbNameLock(dbName, async () => {
-      try {
-        await deps.previewDb
-          .forDrop(storedProvider(existing))
-          .dropDatabase(dbName);
-      } catch {
-        await markPreviewFailed(deps.db, repo, prId, "preview_db_drop_failed");
-        return { ok: false as const, status: 500, error: "preview_db_drop_failed" };
-      }
-      return { ok: true as const, value: true };
-    });
-    if (!dropped.ok) return dropped;
+  // a named resource holds the lock through DROP and finalize.
+  async function finalizeDestroy(): Promise<Result<TeardownSnapshot>> {
+    if (disposition === "purge") {
+      await deps.db
+        .delete(previews)
+        .where(
+          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+        );
+    } else {
+      await deps.db
+        .update(previews)
+        .set({
+          status: "removed",
+          containerId: null,
+          updatedAt: utcIsoNow(),
+        })
+        .where(
+          and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
+        );
+    }
+
+    return { ok: true, value: { ok: true, status: "removed" } };
   }
 
-  if (disposition === "purge") {
-    await deps.db
-      .delete(previews)
-      .where(
-        and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-      );
-  } else {
-    await deps.db
-      .update(previews)
-      .set({
-        status: "removed",
-        containerId: null,
-        updatedAt: utcIsoNow(),
-      })
-      .where(
-        and(eq(previews.canonicalRepoId, repo), eq(previews.prId, prId)),
-      );
+  if (existing.dbName == null) {
+    return finalizeDestroy();
   }
 
-  return { ok: true, value: { ok: true, status: "removed" } };
+  const dbName = existing.dbName;
+  return withDbNameLock(dbName, async () => {
+    try {
+      await deps.previewDb
+        .forDrop(storedProvider(existing))
+        .dropDatabase(dbName);
+    } catch {
+      await markPreviewFailed(deps.db, repo, prId, "preview_db_drop_failed");
+      return { ok: false as const, status: 500, error: "preview_db_drop_failed" };
+    }
+    return finalizeDestroy();
+  });
 }
 
 async function teardownUnlocked(
