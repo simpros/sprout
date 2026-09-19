@@ -13,3 +13,4 @@ coverage/
 sprout.db
 sprout.db-*
 _site/
+.humanlayer/
