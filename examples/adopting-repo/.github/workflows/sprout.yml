@@ -2,87 +2,17 @@ name: sprout
 
 on:
   pull_request:
-    types: [opened, synchronize, closed]
+    types: [opened, synchronize, reopened, edited, closed]
 
-env:
-  SPROUT_URL: ${{ secrets.SPROUT_URL }}
-  SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
+permissions:
+  contents: read
+  pull-requests: write
+  packages: write
 
 jobs:
   preview:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install sprout
-        env:
-          SPROUT_CLI_TAG: v0.6.0 # >= release with glibc sprout-linux-x64 (not v0.5.0)
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin"
-          curl -fsSL -o "$RUNNER_TEMP/bin/sprout" \
-            "https://github.com/simpros/sprout/releases/download/${SPROUT_CLI_TAG}/sprout-linux-x64"
-          chmod +x "$RUNNER_TEMP/bin/sprout"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/bin/sprout" --version
-
-      - name: Log in to container registry
-        if: github.event.action != 'closed'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ vars.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USER }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
-
-      - name: Build and push images
-        if: github.event.action != 'closed'
-        run: |
-          APP_IMAGE="${{ vars.REGISTRY }}/demoapp:${{ github.sha }}"
-          SEED_IMAGE="${{ vars.REGISTRY }}/demoapp:${{ github.sha }}-seed"
-          docker build -t "$APP_IMAGE" .
-          docker build -f Dockerfile.seed -t "$SEED_IMAGE" .
-          docker push "$APP_IMAGE"
-          docker push "$SEED_IMAGE"
-          echo "APP_IMAGE=$APP_IMAGE" >> "$GITHUB_ENV"
-          echo "SEED_IMAGE=$SEED_IMAGE" >> "$GITHUB_ENV"
-
-      - name: Write preview app env (optional masked secret)
-        if: github.event.action != 'closed'
-        env:
-          SPROUT_APP_ENV_BLOB: ${{ secrets.SPROUT_APP_ENV }}
-        run: |
-          printf '%s\n' "$SPROUT_APP_ENV_BLOB" > "$RUNNER_TEMP/preview.app.env"
-          echo "SPROUT_APP_ENV=$RUNNER_TEMP/preview.app.env" >> "$GITHUB_ENV"
-
-      - name: Deploy preview
-        if: github.event.action != 'closed'
-        id: deploy
-        run: |
-          sprout deploy -i "$APP_IMAGE" -s "$SEED_IMAGE" | tee deploy.log
-          line=$(grep '^preview_url=' deploy.log || true)
-          if [ -n "$line" ]; then
-            echo "preview_url=${line#preview_url=}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Comment preview URL
-        if: github.event.action != 'closed' && steps.deploy.outputs.preview_url != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const line = fs.readFileSync('deploy.log', 'utf8')
-              .split('\n').find(l => l.startsWith('preview_url='));
-            if (!line) return;
-            const url = line.slice('preview_url='.length);
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `Preview: ${url}`,
-            });
-
-      - name: Teardown preview
-        if: github.event.action == 'closed'
-        run: sprout teardown
+    uses: simpros/sprout/.github/workflows/preview.yml@v0.7.0
+    secrets:
+      SPROUT_URL: ${{ secrets.SPROUT_URL }}
+      SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
+      SPROUT_APP_ENV: ${{ secrets.SPROUT_APP_ENV }}

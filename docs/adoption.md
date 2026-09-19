@@ -838,22 +838,77 @@ Successful seeds do not keep seed output.
 
 ## CI workflow (GitHub Actions)
 
-Low-level forge-specific flow (appendix to the [Reference](#reference)):
-triggers mirror the GitLab component (open → deploy, synchronize →
-re-deploy keeping the DB, close → teardown) — see the canonical workflow.
-
-The **canonical** workflow is
+One caller workflow + secrets — parity with the GitLab component. The
+**canonical** caller is
 [`examples/adopting-repo/.github/workflows/sprout.yml`](../examples/adopting-repo/.github/workflows/sprout.yml)
-— copy it rather than pasting fragments from this guide. It covers:
+— copy it rather than pasting fragments from this guide:
 
-1. Install the prebuilt `sprout` CLI from the matching release asset (see
-   below), or from a workspace clone when hacking on sprout itself.
-2. Build and push app + seed images tagged with `${{ github.sha }}`.
-3. `sprout deploy -i … -s …`, capture `preview_url=` from `deploy.log`, comment
-   on the PR.
-4. On close, `sprout teardown` (idempotent — exit 0 if already gone).
+```yaml
+name: sprout
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, closed]
+permissions:
+  contents: read
+  pull-requests: write
+  packages: write
+jobs:
+  preview:
+    uses: simpros/sprout/.github/workflows/preview.yml@v0.7.0
+    secrets:
+      SPROUT_URL: ${{ secrets.SPROUT_URL }}
+      SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
+      SPROUT_APP_ENV: ${{ secrets.SPROUT_APP_ENV }}
+```
 
-### Install from a release asset
+What you get (owned by the reusable workflow
+`.github/workflows/preview.yml`, a thin
+bootstrapper over `sprout ci preview` / `sprout ci teardown`):
+
+- Preview on `opened` / `synchronize` / `reopened`: installs the pinned,
+  checksum-verified `sprout` binary, builds + pushes images
+  (`<registry>/<repo>:<SHA>`, seed image driven by `.sprout.yaml` as on
+  GitLab), deploys, and posts/updates the PR comment with the preview URL.
+  The URL is also exposed as the `preview_url` output and feeds
+  `environment: url`.
+- Teardown on `closed`: `sprout ci teardown` (idempotent — exit 0 if
+  already gone).
+- Reset via the ticked [reset-request checkbox](#reset-request-checkbox):
+  `edited` runs a cheap body check first and exits without rebuilding when
+  no reset is requested — a title edit never redeploys. A ticked box +
+  rotated marker redeploys from scratch on that run.
+- Per-PR serial runs via a `sprout-preview-<PR>` concurrency group.
+
+Caller permissions: a reusable workflow cannot elevate permissions, so the
+caller must grant `contents: read` (checkout), `pull-requests: write` (PR
+comment + the reset untick rewrite), and `packages: write` (image push to
+`ghcr.io`).
+
+Secrets (repo settings):
+
+| Secret | Required | Purpose |
+|---|---|---|
+| `SPROUT_URL` | yes | Gateway URL |
+| `SPROUT_TOKEN` | yes | Deploy token scoped to the repo's canonical id |
+| `SPROUT_APP_ENV` | no | App secrets as one dotenv blob (GitHub caps secrets at 48 KB) |
+| `SPROUT_SEED_ENV` | no | Seed secrets, same shape |
+
+No file-type variables on GitHub: the blobs above are written to
+`$RUNNER_TEMP` and read automatically by the CLI. When 48 KB is not enough,
+commit a repo-relative dotenv file and pass it via the `app_env_file` /
+`seed_env_file` inputs instead of the secret — same escape hatch as the
+GitLab `variables:` mapping, without the config-time expansion trap
+(inputs are plain paths, never variable references).
+
+Deliberate differences from the GitLab component: there is no `on_stop` /
+`auto_stop_in` equivalent — teardown on `closed` plus the gateway sweep is
+the safety net, so a long-open PR keeps its preview. Changing only `@v…`
+in the caller's `uses:` line changes the CLI version used (empty
+`sprout_version` derives from the workflow ref); no adopter-side
+version/checksum variables remain. Canonical repo id is derived from
+`GITHUB_REPOSITORY` automatically.
+
+### Manual install (laptops, hand-rolled jobs)
 
 Pick the asset that matches the host libc (names are honest):
 
@@ -879,7 +934,7 @@ chmod +x /usr/local/bin/sprout
 sprout --version
 ```
 
-CLI environment in CI:
+CLI environment for hand-rolled jobs (the reusable workflow sets this itself):
 
 ```yaml
 env:
@@ -888,8 +943,8 @@ env:
 ```
 
 Canonical repo id is derived from `GITHUB_REPOSITORY` automatically.
-
-Use `-i` only (no `-s`) when you do not need a seed image.
+Low-level equivalents (`sprout deploy -i … -s …`, `sprout teardown`) still
+work for laptops — see [Debugging](#debugging).
 
 ## Deploy token setup
 
