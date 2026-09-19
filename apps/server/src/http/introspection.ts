@@ -8,8 +8,9 @@ import {
   type LifecycleDeps,
 } from "../preview/lifecycle.ts";
 import {
-  mailFieldsFor,
   parsePreviewStatus,
+  previewSnapshotFromRow,
+  withMailbox,
 } from "../preview/snapshot.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import { planOrphans } from "../sweep/reconcile.ts";
@@ -68,7 +69,9 @@ export function listPreviews(db: StateDb, mailboxUrl?: string) {
         set.status = 500;
         return { error: status.error };
       }
-      const storedFrom = row.mailFrom ?? undefined;
+      // Mailbox attaches through the same decorator as the other read
+      // edges, so the no-From ⇒ no-link invariant has a single home.
+      const snap = withMailbox(previewSnapshotFromRow(row), mailboxUrl);
       listed.push({
         canonical_repo_id: row.canonicalRepoId,
         pr_id: row.prId,
@@ -77,7 +80,17 @@ export function listPreviews(db: StateDb, mailboxUrl?: string) {
         hostname: row.hostname,
         status: toDisplayStatus(status.value),
         created_at: row.createdAt,
-        ...mailFieldsFor(row.slug, row.prId, storedFrom, mailboxUrl),
+        ...(snap.mailbox_url !== undefined
+          ? { mailbox_url: snap.mailbox_url }
+          : {}),
+        ...(snap.mail_from !== undefined
+          ? {
+              mail_from: snap.mail_from,
+              ...(snap.mail_from_name !== undefined
+                ? { mail_from_name: snap.mail_from_name }
+                : {}),
+            }
+          : {}),
       });
     }
 

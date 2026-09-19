@@ -37,10 +37,7 @@ export function parsePreviewStatus(status: string): Result<PreviewStatus> {
   }
 }
 
-export function previewSnapshotFromRow(
-  row: PreviewRow,
-  mailboxUrl?: string,
-): PreviewSnapshot {
+export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
   const status = parsePreviewStatus(row.status);
   const parsed = status.ok ? status.value : "failed";
   const effectiveFrom = row.mailFrom ?? undefined;
@@ -53,7 +50,9 @@ export function previewSnapshotFromRow(
     hostname: row.hostname,
     status: parsed,
     ...(parsed === "running" ? { preview_url: `https://${row.hostname}` } : {}),
-    ...mailFieldsFor(row.slug, row.prId, effectiveFrom, mailboxUrl),
+    // Mail-free by construction: stored mail_from only, never the
+    // config-level mailbox link. The HTTP edge applies withMailbox.
+    ...mailFieldsFor(row.slug, row.prId, effectiveFrom, undefined),
     ...(row.lastError != null ? { last_error: row.lastError } : {}),
     ...(row.lastErrorDetail != null
       ? { last_error_detail: row.lastErrorDetail }
@@ -63,9 +62,9 @@ export function previewSnapshotFromRow(
 }
 
 /**
- * Route-layer decorator: attach the config-level mailbox link to an
- * already-built snapshot. Lifecycle layers return mail-free snapshots;
- * only the HTTP edge applies this, so domain code never threads presentation.
+ * Sole route-layer decorator for the config-level mailbox link.
+ * Lifecycle layers return mail-free snapshots; only the HTTP edge
+ * applies this, so domain code never threads presentation.
  */
 export function withMailbox(
   snapshot: PreviewSnapshot,

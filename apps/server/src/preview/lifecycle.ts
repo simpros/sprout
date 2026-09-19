@@ -189,10 +189,10 @@ async function patchAccept(
   fields: {
     status: "provisioning" | "seeding";
     plan: BringUpPlan;
+    mailFrom?: string;
     remint?: boolean;
     hostname?: string;
   },
-  dbPlan: ProvisionInput["plan"],
 ): Promise<PreviewRow> {
   const now = utcIsoNow();
   return updatePreviewRow(
@@ -202,7 +202,7 @@ async function patchAccept(
       status: fields.status,
       bringUpPlan: fields.plan,
       ...(fields.hostname != null ? { hostname: fields.hostname } : {}),
-      mailFrom: dbPlan.mailFrom ?? null,
+      mailFrom: fields.mailFrom ?? null,
       lastError: null,
       lastErrorDetail: null,
       seedLog: null,
@@ -347,7 +347,10 @@ export async function claimDeployIntent(
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
         const planned = planAcceptBringUp(row, input, "failed");
-        const next = await patchAccept(deps, row, planned, input.plan);
+        const next = await patchAccept(deps, row, {
+          ...planned,
+          mailFrom: input.plan.mailFrom,
+        });
         return {
           ok: true,
           value: previewSnapshotFromRow(next),
@@ -366,12 +369,10 @@ export async function claimDeployIntent(
     case "seeding": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(
-        deps,
-        row,
-        planAcceptBringUp(row, input, "seeding"),
-        input.plan,
-      );
+      const next = await patchAccept(deps, row, {
+        ...planAcceptBringUp(row, input, "seeding"),
+        mailFrom: input.plan.mailFrom,
+      });
       return {
         ok: true,
         value: previewSnapshotFromRow(next),
@@ -381,12 +382,10 @@ export async function claimDeployIntent(
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(
-        deps,
-        row,
-        planAcceptBringUp(row, input, status.value),
-        input.plan,
-      );
+      const next = await patchAccept(deps, row, {
+        ...planAcceptBringUp(row, input, status.value),
+        mailFrom: input.plan.mailFrom,
+      });
       return {
         ok: true,
         value: previewSnapshotFromRow(next),
@@ -401,10 +400,10 @@ export async function claimDeployIntent(
         {
           status: "provisioning",
           plan: "full_replace",
+          mailFrom: input.plan.mailFrom,
           remint: true,
           hostname: input.hostname,
         },
-        input.plan,
       );
       return {
         ok: true,

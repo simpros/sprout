@@ -2,15 +2,16 @@ import { describe, expect, test } from "bun:test";
 import {
   mailConnectionEnv,
   resolveMailIdentity,
-  type AppDeployMail,
 } from "./mail-env.ts";
+import type { MailConfig } from "../config.ts";
 import { withGatewayConnectionEnv } from "./pg-env.ts";
 
-const mail: AppDeployMail = {
+const mail: MailConfig = {
   host: "mailpit",
   port: 1025,
   user: "mailpit",
   password: "mailpit",
+  secure: false,
   fromDomain: "preview.invalid",
 };
 
@@ -71,6 +72,7 @@ describe("mailConnectionEnv", () => {
       mailConnectionEnv({
         host: "mailpit",
         port: 1025,
+        secure: false,
         fromDomain: "preview.invalid",
       }),
     ).toEqual(["MAILHOST=mailpit", "MAILPORT=1025"]);

@@ -1,21 +1,10 @@
 import {
   deriveMailFrom,
   deriveMailFromName,
-  resolveMailFrom,
   type MailEnvKey,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
 import type { MailConfig } from "../config.ts";
-
-export type AppDeployMail = {
-  host: string;
-  port: number;
-  user?: string;
-  password?: string;
-  secure?: boolean;
-  uiUrl?: string;
-  fromDomain: string;
-};
 
 export type MailIdentity = {
   slug: string;
@@ -24,50 +13,25 @@ export type MailIdentity = {
   fromTemplate?: string;
 };
 
-/** Flat gateway mail presence: connection fields plus attach/ui extras. */
-export type MaterializationMail = AppDeployMail & {
-  /** Docker network carrying SMTP; absent means no extra attach. */
-  network?: string;
-};
-
-/** Single constructor from gateway config; boot and tests share it. */
-export function toMaterializationMail(cfg: MailConfig): MaterializationMail {
-  return {
-    host: cfg.host,
-    port: cfg.port,
-    ...(cfg.user !== undefined ? { user: cfg.user } : {}),
-    ...(cfg.password !== undefined ? { password: cfg.password } : {}),
-    ...(cfg.secure ? { secure: true as const } : {}),
-    fromDomain: cfg.fromDomain,
-    ...(cfg.network !== undefined ? { network: cfg.network } : {}),
-    ...(cfg.uiUrl !== undefined ? { uiUrl: cfg.uiUrl } : {}),
-  };
-}
-
-/** Single resolve+throw for a preview From identity; env and plan share it. */
+/** Single resolve for a preview From identity; env and plan share it. */
 export type ResolvedMailIdentity = { address: string; name: string };
 
 export function resolveMailIdentity(
-  mail: AppDeployMail,
+  mail: MailConfig,
   identity: MailIdentity,
 ): ResolvedMailIdentity {
-  // Templates are validated at the deploy/yaml boundary, so a failure
-  // here is a bug: fail loudly instead of sending from the wrong address.
-  let address: string;
-  if (identity.fromTemplate !== undefined) {
-    const from = resolveMailFrom(identity.fromTemplate, identity.prId);
-    if (!from.ok) {
-      throw new Error(`invalid mail from template: ${from.detail}`);
-    }
-    address = from.value;
-  } else {
-    address = deriveMailFrom(identity.slug, identity.prId, mail.fromDomain);
-  }
+  // The deploy/yaml boundary already validates the template via
+  // parseMailSpec, so by the time identity resolves here it is known-valid:
+  // substitute directly with no second validation and no throw.
+  const address =
+    identity.fromTemplate !== undefined
+      ? identity.fromTemplate.trim().replaceAll("{pr_id}", String(identity.prId))
+      : deriveMailFrom(identity.slug, identity.prId, mail.fromDomain);
   return { address, name: deriveMailFromName(identity.slug, identity.prId) };
 }
 
 export function mailConnectionEnv(
-  mail: AppDeployMail,
+  mail: MailConfig,
   connectionEnv?: PreviewEnvMap,
   /** Already-resolved identity; callers resolve once via resolveMailIdentity. */
   resolved?: ResolvedMailIdentity,

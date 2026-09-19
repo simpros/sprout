@@ -17,6 +17,7 @@ const MAIL = {
   port: 1025,
   user: "mailpit",
   password: "mailpit",
+  secure: false as const,
   fromDomain: "preview.invalid",
 };
 
@@ -108,19 +109,25 @@ describe("resolvePreviewPlan mail", () => {
     expect(plan.mailFrom).toBeUndefined();
   });
 
-  test("explicit mail:enabled without gateway mail throws", () => {
-    expect(() =>
-      resolvePreviewPlan(
-        { traefikNetwork: "sprout-traefik" },
-        {
-          spec: defaultDbSpec(),
-          dbName: "sprout_myapp_pr42",
-          slug: "myapp",
-          prId: 42,
-          mail: { mode: "enabled" },
-        },
-      ),
-    ).toThrow("mail plan requested without mail config");
+  test("explicit mail:enabled without gateway mail skips; the deploy gate owns the 500", () => {
+    // resolvePreviewPlan is total by design: the deploy boundary rejects
+    // required-without-config with mail_not_configured, so the plan layer
+    // treats unconfigured as opportunistic-skip and never throws.
+    const plan = resolvePreviewPlan(
+      {
+        traefikNetwork: "sprout-traefik",
+        postgres: { pg: PG, network: "sprout-postgres" },
+      },
+      {
+        spec: defaultDbSpec(),
+        dbName: "sprout_myapp_pr42",
+        slug: "myapp",
+        prId: 42,
+        mail: { mode: "enabled" },
+      },
+    );
+    expect(plan.gatewayEnv).not.toContain("MAILHOST=mailpit");
+    expect(plan.mailFrom).toBeUndefined();
   });
 
   test("mail network joins app and seed networks; unset means no change", () => {

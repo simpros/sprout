@@ -20,7 +20,6 @@ import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
 import { runMigrations } from "../scripts/migrate.ts";
 import { createRoutes } from "./routes.ts";
 import type { MailConfig, PostgresConfig } from "../config.ts";
-import { toMaterializationMail } from "../app-deployment/mail-env.ts";
 
 export type TestDb = {
   db: StateDb;
@@ -125,7 +124,7 @@ export async function createTestApp(
           },
         }
       : {}),
-    ...(mail ? { mail: toMaterializationMail(mail) } : {}),
+    ...(mail ? { mail } : {}),
   };
   return {
     app: createRoutes({

@@ -1,6 +1,5 @@
 import { bindPreviewOps } from "./app-deployment/ops.ts";
 import { bootstrapAdminToken } from "./auth/bootstrap-admin.ts";
-import { toMaterializationMail } from "./app-deployment/mail-env.ts";
 import {
   configSummary,
   loadConfig,
@@ -64,7 +63,7 @@ const materialization: PreviewMaterializationCtx = {
       }
     : {}),
   ...(mail
-    ? { mail: toMaterializationMail(mail) }
+    ? { mail }
     : {}),
 };
 

@@ -184,8 +184,10 @@ export function resolveDeployDbAndEnv(
     };
   }
   const mail = mailParsed.value;
-  // Omitted mail is the default (mail when configured, silent skip when not);
-  // only an explicit enabled spec can fail the gateway gate.
+  // Mail intent is tri-state: omitted means opportunistic (inject when the
+  // gateway configures mail, silently skip when not); explicit enabled
+  // means required (fail when unconfigured); none means off. Only the
+  // required case can fail this gate; the plan layer never throws.
   if (mail !== undefined && isMailEnabled(mail) && !materialization.mail) {
     return {
       ok: false,
