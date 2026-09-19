@@ -28,14 +28,17 @@ export const CANONICAL_ENV_KEYS = [
   ...OWNER_ENV_KEYS,
   ...COMPANION_ENV_KEYS,
   ...SQLITE_ENV_KEYS,
-  ...MAIL_ENV_KEYS,
 ] as const;
+
+/** Every key preview.env accepts: database keys plus the cross-provider mail set. */
+export const PREVIEW_ENV_KEYS = [...CANONICAL_ENV_KEYS, ...MAIL_ENV_KEYS] as const;
 
 export type OwnerEnvKey = (typeof OWNER_ENV_KEYS)[number];
 export type CompanionEnvKey = (typeof COMPANION_ENV_KEYS)[number];
 export type SqliteEnvKey = (typeof SQLITE_ENV_KEYS)[number];
 export type MailEnvKey = (typeof MAIL_ENV_KEYS)[number];
 export type CanonicalEnvKey = (typeof CANONICAL_ENV_KEYS)[number];
+export type PreviewEnvKey = CanonicalEnvKey | MailEnvKey;
 
 export type PostgresEnvKey = OwnerEnvKey | CompanionEnvKey;
 
@@ -44,17 +47,14 @@ export const POSTGRES_ENV_KEYS: readonly PostgresEnvKey[] = [
   ...COMPANION_ENV_KEYS,
 ] as const;
 
-export type PreviewEnvMap = Partial<Record<CanonicalEnvKey, string>>;
+export type PreviewEnvMap = Partial<Record<PreviewEnvKey, string>>;
 
 import { ENV_TARGET_RE } from "./services.ts";
 
 export { ENV_TARGET_RE } from "./services.ts";
 
-/** Home table covers database keys only; mail keys are exempt by set membership below. */
-export const ENV_KEY_HOME: Record<
-  Exclude<CanonicalEnvKey, MailEnvKey>,
-  DbProvider
-> = {
+/** Total home table: every database key maps to its provider. */
+export const ENV_KEY_HOME: Record<CanonicalEnvKey, DbProvider> = {
   PGHOST: "postgres",
   PGPORT: "postgres",
   PGUSER: "postgres",
@@ -65,19 +65,22 @@ export const ENV_KEY_HOME: Record<
   DATABASE_URL: "sqlite",
 };
 
+export function isMailEnvKey(key: string): key is MailEnvKey {
+  return (MAIL_ENV_KEYS as readonly string[]).includes(key);
+}
+
 export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
   return (CANONICAL_ENV_KEYS as readonly string[]).includes(key);
+}
+
+export function isPreviewEnvKey(key: string): key is PreviewEnvKey {
+  return (PREVIEW_ENV_KEYS as readonly string[]).includes(key);
 }
 
 export function envKeysForProvider(
   provider: DbProvider,
 ): readonly CanonicalEnvKey[] {
-  return CANONICAL_ENV_KEYS.filter((key) => {
-    if ((MAIL_ENV_KEYS as readonly string[]).includes(key)) return false;
-    return (
-      ENV_KEY_HOME[key as Exclude<CanonicalEnvKey, MailEnvKey>] === provider
-    );
-  });
+  return CANONICAL_ENV_KEYS.filter((key) => ENV_KEY_HOME[key] === provider);
 }
 
 export function envProviderMismatch(
@@ -85,13 +88,11 @@ export function envProviderMismatch(
   provider: DbProvider,
 ): { key: CanonicalEnvKey; home: DbProvider } | null {
   for (const key of Object.keys(env ?? {})) {
-    const canonical = key as CanonicalEnvKey;
     // Mail keys live outside the db provider scope and are allowed on any provider.
-    if ((MAIL_ENV_KEYS as readonly string[]).includes(canonical)) continue;
-    const home =
-      ENV_KEY_HOME[canonical as Exclude<CanonicalEnvKey, MailEnvKey>];
+    if (isMailEnvKey(key)) continue;
+    const home = ENV_KEY_HOME[key as CanonicalEnvKey];
     if (home !== provider) {
-      return { key: canonical, home };
+      return { key: key as CanonicalEnvKey, home };
     }
   }
   return null;
@@ -127,7 +128,7 @@ export function parsePreviewEnvMap(
   const seenTargets = new Map<string, string>();
 
   for (const [key, value] of entries) {
-    if (!isCanonicalEnvKey(key)) {
+    if (!isPreviewEnvKey(key)) {
       return { ok: false, issue: { code: "unknown_env_key", key } };
     }
     if (typeof value !== "string" || value.trim() === "") {

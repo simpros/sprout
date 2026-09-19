@@ -33,7 +33,7 @@ import {
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
-import { withMailbox } from "../preview/snapshot.ts";
+import { presentPreviewSnapshot } from "../preview/snapshot.ts";
 import {
   resolvePreviewPlan,
   type PreviewMaterializationCtx,
@@ -46,7 +46,7 @@ import {
   validatePreviewIdentity,
   validateServiceName,
 } from "../preview-db/names.ts";
-import { mapResult, requirePreviewTarget, requireReadablePreview } from "./result-map.ts";
+import { mapResult, requirePreviewTarget, requireReadablePreviewRow } from "./result-map.ts";
 
 const healthBody = t.Object({
   path: t.String({ minLength: 1 }),
@@ -186,9 +186,9 @@ export function resolveDeployDbAndEnv(
   const mail = mailParsed.value;
   // Mail intent is tri-state: omitted means opportunistic (inject when the
   // gateway configures mail, silently skip when not); explicit enabled
-  // means required (fail when unconfigured); none means off. Only the
-  // required case can fail this gate; the plan layer throws for it as a bug
-  // guard, so this gate is the single path that maps it to a status.
+  // means required (fail when unconfigured); none means off. This gate is
+  // the single place that maps required-without-config to a status; the
+  // plan layer treats any unconfigured gateway as skip.
   if (mailIntent(mail) === "required" && !materialization.mail) {
     return {
       ok: false,
@@ -462,8 +462,8 @@ export function deploy(
     if (accepted.value.launch) {
       void runAsyncDeploy(deps, input);
     }
-    return withMailbox(
-      accepted.value.snapshot,
+    return presentPreviewSnapshot(
+      accepted.value.row,
       deps.materialization.mail?.uiUrl,
     );
   };
@@ -482,14 +482,14 @@ export function getPreview(
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    const result = await requireReadablePreview(
+    const result = await requireReadablePreviewRow(
       deps,
       auth,
       query.canonical_repo_id,
       query.pr_id,
     );
     if (!result.ok) return mapResult(result, set);
-    return withMailbox(result.value, mailboxUrl);
+    return presentPreviewSnapshot(result.value, mailboxUrl);
   };
 }
 

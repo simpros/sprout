@@ -53,17 +53,14 @@ function resolveMailPart(
     prId: number;
   },
 ): { env: string[]; networks: string[]; mailFrom?: string } {
-  if (mailIntent(input.mail) === "off") {
+  const intent = mailIntent(input.mail);
+  if (intent === "off") {
     return { env: [], networks: [] };
   }
   const configured = ctx.mail;
-  // Explicit-enabled without config is rejected by the deploy gate, so
-  // reaching here means a new caller skipped it: fail loudly like the
-  // postgres branch instead of silently deploying without mail.
-  if (mailIntent(input.mail) === "required" && !configured) {
-    throw new Error("mail plan requested without mail config");
-  }
-  // Omitted mail is opportunistic: inject when configured, skip when not.
+  // The deploy gate owns the required-without-config verdict
+  // (mail_not_configured); any unconfigured gateway skips here so this
+  // layer stays total and never re-checks intent.
   if (!configured) return { env: [], networks: [] };
   const { env, resolved } = mailConnectionEnv(
     configured,
@@ -101,38 +98,46 @@ export function resolvePreviewPlan(
         ? previewDbName(input.slug, input.prId)
         : null;
   const mail = resolveMailPart(ctx, input);
-  const mailFrom =
-    mail.mailFrom !== undefined ? { mailFrom: mail.mailFrom } : {};
-  // The mail merge is identical in every branch: app containers always join
-  // the mail network when configured so MAILHOST resolves. Seed jobs join it
-  // too whenever a seed can run; provider none rejects seeds, so its empty
-  // seedNetworks stay empty instead of widening isolation for no benefit.
+  // Provider branches below build the mail-free base plan; the single
+  // overlay after them appends mail env, joins the mail network, and sets
+  // mailFrom. Seed jobs join the mail network whenever a seed can run;
+  // provider none rejects seeds, so its empty seedNetworks stay empty
+  // instead of widening isolation for no benefit.
+  const seedJoinsMailNet = input.spec.provider !== "none";
+  const withMail = (
+    base: Omit<PreviewDbPlan, "mailFrom">,
+  ): PreviewDbPlan => ({
+    ...base,
+    gatewayEnv: [...base.gatewayEnv, ...mail.env],
+    appNetworks: [...base.appNetworks, ...mail.networks],
+    seedNetworks: seedJoinsMailNet
+      ? [...base.seedNetworks, ...mail.networks]
+      : base.seedNetworks,
+    ...(mail.mailFrom !== undefined ? { mailFrom: mail.mailFrom } : {}),
+  });
   if (input.spec.provider === "none") {
-    return {
+    return withMail({
       provider: "none",
       dbName,
-      gatewayEnv: [...mail.env],
+      gatewayEnv: [],
       volumes: [],
-      appNetworks: [ctx.traefikNetwork, ...mail.networks],
+      appNetworks: [ctx.traefikNetwork],
       seedNetworks: [],
-      ...mailFrom,
-    };
+    });
   }
   if (input.spec.provider === "sqlite") {
     const target = input.connectionEnv?.DATABASE_URL ?? "DATABASE_URL";
-    return {
+    return withMail({
       provider: "sqlite",
       dbName,
       gatewayEnv: [
         `${target}=${sqliteDatabaseUrl(input.spec.path, input.spec.file)}`,
-        ...mail.env,
       ],
       volumes: [`${sqliteVolumeName(input.slug, input.prId)}:${input.spec.path}`],
-      appNetworks: [ctx.traefikNetwork, ...mail.networks],
+      appNetworks: [ctx.traefikNetwork],
       // Seed needs no postgres data; traefik is the network that always exists.
-      seedNetworks: [ctx.traefikNetwork, ...mail.networks],
-      ...mailFrom,
-    };
+      seedNetworks: [ctx.traefikNetwork],
+    });
   }
   const postgres = ctx.postgres;
   if (!postgres) {
@@ -143,16 +148,14 @@ export function resolvePreviewPlan(
   if (dbName == null) {
     throw new Error("postgres plan requested without a database name");
   }
-  return {
+  return withMail({
     provider: "postgres",
     dbName,
     gatewayEnv: [
       ...pgConnectionEnv(postgres.pg, dbName, input.connectionEnv),
-      ...mail.env,
     ],
     volumes: [],
-    appNetworks: [ctx.traefikNetwork, postgres.network, ...mail.networks],
-    seedNetworks: [postgres.network, ...mail.networks],
-    ...mailFrom,
-  };
+    appNetworks: [ctx.traefikNetwork, postgres.network],
+    seedNetworks: [postgres.network],
+  });
 }

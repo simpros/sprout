@@ -1,5 +1,5 @@
 import {
-  CANONICAL_ENV_KEYS,
+  PREVIEW_ENV_KEYS,
   type CanonicalEnvKey,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
@@ -46,7 +46,7 @@ export function withGatewayConnectionEnv(
   gatewayEnv: string[],
 ): string[] {
   const reserved = new Set<string>([
-    ...CANONICAL_ENV_KEYS,
+    ...PREVIEW_ENV_KEYS,
     ...gatewayEnv.map(envKey),
   ]);
   return [

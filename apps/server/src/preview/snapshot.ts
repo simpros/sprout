@@ -37,7 +37,7 @@ export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
     status: parsed,
     ...(parsed === "running" ? { preview_url: `https://${row.hostname}` } : {}),
     // Mail-free by construction: stored mail_from only, never the
-    // config-level mailbox link. The HTTP edge applies withMailbox.
+    // config-level mailbox link. The HTTP edge applies presentPreviewSnapshot.
     ...(effectiveFrom !== undefined
       ? {
           mail_from: effectiveFrom,
@@ -53,14 +53,15 @@ export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
 }
 
 /**
- * Sole route-layer decorator for the config-level mailbox link.
- * Lifecycle layers return mail-free snapshots; only the HTTP edge
- * applies this, so domain code never threads presentation.
+ * Sole presenter for HTTP edges: the stored mail_from plus the config-level
+ * mailbox link (never advertised for a mail:none preview). Domain layers
+ * return mail-free snapshots or rows; only routes call this.
  */
-export function withMailbox(
-  snapshot: PreviewSnapshot,
+export function presentPreviewSnapshot(
+  row: PreviewRow,
   mailboxUrl: string | undefined,
 ): PreviewSnapshot {
+  const snapshot = previewSnapshotFromRow(row);
   if (snapshot.mail_from === undefined || mailboxUrl === undefined) {
     return snapshot;
   }

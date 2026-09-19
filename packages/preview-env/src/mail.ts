@@ -62,48 +62,43 @@ export function parseMailSpec(
   raw: unknown,
 ): { ok: true; value: MailSpec | undefined } | { ok: false; issue: MailSpecIssue } {
   if (raw === undefined) return { ok: true, value: undefined };
-  if (typeof raw === "string") {
-    const mode = raw.trim();
-    if (!isMailMode(mode)) {
-      return { ok: false, issue: { code: "invalid_mail_mode", mode: raw as string } };
-    }
-    return { ok: true, value: { mode: mode as MailMode } };
-  }
-  if (!isPlainObject(raw)) {
+  // One object path: the string form is sugar for { mode: raw }.
+  const obj: unknown = typeof raw === "string" ? { mode: raw } : raw;
+  if (!isPlainObject(obj)) {
     return { ok: false, issue: { code: "invalid_mail_block" } };
   }
-  for (const key of Object.keys(raw)) {
+  for (const key of Object.keys(obj)) {
     if (key !== "mode" && key !== "from") {
       return { ok: false, issue: { code: "unknown_mail_key", key } };
     }
   }
   let mode: MailMode = "enabled";
-  if (raw.mode !== undefined) {
-    if (typeof raw.mode !== "string" || !isMailMode(raw.mode.trim())) {
+  if (obj.mode !== undefined) {
+    if (typeof obj.mode !== "string" || !isMailMode(obj.mode.trim())) {
       return {
         ok: false,
-        issue: { code: "invalid_mail_mode", mode: String(raw.mode) },
+        issue: { code: "invalid_mail_mode", mode: String(obj.mode) },
       };
     }
-    mode = raw.mode.trim() as MailMode;
+    mode = obj.mode.trim() as MailMode;
   }
   let from: string | undefined;
-  if (raw.from !== undefined) {
-    if (typeof raw.from !== "string" || raw.from.trim() === "") {
+  if (obj.from !== undefined) {
+    if (typeof obj.from !== "string" || obj.from.trim() === "") {
       return {
         ok: false,
         issue: { code: "invalid_mail_from", detail: "mail.from is required" },
       };
     }
-    const checked = validateMailFromTemplate(raw.from);
+    const checked = validateMailFromTemplate(obj.from);
     if (!checked.ok) {
       return { ok: false, issue: { code: "invalid_mail_from", detail: checked.detail } };
     }
-    from = raw.from.trim();
+    from = obj.from.trim();
   }
-  if (raw.mode === undefined && raw.from === undefined) {
-    return { ok: true, value: undefined };
-  }
+  // The object form always yields an explicit spec: a bare from defaults to
+  // enabled, and an empty object is explicit-enabled, never silent omission
+  // (omission stays reserved for undefined input).
   if (mode === "none" && from !== undefined) {
     return {
       ok: false,

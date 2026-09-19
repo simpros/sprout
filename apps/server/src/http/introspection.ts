@@ -9,8 +9,7 @@ import {
 } from "../preview/lifecycle.ts";
 import {
   parsePreviewStatus,
-  previewSnapshotFromRow,
-  withMailbox,
+  presentPreviewSnapshot,
 } from "../preview/snapshot.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import { planOrphans } from "../sweep/reconcile.ts";
@@ -69,9 +68,11 @@ export function listPreviews(db: StateDb, mailboxUrl?: string) {
         set.status = 500;
         return { error: status.error };
       }
-      // Mailbox attaches through the same edge decorator as the other read
-      // paths, so the no-From ⇒ no-link invariant has a single home.
-      const snap = withMailbox(previewSnapshotFromRow(row), mailboxUrl);
+      // One presenter for every read edge: stored mail_from plus the
+      // config-level mailbox link. ListedPreview keeps its own wire shape
+      // (display status, created_at) so fields are picked explicitly rather
+      // than spread, which would leak preview_url/last_error.
+      const snap = presentPreviewSnapshot(row, mailboxUrl);
       listed.push({
         canonical_repo_id: snap.canonical_repo_id,
         pr_id: snap.pr_id,

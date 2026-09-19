@@ -6,6 +6,7 @@ import {
   MAIL_ENV_KEYS,
   OWNER_ENV_KEYS,
   POSTGRES_ENV_KEYS,
+  PREVIEW_ENV_KEYS,
   SQLITE_ENV_KEYS,
   envKeysForProvider,
   envProviderMismatch,
@@ -14,11 +15,14 @@ import {
 } from "./index.ts";
 
 describe("env key partitions", () => {
-  test("CANONICAL is owner then companion then sqlite then mail", () => {
+  test("CANONICAL is owner then companion then sqlite; PREVIEW adds mail", () => {
     expect([...CANONICAL_ENV_KEYS]).toEqual([
       ...OWNER_ENV_KEYS,
       ...COMPANION_ENV_KEYS,
       ...SQLITE_ENV_KEYS,
+    ]);
+    expect([...PREVIEW_ENV_KEYS]).toEqual([
+      ...CANONICAL_ENV_KEYS,
       ...MAIL_ENV_KEYS,
     ]);
     expect(OWNER_ENV_KEYS).toEqual([
@@ -44,9 +48,7 @@ describe("env key partitions", () => {
 
   test("every database key has a home in the map; mail keys stay exempt", () => {
     expect(Object.keys(ENV_KEY_HOME).sort()).toEqual(
-      [...CANONICAL_ENV_KEYS]
-        .filter((key) => !(MAIL_ENV_KEYS as readonly string[]).includes(key))
-        .sort(),
+      [...CANONICAL_ENV_KEYS].sort(),
     );
     expect(ENV_KEY_HOME.DATABASE_URL).toBe("sqlite");
     expect(ENV_KEY_HOME.PGHOST).toBe("postgres");
@@ -90,6 +92,13 @@ describe("parsePreviewEnvMap", () => {
     expect(parsePreviewEnvMap({ DATABASE_URL: "APP_DATABASE_URL" })).toEqual({
       ok: true,
       value: { DATABASE_URL: "APP_DATABASE_URL" },
+    });
+  });
+
+  test("accepts mail remaps as cross-provider keys", () => {
+    expect(parsePreviewEnvMap({ MAILFROM: "SMTP_FROM" })).toEqual({
+      ok: true,
+      value: { MAILFROM: "SMTP_FROM" },
     });
   });
 
@@ -163,6 +172,12 @@ describe("envProviderMismatch", () => {
       home: "sqlite",
     });
     expect(envProviderMismatch(undefined, "none")).toBeNull();
+  });
+
+  test("mail keys are exempt on every provider", () => {
+    expect(envProviderMismatch({ MAILFROM: "F" }, "postgres")).toBeNull();
+    expect(envProviderMismatch({ MAILFROM: "F" }, "sqlite")).toBeNull();
+    expect(envProviderMismatch({ MAILFROM: "F" }, "none")).toBeNull();
   });
 });
 

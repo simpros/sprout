@@ -7,12 +7,10 @@ import {
   withPreviewLock,
   type LifecycleDeps,
   type PreviewRow,
-  type PreviewSnapshot,
   type ProvisionInput,
 } from "./lifecycle.ts";
 import {
   parsePreviewStatus,
-  previewSnapshotFromRow,
 } from "./snapshot.ts";
 
 const inFlightDeploys = new Map<string, { slug: string; dbName: string | null }>();
@@ -24,7 +22,7 @@ function previewKey(repo: string, prId: number): string {
 export async function acceptAsyncDeploy(
   deps: LifecycleDeps,
   input: ProvisionInput,
-): Promise<Result<{ snapshot: PreviewSnapshot; launch: boolean }>> {
+): Promise<Result<{ row: PreviewRow; launch: boolean }>> {
   return withPreviewLock(input.repo, input.prId, async () => {
     const requestedDbName = input.plan.dbName;
     const key = previewKey(input.repo, input.prId);
@@ -40,7 +38,7 @@ export async function acceptAsyncDeploy(
           return {
             ok: true,
             value: {
-              snapshot: previewSnapshotFromRow(row),
+              row,
               launch: false,
             },
           };
@@ -60,7 +58,7 @@ export async function acceptAsyncDeploy(
       slug: input.slug,
       dbName: requestedDbName,
     });
-    return { ok: true, value: { snapshot: claimed.value, launch: true } };
+    return { ok: true, value: { row: claimed.value, launch: true } };
   });
 }
 

@@ -15,7 +15,6 @@ import { canSeedWithoutAppReplace, seedWorkOutstanding } from "./seed-phase.ts";
 import type { Result } from "./result.ts";
 import {
   parsePreviewStatus,
-  previewSnapshotFromRow,
 } from "./snapshot.ts";
 import type {
   BringUpPlan,
@@ -107,7 +106,6 @@ export async function setResetRequestMarker(
 type AcceptBringUp = {
   status: "provisioning" | "seeding";
   plan: BringUpPlan;
-  mailFrom: string | undefined;
 };
 
 /** Must run under withPreviewLock; skips removing/removed rows. */
@@ -242,46 +240,45 @@ function planAcceptBringUp(
   input: ProvisionInput,
   status: "failed" | "seeding" | "running" | "starting",
 ): AcceptBringUp {
-  const mailFrom = input.plan.mailFrom;
   const sameApp = canSeedWithoutAppReplace(row, input);
 
   if (sameApp) {
     if (row.bringUpPlan === "sync_close") {
-      return { status: "provisioning", plan: "sync_close", mailFrom };
+      return { status: "provisioning", plan: "sync_close" };
     }
     if (row.bringUpPlan === "close") {
-      return { status: "provisioning", plan: "close", mailFrom };
+      return { status: "provisioning", plan: "close" };
     }
     if (
       row.bringUpPlan === "seed_resume" &&
       (status === "failed" || status === "seeding")
     ) {
-      return { status: "seeding", plan: "seed_resume", mailFrom };
+      return { status: "seeding", plan: "seed_resume" };
     }
     // Back-compat: rows seeded before close plans existed resume as close.
     if (status === "seeding" && row.seededAt != null) {
-      return { status: "provisioning", plan: "close", mailFrom };
+      return { status: "provisioning", plan: "close" };
     }
   }
 
   if (status === "seeding") {
     return sameApp
-      ? { status: "seeding", plan: "seed_resume", mailFrom }
-      : { status: "provisioning", plan: "full_replace", mailFrom };
+      ? { status: "seeding", plan: "seed_resume" }
+      : { status: "provisioning", plan: "full_replace" };
   }
   if (status === "failed") {
-    return { status: "provisioning", plan: "full_replace", mailFrom };
+    return { status: "provisioning", plan: "full_replace" };
   }
   if (sameApp && seedWorkOutstanding(row, input.seed, input.reseed)) {
-    return { status: "seeding", plan: "seed_resume", mailFrom };
+    return { status: "seeding", plan: "seed_resume" };
   }
-  return { status: "provisioning", plan: "full_replace", mailFrom };
+  return { status: "provisioning", plan: "full_replace" };
 }
 
 export async function claimDeployIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
-): Promise<Result<PreviewSnapshot>> {
+): Promise<Result<PreviewRow>> {
   const requestedDbName = input.plan.dbName;
   const row = await getPreviewRow(deps.db, input.repo, input.prId);
 
@@ -303,7 +300,7 @@ export async function claimDeployIntent(
     if (!inserted) {
       return { ok: false, status: 500, error: "preview_row_missing" };
     }
-    return { ok: true, value: previewSnapshotFromRow(inserted) };
+    return { ok: true, value: inserted };
   }
 
   const status = parsePreviewStatus(row.status);
@@ -320,7 +317,7 @@ export async function claimDeployIntent(
   ) {
     const intentDbName = requestedDbName ?? row.dbName;
     const intent = await writeProvisioningIntent(deps, input, intentDbName);
-    return { ok: true, value: previewSnapshotFromRow(intent) };
+    return { ok: true, value: intent };
   }
 
   switch (status.value) {
@@ -336,41 +333,44 @@ export async function claimDeployIntent(
         input,
         requestedDbName,
       );
-      return { ok: true, value: previewSnapshotFromRow(intent) };
+      return { ok: true, value: intent };
     }
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
         const planned = planAcceptBringUp(row, input, "failed");
-        const next = await patchAccept(deps, row, planned);
-        return { ok: true, value: previewSnapshotFromRow(next) };
+        const next = await patchAccept(deps, row, {
+          ...planned,
+          mailFrom: input.plan.mailFrom,
+        });
+        return { ok: true, value: next };
       }
       const intent = await writeProvisioningIntent(
         deps,
         input,
         requestedDbName,
       );
-      return { ok: true, value: previewSnapshotFromRow(intent) };
+      return { ok: true, value: intent };
     }
     case "seeding": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(
-        deps,
-        row,
-        planAcceptBringUp(row, input, "seeding"),
-      );
-      return { ok: true, value: previewSnapshotFromRow(next) };
+      const planned = planAcceptBringUp(row, input, "seeding");
+      const next = await patchAccept(deps, row, {
+        ...planned,
+        mailFrom: input.plan.mailFrom,
+      });
+      return { ok: true, value: next };
     }
     case "running":
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(
-        deps,
-        row,
-        planAcceptBringUp(row, input, status.value),
-      );
-      return { ok: true, value: previewSnapshotFromRow(next) };
+      const planned = planAcceptBringUp(row, input, status.value);
+      const next = await patchAccept(deps, row, {
+        ...planned,
+        mailFrom: input.plan.mailFrom,
+      });
+      return { ok: true, value: next };
     }
     case "provisioning": {
       const identity = requireDbIdentity(row, input, requestedDbName);
@@ -386,7 +386,7 @@ export async function claimDeployIntent(
           hostname: input.hostname,
         },
       );
-      return { ok: true, value: previewSnapshotFromRow(next) };
+      return { ok: true, value: next };
     }
   }
 }

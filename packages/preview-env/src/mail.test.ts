@@ -71,6 +71,12 @@ describe("mail.from template", () => {
     }
   });
 
+  test("empty object is explicit-enabled, never silent omission", () => {
+    const parsed = parseMailSpec({});
+    expect(parsed).toEqual({ ok: true, value: { mode: "enabled" } });
+    if (parsed.ok) expect(mailIntent(parsed.value)).toBe("required");
+  });
+
   test("rejects templates without a dotted domain", () => {
     expect(validateMailFromTemplate("a+{pr_id}@b").ok).toBe(false);
   });
