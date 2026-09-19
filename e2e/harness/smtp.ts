@@ -1,6 +1,6 @@
 import { Socket } from "node:net";
 
-export function smtpCommand(socket: Socket, line: string): Promise<string> {
+function readSmtpLine(socket: Socket): Promise<string> {
   return new Promise((resolve, reject) => {
     let buf = "";
     const onData = (chunk: Buffer) => {
@@ -12,8 +12,13 @@ export function smtpCommand(socket: Socket, line: string): Promise<string> {
     };
     socket.on("data", onData);
     socket.once("error", reject);
-    socket.write(`${line}\r\n`);
   });
+}
+
+export function smtpCommand(socket: Socket, line: string): Promise<string> {
+  const pending = readSmtpLine(socket);
+  socket.write(`${line}\r\n`);
+  return pending;
 }
 
 export async function sendMail(opts: {
@@ -31,17 +36,7 @@ export async function sendMail(opts: {
     socket.connect(opts.port, opts.host, () => resolve());
   });
   try {
-    await new Promise<string>((resolve, reject) => {
-      let buf = "";
-      socket.on("data", function onData(chunk: Buffer) {
-        buf += chunk.toString();
-        if (buf.includes("\r\n")) {
-          socket.off("data", onData);
-          resolve(buf);
-        }
-      });
-      socket.once("error", reject);
-    });
+    await readSmtpLine(socket);
     await smtpCommand(socket, `EHLO e2e`);
     await smtpCommand(socket, `MAIL FROM:<${opts.from}>`);
     await smtpCommand(socket, `RCPT TO:<${opts.to}>`);

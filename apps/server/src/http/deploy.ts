@@ -134,7 +134,7 @@ export type DeployBody = {
   reseed?: boolean;
 };
 
-export type DeployDbAndEnv = {
+export type DeploySpecs = {
   spec: DbSpec;
   connectionEnv?: PreviewEnvMap;
   mail?: MailSpec;
@@ -148,12 +148,12 @@ export type DeployDbAndEnv = {
  * Postgres presence lives only on the materialization context; the gate
  * reads it from there so deploy has a single source of truth.
  */
-export function resolveDeployDbAndEnv(
+export function resolveDeploySpecs(
   body: Pick<DeployBody, "db" | "env" | "mail">,
   materialization: PreviewMaterializationCtx,
   repo: string,
 ):
-  | { ok: true; value: DeployDbAndEnv }
+  | { ok: true; value: DeploySpecs }
   | { ok: false; status: number; error: string; detail?: string } {
   const parsed = parseDbSpec(body.db);
   if (!parsed.ok) {
@@ -400,21 +400,21 @@ export function deploy(
       set.status = 422;
       return { error: "invalid_hostname" };
     }
-    const dbAndEnv = resolveDeployDbAndEnv(body, deps.materialization, target.value.repo);
-    if (!dbAndEnv.ok) {
-      set.status = dbAndEnv.status;
-      return dbAndEnv.detail
-        ? { error: dbAndEnv.error, detail: dbAndEnv.detail }
-        : { error: dbAndEnv.error };
+    const deploySpecs = resolveDeploySpecs(body, deps.materialization, target.value.repo);
+    if (!deploySpecs.ok) {
+      set.status = deploySpecs.status;
+      return deploySpecs.detail
+        ? { error: deploySpecs.error, detail: deploySpecs.detail }
+        : { error: deploySpecs.error };
     }
     const plan = resolvePreviewPlan(deps.materialization, {
-      spec: dbAndEnv.value.spec,
+      spec: deploySpecs.value.spec,
       slug: body.slug,
       prId: target.value.prId,
-      connectionEnv: dbAndEnv.value.connectionEnv,
-      mail: dbAndEnv.value.mail,
+      connectionEnv: deploySpecs.value.connectionEnv,
+      mail: deploySpecs.value.mail,
     });
-    const seed = resolveSeedRequest(body, dbAndEnv.value.spec.provider);
+    const seed = resolveSeedRequest(body, deploySpecs.value.spec.provider);
     if (!seed.ok) {
       set.status = 422;
       return seed.detail != null

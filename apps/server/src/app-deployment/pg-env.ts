@@ -7,6 +7,7 @@ import {
   deriveRestrictedPassword,
   restrictedRoleName,
 } from "@sprout/preview-db";
+import { applyEnvRemap } from "./env-remap.ts";
 
 export type AppDeployPg = {
   host: string;
@@ -31,9 +32,7 @@ export function pgConnectionEnv(
     ["PGAPPUSER", restrictedUser],
     ["PGAPPPASSWORD", restrictedPassword],
   ];
-  return fields.map(
-    ([key, value]) => `${connectionEnv?.[key] ?? key}=${value}`,
-  );
+  return applyEnvRemap(fields, connectionEnv);
 }
 
 function envKey(entry: string): string {
