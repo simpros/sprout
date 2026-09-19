@@ -12,6 +12,8 @@ export type PreviewServiceSpec = {
   image: string;
   hostname?: string;
   path?: string;
+  port?: number;
+  env?: Record<string, string>;
 };
 
 export type ReplacePreviewServicesDeps = {
@@ -44,10 +46,13 @@ export async function replacePreviewServices(
           service.name,
         );
         const routed = service.hostname != null || service.path != null;
+        const userEnv = service.env
+          ? Object.entries(service.env).map(([key, value]) => `${key}=${value}`)
+          : [];
         await materializePreviewWorkload(deps.docker, {
           name,
           image: service.image,
-          userEnv: [],
+          userEnv,
           routing: routed
             ? {
                 kind: "routed",
@@ -61,6 +66,7 @@ export async function replacePreviewServices(
           volumes: input.plan.volumes,
           networkNames: input.plan.appNetworks,
           previewPortDefault: deps.previewPortDefault,
+          ...(service.port !== undefined ? { portOverride: service.port } : {}),
         });
       }),
     );

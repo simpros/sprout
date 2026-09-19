@@ -1,5 +1,6 @@
 import {
   dbSpecIssueMessage,
+  ENV_TARGET_RE,
   normalizeDbSpec,
   parseDbSpec,
   parsePreviewEnvForProvider,
@@ -50,6 +51,8 @@ const serviceBody = t.Object({
   image: t.String({ minLength: 1 }),
   hostname: t.Optional(t.String({ minLength: 1 })),
   path: t.Optional(t.String({ minLength: 1 })),
+  port: t.Optional(t.Number()),
+  env: t.Optional(t.Record(t.String(), t.String())),
 });
 
 const MAX_SEED_ENV = 16;
@@ -287,6 +290,38 @@ export function resolveServicesRequest(
       spec.hostname = hostname;
     }
     if (path) spec.path = path;
+    if (entry.port !== undefined) {
+      if (
+        typeof entry.port !== "number" ||
+        !Number.isInteger(entry.port) ||
+        entry.port < 1 ||
+        entry.port > 65535
+      ) {
+        return { ok: false, error: "invalid_service_port" };
+      }
+      spec.port = entry.port;
+    }
+    if (entry.env !== undefined) {
+      const env = entry.env as unknown;
+      if (
+        typeof env !== "object" ||
+        env === null ||
+        Array.isArray(env)
+      ) {
+        return { ok: false, error: "invalid_service_env" };
+      }
+      const out_env: Record<string, string> = {};
+      for (const [key, value] of Object.entries(env)) {
+        if (key.trim() === "" || !ENV_TARGET_RE.test(key)) {
+          return { ok: false, error: "invalid_service_env" };
+        }
+        if (typeof value !== "string") {
+          return { ok: false, error: "invalid_service_env" };
+        }
+        out_env[key] = value;
+      }
+      if (Object.keys(out_env).length > 0) spec.env = out_env;
+    }
     out.push(spec);
   }
   return { ok: true, value: out };

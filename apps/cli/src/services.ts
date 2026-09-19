@@ -9,6 +9,8 @@ export type DeployService = {
   image: string;
   hostname?: string;
   path?: string;
+  port?: number;
+  env?: Record<string, string>;
 };
 
 export function parseServiceFlag(raw: string): Result<{ name: string; image: string }> {
@@ -33,6 +35,8 @@ export function mergeServices(
     image?: string;
     hostname?: string;
     path?: string;
+    port?: number;
+    env?: Record<string, string>;
   };
   const byName = new Map<string, Draft>();
 
@@ -41,6 +45,8 @@ export function mergeServices(
     if (svc.image) entry.image = svc.image;
     if (svc.hostname) entry.hostname = svc.hostname;
     if (svc.path) entry.path = svc.path;
+    if (svc.port !== undefined) entry.port = svc.port;
+    if (svc.env) entry.env = { ...svc.env };
     byName.set(svc.name, entry);
   }
 
@@ -74,6 +80,8 @@ export function mergeServices(
     const entry: DeployService = { name: svc.name, image: svc.image };
     if (svc.hostname) entry.hostname = svc.hostname;
     if (svc.path) entry.path = svc.path;
+    if (svc.port !== undefined) entry.port = svc.port;
+    if (svc.env) entry.env = { ...svc.env };
     out.push(entry);
   }
   return { ok: true, value: out };

@@ -353,6 +353,8 @@ export function resolveDeployServices(
       entry.hostname = resolved.value;
     }
     if (svc.path) entry.path = svc.path;
+    if (svc.port !== undefined) entry.port = svc.port;
+    if (svc.env) entry.env = { ...svc.env };
     mapped.push(entry);
   }
   return { ok: true, value: mapped };

@@ -144,6 +144,8 @@ pointers live in [Test coverage](#test-coverage-maintainers).
 | `preview.services[].image` | per entry unless `--service` | — | Pinned image for the service. |
 | `preview.services[].hostname` | no | internal-only | Distinct `Host()` for the service. |
 | `preview.services[].path` | no | internal-only | `PathPrefix()` for the service (must start with `/`). |
+| `preview.services[].port` | no | image first `EXPOSE`, else `SPROUT_PREVIEW_PORT_DEFAULT` | Routed port override (integer 1–65535). Only sets the Traefik `server.port` label when the service is routed; accepted for internal services with no routing effect. |
+| `preview.services[].env` | no | — | Literal `NAME: value` string map injected into the service container only (keys must match `[A-Za-z_][A-Za-z0-9_]*`). |
 | `db.provider` | no | `postgres` | Preview database provider: `postgres` (shared instance), `sqlite` (named volume), or `none` (no database). See [SQLite previews](#sqlite-previews) and [No-database previews](#no-database-previews). |
 | `db.path` | no | `/data` | Container directory the SQLite volume mounts at (`sqlite` only). |
 | `db.file` | no | `preview.db` | SQLite file name inside `db.path` (`sqlite` only). |
@@ -207,7 +209,8 @@ remapped name into `SPROUT_APP_ENV`: the gateway strips it in favour of
 its own value and the app silently gets the gateway's connection, not
 yours.
 
-Port: the gateway routes to the first `EXPOSE`d port in the app image,
+Port: the gateway routes to the service `port` override when set,
+else the first `EXPOSE`d port in the app image,
 else `SPROUT_PREVIEW_PORT_DEFAULT`. Teardown drops the database and then
 the companion role.
 
@@ -242,6 +245,9 @@ Each service joins the same networks as the app (Traefik + Postgres for
 `postgres` previews, Traefik only for `sqlite` and `none`) and receives
 the **same connection env** as the app (including any
 `preview.env` remap; `none` previews inject no connection env at all).
+`preview.services[].env` adds literal service-only variables on top of
+that connection env (gateway connection keys win on collision; nothing
+leaks into the app container).
 Services are force-removed on **teardown** (and on
 replace) with the app. The health gate covers **only the app**: after the
 app passes `health.expect`, seed runs (when configured), then companion
@@ -551,7 +557,7 @@ parse errors name the key or file without echoing the value.
 | Remote include without a version | `sprout_version input is empty/unpinned (remote includes must set sprout_version explicitly …)` | Set `sprout_version` to the tag in the `remote:` URL. Component includes pin it automatically. |
 | Downloaded release fails verification | `checksum entry missing for <asset> in <tag>/SHA256SUMS.txt …` or a `sha256sum -c` mismatch; `test "$(sprout --version)" = "…"` fails | Pin to a release that ships checksums (≥ the release that publishes `SHA256SUMS.txt`); do not hand-edit the install — the component verifies the downloaded asset. |
 | Hostname template rejected | `preview.hostname … must contain {pr_id}` / scheme/port/path/placeholder errors; service `preview.services[i].hostname` / `.path must start with /` | Keep the template a bare host with `{pr_id}` (`pr-{pr_id}.app.example.com`). Read the URL from `preview_url=` / `PREVIEW_URL` — never reconstruct it in CI. |
-| Unknown manifest key | `unknown key: <path>` (top-level, `preview.*`, `health.*`, `seed.*`, `preview.env.*`) | Rename to a key in the [manifest table](#manifest-keys-sproutyaml); check `preview.env` against the canonical `PG*` set and services against `name/image/hostname/path`. |
+| Unknown manifest key | `unknown key: <path>` (top-level, `preview.*`, `health.*`, `seed.*`, `preview.env.*`) | Rename to a key in the [manifest table](#manifest-keys-sproutyaml); check `preview.env` against the canonical `PG*` set and services against `name/image/hostname/path/port/env`. |
 | Seed configured without health | `health block required in .sprout.yaml when seed block is configured` (or `when -s is passed`) | Add the `health:` block (quickstart snippet). The gate runs before any `docker build`. |
 | Secret not supplied | deploy fails before the gateway call naming the key (declared `{ required: true }`, no file/flag provided it) | Provide it via the `SPROUT_APP_ENV` / `SPROUT_SEED_ENV` file-type variable or `--app-env[-file]` / `--seed-env[-file]`. Never commit the secret to the manifest. |
 | File-type CI variable passed via `app_env_file` / `seed_env_file` input (e.g. `inputs: { app_env_file: $MY_ENV_FILE }`) | `preview.app_env.<KEY>: required value missing` (nothing points at the input) — had the flag been passed with a bad path, the CLI would say `cannot read --app-env-file: <path>` instead | Repo-relative dotenv paths only — never pass File vars via `inputs:`; map the blob at job runtime via `variables:` (`sprout-preview: { variables: { SPROUT_APP_ENV: $MY_ENV_FILE } }`, seed: `SPROUT_SEED_ENV: $MY_SEED_FILE`). Full diagnostic in [component Troubleshooting](../templates/README.md#troubleshooting). |
@@ -759,6 +765,31 @@ sprout deploy -i "$APP_IMAGE" \
 - `hostname` — `Host(\`…\`)` (supports `{pr_id}` like the app hostname).
 - `path` — `PathPrefix(\`…\`)`; combined with `Host` via `&&`. Path-only uses
   the app hostname.
+- `port` — Traefik `server.port` override. Wins over the image's first
+  `EXPOSE`d port; without it behaviour is unchanged
+  (first `EXPOSE` → `SPROUT_PREVIEW_PORT_DEFAULT`).
+- `env` — literal service-only env (`NAME: value` strings, no `generate:` /
+  `required:` kinds). Lands in the service container only.
+
+Mailpit worked example (the image exposes `1025, 1110, 8025` in that
+order, so the UI needs an explicit port):
+
+```yaml
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  services:
+    - name: mailpit
+      hostname: "mailpit-pr-{pr_id}.myapp.preview.example.com"
+      port: 8025
+      env:
+        MP_SMTP_AUTH_ACCEPT_ANY: "1"
+```
+
+```bash
+sprout deploy -i "$APP_IMAGE" \
+  --service mailpit=axllent/mailpit:latest
+```
 
 ## Debugging
 

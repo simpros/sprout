@@ -26,6 +26,7 @@ export type MaterializePreviewWorkloadInput = {
   volumes: string[];
   networkNames: string[];
   previewPortDefault: number;
+  portOverride?: number;
 };
 
 export async function materializePreviewWorkload(
@@ -33,7 +34,8 @@ export async function materializePreviewWorkload(
   input: MaterializePreviewWorkloadInput,
 ): Promise<{ containerId: string; port: number }> {
   const port =
-    (await docker.firstExposedPort(input.image)) ?? input.previewPortDefault;
+    input.portOverride ??
+    ((await docker.firstExposedPort(input.image)) ?? input.previewPortDefault);
   const labels =
     input.routing.kind === "routed"
       ? traefikLabels({
