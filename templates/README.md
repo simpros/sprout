@@ -20,12 +20,15 @@ include:
 ```
 
 Replace `<group>/sprout-ci` with the component project path on your GitLab
-instance. The component declares both jobs:
+instance. The component declares three jobs:
 
 - `sprout-preview` — builds + pushes images, deploys, writes
   `PREVIEW_URL=` to the dotenv artifact that feeds `environment:url`.
 - `sprout-stop-preview` — `on_stop` teardown (environment Stop button, MR
   close/merge, `auto_stop_in` expiry).
+- `sprout-reset` — manual one-click wipe + redeploy + seed
+  (`sprout ci reset`, data wiped). Play it from the MR pipeline when you
+  want the reset *now*.
 
 CI variables (project or group settings):
 
@@ -45,8 +48,8 @@ Prerequisites on the GitLab side:
   gate on `$CI_MERGE_REQUEST_IID`). Branch pipelines are refused by the CLI
   with a named error.
 - A runner that can run privileged `docker:dind` (the preview job runs on
-  `docker:24` + a `docker:24-dind` service; the stop/teardown job runs on
-  `alpine:3.20` and shares only the CLI install — no Docker daemon, no
+  `docker:24` + a `docker:24-dind` service; the stop/teardown and reset jobs
+  run on `alpine:3.20` and share only the CLI install — no Docker daemon, no
   Docker client pull). To override
   the image
   (e.g. a mirrored registry), redefine the job's `image:`/`services:` in
@@ -57,12 +60,34 @@ Prerequisites on the GitLab side:
   automatically when they are present. The app tag is always
   `CI_REGISTRY_IMAGE:<SHA>`.
 
+## Reset: ticked box vs manual job
+
+Two paths, one operation (`sprout ci reset`: teardown for this MR, then a
+deploy that recreates the database and re-runs the seed — data wiped,
+unlike `--reseed`, which re-runs the seed against the existing database):
+
+- **Ticked box (declarative):** tick the reset box in the MR description and
+  the *next* pipeline run honors it. GitLab has no "description edited → run
+  a pipeline" trigger, so a tick waits for the next push or pipeline run.
+- **Manual job (instant):** press **Run** on `sprout-reset` inside the
+  existing MR pipeline to reset without a new commit. The job runs the
+  pipeline's own pinned CLI version with the same inputs as
+  `sprout-preview` (no Docker daemon needed — a reset reuses the already
+  pushed images, so the job shares only the CLI install like the stop job).
+
+Why the manual job exists: the obvious GitLab instant answers are dead ends.
+A fresh "Run pipeline" from the UI arrives as `CI_PIPELINE_SOURCE=web`,
+which `sprout ci` refuses by design (only merge-request pipelines deploy),
+so the instantaneous path has to be a job *inside* the existing MR pipeline.
+Like the stop job, it is `when: manual` at job level plus `allow_failure:
+true`, so an MR pipeline nobody resets stays green with zero clicks.
+
 ## Inputs
 
 | Input | Default | Purpose |
 |---|---|---|
 | `sprout_version` | release tag shipping the file (e.g. `v0.6.0`) | CLI release to install. The source carries the sentinel `@SPROUT_COMPONENT_VERSION@`, which the release pipeline replaces with the published tag — component version and binary version coincide. Override to pin or trial another build. |
-| `stage` | `deploy` | Stage for both jobs. |
+| `stage` | `deploy` | Stage for all three jobs. |
 | `sprout_url` | `""` (use `$SPROUT_URL`) | Gateway URL override. |
 | `app_context` | `.` | Directory holding `.sprout.yaml`; the CLI builds (`docker build … .`) and resolves Dockerfiles relative to it. |
 | `auto_stop_in` | `1 week` | `environment:auto_stop_in` for the preview. |
@@ -156,10 +181,11 @@ instance):
 ## Verification status
 
 Static checks in this repo (`templates/preview.test.ts`: required inputs,
-both CLI entrypoints, dotenv/`on_stop`/`auto_stop_in` wiring, optional
-manual stop (#163), dind service,
+all three CLI entrypoints, dotenv/`on_stop`/`auto_stop_in` wiring, optional
+manual stop (#163), manual reset (`allow_failure`, shared deploy prelude),
+dind service,
 registry login, checksum verification, YAML-parse of the component plus
-shell-syntax check of all three embedded scripts):
+shell-syntax check of all four embedded scripts):
 
 - [x] verified via `bun test templates/preview.test.ts`.
 

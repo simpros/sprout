@@ -34,10 +34,11 @@ describe("preview component contract", () => {
     expect(spec.inputs.sprout_version.default).toBe("@SPROUT_COMPONENT_VERSION@");
   });
 
-  test("job graph: preview carries docker+dind directly, stop is install-only on alpine", () => {
+  test("job graph: preview carries docker+dind directly, stop/reset are install-only on alpine", () => {
     const { jobs } = componentDocs();
     expect(jobs["sprout-preview"].extends).toBe(".sprout-cli");
     expect(jobs["sprout-stop-preview"].extends).toBe(".sprout-cli");
+    expect(jobs["sprout-reset"].extends).toBe(".sprout-cli");
     expect(jobs).not.toHaveProperty(".sprout-preview-base");
     expect(jobs[".sprout-cli"].image).toBe("alpine:3.20");
     expect(jobs["sprout-preview"].image).toBe("docker:24");
@@ -46,9 +47,12 @@ describe("preview component contract", () => {
     ]);
     expect(jobs[".sprout-cli"]).not.toHaveProperty("services");
     expect(jobs["sprout-stop-preview"]).not.toHaveProperty("services");
+    expect(jobs["sprout-reset"]).not.toHaveProperty("services");
+    expect(jobs["sprout-reset"]).not.toHaveProperty("image");
     const cliBase = cliBeforeScript();
     expect(cliBase).not.toContain("docker login");
     expect(stopScript()).not.toContain("docker login");
+    expect(resetScript()).not.toContain("docker login");
     expect(previewScript()).toContain("docker login");
   });
 
@@ -59,24 +63,43 @@ describe("preview component contract", () => {
   });
 
   test("all path-shaped inputs resolve project-root-relative, before cd into app_context", () => {
-    const script = previewScript();
-    expect(script).toContain("$CI_PROJECT_DIR/$1");
-    expect(script).toContain('DOTENV_FILE="$(abs "$DOTENV_FILE")"');
-    expect(script).toContain('APP_ENV_FILE="$(abs "$APP_ENV_FILE")"');
-    expect(script).toContain('SEED_ENV_FILE="$(abs "$SEED_ENV_FILE")"');
-    expect(script.indexOf('DOTENV_FILE="$(abs')).toBeLessThan(
-      script.indexOf('\ncd "$APP_CONTEXT"'),
-    );
-    expect(script).toContain("--app-env-file");
-    expect(script).toContain("--seed-env-file");
+    for (const script of [previewScript(), resetScript()]) {
+      expect(script).toContain("$CI_PROJECT_DIR/$1");
+      expect(script).toContain('DOTENV_FILE="$(abs "$DOTENV_FILE")"');
+      expect(script).toContain('APP_ENV_FILE="$(abs "$APP_ENV_FILE")"');
+      expect(script).toContain('SEED_ENV_FILE="$(abs "$SEED_ENV_FILE")"');
+      expect(script.indexOf('DOTENV_FILE="$(abs')).toBeLessThan(
+        script.indexOf('\ncd "$APP_CONTEXT"'),
+      );
+      expect(script).toContain("--app-env-file");
+      expect(script).toContain("--seed-env-file");
+    }
   });
 
-  test("deploy job runs sprout ci preview; stop job runs teardown", () => {
+  test("reset shares the deploy prelude with preview so the two cannot drift", () => {
+    expect(deployPrelude(resetScript())).toBe(deployPrelude(previewScript()));
+    for (const input of [
+      "app_context",
+      "app_env_file",
+      "seed_env_file",
+      "dotenv_file",
+      "tail",
+    ]) {
+      expect(resetScript()).toContain(`$[[ inputs.${input} ]]`);
+    }
+  });
+
+  test("deploy job runs sprout ci preview; stop job runs teardown; reset runs reset", () => {
     const { jobs } = componentDocs();
     expect(previewScript()).toContain("sprout ci preview");
     expect(stopScript()).toContain("sprout ci teardown");
+    expect(resetScript()).toContain("sprout ci reset");
+    expect(resetScript()).not.toContain("sprout ci preview");
+    expect(resetScript()).not.toContain("sprout ci teardown");
+    expect(previewScript()).not.toContain("sprout ci reset");
     expect(jobs["sprout-preview"].environment.on_stop).toBe("sprout-stop-preview");
     expect(jobs["sprout-stop-preview"].environment.action).toBe("stop");
+    expect(jobs["sprout-reset"]).not.toHaveProperty("environment");
   });
 
   test("manual stop never blocks pipeline success (#163)", () => {
@@ -87,6 +110,28 @@ describe("preview component contract", () => {
     expect(stop).not.toHaveProperty("allow_failure");
     expect(stop.rules).toEqual(jobs["sprout-preview"].rules);
     expect(jobs["sprout-preview"]).not.toHaveProperty("allow_failure");
+  });
+
+  test("manual reset never blocks pipeline success (#163 trap)", () => {
+    const { jobs } = componentDocs();
+    const reset = jobs["sprout-reset"];
+    expect(reset.when).toBe("manual");
+    expect(reset.allow_failure).toBe(true);
+    expect(reset.rules).toEqual([{ if: "$CI_MERGE_REQUEST_IID" }]);
+    expect(reset.rules).toEqual(jobs["sprout-preview"].rules);
+    expect(reset.interruptible).toBe(false);
+    expect(reset.stage).toBe("$[[ inputs.stage ]]");
+  });
+
+  test("reset writes the dotenv artifact with the pipeline CLI version", () => {
+    const { jobs } = componentDocs();
+    expect(jobs["sprout-reset"].extends).toBe(".sprout-cli");
+    expect(jobs["sprout-reset"].artifacts.reports.dotenv).toBe(
+      "$[[ inputs.dotenv_file ]]",
+    );
+    expect(jobs["sprout-reset"].artifacts.reports.dotenv).toBe(
+      jobs["sprout-preview"].artifacts.reports.dotenv,
+    );
   });
 
   test("dotenv artifact feeds environment:url; auto_stop_in is an input", () => {
@@ -159,6 +204,25 @@ function stopScript(): string {
   return script[0];
 }
 
+function resetScript(): string {
+  const { jobs } = componentDocs();
+  const script = jobs["sprout-reset"].script;
+  if (!Array.isArray(script) || script.length !== 1 || typeof script[0] !== "string") {
+    throw new Error("sprout-reset must carry exactly one script block");
+  }
+  return script[0];
+}
+
+function deployPrelude(script: string): string {
+  const start = script.indexOf('APP_CONTEXT="$[[ inputs.app_context ]]"');
+  if (start < 0) throw new Error("deploy script missing app_context plumbing");
+  const invokeAt = script.lastIndexOf("\nsprout ci ");
+  if (invokeAt < 0 || invokeAt < start) {
+    throw new Error("deploy script missing trailing sprout ci invocation");
+  }
+  return script.slice(start, invokeAt);
+}
+
 const INPUT_INTERPOLATION_FIXTURES: Record<string, string> = {
   sprout_version: "v0.0.0-test",
   stage: "deploy",
@@ -179,14 +243,15 @@ function interpolateInputs(script: string): string {
 }
 
 describe("preview component shell syntax", () => {
-  test("preview.yml parses as multi-doc YAML with all three scripts", () => {
+  test("preview.yml parses as multi-doc YAML with all four scripts", () => {
     const { jobs } = componentDocs();
     expect(Object.keys(jobs).sort()).toEqual(
-      [".sprout-cli", "sprout-preview", "sprout-stop-preview"].sort(),
+      [".sprout-cli", "sprout-preview", "sprout-reset", "sprout-stop-preview"].sort(),
     );
     expect(jobs["sprout-preview"]).toHaveProperty("services");
     cliBeforeScript();
     previewScript();
+    resetScript();
     stopScript();
   });
 
@@ -245,7 +310,12 @@ describe("preview component shell syntax", () => {
   });
 
   test("every embedded script passes sh -n after input interpolation", async () => {
-    const scripts = [cliBeforeScript(), previewScript(), stopScript()];
+    const scripts = [
+      cliBeforeScript(),
+      previewScript(),
+      resetScript(),
+      stopScript(),
+    ];
     for (const [i, script] of scripts.entries()) {
       const interpolated = interpolateInputs(script);
       expect(interpolated).not.toContain("$[[");
