@@ -1,3 +1,4 @@
+import type { PreviewServiceSpec } from "@sprout/preview-env";
 import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewServiceContainerName } from "../preview/naming.ts";
@@ -7,12 +8,7 @@ import {
   removePreviewServices,
 } from "./preview-containers.ts";
 
-export type PreviewServiceSpec = {
-  name: string;
-  image: string;
-  hostname?: string;
-  path?: string;
-};
+export type { PreviewServiceSpec };
 
 export type ReplacePreviewServicesDeps = {
   docker: PreviewDocker;
@@ -29,6 +25,10 @@ export type ReplacePreviewServicesInput = {
   plan: PreviewDbPlan;
 };
 
+function toEnvList(env: Record<string, string> | undefined): string[] {
+  return env ? Object.entries(env).map(([key, value]) => `${key}=${value}`) : [];
+}
+
 export async function replacePreviewServices(
   deps: ReplacePreviewServicesDeps,
   input: ReplacePreviewServicesInput,
@@ -44,10 +44,11 @@ export async function replacePreviewServices(
           service.name,
         );
         const routed = service.hostname != null || service.path != null;
+        const userEnv = toEnvList(service.env);
         await materializePreviewWorkload(deps.docker, {
           name,
           image: service.image,
-          userEnv: [],
+          userEnv,
           routing: routed
             ? {
                 kind: "routed",
@@ -61,6 +62,7 @@ export async function replacePreviewServices(
           volumes: input.plan.volumes,
           networkNames: input.plan.appNetworks,
           previewPortDefault: deps.previewPortDefault,
+          portOverride: service.port,
         });
       }),
     );

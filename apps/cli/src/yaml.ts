@@ -1,8 +1,10 @@
 import {
   dbSpecIssueMessage,
+  isServicePort,
   normalizeDbSpec,
   parseDbSpec,
   parsePreviewEnvForProvider,
+  parseServiceEnvMap,
   requiresDatabase,
   resolveHealthSpec,
   seedRequiresDatabaseMessage,
@@ -10,6 +12,7 @@ import {
   type DbSpec,
   type HealthIssue,
   type PreviewEnvMap,
+  type ServiceFields,
 } from "@sprout/preview-env";
 import { hostnameIssueMessage } from "./hostname.ts";
 import type { Result } from "./result.ts";
@@ -32,7 +35,7 @@ export type SproutYamlService = {
   image?: string;
   hostname?: string;
   path?: string;
-};
+} & ServiceFields;
 
 export type SproutDockerfileBlock = {
   /** Dockerfile path relative to the repo root. */
@@ -69,7 +72,7 @@ export type SproutYaml = {
 const TOP_KEYS = new Set(["slug", "preview", "health", "build", "seed", "db"]);
 const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
-const SERVICE_KEYS = new Set(["name", "image", "hostname", "path"]);
+const SERVICE_KEYS = new Set(["name", "image", "hostname", "path", "port", "env"]);
 const DOCKERFILE_KEYS = new Set(["dockerfile"]);
 const SEED_KEYS = new Set(["dockerfile", "inputs", "env", "args"]);
 
@@ -317,6 +320,35 @@ function parseSeedBlock(raw: unknown): Result<SproutSeed | undefined> {
   return { ok: true, value };
 }
 
+function parseServicePort(raw: unknown, path: string): Result<number | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (!isServicePort(raw)) {
+    return { ok: false, error: `${path}.port must be an integer between 1 and 65535` };
+  }
+  return { ok: true, value: raw };
+}
+
+function parseServiceEnv(
+  raw: unknown,
+  path: string,
+): Result<Record<string, string> | undefined> {
+  const parsed = parseServiceEnvMap(raw);
+  if (parsed.ok) return parsed;
+  switch (parsed.issue.code) {
+    case "not_a_mapping":
+      return { ok: false, error: `${path}.env must be a mapping` };
+    case "empty_key":
+      return { ok: false, error: `${path}.env key is required` };
+    case "invalid_key":
+      return { ok: false, error: `${path}.env.${parsed.issue.key} is invalid` };
+    case "invalid_value":
+      return {
+        ok: false,
+        error: `${path}.env.${parsed.issue.key} must be a string`,
+      };
+  }
+}
+
 function parseServices(
   raw: unknown,
 ): Result<SproutYamlService[] | undefined> {
@@ -378,6 +410,12 @@ function parseServices(
       }
       service.path = pathVal.value;
     }
+    const port = parseServicePort(entry.port, path);
+    if (!port.ok) return port;
+    if (port.value !== undefined) service.port = port.value;
+    const env = parseServiceEnv(entry.env, path);
+    if (!env.ok) return env;
+    if (env.value !== undefined) service.env = env.value;
     out.push(service);
   }
   return { ok: true, value: out };

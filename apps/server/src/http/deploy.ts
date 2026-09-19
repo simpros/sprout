@@ -1,8 +1,10 @@
 import {
   dbSpecIssueMessage,
+  isServicePort,
   normalizeDbSpec,
   parseDbSpec,
   parsePreviewEnvForProvider,
+  parseServiceEnvMap,
   requiresDatabase,
   resolveHealthSpec,
   seedRequiresDatabaseMessage,
@@ -10,10 +12,10 @@ import {
   type DbSpec,
   type HealthRequest,
   type PreviewEnvMap,
+  type PreviewServiceSpec,
 } from "@sprout/preview-env";
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
-import type { PreviewServiceSpec } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
   postgresNotConfiguredDetail,
@@ -50,6 +52,8 @@ const serviceBody = t.Object({
   image: t.String({ minLength: 1 }),
   hostname: t.Optional(t.String({ minLength: 1 })),
   path: t.Optional(t.String({ minLength: 1 })),
+  port: t.Optional(t.Integer({ minimum: 1, maximum: 65535 })),
+  env: t.Optional(t.Record(t.String(), t.String())),
 });
 
 const MAX_SEED_ENV = 16;
@@ -287,6 +291,17 @@ export function resolveServicesRequest(
       spec.hostname = hostname;
     }
     if (path) spec.path = path;
+    if (entry.port !== undefined) {
+      if (!isServicePort(entry.port)) {
+        return { ok: false, error: "invalid_service_port" };
+      }
+      spec.port = entry.port;
+    }
+    const parsedEnv = parseServiceEnvMap(entry.env);
+    if (!parsedEnv.ok) {
+      return { ok: false, error: "invalid_service_env" };
+    }
+    if (parsedEnv.value !== undefined) spec.env = parsedEnv.value;
     out.push(spec);
   }
   return { ok: true, value: out };

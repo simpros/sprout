@@ -1,15 +1,11 @@
+import { copyServiceExtras, type PreviewServiceSpec } from "@sprout/preview-env";
 import type { Result } from "./result.ts";
 import { SERVICE_NAME_RE, type SproutYamlService } from "./yaml.ts";
 
 /** Mirror server MAX_SERVICES — fail before POST. */
 export const MAX_SERVICES = 8;
 
-export type DeployService = {
-  name: string;
-  image: string;
-  hostname?: string;
-  path?: string;
-};
+export type DeployService = PreviewServiceSpec;
 
 export function parseServiceFlag(raw: string): Result<{ name: string; image: string }> {
   const eq = raw.indexOf("=");
@@ -28,19 +24,14 @@ export function mergeServices(
   yamlServices: SproutYamlService[] | undefined,
   flagValues: string[],
 ): Result<DeployService[] | undefined> {
-  type Draft = {
-    name: string;
-    image?: string;
-    hostname?: string;
-    path?: string;
-  };
-  const byName = new Map<string, Draft>();
+  const byName = new Map<string, SproutYamlService>();
 
   for (const svc of yamlServices ?? []) {
-    const entry: Draft = { name: svc.name };
+    const entry: SproutYamlService = { name: svc.name };
     if (svc.image) entry.image = svc.image;
     if (svc.hostname) entry.hostname = svc.hostname;
     if (svc.path) entry.path = svc.path;
+    copyServiceExtras(svc, entry);
     byName.set(svc.name, entry);
   }
 
@@ -74,6 +65,7 @@ export function mergeServices(
     const entry: DeployService = { name: svc.name, image: svc.image };
     if (svc.hostname) entry.hostname = svc.hostname;
     if (svc.path) entry.path = svc.path;
+    copyServiceExtras(svc, entry);
     out.push(entry);
   }
   return { ok: true, value: out };
