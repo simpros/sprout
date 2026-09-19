@@ -19,6 +19,8 @@ export type ListedPreview = {
   hostname: string;
   status: ReturnType<typeof toDisplayStatus>;
   created_at: string;
+  mailbox_url?: string;
+  mail_from?: string;
 };
 
 export type DoctorOrphan =
@@ -48,7 +50,7 @@ export type DropBody = {
   yes?: boolean;
 };
 
-export function listPreviews(db: StateDb) {
+export function listPreviews(db: StateDb, mailboxUrl?: string) {
   return async ({ set }: { set: { status?: number | string } }) => {
     const rows = await db
       .select()
@@ -62,6 +64,7 @@ export function listPreviews(db: StateDb) {
         set.status = 500;
         return { error: status.error };
       }
+      const storedFrom = row.mailFrom ?? undefined;
       listed.push({
         canonical_repo_id: row.canonicalRepoId,
         pr_id: row.prId,
@@ -70,6 +73,8 @@ export function listPreviews(db: StateDb) {
         hostname: row.hostname,
         status: toDisplayStatus(status.value),
         created_at: row.createdAt,
+        ...(mailboxUrl !== undefined ? { mailbox_url: mailboxUrl } : {}),
+        ...(storedFrom !== undefined ? { mail_from: storedFrom } : {}),
       });
     }
 

@@ -43,6 +43,8 @@ export type CiDeployPolicy = {
     deps: CliDeps,
     identity: CiIdentity,
     previewUrl: string,
+    mailboxUrl?: string,
+    mailFrom?: string,
   ) => Promise<Result<void>>;
 };
 
@@ -176,10 +178,16 @@ export async function runCiDeploy(
   const write = ctx.deps.writeTextFile ?? defaultWriteTextFile;
   warnForgeNote(
     ctx.deps.io,
-    await policy.publishNote(ctx.deps, identity, settled.value),
+    await policy.publishNote(
+      ctx.deps,
+      identity,
+      settled.value.previewUrl,
+      settled.value.mailboxUrl,
+      settled.value.mailFrom,
+    ),
   );
   try {
-    await write(dotenvPath, `PREVIEW_URL=${settled.value}\n`);
+    await write(dotenvPath, `PREVIEW_URL=${settled.value.previewUrl}\n`);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     return fail(ctx.deps.io, `cannot write dotenv file ${dotenvPath}: ${detail}`);

@@ -15,3 +15,10 @@ preview login. Companion values are a per-preview-DB restricted LOGIN
 — dual-role / RLS apps use the companion for runtime queries and the
 owner for migrations. Product durable identity rename is a separate
 decision (ADR-0006).
+
+Mail follows the same grammar: canonical `MAILHOST`…`MAILREPLYTO` keys are
+injected into app, companion service and seed containers and remappable
+through `preview.env` with the same replace-not-alias rule. `MAILFROM` /
+`MAILREPLYTO` carry the per-preview send-from identity
+(`<slug>-pr<pr_id>@<SPROUT_MAIL_FROM_DOMAIN>`), `MAILFROMNAME` its display
+label; a `mail.from` `{pr_id}` template overrides the address.

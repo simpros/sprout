@@ -38,7 +38,7 @@ export async function acceptAsyncDeploy(
           return {
             ok: true,
             value: {
-              snapshot: previewSnapshotFromRow(row),
+              snapshot: previewSnapshotFromRow(row, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName),
               launch: false,
             },
           };

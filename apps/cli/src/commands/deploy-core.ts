@@ -42,7 +42,15 @@ export type DeployRequest = {
   services?: DeployService[];
   env?: PreviewEnvMap;
   db?: DbSpec;
+  mail?: string;
+  mail_from?: string;
   reseed?: boolean;
+};
+
+export type DeploySettled = {
+  previewUrl: string;
+  mailboxUrl?: string;
+  mailFrom?: string;
 };
 
 /** A type that cannot carry `services` makes "leave" the default instead of a forgotten field. */
@@ -179,7 +187,7 @@ export async function postDeployAndWait(opts: {
   yaml: SproutYaml;
   identity: DeployIdentity;
   body: DeployRequest;
-}): Promise<Result<string>> {
+}): Promise<Result<DeploySettled>> {
   const response = await opts.client.v1.deploy.post(opts.body);
   const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return { ok: false, error: result.message };
@@ -190,7 +198,20 @@ export async function postDeployAndWait(opts: {
 
   if (outcome.kind === "ready") {
     opts.deps.io.stdout(`preview_url=${outcome.previewUrl}`);
-    return { ok: true, value: outcome.previewUrl };
+    if (outcome.mailboxUrl) {
+      opts.deps.io.stdout(`mailbox_url=${outcome.mailboxUrl}`);
+    }
+    if (outcome.mailFrom) {
+      opts.deps.io.stdout(`mail_from=${outcome.mailFrom}`);
+    }
+    return {
+      ok: true,
+      value: {
+        previewUrl: outcome.previewUrl,
+        ...(outcome.mailboxUrl ? { mailboxUrl: outcome.mailboxUrl } : {}),
+        ...(outcome.mailFrom ? { mailFrom: outcome.mailFrom } : {}),
+      },
+    };
   }
 
   const sleep =
@@ -212,7 +233,13 @@ export async function postDeployAndWait(opts: {
     now,
   });
   if (!poll.ok) return poll;
-  opts.deps.io.stdout(`preview_url=${poll.value}`);
+  opts.deps.io.stdout(`preview_url=${poll.value.previewUrl}`);
+  if (poll.value.mailboxUrl) {
+    opts.deps.io.stdout(`mailbox_url=${poll.value.mailboxUrl}`);
+  }
+  if (poll.value.mailFrom) {
+    opts.deps.io.stdout(`mail_from=${poll.value.mailFrom}`);
+  }
   return { ok: true, value: poll.value };
 }
 
@@ -299,6 +326,10 @@ export function buildDeployRequest(
   if (inputs.reseed) body.reseed = true;
   if (yaml.preview.env) body.env = yaml.preview.env;
   if (yaml.db) body.db = yaml.db;
+  if (yaml.mail) {
+    body.mail = yaml.mail.mode;
+    if (yaml.mail.from !== undefined) body.mail_from = yaml.mail.from;
+  }
 
   const services = resolveDeployServices(yaml, identity.prId, {
     service: inputs.service,

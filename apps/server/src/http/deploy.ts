@@ -1,8 +1,10 @@
 import {
   dbSpecIssueMessage,
   isServicePort,
+  mailSpecIssueMessage,
   normalizeDbSpec,
   parseDbSpec,
+  parseMailSpec,
   parsePreviewEnvForProvider,
   parseServiceEnvMap,
   requiresDatabase,
@@ -11,6 +13,7 @@ import {
   validateHostname,
   type DbSpec,
   type HealthRequest,
+  type MailSpec,
   type PreviewEnvMap,
   type PreviewServiceSpec,
 } from "@sprout/preview-env";
@@ -19,6 +22,7 @@ import { parseResetMarkerToken } from "@sprout/preview-db";
 import type { AuthContext } from "../auth/middleware.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
+  mailNotConfiguredDetail,
   postgresNotConfiguredDetail,
 } from "../config.ts";
 import {
@@ -77,6 +81,8 @@ export const deployBody = t.Object({
   app_image: t.String({ minLength: 1 }),
   env: t.Optional(t.Record(t.String(), t.String())),
   db: t.Optional(dbBody),
+  mail: t.Optional(t.String()),
+  mail_from: t.Optional(t.String()),
   health: t.Optional(healthBody),
   seed_image: t.Optional(t.String({ minLength: 1 })),
   seed_env: t.Optional(t.Array(t.String())),
@@ -110,6 +116,8 @@ export type DeployBody = {
   app_image: string;
   env?: Record<string, string>;
   db?: { provider?: string; path?: string; file?: string };
+  mail?: string;
+  mail_from?: string;
   health?: HealthRequest;
   seed_image?: string;
   seed_env?: string[];
@@ -122,6 +130,7 @@ export type DeployBody = {
 export type DeployDbAndEnv = {
   spec: DbSpec;
   connectionEnv?: PreviewEnvMap;
+  mail?: MailSpec;
 };
 
 /**
@@ -133,7 +142,7 @@ export type DeployDbAndEnv = {
  * reads it from there so deploy has a single source of truth.
  */
 export function resolveDeployDbAndEnv(
-  body: Pick<DeployBody, "db" | "env">,
+  body: Pick<DeployBody, "db" | "env" | "mail" | "mail_from">,
   materialization: PreviewMaterializationCtx,
   repo: string,
 ):
@@ -157,6 +166,36 @@ export function resolveDeployDbAndEnv(
       detail: postgresNotConfiguredDetail(undefined, repo),
     };
   }
+  const mailParsed = parseMailSpec(
+    body.mail_from !== undefined
+      ? { mode: body.mail ?? "enabled", from: body.mail_from }
+      : body.mail,
+  );
+  if (!mailParsed.ok) {
+    return {
+      ok: false,
+      status: 422,
+      error: "invalid_mail",
+      detail: mailSpecIssueMessage(mailParsed.issue),
+    };
+  }
+  const mail = mailParsed.value;
+  if (mail?.mode === "enabled" && !materialization.mail) {
+    return {
+      ok: false,
+      status: 500,
+      error: "mail_not_configured",
+      detail: mailNotConfiguredDetail(undefined, repo),
+    };
+  }
+  if (mail?.mode === "none" && mail.from !== undefined) {
+    return {
+      ok: false,
+      status: 422,
+      error: "invalid_mail",
+      detail: "mail.from requires mail enabled",
+    };
+  }
   const connectionEnv = parsePreviewEnvForProvider(body.env, spec.provider);
   if (!connectionEnv.ok) {
     if (connectionEnv.issue.code === "env_requires_provider") {
@@ -172,7 +211,7 @@ export function resolveDeployDbAndEnv(
     }
     return { ok: false, status: 422, error: connectionEnv.issue.code };
   }
-  return { ok: true, value: { spec, connectionEnv: connectionEnv.value } };
+  return { ok: true, value: { spec, connectionEnv: connectionEnv.value, mail } };
 }
 
 function validateKvEnvEntries(
@@ -373,6 +412,7 @@ export function deploy(
       slug: body.slug,
       prId: target.value.prId,
       connectionEnv: dbAndEnv.value.connectionEnv,
+      mail: dbAndEnv.value.mail,
     });
     const seed = resolveSeedRequest(body, dbAndEnv.value.spec.provider);
     if (!seed.ok) {
@@ -423,7 +463,10 @@ export function deploy(
   };
 }
 
-export function getPreview(deps: LifecycleDeps) {
+export function getPreview(
+  deps: LifecycleDeps,
+  mailboxUrl?: string,
+) {
   return async ({
     query,
     auth,
@@ -439,6 +482,7 @@ export function getPreview(deps: LifecycleDeps) {
         auth,
         query.canonical_repo_id,
         query.pr_id,
+        mailboxUrl,
       ),
       set,
     );

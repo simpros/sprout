@@ -12,15 +12,29 @@ export const COMPANION_ENV_KEYS = ["PGAPPUSER", "PGAPPPASSWORD"] as const;
 
 export const SQLITE_ENV_KEYS = ["DATABASE_URL"] as const;
 
+export const MAIL_ENV_KEYS = [
+  "MAILHOST",
+  "MAILPORT",
+  "MAILUSER",
+  "MAILPASSWORD",
+  "MAILSECURE",
+  "MAILUIURL",
+  "MAILFROM",
+  "MAILFROMNAME",
+  "MAILREPLYTO",
+] as const;
+
 export const CANONICAL_ENV_KEYS = [
   ...OWNER_ENV_KEYS,
   ...COMPANION_ENV_KEYS,
   ...SQLITE_ENV_KEYS,
+  ...MAIL_ENV_KEYS,
 ] as const;
 
 export type OwnerEnvKey = (typeof OWNER_ENV_KEYS)[number];
 export type CompanionEnvKey = (typeof COMPANION_ENV_KEYS)[number];
 export type SqliteEnvKey = (typeof SQLITE_ENV_KEYS)[number];
+export type MailEnvKey = (typeof MAIL_ENV_KEYS)[number];
 export type CanonicalEnvKey = (typeof CANONICAL_ENV_KEYS)[number];
 
 export type PostgresEnvKey = OwnerEnvKey | CompanionEnvKey;
@@ -36,8 +50,10 @@ import { ENV_TARGET_RE } from "./services.ts";
 
 export { ENV_TARGET_RE } from "./services.ts";
 
-/** Single home table for every canonical key; partitions derive from it. */
-export const ENV_KEY_HOME: Record<CanonicalEnvKey, DbProvider> = {
+/** Single home table for every canonical key; partitions derive from it. Mail keys live outside the db provider scope and are allowed on any provider. */
+export type EnvKeyHome = DbProvider | "mail";
+
+export const ENV_KEY_HOME: Record<CanonicalEnvKey, EnvKeyHome> = {
   PGHOST: "postgres",
   PGPORT: "postgres",
   PGUSER: "postgres",
@@ -46,6 +62,15 @@ export const ENV_KEY_HOME: Record<CanonicalEnvKey, DbProvider> = {
   PGAPPUSER: "postgres",
   PGAPPPASSWORD: "postgres",
   DATABASE_URL: "sqlite",
+  MAILHOST: "mail",
+  MAILPORT: "mail",
+  MAILUSER: "mail",
+  MAILPASSWORD: "mail",
+  MAILSECURE: "mail",
+  MAILUIURL: "mail",
+  MAILFROM: "mail",
+  MAILFROMNAME: "mail",
+  MAILREPLYTO: "mail",
 };
 
 export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
@@ -64,8 +89,10 @@ export function envProviderMismatch(
 ): { key: CanonicalEnvKey; home: DbProvider } | null {
   for (const key of Object.keys(env ?? {})) {
     const canonical = key as CanonicalEnvKey;
-    if (ENV_KEY_HOME[canonical] !== provider) {
-      return { key: canonical, home: ENV_KEY_HOME[canonical] };
+    const home = ENV_KEY_HOME[canonical];
+    if (home === "mail") continue;
+    if (home !== provider) {
+      return { key: canonical, home };
     }
   }
   return null;
@@ -197,3 +224,20 @@ export {
   type ServiceEnvIssue,
   type ServiceFields,
 } from "./services.ts";
+
+export {
+  MAIL_MODES,
+  DEFAULT_MAIL_FROM_DOMAIN,
+  deriveMailFrom,
+  deriveMailFromName,
+  isMailEnabled,
+  isMailMode,
+  mailSpecIssueMessage,
+  normalizeMailSpec,
+  parseMailSpec,
+  resolveMailFrom,
+  validateMailFromTemplate,
+  type MailMode,
+  type MailSpec,
+  type MailSpecIssue,
+} from "./mail.ts";

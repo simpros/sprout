@@ -69,6 +69,24 @@ describe("buildPreviewNote", () => {
     expect(body).toContain("healthy");
     expect(body).toContain("sprout ci logs 17");
   });
+
+  test("shows mailbox and From only when configured", () => {
+    const withMail = buildPreviewNote({
+      previewUrl: "https://pr-17.example.com",
+      mailboxUrl: "https://mail.example.com",
+      mailFrom: "myapp-pr17@preview.invalid",
+      prId: 17,
+    });
+    expect(withMail).toContain("- Mailbox: https://mail.example.com");
+    expect(withMail).toContain("- Mail from: myapp-pr17@preview.invalid");
+
+    const withoutMail = buildPreviewNote({
+      previewUrl: "https://pr-17.example.com",
+      prId: 17,
+    });
+    expect(withoutMail).not.toContain("Mailbox:");
+    expect(withoutMail).not.toContain("Mail from:");
+  });
 });
 
 describe("buildTeardownNote", () => {

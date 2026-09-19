@@ -163,6 +163,7 @@ async function syncPreviewServices(
 async function closeRunning(
   deps: LifecycleDeps,
   row: PreviewRow,
+  input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
   const now = utcIsoNow();
   const updated = await updatePreviewRow(
@@ -188,6 +189,15 @@ async function closeRunning(
       status: "running",
       preview_url: `https://${updated.hostname}`,
       reset_request_marker: updated.resetRequestMarker,
+      ...(input.plan.mailboxUrl !== undefined
+        ? { mailbox_url: input.plan.mailboxUrl }
+        : {}),
+      ...(input.plan.mailFrom !== undefined
+        ? { mail_from: input.plan.mailFrom }
+        : {}),
+      ...(input.plan.mailFromName !== undefined
+        ? { mail_from_name: input.plan.mailFromName }
+        : {}),
     },
   };
 }
@@ -213,7 +223,7 @@ async function syncThenCloseRunning(
     services: input.services,
   });
   if (!synced.ok) return synced;
-  return closeRunning(deps, row);
+  return closeRunning(deps, row, input);
 }
 
 async function finishAfterPromote(
@@ -222,7 +232,7 @@ async function finishAfterPromote(
   input: ProvisionInput,
 ): Promise<Result<PreviewSnapshot>> {
   if (input.services === undefined) {
-    return closeRunning(deps, row);
+    return closeRunning(deps, row, input);
   }
   return syncThenCloseRunning(deps, row, input);
 }
@@ -399,7 +409,7 @@ export async function completeBringUp(
     case "sync_close":
       return syncThenCloseRunning(deps, row, input);
     case "close":
-      return closeRunning(deps, row);
+      return closeRunning(deps, row, input);
     case "full_replace":
       return ensureThenAttach(deps, row, input);
   }

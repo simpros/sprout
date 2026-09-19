@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   configSummary,
+  isMailConfigured,
   isPostgresConfigured,
   loadConfig,
+  MAIL_ENV_KEYS,
+  mailNotConfiguredDetail,
   missingPostgresEnv,
   OPTIONAL_ENV_DEFAULTS,
   POSTGRES_REQUIRED_ENV,
@@ -41,6 +44,9 @@ function clearGatewayEnv(): void {
     delete process.env[key];
   }
   for (const key of POSTGRES_REQUIRED_ENV) {
+    delete process.env[key];
+  }
+  for (const key of MAIL_ENV_KEYS) {
     delete process.env[key];
   }
   delete process.env.SPROUT_GITHUB_TOKEN;
@@ -432,5 +438,76 @@ describe("loadConfig", () => {
     expect(summary.registryPullAuthFallback).toBe("[unset]");
     expect(summary.traefikTls).toBe("[unset]");
     expect(summary.traefikForwardAuth).toBe("[unset]");
+  });
+
+  test("mail unset means no mail config and no injected env", () => {
+    clearGatewayEnv();
+    process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
+    const config = loadConfig();
+    expect(config.mail).toBeUndefined();
+    expect(isMailConfigured(config.mail)).toBe(false);
+    expect(
+      mailNotConfiguredDetail(config.mail, "https://github.com/org/repo"),
+    ).toContain("mail");
+  });
+
+  test("mail partially set without host fails fast naming the host", () => {
+    clearGatewayEnv();
+    process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
+    process.env.SPROUT_MAIL_PORT = "1025";
+    expect(() => loadConfig()).toThrow(
+      "Incomplete mail configuration: missing SPROUT_MAIL_HOST",
+    );
+  });
+
+  test("mail host alone parses with port/secure defaults and placeholder credentials", () => {
+    clearGatewayEnv();
+    process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
+    process.env.SPROUT_MAIL_HOST = "mailpit";
+    const config = loadConfig();
+    expect(config.mail).toEqual({
+      host: "mailpit",
+      port: 1025,
+      user: "mailpit",
+      password: "mailpit",
+      secure: false,
+      fromDomain: "preview.invalid",
+    });
+    expect(isMailConfigured(config.mail)).toBe(true);
+  });
+
+  test("mail complete group parses explicit values", () => {
+    clearGatewayEnv();
+    process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
+    process.env.SPROUT_MAIL_HOST = "mailpit";
+    process.env.SPROUT_MAIL_PORT = "1026";
+    process.env.SPROUT_MAIL_USER = "u";
+    process.env.SPROUT_MAIL_PASSWORD = "p";
+    process.env.SPROUT_MAIL_SECURE = "true";
+    process.env.SPROUT_MAIL_NETWORK = "mailnet";
+    process.env.SPROUT_MAIL_UI_URL = "https://mail.example.com";
+    process.env.SPROUT_MAIL_FROM_DOMAIN = "example.test";
+    const config = loadConfig();
+    expect(config.mail).toEqual({
+      host: "mailpit",
+      port: 1026,
+      user: "u",
+      password: "p",
+      secure: true,
+      network: "mailnet",
+      uiUrl: "https://mail.example.com",
+      fromDomain: "example.test",
+    });
+  });
+
+  test("mail rejects invalid port and secure values", () => {
+    clearGatewayEnv();
+    process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
+    process.env.SPROUT_MAIL_HOST = "mailpit";
+    process.env.SPROUT_MAIL_PORT = "not-a-port";
+    expect(() => loadConfig()).toThrow("Invalid SPROUT_MAIL_PORT");
+    process.env.SPROUT_MAIL_PORT = "1025";
+    process.env.SPROUT_MAIL_SECURE = "maybe";
+    expect(() => loadConfig()).toThrow("Invalid SPROUT_MAIL_SECURE");
   });
 });

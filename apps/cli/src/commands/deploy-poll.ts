@@ -21,7 +21,7 @@ export type PreviewPoller = {
 
 export async function pollPreviewReady(
   poller: PreviewPoller,
-): Promise<Result<string>> {
+): Promise<Result<{ previewUrl: string; mailboxUrl?: string; mailFrom?: string }>> {
   const deadline = poller.now() + poller.budgetMs;
   while (true) {
     if (poller.now() >= deadline) {
@@ -37,7 +37,16 @@ export async function pollPreviewReady(
     if (!statusResult.ok) return { ok: false, error: statusResult.message };
     const outcome = deployOutcome(statusResult.data);
     if (outcome.kind === "failed") return { ok: false, error: outcome.message };
-    if (outcome.kind === "ready") return { ok: true, value: outcome.previewUrl };
+    if (outcome.kind === "ready") {
+      return {
+        ok: true,
+        value: {
+          previewUrl: outcome.previewUrl,
+          ...(outcome.mailboxUrl ? { mailboxUrl: outcome.mailboxUrl } : {}),
+          ...(outcome.mailFrom ? { mailFrom: outcome.mailFrom } : {}),
+        },
+      };
+    }
     await poller.sleep(poller.intervalMs);
   }
 }

@@ -22,6 +22,8 @@ function shortSha(sha: string | undefined): string | undefined {
 
 export function buildPreviewNote(input: {
   previewUrl: string;
+  mailboxUrl?: string;
+  mailFrom?: string;
   sha?: string;
   prId: number;
   reset?: { actor: string; at: string };
@@ -34,6 +36,8 @@ export function buildPreviewNote(input: {
     "",
     `- Preview: ${input.previewUrl}`,
   ];
+  if (input.mailboxUrl) lines.push(`- Mailbox: ${input.mailboxUrl}`);
+  if (input.mailFrom) lines.push(`- Mail from: ${input.mailFrom}`);
   const short = shortSha(input.sha);
   if (short) lines.push(`- Commit: \`${short}\``);
   lines.push("- Health: healthy");
@@ -380,8 +384,20 @@ export async function publishPreviewNote(
   deps: CliDeps,
   identity: CiIdentity,
   previewUrl: string,
-  opts?: { reset?: boolean },
+  mailboxUrl?: string,
+  mailFromOrOpts?: string | { reset?: boolean },
+  maybeOpts?: { reset?: boolean },
 ): Promise<Result<void>> {
+  let mailFrom: string | undefined;
+  let opts: { reset?: boolean } | undefined;
+  if (typeof mailFromOrOpts === "string") {
+    mailFrom = mailFromOrOpts;
+    opts = maybeOpts;
+  } else if (mailFromOrOpts !== undefined) {
+    opts = mailFromOrOpts;
+  } else {
+    opts = maybeOpts;
+  }
   const reset = opts?.reset
     ? {
         actor: resolveResetActor(deps.env, identity.forge),
@@ -393,6 +409,8 @@ export async function publishPreviewNote(
     identity,
     buildPreviewNote({
       previewUrl,
+      ...(mailboxUrl ? { mailboxUrl } : {}),
+      ...(mailFrom ? { mailFrom } : {}),
       sha: identity.commitSha,
       prId: identity.prId,
       ...(reset ? { reset } : {}),

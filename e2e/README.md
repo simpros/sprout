@@ -24,6 +24,7 @@ Role defaults in `compose.e2e.env` are `sprout_admin` / `sprout_preview`.
 |---|---|
 | `stack.test.ts` | compose smoke + embedded CLI exec under `SPROUT_E2E_MANAGED` |
 | `lifecycle.test.ts` | deploy with `preview.env` remap; asserts adopter env names on the app container |
+| `mail.test.ts` | deploy with mail; sends via Mailpit SMTP and reads back From via `GET /api/v1/messages` |
 | `sweep.test.ts` | `test.todo` breadcrumb — #30 sweep |
 
 Unmanaged `bun test` skips the compose suite. Setting `SPROUT_E2E_MANAGED=1`

@@ -3,6 +3,7 @@ import {
   CANONICAL_ENV_KEYS,
   COMPANION_ENV_KEYS,
   ENV_KEY_HOME,
+  MAIL_ENV_KEYS,
   OWNER_ENV_KEYS,
   POSTGRES_ENV_KEYS,
   SQLITE_ENV_KEYS,
@@ -13,11 +14,12 @@ import {
 } from "./index.ts";
 
 describe("env key partitions", () => {
-  test("CANONICAL is owner then companion then sqlite", () => {
+  test("CANONICAL is owner then companion then sqlite then mail", () => {
     expect([...CANONICAL_ENV_KEYS]).toEqual([
       ...OWNER_ENV_KEYS,
       ...COMPANION_ENV_KEYS,
       ...SQLITE_ENV_KEYS,
+      ...MAIL_ENV_KEYS,
     ]);
     expect(OWNER_ENV_KEYS).toEqual([
       "PGHOST",

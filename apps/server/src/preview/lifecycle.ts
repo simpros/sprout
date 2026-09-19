@@ -55,9 +55,17 @@ export function toDisplayStatus(status: PreviewStatus): DisplayPreviewStatus {
   }
 }
 
-export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
+export function previewSnapshotFromRow(
+  row: PreviewRow,
+  mailboxUrl?: string,
+  mailFrom?: string,
+  mailFromName?: string,
+): PreviewSnapshot {
   const status = parsePreviewStatus(row.status);
   const parsed = status.ok ? status.value : "failed";
+  const effectiveFrom = mailFrom ?? row.mailFrom ?? undefined;
+  const effectiveName =
+    mailFromName ?? (effectiveFrom !== undefined ? `${row.slug} PR ${row.prId}` : undefined);
   return {
     ok: true,
     canonical_repo_id: row.canonicalRepoId,
@@ -67,11 +75,34 @@ export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
     hostname: row.hostname,
     status: parsed,
     ...(parsed === "running" ? { preview_url: `https://${row.hostname}` } : {}),
+    ...(mailboxUrl !== undefined ? { mailbox_url: mailboxUrl } : {}),
+    ...(effectiveFrom !== undefined ? { mail_from: effectiveFrom } : {}),
+    ...(effectiveName !== undefined ? { mail_from_name: effectiveName } : {}),
     ...(row.lastError != null ? { last_error: row.lastError } : {}),
     ...(row.lastErrorDetail != null
       ? { last_error_detail: row.lastErrorDetail }
       : {}),
     reset_request_marker: row.resetRequestMarker,
+  };
+}
+
+export function withMailbox(
+  snapshot: PreviewSnapshot,
+  mailboxUrl?: string,
+  mailFrom?: string,
+  mailFromName?: string,
+): PreviewSnapshot {
+  if (
+    mailboxUrl === undefined &&
+    mailFrom === undefined &&
+    mailFromName === undefined
+  )
+    return snapshot;
+  return {
+    ...snapshot,
+    ...(mailboxUrl !== undefined ? { mailbox_url: mailboxUrl } : {}),
+    ...(mailFrom !== undefined ? { mail_from: mailFrom } : {}),
+    ...(mailFromName !== undefined ? { mail_from_name: mailFromName } : {}),
   };
 }
 
@@ -203,6 +234,7 @@ async function writeProvisioningIntent(
       containerId: null,
       seededAt: null,
       seededSeedImage: null,
+      mailFrom: input.plan.mailFrom ?? null,
       ...clearLastError,
       // New generation: TTL means age of this intent, not birth of the row key.
       createdAt: now,
@@ -220,6 +252,7 @@ async function patchAccept(
     plan: BringUpPlan;
     remint?: boolean;
     hostname?: string;
+    mailFrom?: string | null;
   },
 ): Promise<PreviewRow> {
   const now = utcIsoNow();
@@ -230,6 +263,7 @@ async function patchAccept(
       status: fields.status,
       bringUpPlan: fields.plan,
       ...(fields.hostname != null ? { hostname: fields.hostname } : {}),
+      ...(fields.mailFrom !== undefined ? { mailFrom: fields.mailFrom } : {}),
       lastError: null,
       lastErrorDetail: null,
       seedLog: null,
@@ -321,12 +355,13 @@ export async function claimDeployIntent(
         hostname: input.hostname,
         status: "provisioning",
         bringUpPlan: "full_replace",
+        mailFrom: input.plan.mailFrom ?? null,
       })
       .returning();
     if (!inserted) {
       return { ok: false, status: 500, error: "preview_row_missing" };
     }
-    return { ok: true, value: previewSnapshotFromRow(inserted) };
+    return { ok: true, value: previewSnapshotFromRow(inserted, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
   }
 
   const status = parsePreviewStatus(row.status);
@@ -343,7 +378,7 @@ export async function claimDeployIntent(
   ) {
     const intentDbName = requestedDbName ?? row.dbName;
     const intent = await writeProvisioningIntent(deps, input, intentDbName);
-    return { ok: true, value: previewSnapshotFromRow(intent) };
+    return { ok: true, value: previewSnapshotFromRow(intent, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
   }
 
   switch (status.value) {
@@ -359,41 +394,39 @@ export async function claimDeployIntent(
         input,
         requestedDbName,
       );
-      return { ok: true, value: previewSnapshotFromRow(intent) };
+      return { ok: true, value: previewSnapshotFromRow(intent, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
     }
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
         const planned = planAcceptBringUp(row, input, "failed");
-        const next = await patchAccept(deps, row, planned);
-        return { ok: true, value: previewSnapshotFromRow(next) };
+        const next = await patchAccept(deps, row, { ...planned, mailFrom: input.plan.mailFrom ?? null });
+        return { ok: true, value: previewSnapshotFromRow(next, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
       }
       const intent = await writeProvisioningIntent(
         deps,
         input,
         requestedDbName,
       );
-      return { ok: true, value: previewSnapshotFromRow(intent) };
+      return { ok: true, value: previewSnapshotFromRow(intent, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
     }
     case "seeding": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(
-        deps,
-        row,
-        planAcceptBringUp(row, input, "seeding"),
-      );
-      return { ok: true, value: previewSnapshotFromRow(next) };
+      const next = await patchAccept(deps, row, {
+        ...planAcceptBringUp(row, input, "seeding"),
+        mailFrom: input.plan.mailFrom ?? null,
+      });
+      return { ok: true, value: previewSnapshotFromRow(next, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
     }
     case "running":
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(
-        deps,
-        row,
-        planAcceptBringUp(row, input, status.value),
-      );
-      return { ok: true, value: previewSnapshotFromRow(next) };
+      const next = await patchAccept(deps, row, {
+        ...planAcceptBringUp(row, input, status.value),
+        mailFrom: input.plan.mailFrom ?? null,
+      });
+      return { ok: true, value: previewSnapshotFromRow(next, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
     }
     case "provisioning": {
       const identity = requireDbIdentity(row, input, requestedDbName);
@@ -403,8 +436,9 @@ export async function claimDeployIntent(
         plan: "full_replace",
         remint: true,
         hostname: input.hostname,
+        mailFrom: input.plan.mailFrom ?? null,
       });
-      return { ok: true, value: previewSnapshotFromRow(next) };
+      return { ok: true, value: previewSnapshotFromRow(next, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
     }
   }
 }

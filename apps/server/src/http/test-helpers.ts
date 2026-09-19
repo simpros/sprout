@@ -19,7 +19,7 @@ import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
 import { runMigrations } from "../scripts/migrate.ts";
 import { createRoutes } from "./routes.ts";
-import type { PostgresConfig } from "../config.ts";
+import type { MailConfig, PostgresConfig } from "../config.ts";
 
 export type TestDb = {
   db: StateDb;
@@ -40,7 +40,9 @@ const defaultOpsDeps: Omit<BindPreviewOpsDeps, "docker"> = {
   seedTimeoutMs: 180_000,
 };
 
-const defaultTestMaterialization = (): PreviewMaterializationCtx => ({
+const defaultTestMaterialization = (
+  mail?: MailConfig,
+): PreviewMaterializationCtx => ({
   traefikNetwork: "sprout-traefik",
   postgres: {
     pg: {
@@ -51,6 +53,22 @@ const defaultTestMaterialization = (): PreviewMaterializationCtx => ({
     },
     network: "sprout-postgres",
   },
+  ...(mail
+    ? {
+        mail: {
+          mail: {
+            host: mail.host,
+            port: mail.port,
+            user: mail.user,
+            password: mail.password,
+            ...(mail.secure ? { secure: true as const } : {}),
+            fromDomain: mail.fromDomain ?? "preview.invalid",
+          },
+          ...(mail.network !== undefined ? { network: mail.network } : {}),
+          ...(mail.uiUrl !== undefined ? { uiUrl: mail.uiUrl } : {}),
+        },
+      }
+    : {}),
 });
 
 const defaultTestPostgres: PostgresConfig = {
@@ -102,6 +120,7 @@ export async function createTestApp(
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
         postgres?: PostgresConfig;
+        mail?: MailConfig;
       }
     | string = {},
 ): Promise<TestApp> {
@@ -120,12 +139,32 @@ export async function createTestApp(
   // Postgres presence lives only on the materialization context: an explicit
   // `postgres: undefined` opts into a sqlite-only gateway with no pg block.
   const pg = "postgres" in opts ? opts.postgres : defaultTestPostgres;
+  const mail = "mail" in opts ? opts.mail : undefined;
+  const materialization = pg
+    ? defaultTestMaterialization(mail)
+    : mail
+      ? {
+          traefikNetwork: "sprout-traefik",
+          mail: {
+            mail: {
+              host: mail.host,
+              port: mail.port,
+              user: mail.user,
+              password: mail.password,
+              ...(mail.secure ? { secure: true as const } : {}),
+              fromDomain: mail.fromDomain ?? "preview.invalid",
+            },
+            ...(mail.network !== undefined ? { network: mail.network } : {}),
+            ...(mail.uiUrl !== undefined ? { uiUrl: mail.uiUrl } : {}),
+          },
+        }
+      : { traefikNetwork: "sprout-traefik" };
   return {
     app: createRoutes({
       db,
       previewDb,
       app: appOps,
-      materialization: pg ? defaultTestMaterialization() : { traefikNetwork: "sprout-traefik" },
+      materialization,
     }),
     db,
     adminToken,

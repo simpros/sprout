@@ -5,10 +5,13 @@ networks:
     name: ${SPROUT_TRAEFIK_NETWORK:-sprout-traefik}
   postgres:
     name: ${SPROUT_POSTGRES_NETWORK:-sprout-postgres}
+  mail:
+    name: ${SPROUT_MAIL_NETWORK:-sprout-mail}
 
 volumes:
   gateway-data:
   postgres-data:
+  mailpit-data:
 
 services:
   postgres:
@@ -47,12 +50,29 @@ services:
       - --entrypoints.web.address=:80
       - --log.level=INFO
 
+  mailpit:
+    image: axllent/mailpit:v1.21.0
+    restart: unless-stopped
+    networks:
+      - mail
+    ports:
+      - "${MAILPIT_UI_HOST_PORT:-8025}:8025"
+      - "${MAILPIT_SMTP_HOST_PORT:-1025}:1025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+      MP_MAX_MESSAGES: "500"
+      MP_DISABLE_VERSION_CHECK: "1"
+    volumes:
+      - mailpit-data:/data
+
   gateway:
     build: .
     restart: unless-stopped
     networks:
       - traefik
       - postgres
+      - mail
     ports:
       - "${SPROUT_GATEWAY_HOST_PORT:-7331}:7331"
     volumes:
@@ -69,6 +89,14 @@ services:
       SPROUT_PG_PASSWORD: ${SPROUT_PG_PASSWORD:?set SPROUT_PG_PASSWORD in compose.env}
       SPROUT_TRAEFIK_NETWORK: ${SPROUT_TRAEFIK_NETWORK:-sprout-traefik}
       SPROUT_POSTGRES_NETWORK: ${SPROUT_POSTGRES_NETWORK:-sprout-postgres}
+      SPROUT_MAIL_HOST: ${SPROUT_MAIL_HOST:-}
+      SPROUT_MAIL_PORT: ${SPROUT_MAIL_PORT:-1025}
+      SPROUT_MAIL_USER: ${SPROUT_MAIL_USER:-}
+      SPROUT_MAIL_PASSWORD: ${SPROUT_MAIL_PASSWORD:-}
+      SPROUT_MAIL_SECURE: ${SPROUT_MAIL_SECURE:-}
+      SPROUT_MAIL_NETWORK: ${SPROUT_MAIL_NETWORK:-}
+      SPROUT_MAIL_UI_URL: ${SPROUT_MAIL_UI_URL:-}
+      SPROUT_MAIL_FROM_DOMAIN: ${SPROUT_MAIL_FROM_DOMAIN:-preview.invalid}
       SPROUT_TRAEFIK_ENTRYPOINTS: ${SPROUT_TRAEFIK_ENTRYPOINTS:-}
       SPROUT_TRAEFIK_CERTRESOLVER: ${SPROUT_TRAEFIK_CERTRESOLVER:-}
       SPROUT_TRAEFIK_MIDDLEWARES: ${SPROUT_TRAEFIK_MIDDLEWARES:-}

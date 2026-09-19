@@ -78,6 +78,9 @@ export type PreviewSnapshot = {
   hostname: string;
   status: PreviewStatus;
   preview_url?: string;
+  mailbox_url?: string;
+  mail_from?: string;
+  mail_from_name?: string;
   last_error?: string;
   last_error_detail?: string;
   reset_request_marker: string | null;
