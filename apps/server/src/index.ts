@@ -44,21 +44,28 @@ const previewDb = createRoutingPreviewDb({
 
 // The single materialization input every deploy resolves its plan from.
 // Postgres presence lives only here; the deploy gate reads ctx.postgres.
+// Mail presence lives only here too; it never provisions, only injects.
 const pg = config.postgres;
-const materialization: PreviewMaterializationCtx = pg
-  ? {
-      traefikNetwork: config.traefikNetwork,
-      postgres: {
-        pg: {
-          host: pg.host,
-          port: pg.port,
-          user: pg.user,
-          password: pg.password,
+const mail = config.mail;
+const materialization: PreviewMaterializationCtx = {
+  traefikNetwork: config.traefikNetwork,
+  ...(pg
+    ? {
+        postgres: {
+          pg: {
+            host: pg.host,
+            port: pg.port,
+            user: pg.user,
+            password: pg.password,
+          },
+          network: pg.network,
         },
-        network: pg.network,
-      },
-    }
-  : { traefikNetwork: config.traefikNetwork };
+      }
+    : {}),
+  ...(mail
+    ? { mail }
+    : {}),
+};
 
 const app = bindPreviewOps({
   docker,

@@ -1,8 +1,11 @@
 import {
   dbSpecIssueMessage,
   isServicePort,
+  mailIntent,
+  mailSpecIssueMessage,
   normalizeDbSpec,
   parseDbSpec,
+  parseMailSpec,
   parsePreviewEnvForProvider,
   parseServiceEnvMap,
   requiresDatabase,
@@ -11,6 +14,7 @@ import {
   validateHostname,
   type DbSpec,
   type HealthRequest,
+  type MailSpec,
   type PreviewEnvMap,
   type PreviewServiceSpec,
 } from "@sprout/preview-env";
@@ -19,15 +23,16 @@ import { parseResetMarkerToken } from "@sprout/preview-db";
 import type { AuthContext } from "../auth/middleware.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
+  mailNotConfiguredDetail,
   postgresNotConfiguredDetail,
 } from "../config.ts";
 import {
-  previewSnapshotFromRow,
   teardownPreview,
   setResetRequestMarker,
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
+import { presentPreviewSnapshot, previewSnapshotFromRow } from "../preview/snapshot.ts";
 import {
   resolvePreviewPlan,
   type PreviewMaterializationCtx,
@@ -40,7 +45,7 @@ import {
   validatePreviewIdentity,
   validateServiceName,
 } from "../preview-db/names.ts";
-import { mapResult, requirePreviewTarget, requireReadablePreview } from "./result-map.ts";
+import { mapResult, requirePreviewTarget, requireReadablePreviewRow } from "./result-map.ts";
 
 const healthBody = t.Object({
   path: t.String({ minLength: 1 }),
@@ -69,6 +74,14 @@ const dbBody = t.Object({
   file: t.Optional(t.String()),
 });
 
+const mailBody = t.Union([
+  t.String(),
+  t.Object({
+    mode: t.Optional(t.String()),
+    from: t.Optional(t.String()),
+  }),
+]);
+
 export const deployBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   pr_id: t.Number(),
@@ -77,6 +90,7 @@ export const deployBody = t.Object({
   app_image: t.String({ minLength: 1 }),
   env: t.Optional(t.Record(t.String(), t.String())),
   db: t.Optional(dbBody),
+  mail: t.Optional(mailBody),
   health: t.Optional(healthBody),
   seed_image: t.Optional(t.String({ minLength: 1 })),
   seed_env: t.Optional(t.Array(t.String())),
@@ -110,6 +124,7 @@ export type DeployBody = {
   app_image: string;
   env?: Record<string, string>;
   db?: { provider?: string; path?: string; file?: string };
+  mail?: string | { mode?: string; from?: string };
   health?: HealthRequest;
   seed_image?: string;
   seed_env?: string[];
@@ -122,6 +137,7 @@ export type DeployBody = {
 export type DeployDbAndEnv = {
   spec: DbSpec;
   connectionEnv?: PreviewEnvMap;
+  mail?: MailSpec;
 };
 
 /**
@@ -133,7 +149,7 @@ export type DeployDbAndEnv = {
  * reads it from there so deploy has a single source of truth.
  */
 export function resolveDeployDbAndEnv(
-  body: Pick<DeployBody, "db" | "env">,
+  body: Pick<DeployBody, "db" | "env" | "mail">,
   materialization: PreviewMaterializationCtx,
   repo: string,
 ):
@@ -157,6 +173,29 @@ export function resolveDeployDbAndEnv(
       detail: postgresNotConfiguredDetail(undefined, repo),
     };
   }
+  const mailParsed = parseMailSpec(body.mail);
+  if (!mailParsed.ok) {
+    return {
+      ok: false,
+      status: 422,
+      error: "invalid_mail",
+      detail: mailSpecIssueMessage(mailParsed.issue),
+    };
+  }
+  const mail = mailParsed.value;
+  // Mail intent is tri-state: omitted means opportunistic (inject when the
+  // gateway configures mail, silently skip when not); explicit enabled
+  // means required (fail when unconfigured); none means off. This gate is
+  // the single place that maps required-without-config to a status; the
+  // plan layer treats any unconfigured gateway as skip.
+  if (mailIntent(mail) === "required" && !materialization.mail) {
+    return {
+      ok: false,
+      status: 500,
+      error: "mail_not_configured",
+      detail: mailNotConfiguredDetail(repo),
+    };
+  }
   const connectionEnv = parsePreviewEnvForProvider(body.env, spec.provider);
   if (!connectionEnv.ok) {
     if (connectionEnv.issue.code === "env_requires_provider") {
@@ -172,7 +211,7 @@ export function resolveDeployDbAndEnv(
     }
     return { ok: false, status: 422, error: connectionEnv.issue.code };
   }
-  return { ok: true, value: { spec, connectionEnv: connectionEnv.value } };
+  return { ok: true, value: { spec, connectionEnv: connectionEnv.value, mail } };
 }
 
 function validateKvEnvEntries(
@@ -373,6 +412,7 @@ export function deploy(
       slug: body.slug,
       prId: target.value.prId,
       connectionEnv: dbAndEnv.value.connectionEnv,
+      mail: dbAndEnv.value.mail,
     });
     const seed = resolveSeedRequest(body, dbAndEnv.value.spec.provider);
     if (!seed.ok) {
@@ -412,6 +452,8 @@ export function deploy(
     };
 
     // 202 before pull/health/seed so Cloudflare (~100s) cannot kill the POST.
+    // Mailbox presentation applies once at the edge; lifecycle snapshots
+    // carry only stored mail_from.
     const accepted = await acceptAsyncDeploy(deps, input);
     if (!accepted.ok) return mapResult(accepted, set);
 
@@ -419,11 +461,17 @@ export function deploy(
     if (accepted.value.launch) {
       void runAsyncDeploy(deps, input);
     }
-    return accepted.value.snapshot;
+    return presentPreviewSnapshot(
+      accepted.value.row,
+      deps.materialization.mail?.uiUrl,
+    );
   };
 }
 
-export function getPreview(deps: LifecycleDeps) {
+export function getPreview(
+  deps: LifecycleDeps,
+  mailboxUrl?: string,
+) {
   return async ({
     query,
     auth,
@@ -433,15 +481,14 @@ export function getPreview(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    return mapResult(
-      await requireReadablePreview(
-        deps,
-        auth,
-        query.canonical_repo_id,
-        query.pr_id,
-      ),
-      set,
+    const result = await requireReadablePreviewRow(
+      deps,
+      auth,
+      query.canonical_repo_id,
+      query.pr_id,
     );
+    if (!result.ok) return mapResult(result, set);
+    return presentPreviewSnapshot(result.value, mailboxUrl);
   };
 }
 

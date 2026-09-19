@@ -1,12 +1,23 @@
+import type { CliIo } from "../context.ts";
+
 export type DeploySnapshotFields = {
   status?: string;
   preview_url?: string | null;
+  mailbox_url?: string | null;
+  mail_from?: string | null;
   last_error?: string | null;
   last_error_detail?: string | null;
 };
 
+/** Settled deploy presentation shared by core, poll, and forge-note. */
+export type DeploySettled = {
+  previewUrl: string;
+  mailboxUrl?: string;
+  mailFrom?: string;
+};
+
 export type DeployOutcome =
-  | { kind: "ready"; previewUrl: string }
+  | { kind: "ready"; settled: DeploySettled }
   | { kind: "failed"; message: string }
   | { kind: "pending" };
 
@@ -31,7 +42,28 @@ export function deployOutcome(data: DeploySnapshotFields): DeployOutcome {
     typeof data.preview_url === "string" &&
     data.preview_url.length > 0
   ) {
-    return { kind: "ready", previewUrl: data.preview_url };
+    const mailboxRaw =
+      typeof data.mailbox_url === "string" ? data.mailbox_url.trim() : "";
+    const fromRaw =
+      typeof data.mail_from === "string" ? data.mail_from.trim() : "";
+    return {
+      kind: "ready",
+      settled: {
+        previewUrl: data.preview_url,
+        ...(mailboxRaw !== "" ? { mailboxUrl: mailboxRaw } : {}),
+        ...(fromRaw !== "" ? { mailFrom: fromRaw } : {}),
+      },
+    };
   }
   return { kind: "pending" };
+}
+
+export function printSettled(io: CliIo, settled: DeploySettled): void {
+  io.stdout(`preview_url=${settled.previewUrl}`);
+  if (settled.mailboxUrl) {
+    io.stdout(`mailbox_url=${settled.mailboxUrl}`);
+  }
+  if (settled.mailFrom) {
+    io.stdout(`mail_from=${settled.mailFrom}`);
+  }
 }

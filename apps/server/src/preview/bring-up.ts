@@ -22,6 +22,7 @@ import type {
   PreviewSnapshot,
   ProvisionInput,
 } from "./types.ts";
+import { previewSnapshotFromRow } from "./snapshot.ts";
 
 const clearLastError = {
   lastError: null,
@@ -178,17 +179,7 @@ async function closeRunning(
   );
   return {
     ok: true,
-    value: {
-      ok: true,
-      canonical_repo_id: updated.canonicalRepoId,
-      pr_id: updated.prId,
-      slug: updated.slug,
-      db_name: updated.dbName,
-      hostname: updated.hostname,
-      status: "running",
-      preview_url: `https://${updated.hostname}`,
-      reset_request_marker: updated.resetRequestMarker,
-    },
+    value: previewSnapshotFromRow(updated),
   };
 }
 

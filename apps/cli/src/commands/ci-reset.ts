@@ -25,8 +25,8 @@ export const resetDeployPolicy: CiDeployPolicy = {
     return { ok: true, value: { seedImage: target.value.ref } };
   },
   beforeDeploy: async (client, identity) => teardownPreview(client, identity),
-  publishNote: (deps, identity, previewUrl) =>
-    publishPreviewNote(deps, identity, previewUrl, { reset: true }),
+  publishNote: (deps, identity, settled) =>
+    publishPreviewNote(deps, identity, { ...settled, reset: true }),
 };
 
 export async function runCiReset(

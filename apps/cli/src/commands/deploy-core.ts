@@ -25,8 +25,12 @@ import type {
   PreviewEnvMap,
   SproutYaml,
 } from "../yaml.ts";
-import { deployOutcome } from "./deploy-outcome.ts";
+import type { MailSpec } from "../yaml.ts";
+import { deployOutcome, printSettled } from "./deploy-outcome.ts";
+import type { DeploySettled } from "./deploy-outcome.ts";
 import { DEPLOY_POLL_BUFFER_MS, pollPreviewReady } from "./deploy-poll.ts";
+
+export type { DeploySettled };
 
 export type DeployRequest = {
   canonical_repo_id: string;
@@ -42,6 +46,7 @@ export type DeployRequest = {
   services?: DeployService[];
   env?: PreviewEnvMap;
   db?: DbSpec;
+  mail?: MailSpec;
   reseed?: boolean;
 };
 
@@ -179,7 +184,7 @@ export async function postDeployAndWait(opts: {
   yaml: SproutYaml;
   identity: DeployIdentity;
   body: DeployRequest;
-}): Promise<Result<string>> {
+}): Promise<Result<DeploySettled>> {
   const response = await opts.client.v1.deploy.post(opts.body);
   const result = readEden<PreviewSnapshot>(response);
   if (!result.ok) return { ok: false, error: result.message };
@@ -189,8 +194,11 @@ export async function postDeployAndWait(opts: {
   if (outcome.kind === "failed") return { ok: false, error: outcome.message };
 
   if (outcome.kind === "ready") {
-    opts.deps.io.stdout(`preview_url=${outcome.previewUrl}`);
-    return { ok: true, value: outcome.previewUrl };
+    printSettled(opts.deps.io, outcome.settled);
+    return {
+      ok: true,
+      value: outcome.settled,
+    };
   }
 
   const sleep =
@@ -212,7 +220,7 @@ export async function postDeployAndWait(opts: {
     now,
   });
   if (!poll.ok) return poll;
-  opts.deps.io.stdout(`preview_url=${poll.value}`);
+  printSettled(opts.deps.io, poll.value);
   return { ok: true, value: poll.value };
 }
 
@@ -299,6 +307,7 @@ export function buildDeployRequest(
   if (inputs.reseed) body.reseed = true;
   if (yaml.preview.env) body.env = yaml.preview.env;
   if (yaml.db) body.db = yaml.db;
+  if (yaml.mail) body.mail = { ...yaml.mail };
 
   const services = resolveDeployServices(yaml, identity.prId, {
     service: inputs.service,

@@ -3,11 +3,14 @@ import { t } from "elysia";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import {
-  parsePreviewStatus,
   purgePreview,
   toDisplayStatus,
   type LifecycleDeps,
 } from "../preview/lifecycle.ts";
+import {
+  parsePreviewStatus,
+  presentPreviewSnapshot,
+} from "../preview/snapshot.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import { planOrphans } from "../sweep/reconcile.ts";
 
@@ -19,6 +22,9 @@ export type ListedPreview = {
   hostname: string;
   status: ReturnType<typeof toDisplayStatus>;
   created_at: string;
+  mailbox_url?: string;
+  mail_from?: string;
+  mail_from_name?: string;
 };
 
 export type DoctorOrphan =
@@ -48,7 +54,7 @@ export type DropBody = {
   yes?: boolean;
 };
 
-export function listPreviews(db: StateDb) {
+export function listPreviews(db: StateDb, mailboxUrl?: string) {
   return async ({ set }: { set: { status?: number | string } }) => {
     const rows = await db
       .select()
@@ -62,14 +68,26 @@ export function listPreviews(db: StateDb) {
         set.status = 500;
         return { error: status.error };
       }
+      // One presenter for every read edge: stored mail_from plus the
+      // config-level mailbox link. ListedPreview keeps its own wire shape
+      // (display status, created_at) so fields are picked explicitly rather
+      // than spread, which would leak preview_url/last_error.
+      const snap = presentPreviewSnapshot(row, mailboxUrl);
       listed.push({
-        canonical_repo_id: row.canonicalRepoId,
-        pr_id: row.prId,
-        slug: row.slug,
-        db_name: row.dbName,
-        hostname: row.hostname,
+        canonical_repo_id: snap.canonical_repo_id,
+        pr_id: snap.pr_id,
+        slug: snap.slug,
+        db_name: snap.db_name,
+        hostname: snap.hostname,
         status: toDisplayStatus(status.value),
         created_at: row.createdAt,
+        ...(snap.mail_from !== undefined ? { mail_from: snap.mail_from } : {}),
+        ...(snap.mail_from_name !== undefined
+          ? { mail_from_name: snap.mail_from_name }
+          : {}),
+        ...(snap.mailbox_url !== undefined
+          ? { mailbox_url: snap.mailbox_url }
+          : {}),
       });
     }
 

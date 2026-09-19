@@ -19,6 +19,7 @@ import {
   buildDeployRequest,
   postDeployAndWait,
   requireHealthWhenSeeding,
+  type DeploySettled,
 } from "./deploy-core.ts";
 import { warnForgeNote } from "./forge-note.ts";
 import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
@@ -42,7 +43,7 @@ export type CiDeployPolicy = {
   publishNote: (
     deps: CliDeps,
     identity: CiIdentity,
-    previewUrl: string,
+    settled: DeploySettled & { reset?: boolean },
   ) => Promise<Result<void>>;
 };
 
@@ -179,7 +180,7 @@ export async function runCiDeploy(
     await policy.publishNote(ctx.deps, identity, settled.value),
   );
   try {
-    await write(dotenvPath, `PREVIEW_URL=${settled.value}\n`);
+    await write(dotenvPath, `PREVIEW_URL=${settled.value.previewUrl}\n`);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     return fail(ctx.deps.io, `cannot write dotenv file ${dotenvPath}: ${detail}`);

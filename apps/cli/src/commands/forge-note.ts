@@ -1,5 +1,6 @@
 import type { CliDeps, CliIo } from "../context.ts";
 import type { Result } from "../result.ts";
+import type { DeploySettled } from "./deploy-outcome.ts";
 import type { CiIdentity } from "./ci-identity.ts";
 import { untickResetBox } from "./reset-request.ts";
 
@@ -22,6 +23,8 @@ function shortSha(sha: string | undefined): string | undefined {
 
 export function buildPreviewNote(input: {
   previewUrl: string;
+  mailboxUrl?: string;
+  mailFrom?: string;
   sha?: string;
   prId: number;
   reset?: { actor: string; at: string };
@@ -34,6 +37,8 @@ export function buildPreviewNote(input: {
     "",
     `- Preview: ${input.previewUrl}`,
   ];
+  if (input.mailboxUrl) lines.push(`- Mailbox: ${input.mailboxUrl}`);
+  if (input.mailFrom) lines.push(`- Mail from: ${input.mailFrom}`);
   const short = shortSha(input.sha);
   if (short) lines.push(`- Commit: \`${short}\``);
   lines.push("- Health: healthy");
@@ -379,10 +384,9 @@ export async function upsertForgeNote(
 export async function publishPreviewNote(
   deps: CliDeps,
   identity: CiIdentity,
-  previewUrl: string,
-  opts?: { reset?: boolean },
+  note: DeploySettled & { reset?: boolean },
 ): Promise<Result<void>> {
-  const reset = opts?.reset
+  const reset = note.reset
     ? {
         actor: resolveResetActor(deps.env, identity.forge),
         at: new Date(deps.now?.() ?? Date.now()).toISOString(),
@@ -392,7 +396,9 @@ export async function publishPreviewNote(
     deps,
     identity,
     buildPreviewNote({
-      previewUrl,
+      previewUrl: note.previewUrl,
+      ...(note.mailboxUrl ? { mailboxUrl: note.mailboxUrl } : {}),
+      ...(note.mailFrom ? { mailFrom: note.mailFrom } : {}),
       sha: identity.commitSha,
       prId: identity.prId,
       ...(reset ? { reset } : {}),

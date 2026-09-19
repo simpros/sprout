@@ -2,6 +2,7 @@ import type {
   TraefikForwardAuth,
   TraefikTls,
 } from "./app-deployment/labels.ts";
+import { DEFAULT_MAIL_FROM_DOMAIN } from "@sprout/preview-env";
 import { GITHUB_HOSTS } from "./forge/kind.ts";
 import {
   buildRegistryPullAuth,
@@ -18,8 +19,20 @@ export const POSTGRES_REQUIRED_ENV = [
   "SPROUT_POSTGRES_NETWORK",
 ] as const;
 
+export const MAIL_ENV_KEYS = [
+  "SPROUT_MAIL_HOST",
+  "SPROUT_MAIL_PORT",
+  "SPROUT_MAIL_USER",
+  "SPROUT_MAIL_PASSWORD",
+  "SPROUT_MAIL_SECURE",
+  "SPROUT_MAIL_NETWORK",
+  "SPROUT_MAIL_UI_URL",
+  "SPROUT_MAIL_FROM_DOMAIN",
+] as const;
+
 export const OPTIONAL_ENV_DEFAULTS = {
   SPROUT_PG_PORT: 5432,
+  SPROUT_MAIL_PORT: 1025,
   SPROUT_TTL_HOURS: 72,
   SPROUT_SWEEP_MINUTES: 30,
   SPROUT_PREVIEW_PORT_DEFAULT: 8080,
@@ -43,6 +56,7 @@ export const OPTIONAL_STRING_ENV = [
 export const GATEWAY_ENV_DOC_KEYS: readonly string[] = [
   ...REQUIRED_ENV,
   ...POSTGRES_REQUIRED_ENV,
+  ...MAIL_ENV_KEYS,
   ...Object.keys(OPTIONAL_ENV_DEFAULTS),
   ...OPTIONAL_STRING_ENV,
   "SPROUT_ADMIN_TOKEN",
@@ -59,9 +73,22 @@ export type PostgresConfig = {
   network: string;
 };
 
+export type MailConfig = {
+  host: string;
+  port: number;
+  user?: string;
+  password?: string;
+  secure: boolean;
+  network?: string;
+  uiUrl?: string;
+  fromDomain: string;
+};
+
 export type Config = {
   /** Absent on sqlite-only gateways; all-or-nothing (partial fails boot). */
   postgres?: PostgresConfig;
+  /** Absent when no SPROUT_MAIL_* is set; host enables, rest default. */
+  mail?: MailConfig;
   traefikNetwork: string;
   registryPullAuth: RegistryPullAuth;
   githubToken: string;
@@ -101,9 +128,56 @@ function requiredEnv(key: (typeof REQUIRED_ENV)[number]): string {
 function optionalEnv(
   key:
     | (typeof OPTIONAL_STRING_ENV)[number]
-    | (typeof POSTGRES_REQUIRED_ENV)[number],
+    | (typeof POSTGRES_REQUIRED_ENV)[number]
+    | (typeof MAIL_ENV_KEYS)[number],
 ): string {
   return process.env[key]?.trim() ?? "";
+}
+
+function parseMailSecure(raw: string): boolean {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "" ) return false;
+  if (["1", "true", "yes"].includes(normalized)) return true;
+  if (["0", "false", "no"].includes(normalized)) return false;
+  throw new Error(
+    "Invalid SPROUT_MAIL_SECURE: must be a boolean (true/false, 1/0, yes/no)",
+  );
+}
+
+/** Mail is host-enabled: any SPROUT_MAIL_* without a host fails boot naming the host. */
+function parseMailConfig(): MailConfig | undefined {
+  const host = optionalEnv("SPROUT_MAIL_HOST");
+  const portRaw = optionalEnv("SPROUT_MAIL_PORT");
+  const user = optionalEnv("SPROUT_MAIL_USER");
+  const password = optionalEnv("SPROUT_MAIL_PASSWORD");
+  const secureRaw = optionalEnv("SPROUT_MAIL_SECURE");
+  const network = optionalEnv("SPROUT_MAIL_NETWORK");
+  const uiUrl = optionalEnv("SPROUT_MAIL_UI_URL");
+  const fromDomainRaw = optionalEnv("SPROUT_MAIL_FROM_DOMAIN");
+  // Compose passes empty defaults for every mail key, so any set value is
+  // operator intent; OPTIONAL_ENV_DEFAULTS/DEFAULT_MAIL_FROM_DOMAIN stay
+  // the single defaulting home below.
+  const anySet = MAIL_ENV_KEYS.some((key) => optionalEnv(key) !== "");
+  if (!anySet) return undefined;
+  if (host === "") {
+    throw new Error(
+      "Incomplete mail configuration: missing SPROUT_MAIL_HOST",
+    );
+  }
+  return {
+    host,
+    port: parsePositiveInt(
+      "SPROUT_MAIL_PORT",
+      portRaw === "" ? undefined : portRaw,
+      OPTIONAL_ENV_DEFAULTS.SPROUT_MAIL_PORT,
+    ),
+    ...(user === "" ? {} : { user }),
+    ...(password === "" ? {} : { password }),
+    secure: parseMailSecure(secureRaw),
+    ...(network === "" ? {} : { network }),
+    ...(uiUrl === "" ? {} : { uiUrl }),
+    fromDomain: fromDomainRaw === "" ? DEFAULT_MAIL_FROM_DOMAIN : fromDomainRaw,
+  };
 }
 
 function parseTraefikTls(): TraefikTls | undefined {
@@ -222,6 +296,7 @@ export function loadConfig(): Config {
 
   return {
     postgres: parsePostgresConfig(),
+    mail: parseMailConfig(),
     traefikNetwork: requiredEnv("SPROUT_TRAEFIK_NETWORK"),
     registryPullAuth,
     githubToken: optionalEnv("SPROUT_GITHUB_TOKEN"),
@@ -283,8 +358,16 @@ export function postgresNotConfiguredDetail(
   );
 }
 
+export function mailNotConfiguredDetail(repo: string): string {
+  return (
+    `repo ${repo} declares mail enabled but the gateway has no mail configured: ` +
+    `missing SPROUT_MAIL_HOST`
+  );
+}
+
 export function configSummary(config: Config): Record<string, string | number> {
   const pg = config.postgres;
+  const mail = config.mail;
   return {
     previewPostgresUrl: pg ? redactUrl(pg.url) : "[unset]",
     previewPgHost: pg ? pg.host : "[unset]",
@@ -293,6 +376,13 @@ export function configSummary(config: Config): Record<string, string | number> {
     previewPgPassword: pg ? "[set]" : "[empty]",
     traefikNetwork: config.traefikNetwork,
     postgresNetwork: pg ? pg.network : "[unset]",
+    previewMailHost: mail ? mail.host : "[unset]",
+    previewMailPort: mail ? mail.port : "[unset]",
+    previewMailUser: mail?.user ?? "[unset]",
+    previewMailSecure: mail ? String(mail.secure) : "[unset]",
+    mailNetwork: mail?.network ?? "[unset]",
+    mailUiUrl: mail?.uiUrl ?? "[unset]",
+    mailFromDomain: mail ? mail.fromDomain : "[unset]",
     registryPullAuthHosts: config.registryPullAuth.byHost.size,
     registryPullAuthFallback: config.registryPullAuth.fallback
       ? "[set]"

@@ -2,10 +2,8 @@ import type { AuthContext } from "../auth/middleware.ts";
 import { gateReadablePreviewRow } from "../preview/async-deploy.ts";
 import {
   getPreviewRow,
-  previewSnapshotFromRow,
   type LifecycleDeps,
   type PreviewRow,
-  type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
 import type { Result } from "../preview/result.ts";
 import { validatePrId } from "../preview-db/names.ts";
@@ -48,17 +46,6 @@ export async function requireReadablePreviewRow(
   if (!target.ok) return target;
   const row = await getPreviewRow(deps.db, target.value.repo, target.value.prId);
   return gateReadablePreviewRow(row);
-}
-
-export async function requireReadablePreview(
-  deps: Pick<LifecycleDeps, "db">,
-  auth: AuthContext | null,
-  repoId: string,
-  prRaw: string | number,
-): Promise<Result<PreviewSnapshot>> {
-  const row = await requireReadablePreviewRow(deps, auth, repoId, prRaw);
-  if (!row.ok) return row;
-  return { ok: true, value: previewSnapshotFromRow(row.value) };
 }
 
 export function mapResult<T>(

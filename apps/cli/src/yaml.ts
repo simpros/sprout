@@ -1,8 +1,10 @@
 import {
   dbSpecIssueMessage,
   isServicePort,
+  mailSpecIssueMessage,
   normalizeDbSpec,
   parseDbSpec,
+  parseMailSpec,
   parsePreviewEnvForProvider,
   parseServiceEnvMap,
   requiresDatabase,
@@ -11,6 +13,7 @@ import {
   validateHostnameValue,
   type DbSpec,
   type HealthIssue,
+  type MailSpec,
   type PreviewEnvMap,
   type ServiceFields,
 } from "@sprout/preview-env";
@@ -22,6 +25,7 @@ export const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
 
 export type { PreviewEnvMap };
 export type { DbSpec };
+export type { MailSpec };
 
 export type SproutHealth = {
   path: string;
@@ -64,12 +68,13 @@ export type SproutYaml = {
     services?: SproutYamlService[];
   };
   db?: DbSpec;
+  mail?: MailSpec;
   health?: SproutHealth;
   build?: SproutBuild;
   seed?: SproutSeed;
 };
 
-const TOP_KEYS = new Set(["slug", "preview", "health", "build", "seed", "db"]);
+const TOP_KEYS = new Set(["slug", "preview", "health", "build", "seed", "db", "mail"]);
 const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 const SERVICE_KEYS = new Set(["name", "image", "hostname", "path", "port", "env"]);
@@ -161,6 +166,14 @@ function parseDbBlock(raw: unknown): Result<DbSpec | undefined> {
       return unknownKey(`db.${issue.key}`);
     }
     return { ok: false, error: dbSpecIssueMessage(issue) };
+  }
+  return { ok: true, value: parsed.value };
+}
+
+function parseMailBlock(raw: unknown): Result<MailSpec | undefined> {
+  const parsed = parseMailSpec(raw);
+  if (!parsed.ok) {
+    return { ok: false, error: mailSpecIssueMessage(parsed.issue) };
   }
   return { ok: true, value: parsed.value };
 }
@@ -461,6 +474,9 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const db = parseDbBlock(parsed.db);
   if (!db.ok) return db;
 
+  const mail = parseMailBlock(parsed.mail);
+  if (!mail.ok) return mail;
+
   const env = parsePreviewEnv(
     parsed.preview.env,
     normalizeDbSpec(db.value).provider,
@@ -495,6 +511,7 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   if (appEnv.value) value.preview.app_env = appEnv.value;
   if (services.value) value.preview.services = services.value;
   if (db.value) value.db = db.value;
+  if (mail.value) value.mail = mail.value;
   if (build.value) value.build = build.value;
   if (seed.value) value.seed = seed.value;
 

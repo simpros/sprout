@@ -3,6 +3,7 @@ import { readEden } from "../eden.ts";
 import type { Result } from "../result.ts";
 import {
   deployOutcome,
+  type DeploySettled,
   type DeploySnapshotFields,
 } from "./deploy-outcome.ts";
 
@@ -21,7 +22,7 @@ export type PreviewPoller = {
 
 export async function pollPreviewReady(
   poller: PreviewPoller,
-): Promise<Result<string>> {
+): Promise<Result<DeploySettled>> {
   const deadline = poller.now() + poller.budgetMs;
   while (true) {
     if (poller.now() >= deadline) {
@@ -37,7 +38,9 @@ export async function pollPreviewReady(
     if (!statusResult.ok) return { ok: false, error: statusResult.message };
     const outcome = deployOutcome(statusResult.data);
     if (outcome.kind === "failed") return { ok: false, error: outcome.message };
-    if (outcome.kind === "ready") return { ok: true, value: outcome.previewUrl };
+    if (outcome.kind === "ready") {
+      return { ok: true, value: outcome.settled };
+    }
     await poller.sleep(poller.intervalMs);
   }
 }

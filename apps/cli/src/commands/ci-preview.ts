@@ -27,8 +27,8 @@ export const previewDeployPolicy: CiDeployPolicy = {
     if (!app.ok) return app;
     return { ok: true, value: { seedImage } };
   },
-  publishNote: (deps, identity, previewUrl) =>
-    publishPreviewNote(deps, identity, previewUrl),
+  publishNote: (deps, identity, settled) =>
+    publishPreviewNote(deps, identity, settled),
 };
 
 export async function runCiPreview(

@@ -19,7 +19,7 @@ import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
 import { runMigrations } from "../scripts/migrate.ts";
 import { createRoutes } from "./routes.ts";
-import type { PostgresConfig } from "../config.ts";
+import type { MailConfig, PostgresConfig } from "../config.ts";
 
 export type TestDb = {
   db: StateDb;
@@ -39,19 +39,6 @@ const defaultOpsDeps: Omit<BindPreviewOpsDeps, "docker"> = {
   previewPortDefault: 8080,
   seedTimeoutMs: 180_000,
 };
-
-const defaultTestMaterialization = (): PreviewMaterializationCtx => ({
-  traefikNetwork: "sprout-traefik",
-  postgres: {
-    pg: {
-      host: "postgres",
-      port: 5432,
-      user: "sprout_preview",
-      password: "preview-secret",
-    },
-    network: "sprout-postgres",
-  },
-});
 
 const defaultTestPostgres: PostgresConfig = {
   url: "postgres://sprout_preview:preview-secret@postgres:5432/sprout",
@@ -102,6 +89,7 @@ export async function createTestApp(
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
         postgres?: PostgresConfig;
+        mail?: MailConfig;
       }
     | string = {},
 ): Promise<TestApp> {
@@ -120,12 +108,30 @@ export async function createTestApp(
   // Postgres presence lives only on the materialization context: an explicit
   // `postgres: undefined` opts into a sqlite-only gateway with no pg block.
   const pg = "postgres" in opts ? opts.postgres : defaultTestPostgres;
+  const mail = "mail" in opts ? opts.mail : undefined;
+  const materialization: PreviewMaterializationCtx = {
+    traefikNetwork: "sprout-traefik",
+    ...(pg
+      ? {
+          postgres: {
+            pg: {
+              host: pg.host,
+              port: pg.port,
+              user: pg.user,
+              password: pg.password,
+            },
+            network: pg.network,
+          },
+        }
+      : {}),
+    ...(mail ? { mail } : {}),
+  };
   return {
     app: createRoutes({
       db,
       previewDb,
       app: appOps,
-      materialization: pg ? defaultTestMaterialization() : { traefikNetwork: "sprout-traefik" },
+      materialization,
     }),
     db,
     adminToken,

@@ -12,16 +12,33 @@ export const COMPANION_ENV_KEYS = ["PGAPPUSER", "PGAPPPASSWORD"] as const;
 
 export const SQLITE_ENV_KEYS = ["DATABASE_URL"] as const;
 
+export const MAIL_ENV_KEYS = [
+  "MAILHOST",
+  "MAILPORT",
+  "MAILUSER",
+  "MAILPASSWORD",
+  "MAILSECURE",
+  "MAILUIURL",
+  "MAILFROM",
+  "MAILFROMNAME",
+  "MAILREPLYTO",
+] as const;
+
 export const CANONICAL_ENV_KEYS = [
   ...OWNER_ENV_KEYS,
   ...COMPANION_ENV_KEYS,
   ...SQLITE_ENV_KEYS,
 ] as const;
 
+/** Every key preview.env accepts: database keys plus the cross-provider mail set. */
+export const PREVIEW_ENV_KEYS = [...CANONICAL_ENV_KEYS, ...MAIL_ENV_KEYS] as const;
+
 export type OwnerEnvKey = (typeof OWNER_ENV_KEYS)[number];
 export type CompanionEnvKey = (typeof COMPANION_ENV_KEYS)[number];
 export type SqliteEnvKey = (typeof SQLITE_ENV_KEYS)[number];
+export type MailEnvKey = (typeof MAIL_ENV_KEYS)[number];
 export type CanonicalEnvKey = (typeof CANONICAL_ENV_KEYS)[number];
+export type PreviewEnvKey = CanonicalEnvKey | MailEnvKey;
 
 export type PostgresEnvKey = OwnerEnvKey | CompanionEnvKey;
 
@@ -30,13 +47,13 @@ export const POSTGRES_ENV_KEYS: readonly PostgresEnvKey[] = [
   ...COMPANION_ENV_KEYS,
 ] as const;
 
-export type PreviewEnvMap = Partial<Record<CanonicalEnvKey, string>>;
+export type PreviewEnvMap = Partial<Record<PreviewEnvKey, string>>;
 
 import { ENV_TARGET_RE } from "./services.ts";
 
 export { ENV_TARGET_RE } from "./services.ts";
 
-/** Single home table for every canonical key; partitions derive from it. */
+/** Total home table: every database key maps to its provider. */
 export const ENV_KEY_HOME: Record<CanonicalEnvKey, DbProvider> = {
   PGHOST: "postgres",
   PGPORT: "postgres",
@@ -48,8 +65,16 @@ export const ENV_KEY_HOME: Record<CanonicalEnvKey, DbProvider> = {
   DATABASE_URL: "sqlite",
 };
 
+export function isMailEnvKey(key: string): key is MailEnvKey {
+  return (MAIL_ENV_KEYS as readonly string[]).includes(key);
+}
+
 export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
   return (CANONICAL_ENV_KEYS as readonly string[]).includes(key);
+}
+
+export function isPreviewEnvKey(key: string): key is PreviewEnvKey {
+  return (PREVIEW_ENV_KEYS as readonly string[]).includes(key);
 }
 
 export function envKeysForProvider(
@@ -63,9 +88,11 @@ export function envProviderMismatch(
   provider: DbProvider,
 ): { key: CanonicalEnvKey; home: DbProvider } | null {
   for (const key of Object.keys(env ?? {})) {
-    const canonical = key as CanonicalEnvKey;
-    if (ENV_KEY_HOME[canonical] !== provider) {
-      return { key: canonical, home: ENV_KEY_HOME[canonical] };
+    // Mail keys live outside the db provider scope and are allowed on any provider.
+    if (isMailEnvKey(key)) continue;
+    const home = ENV_KEY_HOME[key as CanonicalEnvKey];
+    if (home !== provider) {
+      return { key: key as CanonicalEnvKey, home };
     }
   }
   return null;
@@ -101,7 +128,7 @@ export function parsePreviewEnvMap(
   const seenTargets = new Map<string, string>();
 
   for (const [key, value] of entries) {
-    if (!isCanonicalEnvKey(key)) {
+    if (!isPreviewEnvKey(key)) {
       return { ok: false, issue: { code: "unknown_env_key", key } };
     }
     if (typeof value !== "string" || value.trim() === "") {
@@ -197,3 +224,22 @@ export {
   type ServiceEnvIssue,
   type ServiceFields,
 } from "./services.ts";
+
+export {
+  MAIL_MODES,
+  DEFAULT_MAIL_FROM_DOMAIN,
+  deriveMailFrom,
+  deriveMailFromName,
+  isMailMode,
+  mailIntent,
+  mailSpecIssueMessage,
+  parseMailSpec,
+  resolveMailIdentity,
+  validateMailFromTemplate,
+  type MailIdentity,
+  type MailIntent,
+  type MailMode,
+  type MailSpec,
+  type MailSpecIssue,
+  type ResolvedMailIdentity,
+} from "./mail.ts";
