@@ -27,13 +27,12 @@ import {
   postgresNotConfiguredDetail,
 } from "../config.ts";
 import {
-  previewSnapshotFromRow,
   teardownPreview,
   setResetRequestMarker,
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
-import { presentPreviewSnapshot } from "../preview/snapshot.ts";
+import { presentPreviewSnapshot, previewSnapshotFromRow } from "../preview/snapshot.ts";
 import {
   resolvePreviewPlan,
   type PreviewMaterializationCtx,
