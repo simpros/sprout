@@ -71,6 +71,9 @@ export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
     ...(row.lastErrorDetail != null
       ? { last_error_detail: row.lastErrorDetail }
       : {}),
+    ...(row.resetRequestMarker != null
+      ? { reset_request_marker: row.resetRequestMarker }
+      : {}),
   };
 }
 
@@ -110,6 +113,28 @@ const clearLastError = {
   failureFamily: null,
   seedLog: null,
 } as const;
+
+/** Persist the handled MR/PR-body reset marker; row must exist (incl. removed). */
+export async function setResetRequestMarker(
+  db: StateDb,
+  repo: string,
+  prId: number,
+  marker: string,
+): Promise<Result<PreviewRow>> {
+  return withPreviewLock(repo, prId, async () => {
+    const row = await getPreviewRow(db, repo, prId);
+    if (!row) {
+      return { ok: false as const, status: 404, error: "preview_not_found" };
+    }
+    const next = await updatePreviewRow(
+      db,
+      { canonicalRepoId: repo, prId },
+      { resetRequestMarker: marker, updatedAt: utcIsoNow() },
+      "preview_row_missing_on_reset_marker",
+    );
+    return { ok: true as const, value: next };
+  });
+}
 
 type AcceptBringUp = {
   status: "provisioning" | "seeding";

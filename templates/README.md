@@ -42,6 +42,22 @@ CI variables (project or group settings):
 
 Secrets never appear in job logs, CLI output, or the MR note (the CLI prints only `preview_url=`).
 
+## Reset request checkbox
+
+Tick a box in the MR description and the next preview run wipes the database
+and redeploys from scratch — no webhook, no extra token. Paste
+[`templates/reset-request-snippet.md`](./reset-request-snippet.md) into the MR
+description:
+
+```markdown
+- [ ] Sprout: reset preview <!-- sprout-reset: ada-2026-09-19-1 -->
+```
+
+To request a reset, tick the box **and** change the token to something new.
+Keep the snippet inside the first 2700 characters of the description (GitLab
+exposes only that prefix to CI; truncation fails the job loudly instead of
+ignoring the tick). `sprout ci reset` consumes a pending request too.
+
 Prerequisites on the GitLab side:
 
 - Merge-request pipelines (`CI_PIPELINE_SOURCE=merge_request_event`; the jobs

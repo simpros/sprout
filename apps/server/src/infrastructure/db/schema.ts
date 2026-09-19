@@ -28,6 +28,7 @@ export const previews = sqliteTable(
     failureFamily: text("failure_family"),
     bringUpPlan: text("bring_up_plan"),
     seedLog: text("seed_log"),
+    resetRequestMarker: text("reset_request_marker"),
   },
   (table) => [
     primaryKey({ columns: [table.canonicalRepoId, table.prId] }),

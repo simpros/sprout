@@ -21,7 +21,9 @@ import {
   postgresNotConfiguredDetail,
 } from "../config.ts";
 import {
+  previewSnapshotFromRow,
   teardownPreview,
+  setResetRequestMarker,
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
@@ -87,6 +89,12 @@ export const deployBody = t.Object({
 export const teardownBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   pr_id: t.Number(),
+});
+
+export const resetMarkerBody = t.Object({
+  canonical_repo_id: t.String({ minLength: 1 }),
+  pr_id: t.Number(),
+  marker: t.String({ minLength: 1, maxLength: 256 }),
 });
 
 export const previewQuery = t.Object({
@@ -312,6 +320,12 @@ export type TeardownBody = {
   pr_id: number;
 };
 
+export type ResetMarkerBody = {
+  canonical_repo_id: string;
+  pr_id: number;
+  marker: string;
+};
+
 export type PreviewQuery = {
   canonical_repo_id: string;
   pr_id: string;
@@ -460,5 +474,42 @@ export function teardown(deps: LifecycleDeps) {
       }),
       set,
     );
+  };
+}
+
+export function setResetMarker(deps: LifecycleDeps) {
+  return async ({
+    body,
+    auth,
+    set,
+  }: {
+    body: ResetMarkerBody;
+    auth: AuthContext | null;
+    set: { status?: number | string };
+  }) => {
+    if (!auth) {
+      set.status = 401;
+      return { error: "unauthorized" };
+    }
+    const repo = resolveRepo(auth, body.canonical_repo_id);
+    if (!repo.ok) return mapResult(repo, set);
+    const prErr = validatePrId(body.pr_id);
+    if (prErr) {
+      set.status = 422;
+      return { error: prErr };
+    }
+    const marker = body.marker.trim();
+    if (!marker || marker.length > 256 || /[<>\r\n]/.test(marker)) {
+      set.status = 422;
+      return { error: "invalid_reset_marker" };
+    }
+    const stored = await setResetRequestMarker(
+      deps.db,
+      repo.value,
+      body.pr_id,
+      marker,
+    );
+    if (!stored.ok) return mapResult(stored, set);
+    return previewSnapshotFromRow(stored.value);
   };
 }

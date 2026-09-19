@@ -1,0 +1,1 @@
+ALTER TABLE `previews` ADD `reset_request_marker` text;

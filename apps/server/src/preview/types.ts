@@ -80,6 +80,7 @@ export type PreviewSnapshot = {
   preview_url?: string;
   last_error?: string;
   last_error_detail?: string;
+  reset_request_marker?: string | null;
 };
 
 export type TeardownSnapshot = {
