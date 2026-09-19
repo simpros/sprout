@@ -13,7 +13,6 @@ import {
 import {
   parsePreviewStatus,
   previewSnapshotFromRow,
-  type MailPresentation,
 } from "./snapshot.ts";
 
 const inFlightDeploys = new Map<string, { slug: string; dbName: string | null }>();
@@ -25,7 +24,6 @@ function previewKey(repo: string, prId: number): string {
 export async function acceptAsyncDeploy(
   deps: LifecycleDeps,
   input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<Result<{ snapshot: PreviewSnapshot; launch: boolean }>> {
   return withPreviewLock(input.repo, input.prId, async () => {
     const requestedDbName = input.plan.dbName;
@@ -42,7 +40,7 @@ export async function acceptAsyncDeploy(
           return {
             ok: true,
             value: {
-              snapshot: previewSnapshotFromRow(row, mail),
+              snapshot: previewSnapshotFromRow(row),
               launch: false,
             },
           };
@@ -55,7 +53,7 @@ export async function acceptAsyncDeploy(
       };
     }
 
-    const claimed = await claimDeployIntent(deps, input, mail);
+    const claimed = await claimDeployIntent(deps, input);
     if (!claimed.ok) return claimed;
 
     inFlightDeploys.set(key, {
@@ -69,11 +67,10 @@ export async function acceptAsyncDeploy(
 export async function runAsyncDeploy(
   deps: LifecycleDeps,
   input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<void> {
   const key = previewKey(input.repo, input.prId);
   try {
-    await provisionPreview(deps, input, mail);
+    await provisionPreview(deps, input);
   } catch (err) {
     console.warn("provision:background_failed", err);
     try {

@@ -10,7 +10,6 @@ import {
 import {
   mailFieldsFor,
   parsePreviewStatus,
-  type MailPresentation,
 } from "../preview/snapshot.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import { planOrphans } from "../sweep/reconcile.ts";
@@ -55,7 +54,7 @@ export type DropBody = {
   yes?: boolean;
 };
 
-export function listPreviews(db: StateDb, mail?: MailPresentation) {
+export function listPreviews(db: StateDb, mailboxUrl?: string) {
   return async ({ set }: { set: { status?: number | string } }) => {
     const rows = await db
       .select()
@@ -78,7 +77,7 @@ export function listPreviews(db: StateDb, mail?: MailPresentation) {
         hostname: row.hostname,
         status: toDisplayStatus(status.value),
         created_at: row.createdAt,
-        ...mailFieldsFor(row.slug, row.prId, storedFrom, mail),
+        ...mailFieldsFor(row.slug, row.prId, storedFrom, mailboxUrl),
       });
     }
 

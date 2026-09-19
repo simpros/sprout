@@ -53,16 +53,16 @@ export function resolveMailIdentity(
 ): ResolvedMailIdentity {
   // Templates are validated at the deploy/yaml boundary, so a failure
   // here is a bug: fail loudly instead of sending from the wrong address.
-  const address =
-    identity.fromTemplate !== undefined
-      ? (() => {
-          const from = resolveMailFrom(identity.fromTemplate, identity.prId);
-          if (!from.ok) {
-            throw new Error(`invalid mail from template: ${from.detail}`);
-          }
-          return from.value;
-        })()
-      : deriveMailFrom(identity.slug, identity.prId, mail.fromDomain);
+  let address: string;
+  if (identity.fromTemplate !== undefined) {
+    const from = resolveMailFrom(identity.fromTemplate, identity.prId);
+    if (!from.ok) {
+      throw new Error(`invalid mail from template: ${from.detail}`);
+    }
+    address = from.value;
+  } else {
+    address = deriveMailFrom(identity.slug, identity.prId, mail.fromDomain);
+  }
   return { address, name: deriveMailFromName(identity.slug, identity.prId) };
 }
 

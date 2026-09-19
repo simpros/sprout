@@ -30,6 +30,16 @@ export const MAIL_ENV_KEYS = [
   "SPROUT_MAIL_FROM_DOMAIN",
 ] as const;
 
+/** Port/domain always carry compose defaults; presence means operator intent. */
+const MAIL_INTENT_KEYS = [
+  "SPROUT_MAIL_HOST",
+  "SPROUT_MAIL_USER",
+  "SPROUT_MAIL_PASSWORD",
+  "SPROUT_MAIL_SECURE",
+  "SPROUT_MAIL_NETWORK",
+  "SPROUT_MAIL_UI_URL",
+] as const;
+
 export const OPTIONAL_ENV_DEFAULTS = {
   SPROUT_PG_PORT: 5432,
   SPROUT_MAIL_PORT: 1025,
@@ -154,7 +164,7 @@ function parseMailConfig(): MailConfig | undefined {
   const network = optionalEnv("SPROUT_MAIL_NETWORK");
   const uiUrl = optionalEnv("SPROUT_MAIL_UI_URL");
   const fromDomainRaw = optionalEnv("SPROUT_MAIL_FROM_DOMAIN");
-  const anySet = MAIL_ENV_KEYS.some((key) => optionalEnv(key) !== "");
+  const anySet = MAIL_INTENT_KEYS.some((key) => optionalEnv(key) !== "");
   if (!anySet) return undefined;
   if (host === "") {
     throw new Error(

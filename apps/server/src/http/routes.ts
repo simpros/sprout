@@ -4,7 +4,6 @@ import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import type { PreviewDbRouter } from "../preview-db/routing.ts";
 import type { LifecycleDeps } from "../preview/lifecycle.ts";
-import { mailPresentationOf } from "../preview/snapshot.ts";
 import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
 import {
   createDeployToken,
@@ -46,7 +45,7 @@ export function createRoutes(deps: RouteDeps) {
     ...lifecycle,
     materialization: deps.materialization,
   };
-  const mail = mailPresentationOf(deps.materialization.mail?.uiUrl);
+  const mailboxUrl = deps.materialization.mail?.uiUrl;
   return new Elysia()
     .get("/healthz", () => ({ ok: true }))
     .group("/v1", (v1) =>
@@ -62,7 +61,7 @@ export function createRoutes(deps: RouteDeps) {
             })
             .delete("/tokens/:id", revokeToken(deps.db)),
         )
-        .get("/previews", listPreviews(deps.db, mail), {
+        .get("/previews", listPreviews(deps.db, mailboxUrl), {
           beforeHandle: requireAdmin,
         })
         .get("/previews/:id/logs", getPreviewLogs(lifecycle), {
@@ -77,7 +76,7 @@ export function createRoutes(deps: RouteDeps) {
           body: dropBody,
         })
         .post("/deploy", deploy(deployDeps), { body: deployBody })
-        .get("/preview", getPreview(lifecycle, mail), { query: previewQuery })
+        .get("/preview", getPreview(lifecycle, mailboxUrl), { query: previewQuery })
         .post("/teardown", teardown(lifecycle), { body: teardownBody })
         .post("/reset-marker", setResetMarker(lifecycle), {
           body: resetMarkerBody,

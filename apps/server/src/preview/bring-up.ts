@@ -22,7 +22,7 @@ import type {
   PreviewSnapshot,
   ProvisionInput,
 } from "./types.ts";
-import { previewSnapshotFromRow, type MailPresentation } from "./snapshot.ts";
+import { previewSnapshotFromRow } from "./snapshot.ts";
 
 const clearLastError = {
   lastError: null,
@@ -164,8 +164,6 @@ async function syncPreviewServices(
 async function closeRunning(
   deps: LifecycleDeps,
   row: PreviewRow,
-  input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   const now = utcIsoNow();
   const updated = await updatePreviewRow(
@@ -181,7 +179,7 @@ async function closeRunning(
   );
   return {
     ok: true,
-    value: previewSnapshotFromRow(updated, mail),
+    value: previewSnapshotFromRow(updated),
   };
 }
 
@@ -189,7 +187,6 @@ async function syncThenCloseRunning(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   if (input.services === undefined) {
     await markStickyPreviewFailed(deps.db, row.canonicalRepoId, row.prId, {
@@ -207,19 +204,18 @@ async function syncThenCloseRunning(
     services: input.services,
   });
   if (!synced.ok) return synced;
-  return closeRunning(deps, row, input, mail);
+  return closeRunning(deps, row);
 }
 
 async function finishAfterPromote(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   if (input.services === undefined) {
-    return closeRunning(deps, row, input, mail);
+    return closeRunning(deps, row);
   }
-  return syncThenCloseRunning(deps, row, input, mail);
+  return syncThenCloseRunning(deps, row, input);
 }
 
 function deployEphemerals(input: ProvisionInput) {
@@ -290,7 +286,6 @@ async function attachThenPromote(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   const attached = await attachAppContainer(deps, row, input);
   if (!attached.ok) return attached;
@@ -301,14 +296,13 @@ async function attachThenPromote(
     deployEphemerals(input),
   );
   if (!promoted.ok) return promoted;
-  return finishAfterPromote(deps, starting, input, mail);
+  return finishAfterPromote(deps, starting, input);
 }
 
 async function ensureThenAttach(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   const ensured = await ensureDatabase(deps, row, input);
   if (!ensured.ok) {
@@ -320,7 +314,7 @@ async function ensureThenAttach(
     );
     return ensured;
   }
-  return attachThenPromote(deps, row, input, mail);
+  return attachThenPromote(deps, row, input);
 }
 
 async function pullImageOrFail(
@@ -373,7 +367,6 @@ export async function completeBringUp(
   deps: LifecycleDeps,
   row: PreviewRow,
   input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   switch (parseBringUpPlan(row.bringUpPlan)) {
     case "seed_resume": {
@@ -392,13 +385,13 @@ export async function completeBringUp(
         deployEphemerals(input),
       );
       if (!seeded.ok) return seeded;
-      return finishAfterPromote(deps, row, input, mail);
+      return finishAfterPromote(deps, row, input);
     }
     case "sync_close":
-      return syncThenCloseRunning(deps, row, input, mail);
+      return syncThenCloseRunning(deps, row, input);
     case "close":
-      return closeRunning(deps, row, input, mail);
+      return closeRunning(deps, row);
     case "full_replace":
-      return ensureThenAttach(deps, row, input, mail);
+      return ensureThenAttach(deps, row, input);
   }
 }

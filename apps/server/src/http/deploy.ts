@@ -33,10 +33,7 @@ import {
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
-import type {
-  MailPresentation,
-} from "../preview/snapshot.ts";
-import { mailPresentationOf } from "../preview/snapshot.ts";
+import { withMailbox } from "../preview/snapshot.ts";
 import {
   resolvePreviewPlan,
   type PreviewMaterializationCtx,
@@ -453,21 +450,25 @@ export function deploy(
     };
 
     // 202 before pull/health/seed so Cloudflare (~100s) cannot kill the POST.
-    const mail = mailPresentationOf(deps.materialization.mail?.uiUrl);
-    const accepted = await acceptAsyncDeploy(deps, input, mail);
+    // Mailbox presentation applies once at the edge; lifecycle snapshots
+    // carry only stored mail_from.
+    const accepted = await acceptAsyncDeploy(deps, input);
     if (!accepted.ok) return mapResult(accepted, set);
 
     set.status = 202;
     if (accepted.value.launch) {
-      void runAsyncDeploy(deps, input, mail);
+      void runAsyncDeploy(deps, input);
     }
-    return accepted.value.snapshot;
+    return withMailbox(
+      accepted.value.snapshot,
+      deps.materialization.mail?.uiUrl,
+    );
   };
 }
 
 export function getPreview(
   deps: LifecycleDeps,
-  mail?: MailPresentation,
+  mailboxUrl?: string,
 ) {
   return async ({
     query,
@@ -484,7 +485,7 @@ export function getPreview(
         auth,
         query.canonical_repo_id,
         query.pr_id,
-        mail,
+        mailboxUrl,
       ),
       set,
     );

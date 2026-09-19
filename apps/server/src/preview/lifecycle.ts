@@ -15,9 +15,7 @@ import { canSeedWithoutAppReplace, seedWorkOutstanding } from "./seed-phase.ts";
 import type { Result } from "./result.ts";
 import {
   parsePreviewStatus,
-  planMailFrom,
   previewSnapshotFromRow,
-  type MailPresentation,
 } from "./snapshot.ts";
 import type {
   BringUpPlan,
@@ -175,7 +173,7 @@ async function writeProvisioningIntent(
       containerId: null,
       seededAt: null,
       seededSeedImage: null,
-      mailFrom: planMailFrom(input.plan),
+      mailFrom: input.plan.mailFrom ?? null,
       ...clearLastError,
       // New generation: TTL means age of this intent, not birth of the row key.
       createdAt: now,
@@ -204,7 +202,7 @@ async function patchAccept(
       status: fields.status,
       bringUpPlan: fields.plan,
       ...(fields.hostname != null ? { hostname: fields.hostname } : {}),
-      mailFrom: planMailFrom(dbPlan),
+      mailFrom: dbPlan.mailFrom ?? null,
       lastError: null,
       lastErrorDetail: null,
       seedLog: null,
@@ -280,8 +278,6 @@ function planAcceptBringUp(
 export async function claimDeployIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
-  /** Route-layer presentation; the plan carries only container inputs. */
-  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   const requestedDbName = input.plan.dbName;
   const row = await getPreviewRow(deps.db, input.repo, input.prId);
@@ -298,7 +294,7 @@ export async function claimDeployIntent(
         hostname: input.hostname,
         status: "provisioning",
         bringUpPlan: "full_replace",
-        mailFrom: planMailFrom(input.plan),
+        mailFrom: input.plan.mailFrom ?? null,
       })
       .returning();
     if (!inserted) {
@@ -306,7 +302,7 @@ export async function claimDeployIntent(
     }
     return {
       ok: true,
-      value: previewSnapshotFromRow(inserted, mail),
+      value: previewSnapshotFromRow(inserted),
     };
   }
 
@@ -326,7 +322,7 @@ export async function claimDeployIntent(
     const intent = await writeProvisioningIntent(deps, input, intentDbName);
     return {
       ok: true,
-      value: previewSnapshotFromRow(intent, mail),
+      value: previewSnapshotFromRow(intent),
     };
   }
 
@@ -345,7 +341,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(intent, mail),
+        value: previewSnapshotFromRow(intent),
       };
     }
     case "failed": {
@@ -354,7 +350,7 @@ export async function claimDeployIntent(
         const next = await patchAccept(deps, row, planned, input.plan);
         return {
           ok: true,
-          value: previewSnapshotFromRow(next, mail),
+          value: previewSnapshotFromRow(next),
         };
       }
       const intent = await writeProvisioningIntent(
@@ -364,7 +360,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(intent, mail),
+        value: previewSnapshotFromRow(intent),
       };
     }
     case "seeding": {
@@ -378,7 +374,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(next, mail),
+        value: previewSnapshotFromRow(next),
       };
     }
     case "running":
@@ -393,7 +389,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(next, mail),
+        value: previewSnapshotFromRow(next),
       };
     }
     case "provisioning": {
@@ -412,7 +408,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(next, mail),
+        value: previewSnapshotFromRow(next),
       };
     }
   }
@@ -421,7 +417,6 @@ export async function claimDeployIntent(
 async function completeProvisionUnlocked(
   deps: LifecycleDeps,
   input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   const row = await getPreviewRow(deps.db, input.repo, input.prId);
   if (!row) {
@@ -441,7 +436,7 @@ async function completeProvisionUnlocked(
   if (status.value === "removed") {
     return { ok: false, status: 404, error: "preview_not_found" };
   }
-  return completeBringUp(deps, row, input, mail);
+  return completeBringUp(deps, row, input);
 }
 
 type DestroyDisposition = "tombstone" | "purge";
@@ -545,7 +540,6 @@ async function teardownUnlocked(
 export async function provisionPreview(
   deps: LifecycleDeps,
   input: ProvisionInput,
-  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   const pull = await pullImagesOutsideLock(deps, input);
   return withPreviewLock(input.repo, input.prId, async () => {
@@ -559,7 +553,7 @@ export async function provisionPreview(
       );
       return pull;
     }
-    return completeProvisionUnlocked(deps, input, mail);
+    return completeProvisionUnlocked(deps, input);
   });
 }
 

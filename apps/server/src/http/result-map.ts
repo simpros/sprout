@@ -6,10 +6,7 @@ import {
   type PreviewRow,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
-import {
-  previewSnapshotFromRow,
-  type MailPresentation,
-} from "../preview/snapshot.ts";
+import { previewSnapshotFromRow } from "../preview/snapshot.ts";
 import type { Result } from "../preview/result.ts";
 import { validatePrId } from "../preview-db/names.ts";
 
@@ -58,13 +55,13 @@ export async function requireReadablePreview(
   auth: AuthContext | null,
   repoId: string,
   prRaw: string | number,
-  mail?: MailPresentation,
+  mailboxUrl?: string,
 ): Promise<Result<PreviewSnapshot>> {
   const row = await requireReadablePreviewRow(deps, auth, repoId, prRaw);
   if (!row.ok) return row;
   return {
     ok: true,
-    value: previewSnapshotFromRow(row.value, mail),
+    value: previewSnapshotFromRow(row.value, mailboxUrl),
   };
 }
 

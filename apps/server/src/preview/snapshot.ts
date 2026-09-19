@@ -1,23 +1,7 @@
 import { deriveMailFromName } from "@sprout/preview-env";
 import type { Result } from "./result.ts";
 import type { PreviewRow } from "./row.ts";
-import type {
-  PreviewSnapshot,
-  PreviewStatus,
-  ProvisionInput,
-} from "./types.ts";
-
-/** Config-level mail presentation: the mailbox link only. From lives on the row. */
-export type MailPresentation = {
-  mailboxUrl?: string;
-};
-
-/** Route-layer constructor: a configured UI link becomes snapshot presentation. */
-export function mailPresentationOf(
-  uiUrl: string | undefined,
-): MailPresentation | undefined {
-  return uiUrl !== undefined ? { mailboxUrl: uiUrl } : undefined;
-}
+import type { PreviewSnapshot, PreviewStatus } from "./types.ts";
 
 /**
  * Single home for the mailbox invariant: a preview with no From identity
@@ -28,13 +12,11 @@ export function mailFieldsFor(
   slug: string,
   prId: number,
   storedFrom: string | undefined,
-  mail?: MailPresentation,
+  mailboxUrl?: string,
 ): Pick<PreviewSnapshot, "mailbox_url" | "mail_from" | "mail_from_name"> {
   if (storedFrom === undefined) return {};
   return {
-    ...(mail?.mailboxUrl !== undefined
-      ? { mailbox_url: mail.mailboxUrl }
-      : {}),
+    ...(mailboxUrl !== undefined ? { mailbox_url: mailboxUrl } : {}),
     mail_from: storedFrom,
     mail_from_name: deriveMailFromName(slug, prId),
   };
@@ -55,14 +37,9 @@ export function parsePreviewStatus(status: string): Result<PreviewStatus> {
   }
 }
 
-/** Single derivation of the stored From column from a resolved plan. */
-export function planMailFrom(plan: ProvisionInput["plan"]): string | null {
-  return plan.mailFrom ?? null;
-}
-
 export function previewSnapshotFromRow(
   row: PreviewRow,
-  mail?: MailPresentation,
+  mailboxUrl?: string,
 ): PreviewSnapshot {
   const status = parsePreviewStatus(row.status);
   const parsed = status.ok ? status.value : "failed";
@@ -76,11 +53,31 @@ export function previewSnapshotFromRow(
     hostname: row.hostname,
     status: parsed,
     ...(parsed === "running" ? { preview_url: `https://${row.hostname}` } : {}),
-    ...mailFieldsFor(row.slug, row.prId, effectiveFrom, mail),
+    ...mailFieldsFor(row.slug, row.prId, effectiveFrom, mailboxUrl),
     ...(row.lastError != null ? { last_error: row.lastError } : {}),
     ...(row.lastErrorDetail != null
       ? { last_error_detail: row.lastErrorDetail }
       : {}),
     reset_request_marker: row.resetRequestMarker,
+  };
+}
+
+/**
+ * Route-layer decorator: attach the config-level mailbox link to an
+ * already-built snapshot. Lifecycle layers return mail-free snapshots;
+ * only the HTTP edge applies this, so domain code never threads presentation.
+ */
+export function withMailbox(
+  snapshot: PreviewSnapshot,
+  mailboxUrl: string | undefined,
+): PreviewSnapshot {
+  return {
+    ...snapshot,
+    ...mailFieldsFor(
+      snapshot.slug,
+      snapshot.pr_id,
+      snapshot.mail_from,
+      mailboxUrl,
+    ),
   };
 }
