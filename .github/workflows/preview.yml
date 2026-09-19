@@ -1,0 +1,250 @@
+name: sprout preview (reusable)
+
+# Thin bootstrapper for GitHub pull-request previews: installs the pinned,
+# checksum-verified `sprout` binary and calls `sprout ci preview` /
+# `sprout ci teardown`. All preview behaviour (image build and push, seed
+# image, deploy, PR comment, dotenv emission, log dump on failure) lives in
+# the CLI. The reset-request contract (ticked box + marker token, fences
+# ignored) is owned by `parseResetRequest` in apps/cli — the workflow keeps
+# only a cheap `edited` pre-filter that over-triggers by design and lets the
+# CLI decide. The `setup` job computes the single `run_heavy` gate, so the
+# skip path is checkout-free and never downloads the binary.
+#
+# Caller (`.github/workflows/sprout.yml` in the adopting repo):
+#
+#   name: sprout
+#   on:
+#     pull_request:
+#       types: [opened, synchronize, reopened, edited, closed]
+#   permissions:
+#     contents: read
+#     pull-requests: write
+#     packages: write
+#   jobs:
+#     preview:
+#       uses: simpros/sprout/.github/workflows/preview.yml@v0.7.0
+#       with:
+#         sprout_version: v0.7.0
+#       secrets:
+#         SPROUT_URL: ${{ secrets.SPROUT_URL }}
+#         SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
+#
+# GitHub deltas vs the GitLab component (`templates/preview.yml`):
+# - The reusable workflow cannot elevate permissions: the caller must grant
+#   `pull-requests: write` (PR comment + reset untick rewrite) plus
+#   `contents: read` (checkout) and `packages: write` (image push to ghcr.io).
+# - No file-type variables: pass dotenv blobs via the `SPROUT_APP_ENV` /
+#   `SPROUT_SEED_ENV` secrets (each capped at 48 KB by GitHub). Larger env
+#   moves into repo-relative `app_env_file` / `seed_env_file` inputs instead.
+# - No `on_stop` / `auto_stop_in` equivalent: teardown runs on `closed`, and
+#   the gateway sweep is the safety net for stranded previews.
+# - `environment: url` reads the deploy step's `preview_url` output.
+# - Like remote GitLab includes, the caller pins `sprout_version` explicitly
+#   to the tag in the `uses:` ref — the workflow never derives it.
+#
+# Contract tests: `bun test ./.github/workflows/preview.test.ts` (inputs and
+# secrets are exactly this set; `sprout_version` is required; `edited`
+# without a reset request skips the preview job before checkout/install;
+# deploy/teardown entrypoints; shell syntax of all scripts).
+
+on:
+  workflow_call:
+    inputs:
+      sprout_version:
+        description: "sprout release tag to install (e.g. v0.7.0). Set explicitly to the tag in the caller's uses: ref."
+        type: string
+        required: true
+      app_context:
+        description: "Directory holding .sprout.yaml; image builds and Dockerfile resolution run relative to it."
+        type: string
+        default: "."
+      registry:
+        description: "Container registry host for preview images. The repository defaults to the calling repo; override with image_name."
+        type: string
+        default: "ghcr.io"
+      image_name:
+        description: "Image repository without registry or tag (e.g. org/app). Empty defaults to the calling repository (lowercased)."
+        type: string
+        default: ""
+      app_env_file:
+        description: "Optional repo-relative dotenv file passed as --app-env-file (on top of the SPROUT_APP_ENV secret). Resolved against the repo root; the deploy step runs in app_context."
+        type: string
+        default: ""
+      seed_env_file:
+        description: "Optional repo-relative seed dotenv file passed as --seed-env-file (on top of the SPROUT_SEED_ENV secret). Same rule."
+        type: string
+        default: ""
+      dotenv_file:
+        description: "Repo-relative dotenv file the CLI writes PREVIEW_URL= to (also exposed as the preview_url output)."
+        type: string
+        default: "sprout-preview.env"
+      tail:
+        description: "Gateway log lines printed when sprout ci preview fails."
+        type: string
+        default: "200"
+    secrets:
+      SPROUT_URL:
+        description: "Gateway URL."
+        required: true
+      SPROUT_TOKEN:
+        description: "Deploy token scoped to the calling repo's canonical id."
+        required: true
+      SPROUT_APP_ENV:
+        description: "Optional app secrets as one dotenv blob (GitHub caps secrets at 48 KB). Written to $RUNNER_TEMP and read automatically by the CLI."
+        required: false
+      SPROUT_SEED_ENV:
+        description: "Optional seed secrets, same shape."
+        required: false
+      REGISTRY_USER:
+        description: "Registry username. Empty falls back to github.actor with GITHUB_TOKEN (fits ghcr.io)."
+        required: false
+      REGISTRY_PASSWORD:
+        description: "Registry password. Empty falls back to GITHUB_TOKEN (fits ghcr.io)."
+        required: false
+    outputs:
+      preview_url:
+        description: "Preview URL printed by sprout ci preview (empty on teardown or skipped edited runs)."
+        value: ${{ jobs.preview.outputs.preview_url }}
+
+concurrency:
+  group: sprout-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      run_heavy: ${{ steps.gate.outputs.run_heavy }}
+    steps:
+      - name: Check reset request (edited only)
+        id: reset_check
+        if: github.event.action == 'edited'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -eu
+          # Cheap pre-filter only: over-triggers by design (no fence or
+          # token validation — a fenced example rebuilds once and the CLI
+          # deploys normally). The reset contract itself is owned by
+          # parseResetRequest in apps/cli; never re-implement it here.
+          BODY="${PR_BODY:-}"
+          if printf '%s' "$BODY" | grep -qiE '^[[:space:]]*[-*][[:space:]]*\[[xX]\][[:space:]]*Sprout:[[:space:]]*reset[[:space:]][[:space:]]*preview' \
+            && printf '%s' "$BODY" | grep -q 'sprout-reset'; then
+            echo "reset_requested=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reset_requested=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute run gate
+        id: gate
+        env:
+          ACTION: ${{ github.event.action }}
+          RESET_REQUESTED: ${{ steps.reset_check.outputs.reset_requested }}
+        run: |
+          set -eu
+          if [ "$ACTION" = "edited" ] && [ "$RESET_REQUESTED" != "true" ]; then
+            echo "run_heavy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_heavy=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  preview:
+    needs: [setup]
+    if: needs.setup.outputs.run_heavy == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      preview_url: ${{ steps.deploy.outputs.preview_url }}
+    environment:
+      name: preview/pr-${{ github.event.pull_request.number }}
+      url: ${{ steps.deploy.outputs.preview_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install sprout
+        env:
+          SPROUT_VERSION: ${{ inputs.sprout_version }}
+        run: |
+          set -eu
+          if [ -z "$SPROUT_VERSION" ]; then
+            echo "sprout_version input is empty (set it explicitly to the tag in the caller's uses: ref)" >&2
+            exit 1
+          fi
+          ASSET=sprout-linux-x64
+          INSTALL_TMP="$(mktemp -d)"
+          curl -fsSL -o "$INSTALL_TMP/$ASSET" \
+            "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/$ASSET"
+          curl -fsSL -o "$INSTALL_TMP/SHA256SUMS.txt" \
+            "https://github.com/simpros/sprout/releases/download/${SPROUT_VERSION}/SHA256SUMS.txt"
+          SUM_LINE="$(grep -c " ${ASSET}$" "$INSTALL_TMP/SHA256SUMS.txt" || true)"
+          if [ "$SUM_LINE" != "1" ]; then
+            echo "checksum entry missing for $ASSET in ${SPROUT_VERSION}/SHA256SUMS.txt (release predates checksum publishing?)" >&2
+            exit 1
+          fi
+          (cd "$INSTALL_TMP" && grep " ${ASSET}$" SHA256SUMS.txt | sha256sum -c -)
+          mkdir -p "$RUNNER_TEMP/bin"
+          install -m 0755 "$INSTALL_TMP/$ASSET" "$RUNNER_TEMP/bin/sprout"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          test "$("$RUNNER_TEMP/bin/sprout" --version)" = "$SPROUT_VERSION"
+
+      - name: Log in to container registry
+        if: github.event.action != 'closed'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USER || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+
+      - name: Prepare image ref and env blobs
+        id: prep
+        if: github.event.action != 'closed'
+        env:
+          APP_ENV_BLOB: ${{ secrets.SPROUT_APP_ENV }}
+          SEED_ENV_BLOB: ${{ secrets.SPROUT_SEED_ENV }}
+        run: |
+          set -eu
+          REGISTRY="${{ inputs.registry }}"
+          IMAGE_NAME="${{ inputs.image_name }}"
+          if [ -z "$IMAGE_NAME" ]; then
+            IMAGE_NAME="${{ github.repository }}"
+          fi
+          IMAGE_NAME="$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
+          echo "CI_REGISTRY_IMAGE=${REGISTRY}/${IMAGE_NAME}" >> "$GITHUB_ENV"
+          if [ -n "${APP_ENV_BLOB:-}" ]; then
+            printf '%s' "$APP_ENV_BLOB" > "$RUNNER_TEMP/sprout-app.env"
+            echo "SPROUT_APP_ENV=$RUNNER_TEMP/sprout-app.env" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${SEED_ENV_BLOB:-}" ]; then
+            printf '%s' "$SEED_ENV_BLOB" > "$RUNNER_TEMP/sprout-seed.env"
+            echo "SPROUT_SEED_ENV=$RUNNER_TEMP/sprout-seed.env" >> "$GITHUB_ENV"
+          fi
+
+      - name: Deploy preview
+        id: deploy
+        if: github.event.action != 'closed'
+        working-directory: ${{ inputs.app_context }}
+        env:
+          SPROUT_URL: ${{ secrets.SPROUT_URL }}
+          SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          TAIL="${{ inputs.tail }}"
+          set -- --tail "$TAIL" --dotenv-file "$GITHUB_WORKSPACE/${{ inputs.dotenv_file }}"
+          if [ -n "${{ inputs.app_env_file }}" ]; then set -- "$@" --app-env-file "$GITHUB_WORKSPACE/${{ inputs.app_env_file }}"; fi
+          if [ -n "${{ inputs.seed_env_file }}" ]; then set -- "$@" --seed-env-file "$GITHUB_WORKSPACE/${{ inputs.seed_env_file }}"; fi
+          sprout ci preview "$@" | tee deploy.log
+          line="$(grep '^preview_url=' deploy.log || true)"
+          if [ -n "$line" ]; then
+            echo "preview_url=${line#preview_url=}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Teardown preview
+        if: github.event.action == 'closed'
+        working-directory: ${{ inputs.app_context }}
+        env:
+          SPROUT_URL: ${{ secrets.SPROUT_URL }}
+          SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          sprout ci teardown
