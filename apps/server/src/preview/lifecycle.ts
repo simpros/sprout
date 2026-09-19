@@ -107,6 +107,7 @@ export async function setResetRequestMarker(
 type AcceptBringUp = {
   status: "provisioning" | "seeding";
   plan: BringUpPlan;
+  mailFrom: string | undefined;
 };
 
 /** Must run under withPreviewLock; skips removing/removed rows. */
@@ -236,11 +237,11 @@ function requireDbIdentity(
   return { ok: true, value: true };
 }
 
-function planAcceptBringUp(
+function acceptBringUpPlan(
   row: PreviewRow,
   input: ProvisionInput,
   status: "failed" | "seeding" | "running" | "starting",
-): AcceptBringUp {
+): Omit<AcceptBringUp, "mailFrom"> {
   const sameApp = canSeedWithoutAppReplace(row, input);
 
   if (sameApp) {
@@ -275,6 +276,15 @@ function planAcceptBringUp(
   }
   return { status: "provisioning", plan: "full_replace" };
 }
+/** Accept branches pass the result through untouched; mailFrom rides along. */
+function planAcceptBringUp(
+  row: PreviewRow,
+  input: ProvisionInput,
+  status: "failed" | "seeding" | "running" | "starting",
+): AcceptBringUp {
+  return { ...acceptBringUpPlan(row, input, status), mailFrom: input.plan.mailFrom };
+}
+
 export async function claimDeployIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -347,10 +357,7 @@ export async function claimDeployIntent(
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
         const planned = planAcceptBringUp(row, input, "failed");
-        const next = await patchAccept(deps, row, {
-          ...planned,
-          mailFrom: input.plan.mailFrom,
-        });
+        const next = await patchAccept(deps, row, planned);
         return {
           ok: true,
           value: previewSnapshotFromRow(next),
@@ -369,10 +376,11 @@ export async function claimDeployIntent(
     case "seeding": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(deps, row, {
-        ...planAcceptBringUp(row, input, "seeding"),
-        mailFrom: input.plan.mailFrom,
-      });
+      const next = await patchAccept(
+        deps,
+        row,
+        planAcceptBringUp(row, input, "seeding"),
+      );
       return {
         ok: true,
         value: previewSnapshotFromRow(next),
@@ -382,10 +390,11 @@ export async function claimDeployIntent(
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(deps, row, {
-        ...planAcceptBringUp(row, input, status.value),
-        mailFrom: input.plan.mailFrom,
-      });
+      const next = await patchAccept(
+        deps,
+        row,
+        planAcceptBringUp(row, input, status.value),
+      );
       return {
         ok: true,
         value: previewSnapshotFromRow(next),

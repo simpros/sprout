@@ -143,5 +143,38 @@ export function normalizeMailSpec(spec: MailSpec | undefined): MailSpec {
 }
 
 export function isMailEnabled(spec: MailSpec | undefined): boolean {
-  return normalizeMailSpec(spec).mode !== "none";
+  return spec !== undefined && normalizeMailSpec(spec).mode !== "none";
+}
+
+/** Explicit-enabled mail is required: the deploy gate 500s when unconfigured. */
+export function isMailRequired(spec: MailSpec | undefined): boolean {
+  return spec !== undefined && spec.mode !== "none";
+}
+
+export type MailIdentity = {
+  slug: string;
+  prId: number;
+  /** Optional `{pr_id}` template overriding the derived From address. */
+  fromTemplate?: string;
+};
+
+/** Single resolve for a preview From identity; env and plan share it. */
+export type ResolvedMailIdentity = { address: string; name: string };
+
+/**
+ * Single substitution site for the From identity. The deploy/yaml boundary
+ * already validates the template via parseMailSpec, so this substitutes
+ * directly with no second validation and no throw.
+ */
+export function resolveMailIdentity(
+  fromDomain: string,
+  slug: string,
+  prId: number,
+  fromTemplate?: string,
+): ResolvedMailIdentity {
+  const address =
+    fromTemplate !== undefined
+      ? fromTemplate.trim().replaceAll("{pr_id}", String(prId))
+      : deriveMailFrom(slug, prId, fromDomain);
+  return { address, name: deriveMailFromName(slug, prId) };
 }

@@ -69,8 +69,8 @@ export function listPreviews(db: StateDb, mailboxUrl?: string) {
         set.status = 500;
         return { error: status.error };
       }
-      // Mailbox attaches through the same decorator as the other read
-      // edges, so the no-From ⇒ no-link invariant has a single home.
+      // Mailbox attaches through the same edge decorator as the other read
+      // paths, so the no-From ⇒ no-link invariant has a single home.
       const snap = withMailbox(previewSnapshotFromRow(row), mailboxUrl);
       listed.push({
         canonical_repo_id: row.canonicalRepoId,

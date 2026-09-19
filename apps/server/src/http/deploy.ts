@@ -1,6 +1,6 @@
 import {
   dbSpecIssueMessage,
-  isMailEnabled,
+  isMailRequired,
   isServicePort,
   mailSpecIssueMessage,
   normalizeDbSpec,
@@ -188,7 +188,7 @@ export function resolveDeployDbAndEnv(
   // gateway configures mail, silently skip when not); explicit enabled
   // means required (fail when unconfigured); none means off. Only the
   // required case can fail this gate; the plan layer never throws.
-  if (mail !== undefined && isMailEnabled(mail) && !materialization.mail) {
+  if (isMailRequired(mail) && !materialization.mail) {
     return {
       ok: false,
       status: 500,

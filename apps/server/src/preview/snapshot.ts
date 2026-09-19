@@ -5,23 +5,9 @@ import type { PreviewSnapshot, PreviewStatus } from "./types.ts";
 
 /**
  * Single home for the mailbox invariant: a preview with no From identity
- * (mail:none) never advertises the config-level mailbox link. Snapshots and
- * the list endpoint share it so the two cannot drift.
+ * (mail:none) never advertises the config-level mailbox link. Snapshots
+ * carry only stored mail_from; the HTTP edge adds the link.
  */
-export function mailFieldsFor(
-  slug: string,
-  prId: number,
-  storedFrom: string | undefined,
-  mailboxUrl?: string,
-): Pick<PreviewSnapshot, "mailbox_url" | "mail_from" | "mail_from_name"> {
-  if (storedFrom === undefined) return {};
-  return {
-    ...(mailboxUrl !== undefined ? { mailbox_url: mailboxUrl } : {}),
-    mail_from: storedFrom,
-    mail_from_name: deriveMailFromName(slug, prId),
-  };
-}
-
 export function parsePreviewStatus(status: string): Result<PreviewStatus> {
   switch (status) {
     case "provisioning":
@@ -52,7 +38,12 @@ export function previewSnapshotFromRow(row: PreviewRow): PreviewSnapshot {
     ...(parsed === "running" ? { preview_url: `https://${row.hostname}` } : {}),
     // Mail-free by construction: stored mail_from only, never the
     // config-level mailbox link. The HTTP edge applies withMailbox.
-    ...mailFieldsFor(row.slug, row.prId, effectiveFrom, undefined),
+    ...(effectiveFrom !== undefined
+      ? {
+          mail_from: effectiveFrom,
+          mail_from_name: deriveMailFromName(row.slug, row.prId),
+        }
+      : {}),
     ...(row.lastError != null ? { last_error: row.lastError } : {}),
     ...(row.lastErrorDetail != null
       ? { last_error_detail: row.lastErrorDetail }
@@ -70,13 +61,8 @@ export function withMailbox(
   snapshot: PreviewSnapshot,
   mailboxUrl: string | undefined,
 ): PreviewSnapshot {
-  return {
-    ...snapshot,
-    ...mailFieldsFor(
-      snapshot.slug,
-      snapshot.pr_id,
-      snapshot.mail_from,
-      mailboxUrl,
-    ),
-  };
+  if (snapshot.mail_from === undefined || mailboxUrl === undefined) {
+    return snapshot;
+  }
+  return { ...snapshot, mailbox_url: mailboxUrl };
 }

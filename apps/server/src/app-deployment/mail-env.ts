@@ -1,33 +1,27 @@
 import {
-  deriveMailFrom,
-  deriveMailFromName,
+  resolveMailIdentity as resolvePreviewMailIdentity,
   type MailEnvKey,
+  type MailIdentity as PreviewMailIdentity,
   type PreviewEnvMap,
+  type ResolvedMailIdentity,
 } from "@sprout/preview-env";
 import type { MailConfig } from "../config.ts";
 
-export type MailIdentity = {
-  slug: string;
-  prId: number;
-  /** Optional `{pr_id}` template overriding the derived From address. */
-  fromTemplate?: string;
-};
+export type MailIdentity = PreviewMailIdentity;
 
-/** Single resolve for a preview From identity; env and plan share it. */
-export type ResolvedMailIdentity = { address: string; name: string };
+export type { ResolvedMailIdentity };
 
+/** Thin caller over the single preview-env substitution site. */
 export function resolveMailIdentity(
   mail: MailConfig,
   identity: MailIdentity,
 ): ResolvedMailIdentity {
-  // The deploy/yaml boundary already validates the template via
-  // parseMailSpec, so by the time identity resolves here it is known-valid:
-  // substitute directly with no second validation and no throw.
-  const address =
-    identity.fromTemplate !== undefined
-      ? identity.fromTemplate.trim().replaceAll("{pr_id}", String(identity.prId))
-      : deriveMailFrom(identity.slug, identity.prId, mail.fromDomain);
-  return { address, name: deriveMailFromName(identity.slug, identity.prId) };
+  return resolvePreviewMailIdentity(
+    mail.fromDomain,
+    identity.slug,
+    identity.prId,
+    identity.fromTemplate,
+  );
 }
 
 export function mailConnectionEnv(

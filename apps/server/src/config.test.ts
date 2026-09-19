@@ -449,27 +449,24 @@ describe("loadConfig", () => {
     );
   });
 
-  test("mail defaulted keys alone mean no mail config", () => {
+  test("mail port or domain alone count as intent and fail naming the host", () => {
     clearGatewayEnv();
     process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
     process.env.SPROUT_MAIL_PORT = "1025";
+    expect(() => loadConfig()).toThrow(
+      "Incomplete mail configuration: missing SPROUT_MAIL_HOST",
+    );
+    delete process.env.SPROUT_MAIL_PORT;
     process.env.SPROUT_MAIL_FROM_DOMAIN = "preview.invalid";
-    expect(loadConfig().mail).toBeUndefined();
+    expect(() => loadConfig()).toThrow(
+      "Incomplete mail configuration: missing SPROUT_MAIL_HOST",
+    );
   });
 
   test("mail intent without host fails fast naming the host", () => {
     clearGatewayEnv();
     process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
     process.env.SPROUT_MAIL_USER = "u";
-    expect(() => loadConfig()).toThrow(
-      "Incomplete mail configuration: missing SPROUT_MAIL_HOST",
-    );
-  });
-
-  test("mail non-default port alone counts as intent and fails naming the host", () => {
-    clearGatewayEnv();
-    process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
-    process.env.SPROUT_MAIL_PORT = "9999";
     expect(() => loadConfig()).toThrow(
       "Incomplete mail configuration: missing SPROUT_MAIL_HOST",
     );

@@ -60,11 +60,13 @@ function resolveMailPart(
   networks: string[];
   mailFrom?: string;
 } {
-  if (!isMailEnabled(input.mail)) return { env: [], networks: [] };
+  if (input.mail !== undefined && !isMailEnabled(input.mail)) {
+    return { env: [], networks: [] };
+  }
   const configured = ctx.mail;
-  // Pre-gated invariant: the deploy boundary rejects explicit-enabled mail
-  // without gateway config, so an unconfigured gateway here means the
-  // request omitted mail (opportunistic) — skip silently, never throw.
+  // Omitted mail is opportunistic (inject when configured, skip when not);
+  // explicit-enabled without config is rejected by the deploy gate, so an
+  // unconfigured gateway here always means skip, never throw.
   if (!configured) return { env: [], networks: [] };
   const identity = {
     slug: input.slug,

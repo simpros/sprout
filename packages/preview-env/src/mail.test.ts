@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   deriveMailFrom,
   deriveMailFromName,
+  isMailEnabled,
+  isMailRequired,
   parseMailSpec,
   resolveMailFrom,
+  resolveMailIdentity,
   validateMailFromTemplate,
 } from "./mail.ts";
 
@@ -76,5 +79,29 @@ describe("mail.from template", () => {
 
   test("rejects templates without a dotted domain", () => {
     expect(validateMailFromTemplate("a+{pr_id}@b").ok).toBe(false);
+  });
+
+  test("omitted mail is neither enabled nor required", () => {
+    expect(isMailEnabled(undefined)).toBe(false);
+    expect(isMailRequired(undefined)).toBe(false);
+    expect(isMailEnabled({ mode: "enabled" })).toBe(true);
+    expect(isMailRequired({ mode: "enabled" })).toBe(true);
+    expect(isMailEnabled({ mode: "none" })).toBe(false);
+    expect(isMailRequired({ mode: "none" })).toBe(false);
+  });
+
+  test("resolveMailIdentity substitutes once for derived and template forms", () => {
+    expect(resolveMailIdentity("preview.invalid", "myapp", 42)).toEqual({
+      address: "myapp-pr42@preview.invalid",
+      name: "myapp PR 42",
+    });
+    expect(
+      resolveMailIdentity(
+        "preview.invalid",
+        "myapp",
+        42,
+        "noreply+{pr_id}@preview.invalid",
+      ),
+    ).toEqual({ address: "noreply+42@preview.invalid", name: "myapp PR 42" });
   });
 });
