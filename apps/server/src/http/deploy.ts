@@ -40,7 +40,7 @@ import {
   validatePreviewIdentity,
   validateServiceName,
 } from "../preview-db/names.ts";
-import { mapResult, requirePreviewWriteTarget, requireReadablePreview, resolveRepo } from "./result-map.ts";
+import { mapResult, requirePreviewTarget, requireReadablePreview } from "./result-map.ts";
 
 const healthBody = t.Object({
   path: t.String({ minLength: 1 }),
@@ -345,13 +345,13 @@ export function deploy(
     auth: AuthContext | null;
     set: { status?: number | string };
   }): Promise<PreviewSnapshot | { error: string; detail?: string }> => {
-    if (!auth) {
-      set.status = 401;
-      return { error: "unauthorized" };
-    }
-    const repo = resolveRepo(auth, body.canonical_repo_id);
-    if (!repo.ok) return mapResult(repo, set);
-    const identityErr = validatePreviewIdentity(body.slug, body.pr_id);
+    const target = requirePreviewTarget(
+      auth,
+      body.canonical_repo_id,
+      body.pr_id,
+    );
+    if (!target.ok) return mapResult(target, set);
+    const identityErr = validatePreviewIdentity(body.slug, target.value.prId);
     if (identityErr) {
       set.status = 422;
       return { error: identityErr };
@@ -361,7 +361,7 @@ export function deploy(
       set.status = 422;
       return { error: "invalid_hostname" };
     }
-    const dbAndEnv = resolveDeployDbAndEnv(body, deps.materialization, repo.value);
+    const dbAndEnv = resolveDeployDbAndEnv(body, deps.materialization, target.value.repo);
     if (!dbAndEnv.ok) {
       set.status = dbAndEnv.status;
       return dbAndEnv.detail
@@ -371,7 +371,7 @@ export function deploy(
     const plan = resolvePreviewPlan(deps.materialization, {
       spec: dbAndEnv.value.spec,
       slug: body.slug,
-      prId: body.pr_id,
+      prId: target.value.prId,
       connectionEnv: dbAndEnv.value.connectionEnv,
     });
     const seed = resolveSeedRequest(body, dbAndEnv.value.spec.provider);
@@ -398,8 +398,8 @@ export function deploy(
     }
 
     const input = {
-      repo: repo.value,
-      prId: body.pr_id,
+      repo: target.value.repo,
+      prId: target.value.prId,
       slug: body.slug,
       hostname,
       appImage: body.app_image,
@@ -455,7 +455,7 @@ export function teardown(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    const target = requirePreviewWriteTarget(
+    const target = requirePreviewTarget(
       auth,
       body.canonical_repo_id,
       body.pr_id,
@@ -482,7 +482,7 @@ export function setResetMarker(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    const target = requirePreviewWriteTarget(
+    const target = requirePreviewTarget(
       auth,
       body.canonical_repo_id,
       body.pr_id,

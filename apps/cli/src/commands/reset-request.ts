@@ -35,17 +35,45 @@ function trackFence(inFence: Fence | null, line: string): {
   return { state: inFence, isFence: true };
 }
 
-/** Lines outside fenced code blocks; fence delimiters excluded. */
-function visibleLines(body: string): string[] {
-  const out: string[] = [];
+/** Single fence-aware walk; the only place the toggle lives. */
+function walkLines(
+  body: string,
+  visit: (line: string, visible: boolean) => void,
+): void {
   let inFence: Fence | null = null;
   for (const line of body.split("\n")) {
     const tracked = trackFence(inFence, line);
     inFence = tracked.state;
-    if (tracked.isFence || inFence !== null) continue;
-    out.push(line);
+    visit(line, !tracked.isFence && inFence === null);
   }
+}
+
+/** Lines outside fenced code blocks; fence delimiters excluded. */
+function visibleLines(body: string): string[] {
+  const out: string[] = [];
+  walkLines(body, (line, visible) => {
+    if (visible) out.push(line);
+  });
   return out;
+}
+
+/** Rewrite visible lines; fences and hidden lines pass through untouched. */
+function rewriteVisibleLines(
+  body: string,
+  fn: (line: string) => string,
+): string | null {
+  let changed = false;
+  const out: string[] = [];
+  walkLines(body, (line, visible) => {
+    if (!visible) {
+      out.push(line);
+      return;
+    }
+    const next = fn(line);
+    if (next !== line) changed = true;
+    out.push(next);
+  });
+  return changed ? out.join("\n") : null;
 }
 
 /** Drop fenced code blocks so ticks/markers in examples never fire. */
@@ -79,21 +107,13 @@ export function parseResetRequest(
 
 /** Flip ticked reset boxes back to unticked, preserving the marker. */
 export function untickResetBox(body: string): string | null {
-  const lines = body.split("\n");
-  let inFence: Fence | null = null;
-  let changed = false;
-  const next = lines.map((line) => {
-    const tracked = trackFence(inFence, line);
-    inFence = tracked.state;
-    if (tracked.isFence || inFence !== null) return line;
+  return rewriteVisibleLines(body, (line) => {
     const box = ANY_BOX_RE.exec(line);
     if (box && (box[2] === "x" || box[2] === "X")) {
-      changed = true;
       return `${box[1]} ${box[3]}`;
     }
     return line;
   });
-  return changed ? next.join("\n") : null;
 }
 
 function isTruncated(env: NodeJS.ProcessEnv): boolean {
@@ -174,5 +194,28 @@ export async function recordHandledMarker(
   });
   const result = readEden<unknown>(response);
   if (!result.ok) return { ok: false, error: result.message };
+  return { ok: true, value: undefined };
+}
+
+/**
+ * Exactly-once bookkeeping shared by `ci preview` and `ci reset`: record
+ * the marker, then best-effort untick the PR body with a warning.
+ */
+export async function markResetRequestHandled(
+  deps: CliDeps,
+  client: ApiClient,
+  identity: CiIdentity,
+  rawBody: string | null,
+  marker: string,
+): Promise<Result<void>> {
+  const marked = await recordHandledMarker(client, identity, marker);
+  if (!marked.ok) return marked;
+  if (!rawBody) return { ok: true, value: undefined };
+  // Lazy import: forge-note statically imports this module for untickResetBox.
+  const { untickGithubResetBox } = await import("./forge-note.ts");
+  const unticked = await untickGithubResetBox(deps, identity, rawBody);
+  if (!unticked.ok) {
+    deps.io.stderr(`warning: ${unticked.error}`);
+  }
   return { ok: true, value: undefined };
 }

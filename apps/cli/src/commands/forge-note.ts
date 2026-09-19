@@ -107,6 +107,31 @@ function repoPathFromCanonical(repo: string, host: string): string | null {
   }
 }
 
+function githubWriteHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+}
+
+/** GitHub-only narrowing of resolveForgeTarget for PR-body writes. */
+function resolveGithubTarget(
+  env: NodeJS.ProcessEnv,
+  identity: CiIdentity,
+): Result<{ skipped: true } | { skipped: false; target: GithubTarget }> {
+  const resolved = resolveForgeTarget(env, identity);
+  if (!resolved.ok) return resolved;
+  if (resolved.value.skipped) {
+    return { ok: true, value: { skipped: true } };
+  }
+  const target = resolved.value.target;
+  if (target.forge !== "github") {
+    return { ok: true, value: { skipped: true } };
+  }
+  return { ok: true, value: { skipped: false, target } };
+}
+
 function resolveForgeTarget(
   env: NodeJS.ProcessEnv,
   identity: CiIdentity,
@@ -259,11 +284,7 @@ function adapterForTarget(target: ForgeTarget): ForgeAdapter {
       },
     };
   }
-  const headers = {
-    Authorization: `Bearer ${target.token}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
+  const headers = githubWriteHeaders(target.token);
   const collection =
     `${target.base}/repos/${target.repoPath}/issues/${target.prId}/comments`;
   return {
@@ -404,11 +425,10 @@ export async function untickGithubResetBox(
   if (identity.forge !== "github") return { ok: true, value: undefined };
   const unticked = untickResetBox(body);
   if (!unticked) return { ok: true, value: undefined };
-  const resolved = resolveForgeTarget(deps.env, identity);
+  const resolved = resolveGithubTarget(deps.env, identity);
   if (!resolved.ok) return resolved;
   if (resolved.value.skipped) return { ok: true, value: undefined };
   const target = resolved.value.target;
-  if (target.forge !== "github") return { ok: true, value: undefined };
   const res = await forgeRequest(
     fetchFn(deps),
     "GitHub PR body rewrite",
@@ -416,9 +436,7 @@ export async function untickGithubResetBox(
     {
       method: "PATCH",
       headers: {
-        Authorization: `Bearer ${target.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
+        ...githubWriteHeaders(target.token),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ body: unticked }),

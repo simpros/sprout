@@ -20,8 +20,8 @@ export function resolveRepo(
   return { ok: true, value: requested };
 }
 
-/** Shared auth + repo + pr guard for preview write endpoints. */
-export function requirePreviewWriteTarget(
+/** Shared auth + repo + pr guard for preview endpoints. */
+export function requirePreviewTarget(
   auth: AuthContext | null,
   repoId: string,
   prId: number,
@@ -44,7 +44,7 @@ export async function requireReadablePreviewRow(
   repoId: string,
   prRaw: string | number,
 ): Promise<Result<PreviewRow>> {
-  const target = requirePreviewWriteTarget(auth, repoId, Number(prRaw));
+  const target = requirePreviewTarget(auth, repoId, Number(prRaw));
   if (!target.ok) return target;
   const row = await getPreviewRow(deps.db, target.value.repo, target.value.prId);
   return gateReadablePreviewRow(row);

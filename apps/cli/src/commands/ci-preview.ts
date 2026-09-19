@@ -2,13 +2,13 @@ import type { CliContext } from "../context.ts";
 import { fail } from "../context.ts";
 import type { CiPreviewIdentity } from "./ci-identity.ts";
 import { runCiDeploy, type CiDeployPolicy } from "./ci-deploy.ts";
-import { publishPreviewNote, untickGithubResetBox } from "./forge-note.ts";
+import { publishPreviewNote } from "./forge-note.ts";
 import { buildAndPush } from "./image-build.ts";
 import {
   fetchHandledMarker,
+  markResetRequestHandled,
   parseResetRequest,
   readResetRequestBody,
-  recordHandledMarker,
 } from "./reset-request.ts";
 import { ensureSeedImage } from "./seed-image.ts";
 import { teardownPreview } from "./teardown.ts";
@@ -59,13 +59,13 @@ export async function runCiPreview(
   const code = await runCiDeploy(identity, tokens, ctx, policy);
   if (code !== 0) return code;
 
-  const marked = await recordHandledMarker(ctx.client, identity, marker);
+  const marked = await markResetRequestHandled(
+    ctx.deps,
+    ctx.client,
+    identity,
+    raw.value,
+    marker,
+  );
   if (!marked.ok) return fail(ctx.deps.io, marked.error);
-  if (raw.value) {
-    const unticked = await untickGithubResetBox(ctx.deps, identity, raw.value);
-    if (!unticked.ok) {
-      ctx.deps.io.stderr(`warning: ${unticked.error}`);
-    }
-  }
   return 0;
 }
