@@ -2,6 +2,7 @@ import type {
   TraefikForwardAuth,
   TraefikTls,
 } from "./app-deployment/labels.ts";
+import { DEFAULT_MAIL_FROM_DOMAIN } from "@sprout/preview-env";
 import { GITHUB_HOSTS } from "./forge/kind.ts";
 import {
   buildRegistryPullAuth,
@@ -28,8 +29,6 @@ export const MAIL_ENV_KEYS = [
   "SPROUT_MAIL_UI_URL",
   "SPROUT_MAIL_FROM_DOMAIN",
 ] as const;
-
-export const MAIL_DEFAULT_FROM_DOMAIN = "preview.invalid";
 
 export const OPTIONAL_ENV_DEFAULTS = {
   SPROUT_PG_PORT: 5432,
@@ -166,7 +165,7 @@ function parseMailConfig(): MailConfig | undefined {
     host,
     port: parsePositiveInt(
       "SPROUT_MAIL_PORT",
-      process.env.SPROUT_MAIL_PORT,
+      portRaw === "" ? undefined : portRaw,
       OPTIONAL_ENV_DEFAULTS.SPROUT_MAIL_PORT,
     ),
     ...(user === "" ? {} : { user }),
@@ -174,7 +173,7 @@ function parseMailConfig(): MailConfig | undefined {
     secure: parseMailSecure(secureRaw),
     ...(network === "" ? {} : { network }),
     ...(uiUrl === "" ? {} : { uiUrl }),
-    fromDomain: fromDomainRaw === "" ? MAIL_DEFAULT_FROM_DOMAIN : fromDomainRaw,
+    fromDomain: fromDomainRaw === "" ? DEFAULT_MAIL_FROM_DOMAIN : fromDomainRaw,
   };
 }
 

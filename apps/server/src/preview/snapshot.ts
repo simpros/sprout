@@ -12,6 +12,34 @@ export type MailPresentation = {
   mailboxUrl?: string;
 };
 
+/** Route-layer constructor: a configured UI link becomes snapshot presentation. */
+export function mailPresentationOf(
+  uiUrl: string | undefined,
+): MailPresentation | undefined {
+  return uiUrl !== undefined ? { mailboxUrl: uiUrl } : undefined;
+}
+
+/**
+ * Single home for the mailbox invariant: a preview with no From identity
+ * (mail:none) never advertises the config-level mailbox link. Snapshots and
+ * the list endpoint share it so the two cannot drift.
+ */
+export function mailFieldsFor(
+  slug: string,
+  prId: number,
+  storedFrom: string | undefined,
+  mail?: MailPresentation,
+): Pick<PreviewSnapshot, "mailbox_url" | "mail_from" | "mail_from_name"> {
+  if (storedFrom === undefined) return {};
+  return {
+    ...(mail?.mailboxUrl !== undefined
+      ? { mailbox_url: mail.mailboxUrl }
+      : {}),
+    mail_from: storedFrom,
+    mail_from_name: deriveMailFromName(slug, prId),
+  };
+}
+
 export function parsePreviewStatus(status: string): Result<PreviewStatus> {
   switch (status) {
     case "provisioning":
@@ -39,11 +67,6 @@ export function previewSnapshotFromRow(
   const status = parsePreviewStatus(row.status);
   const parsed = status.ok ? status.value : "failed";
   const effectiveFrom = row.mailFrom ?? undefined;
-  const effectiveName =
-    effectiveFrom !== undefined
-      ? deriveMailFromName(row.slug, row.prId)
-      : undefined;
-  const mailboxUrl = mail?.mailboxUrl;
   return {
     ok: true,
     canonical_repo_id: row.canonicalRepoId,
@@ -53,13 +76,7 @@ export function previewSnapshotFromRow(
     hostname: row.hostname,
     status: parsed,
     ...(parsed === "running" ? { preview_url: `https://${row.hostname}` } : {}),
-    // The mailbox link is config-level, but a preview with no From identity
-    // (mail:none) must not advertise it.
-    ...(mailboxUrl !== undefined && effectiveFrom !== undefined
-      ? { mailbox_url: mailboxUrl }
-      : {}),
-    ...(effectiveFrom !== undefined ? { mail_from: effectiveFrom } : {}),
-    ...(effectiveName !== undefined ? { mail_from_name: effectiveName } : {}),
+    ...mailFieldsFor(row.slug, row.prId, effectiveFrom, mail),
     ...(row.lastError != null ? { last_error: row.lastError } : {}),
     ...(row.lastErrorDetail != null
       ? { last_error_detail: row.lastErrorDetail }

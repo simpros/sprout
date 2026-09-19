@@ -1,4 +1,5 @@
 import {
+  isMailEnabled,
   requiresDatabase,
   sqliteDatabaseUrl,
   type DbProvider,
@@ -33,6 +34,8 @@ export type PreviewMaterializationCtx = {
  * Concrete materialization resolved once at the deploy boundary.
  * Lifecycle and app-deployment consume the plan; raw DbSpec never travels.
  * dbName is the owned backend resource name, null when there is none.
+ * The plan carries only container inputs; mailbox presentation stays at the
+ * route layer and travels as a separate snapshot argument.
  */
 export type PreviewDbPlan = {
   provider: DbProvider;
@@ -41,9 +44,7 @@ export type PreviewDbPlan = {
   volumes: string[];
   appNetworks: string[];
   seedNetworks: string[];
-  mailboxUrl?: string;
   mailFrom?: string;
-  mailFromName?: string;
 };
 
 function resolveMailPart(
@@ -57,11 +58,9 @@ function resolveMailPart(
 ): {
   env: string[];
   networks: string[];
-  mailboxUrl?: string;
   mailFrom?: string;
-  mailFromName?: string;
 } {
-  if (input.mail?.mode === "none") return { env: [], networks: [] };
+  if (!isMailEnabled(input.mail)) return { env: [], networks: [] };
   const configured = ctx.mail;
   if (!configured) {
     if (input.mail === undefined) return { env: [], networks: [] };
@@ -72,16 +71,13 @@ function resolveMailPart(
     prId: input.prId,
     ...(input.mail?.from !== undefined ? { fromTemplate: input.mail.from } : {}),
   };
-  const env = mailConnectionEnv(configured, input.connectionEnv, identity);
-  const networks = configured.network ? [configured.network] : [];
-  const mailboxUrl = configured.uiUrl;
   const resolved = resolveMailIdentity(configured, identity);
+  const env = mailConnectionEnv(configured, input.connectionEnv, resolved);
+  const networks = configured.network ? [configured.network] : [];
   return {
     env,
     networks,
-    ...(mailboxUrl !== undefined ? { mailboxUrl } : {}),
     mailFrom: resolved.address,
-    mailFromName: resolved.name,
   };
 }
 
@@ -105,7 +101,7 @@ export function resolvePreviewPlan(
         : null;
   const mailPart = resolveMailPart(ctx, input);
   const withMail = (
-    base: Omit<PreviewDbPlan, "mailboxUrl" | "mailFrom" | "mailFromName">,
+    base: Omit<PreviewDbPlan, "mailFrom">,
   ): PreviewDbPlan => ({
     ...base,
     gatewayEnv: [...base.gatewayEnv, ...mailPart.env],
@@ -117,13 +113,7 @@ export function resolvePreviewPlan(
       mailPart.networks.length > 0 && base.seedNetworks.length > 0
         ? [...base.seedNetworks, ...mailPart.networks]
         : base.seedNetworks,
-    ...(mailPart.mailboxUrl !== undefined
-      ? { mailboxUrl: mailPart.mailboxUrl }
-      : {}),
     ...(mailPart.mailFrom !== undefined ? { mailFrom: mailPart.mailFrom } : {}),
-    ...(mailPart.mailFromName !== undefined
-      ? { mailFromName: mailPart.mailFromName }
-      : {}),
   });
   if (input.spec.provider === "none") {
     return withMail({

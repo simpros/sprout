@@ -45,10 +45,12 @@ export function toMaterializationMail(cfg: MailConfig): MaterializationMail {
 }
 
 /** Single resolve+throw for a preview From identity; env and plan share it. */
+export type ResolvedMailIdentity = { address: string; name: string };
+
 export function resolveMailIdentity(
   mail: AppDeployMail,
   identity: MailIdentity,
-): { address: string; name: string } {
+): ResolvedMailIdentity {
   // Templates are validated at the deploy/yaml boundary, so a failure
   // here is a bug: fail loudly instead of sending from the wrong address.
   const address =
@@ -67,7 +69,8 @@ export function resolveMailIdentity(
 export function mailConnectionEnv(
   mail: AppDeployMail,
   connectionEnv?: PreviewEnvMap,
-  identity?: MailIdentity,
+  /** Already-resolved identity; callers resolve once via resolveMailIdentity. */
+  resolved?: ResolvedMailIdentity,
 ): string[] {
   const fields: [MailEnvKey, string][] = [
     ["MAILHOST", mail.host],
@@ -79,8 +82,7 @@ export function mailConnectionEnv(
   if (mail.uiUrl !== undefined && mail.uiUrl !== "") {
     fields.push(["MAILUIURL", mail.uiUrl]);
   }
-  if (identity !== undefined) {
-    const resolved = resolveMailIdentity(mail, identity);
+  if (resolved !== undefined) {
     fields.push(["MAILFROM", resolved.address]);
     fields.push(["MAILFROMNAME", resolved.name]);
     fields.push(["MAILREPLYTO", resolved.address]);

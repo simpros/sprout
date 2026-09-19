@@ -8,6 +8,7 @@ import {
   type LifecycleDeps,
 } from "../preview/lifecycle.ts";
 import {
+  mailFieldsFor,
   parsePreviewStatus,
   type MailPresentation,
 } from "../preview/snapshot.ts";
@@ -24,6 +25,7 @@ export type ListedPreview = {
   created_at: string;
   mailbox_url?: string;
   mail_from?: string;
+  mail_from_name?: string;
 };
 
 export type DoctorOrphan =
@@ -76,10 +78,7 @@ export function listPreviews(db: StateDb, mail?: MailPresentation) {
         hostname: row.hostname,
         status: toDisplayStatus(status.value),
         created_at: row.createdAt,
-        ...(mail?.mailboxUrl !== undefined && storedFrom !== undefined
-          ? { mailbox_url: mail.mailboxUrl }
-          : {}),
-        ...(storedFrom !== undefined ? { mail_from: storedFrom } : {}),
+        ...mailFieldsFor(row.slug, row.prId, storedFrom, mail),
       });
     }
 

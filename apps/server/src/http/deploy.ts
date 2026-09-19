@@ -1,5 +1,6 @@
 import {
   dbSpecIssueMessage,
+  isMailEnabled,
   isServicePort,
   mailSpecIssueMessage,
   normalizeDbSpec,
@@ -32,7 +33,10 @@ import {
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
-import type { MailPresentation } from "../preview/snapshot.ts";
+import type {
+  MailPresentation,
+} from "../preview/snapshot.ts";
+import { mailPresentationOf } from "../preview/snapshot.ts";
 import {
   resolvePreviewPlan,
   type PreviewMaterializationCtx,
@@ -183,7 +187,9 @@ export function resolveDeployDbAndEnv(
     };
   }
   const mail = mailParsed.value;
-  if (mail?.mode === "enabled" && !materialization.mail) {
+  // Omitted mail is the default (mail when configured, silent skip when not);
+  // only an explicit enabled spec can fail the gateway gate.
+  if (mail !== undefined && isMailEnabled(mail) && !materialization.mail) {
     return {
       ok: false,
       status: 500,
@@ -447,12 +453,13 @@ export function deploy(
     };
 
     // 202 before pull/health/seed so Cloudflare (~100s) cannot kill the POST.
-    const accepted = await acceptAsyncDeploy(deps, input);
+    const mail = mailPresentationOf(deps.materialization.mail?.uiUrl);
+    const accepted = await acceptAsyncDeploy(deps, input, mail);
     if (!accepted.ok) return mapResult(accepted, set);
 
     set.status = 202;
     if (accepted.value.launch) {
-      void runAsyncDeploy(deps, input);
+      void runAsyncDeploy(deps, input, mail);
     }
     return accepted.value.snapshot;
   };

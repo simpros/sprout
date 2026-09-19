@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mailConnectionEnv, type AppDeployMail } from "./mail-env.ts";
+import {
+  mailConnectionEnv,
+  resolveMailIdentity,
+  type AppDeployMail,
+} from "./mail-env.ts";
 import { withGatewayConnectionEnv } from "./pg-env.ts";
 
 const mail: AppDeployMail = {
@@ -23,7 +27,8 @@ describe("mailConnectionEnv", () => {
   });
 
   test("identity adds derived From/FromName/ReplyTo", () => {
-    expect(mailConnectionEnv(mail, undefined, identity)).toEqual([
+    const resolved = resolveMailIdentity(mail, identity);
+    expect(mailConnectionEnv(mail, undefined, resolved)).toEqual([
       "MAILHOST=mailpit",
       "MAILPORT=1025",
       "MAILUSER=mailpit",
@@ -35,12 +40,13 @@ describe("mailConnectionEnv", () => {
   });
 
   test("from template override resolves per preview", () => {
-    expect(
-      mailConnectionEnv(mail, undefined, {
-        ...identity,
-        fromTemplate: "noreply+{pr_id}@preview.invalid",
-      }),
-    ).toContain("MAILFROM=noreply+42@preview.invalid");
+    const resolved = resolveMailIdentity(mail, {
+      ...identity,
+      fromTemplate: "noreply+{pr_id}@preview.invalid",
+    });
+    expect(mailConnectionEnv(mail, undefined, resolved)).toContain(
+      "MAILFROM=noreply+42@preview.invalid",
+    );
   });
 
   test("secure and uiUrl only emit when configured", () => {

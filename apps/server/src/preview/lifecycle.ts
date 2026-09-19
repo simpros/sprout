@@ -277,15 +277,11 @@ function planAcceptBringUp(
   }
   return { status: "provisioning", plan: "full_replace" };
 }
-/** Config-level mailbox link for a snapshot; From is read from the row. */
-function mailboxOf(plan: ProvisionInput["plan"]): MailPresentation | undefined {
-  return plan.mailboxUrl !== undefined
-    ? { mailboxUrl: plan.mailboxUrl }
-    : undefined;
-}
 export async function claimDeployIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
+  /** Route-layer presentation; the plan carries only container inputs. */
+  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   const requestedDbName = input.plan.dbName;
   const row = await getPreviewRow(deps.db, input.repo, input.prId);
@@ -310,7 +306,7 @@ export async function claimDeployIntent(
     }
     return {
       ok: true,
-      value: previewSnapshotFromRow(inserted, mailboxOf(input.plan)),
+      value: previewSnapshotFromRow(inserted, mail),
     };
   }
 
@@ -330,7 +326,7 @@ export async function claimDeployIntent(
     const intent = await writeProvisioningIntent(deps, input, intentDbName);
     return {
       ok: true,
-      value: previewSnapshotFromRow(intent, mailboxOf(input.plan)),
+      value: previewSnapshotFromRow(intent, mail),
     };
   }
 
@@ -349,7 +345,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(intent, mailboxOf(input.plan)),
+        value: previewSnapshotFromRow(intent, mail),
       };
     }
     case "failed": {
@@ -358,7 +354,7 @@ export async function claimDeployIntent(
         const next = await patchAccept(deps, row, planned, input.plan);
         return {
           ok: true,
-          value: previewSnapshotFromRow(next, mailboxOf(input.plan)),
+          value: previewSnapshotFromRow(next, mail),
         };
       }
       const intent = await writeProvisioningIntent(
@@ -368,7 +364,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(intent, mailboxOf(input.plan)),
+        value: previewSnapshotFromRow(intent, mail),
       };
     }
     case "seeding": {
@@ -382,7 +378,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(next, mailboxOf(input.plan)),
+        value: previewSnapshotFromRow(next, mail),
       };
     }
     case "running":
@@ -397,7 +393,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(next, mailboxOf(input.plan)),
+        value: previewSnapshotFromRow(next, mail),
       };
     }
     case "provisioning": {
@@ -416,7 +412,7 @@ export async function claimDeployIntent(
       );
       return {
         ok: true,
-        value: previewSnapshotFromRow(next, mailboxOf(input.plan)),
+        value: previewSnapshotFromRow(next, mail),
       };
     }
   }
@@ -425,6 +421,7 @@ export async function claimDeployIntent(
 async function completeProvisionUnlocked(
   deps: LifecycleDeps,
   input: ProvisionInput,
+  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   const row = await getPreviewRow(deps.db, input.repo, input.prId);
   if (!row) {
@@ -444,7 +441,7 @@ async function completeProvisionUnlocked(
   if (status.value === "removed") {
     return { ok: false, status: 404, error: "preview_not_found" };
   }
-  return completeBringUp(deps, row, input);
+  return completeBringUp(deps, row, input, mail);
 }
 
 type DestroyDisposition = "tombstone" | "purge";
@@ -548,6 +545,7 @@ async function teardownUnlocked(
 export async function provisionPreview(
   deps: LifecycleDeps,
   input: ProvisionInput,
+  mail?: MailPresentation,
 ): Promise<Result<PreviewSnapshot>> {
   const pull = await pullImagesOutsideLock(deps, input);
   return withPreviewLock(input.repo, input.prId, async () => {
@@ -561,7 +559,7 @@ export async function provisionPreview(
       );
       return pull;
     }
-    return completeProvisionUnlocked(deps, input);
+    return completeProvisionUnlocked(deps, input, mail);
   });
 }
 

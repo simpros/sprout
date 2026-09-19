@@ -105,7 +105,6 @@ describe("resolvePreviewPlan mail", () => {
       mail: { mode: "none" },
     });
     expect(plan.gatewayEnv).not.toContain("MAILHOST=mailpit");
-    expect(plan.mailboxUrl).toBeUndefined();
     expect(plan.mailFrom).toBeUndefined();
   });
 
@@ -144,7 +143,6 @@ describe("resolvePreviewPlan mail", () => {
       "mailnet",
     ]);
     expect(withNet.seedNetworks).toEqual(["sprout-postgres", "mailnet"]);
-    expect(withNet.mailboxUrl).toBe("https://mail.example.com");
     expect(withNet.gatewayEnv).toContain("MAILSECURE=true");
     expect(withNet.gatewayEnv).toContain(
       "MAILUIURL=https://mail.example.com",
@@ -160,7 +158,6 @@ describe("resolvePreviewPlan mail", () => {
       "sprout-traefik",
       "sprout-postgres",
     ]);
-    expect(withoutNet.mailboxUrl).toBeUndefined();
   });
 
   test("MAILFROM derives per preview and remaps", () => {
@@ -174,7 +171,6 @@ describe("resolvePreviewPlan mail", () => {
     expect(plan.gatewayEnv).toContain("MAILFROMNAME=myapp PR 42");
     expect(plan.gatewayEnv).toContain("MAILREPLYTO=myapp-pr42@preview.invalid");
     expect(plan.mailFrom).toBe("myapp-pr42@preview.invalid");
-    expect(plan.mailFromName).toBe("myapp PR 42");
 
     const remapped = resolvePreviewPlan(ctxWithMail(), {
       spec: defaultDbSpec(),
