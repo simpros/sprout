@@ -390,6 +390,53 @@ After the wildcard is in the store:
 
 Acceptance from [#105](https://github.com/simpros/sprout/issues/105): new preview deploys order zero LE certificates (store hit); ACME storage survives Traefik restarts/upgrades; renewal observed or staging dry-run verified.
 
+## Preview mail (Mailpit)
+
+The reference compose stack ships a Mailpit service for preview mail, and
+the gateway joins its `mail` network (`SPROUT_MAIL_NETWORK`, default
+`sprout-mail`). Preview app, companion-service, and seed containers
+receive the canonical `MAIL*` env (see the adoption guide) and join that
+network, so they reach Mailpit by hostname. Mail is never provisioned per
+preview: one shared Mailpit, one shared inbox for the whole gateway.
+
+Pointing at an external Mailpit (a Mailpit running outside the preview
+networks, or a long-lived instance shared across environments):
+
+1. Set `SPROUT_MAIL_HOST` to the hostname preview containers use to reach
+   it on `SPROUT_MAIL_NETWORK` — a container-network DNS name, mirroring
+   how `SPROUT_PG_HOST` names Postgres. That is often different from the
+   host an operator's browser uses.
+2. Set `SPROUT_MAIL_NETWORK` to the Docker network Mailpit is attached
+   to (create it first if needed). Preview app containers join it
+   alongside Traefik (+ Postgres for `postgres` previews); seed
+   containers join it whenever a seed can run.
+3. Set `SPROUT_MAIL_UI_URL` to the inbox URL humans open (surfaced in the
+   MR note, `sprout list`, and deploy output).
+4. Leave `SPROUT_MAIL_PORT` at `1025` unless the instance listens
+   elsewhere; leave `SPROUT_MAIL_USER` / `SPROUT_MAIL_PASSWORD` empty
+   when Mailpit accepts any credentials (the bundled service does —
+   `MP_SMTP_AUTH_ACCEPT_ANY=1`), otherwise set both.
+
+Unset group = no mail: with no `SPROUT_MAIL_*` set, previews deploy
+without mail env. Setting any of them without `SPROUT_MAIL_HOST` fails
+gateway boot (`Incomplete mail configuration: missing SPROUT_MAIL_HOST`).
+
+### How the mailbox is protected
+
+The bundled compose publishes Mailpit's UI (`8025`) and SMTP (`1025`) on
+host ports for local smoke. In production, treat the mailbox as internal:
+
+- Put basic auth on the Mailpit UI and API with Mailpit's own knobs
+  (`MP_UI_AUTH` as `user:password`, or `MP_UI_AUTH_FILE` pointing at a
+  file holding it) and restrict serving with `MP_ALLOWED_HOSTS` — see the
+  Mailpit docs for exact semantics.
+- Do not publish the SMTP port beyond the preview networks; previews
+  reach it over `SPROUT_MAIL_NETWORK`, browsers need only the UI.
+- Never use a preview to send real customer mail. The default
+  `SPROUT_MAIL_FROM_DOMAIN=preview.invalid` is a reserved suffix that can
+  never deliver for real — keep it unless the fleet has a dedicated,
+  clearly test-only domain.
+
 ## Env var reference
 
 Canonical compose keys live in [`compose.env.example`](../compose.env.example).
@@ -412,6 +459,13 @@ DSN from the raw password in YAML.
 | `SPROUT_PG_PASSWORD` | postgres previews | Preview `PGPASSWORD`; synced onto the role on every gateway boot |
 | `SPROUT_TRAEFIK_NETWORK` | yes | Docker network name for Traefik-facing containers |
 | `SPROUT_POSTGRES_NETWORK` | postgres previews | Docker network name for database reachability |
+| `SPROUT_MAIL_HOST` | mail previews | Mailpit hostname preview containers use on `SPROUT_MAIL_NETWORK` (bundled: `mailpit`). Any other `SPROUT_MAIL_*` set without it fails boot (`Incomplete mail configuration: missing SPROUT_MAIL_HOST`); unset group = no mail env injected |
+| `SPROUT_MAIL_PORT` | no | `MAILPORT` for preview containers (default `1025`) |
+| `SPROUT_MAIL_USER` / `SPROUT_MAIL_PASSWORD` | no | Optional credentials (`MAILUSER` / `MAILPASSWORD`); omitted keys are not injected at all. Leave empty when Mailpit accepts any credentials |
+| `SPROUT_MAIL_SECURE` | no | `true`/`false` (`1`/`0`, `yes`/`no` accepted; default `false`). `MAILSECURE=true` is injected only when true; anything else fails boot |
+| `SPROUT_MAIL_NETWORK` | mail previews | Extra Docker network preview app (+ seed, when seedable) containers join to reach Mailpit (mirrors `SPROUT_POSTGRES_NETWORK`) |
+| `SPROUT_MAIL_UI_URL` | no | Inbox URL for humans — MR note `Mailbox:` line, `sprout list`, deploy output — and the injected `MAILUIURL` (omitted when empty) |
+| `SPROUT_MAIL_FROM_DOMAIN` | no | From-domain for the per-preview identity (default `preview.invalid`, never deliverable) |
 | `SPROUT_GATEWAY_HOST_PORT` | no | Host port published for the gateway (default `7331`) |
 | `TRAEFIK_HTTP_PORT` | no | Host port published for Traefik HTTP (default `8880`) |
 | `SPROUT_ADMIN_TOKEN` | no | Pin bootstrap admin bearer; omit/blank to auto-generate |

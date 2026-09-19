@@ -147,6 +147,8 @@ pointers live in [Test coverage](#test-coverage-maintainers).
 | `preview.services[].port` | no | image first `EXPOSE`, else `SPROUT_PREVIEW_PORT_DEFAULT` | Routed port override (integer 1–65535). Only sets the Traefik `server.port` label when the service is routed; accepted for internal services with no routing effect. |
 | `preview.services[].env` | no | — | Literal `NAME: value` string map injected into the service container only (keys must match `[A-Za-z_][A-Za-z0-9_]*`). |
 | `db.provider` | no | `postgres` | Preview database provider: `postgres` (shared instance), `sqlite` (named volume), or `none` (no database). See [SQLite previews](#sqlite-previews) and [No-database previews](#no-database-previews). |
+| `mail` | no | opportunistic (follows the gateway) | `enabled` (require mail) or `none` (opt out). See [Email from a preview](#email-from-a-preview). |
+| `mail.from` | no | `<slug>-pr<pr_id>@<from-domain>` | Send-from override; must be an address template containing `{pr_id}` (only that placeholder). Rejected with `mail: none`. See [Email from a preview](#email-from-a-preview). |
 | `db.path` | no | `/data` | Container directory the SQLite volume mounts at (`sqlite` only). |
 | `db.file` | no | `preview.db` | SQLite file name inside `db.path` (`sqlite` only). |
 | `health.path` | when seeding | `/health` | HTTP path the gateway polls on the Postgres-network container IP. |
@@ -213,6 +215,12 @@ Port: the gateway routes to the service `port` override when set,
 else the first `EXPOSE`d port in the app image,
 else `SPROUT_PREVIEW_PORT_DEFAULT`. Teardown drops the database and then
 the companion role.
+
+Mail is cross-provider: on a gateway with mail configured, every preview
+(app, companions, seed) also receives the canonical `MAIL*` set, on any
+`db.provider` including `none`. The canonical names, the remap worked
+example, and the opt-out live in exactly one place —
+[Email from a preview](#email-from-a-preview).
 
 #### Env value grammar
 
@@ -379,6 +387,116 @@ onboarded it still fails fast when they are missing (same conditional
 requirement as SQLite). Switching a repo between `none` and a database
 provider redeploys as a fresh generation: the old backend is dropped
 before the row is rewritten, so no resource strands.
+
+### Email from a preview
+
+Previews can send mail through a gateway-configured Mailpit. The operator
+owns the Mailpit instance and the `SPROUT_MAIL_*` gateway variables (see
+[Operator deployment](deploy.md#preview-mail-mailpit)); the adopter owns
+only the `mail:` block and the `preview.env` remap. Mail works on any
+`db.provider` — `postgres`, `sqlite`, and `none` — and needs no
+provisioning, health gate, or lifecycle: the gateway only injects env and
+joins a network.
+
+What the app receives (canonical names, injected into app, companion
+service, and seed containers):
+
+```
+MAILHOST  MAILPORT  MAILFROM  MAILFROMNAME  MAILREPLYTO
+MAILUSER  MAILPASSWORD  (only when the operator configures credentials)
+MAILSECURE              (only when true, as the string "true")
+MAILUIURL               (only when the operator configures an inbox URL)
+```
+
+`preview.env` renames these exactly like the `PG*` set: unmapped keys
+keep their canonical name; a remap replaces the name (no dual alias).
+Gateway mail keys win over colliding `preview.app_env` keys — do not put
+`MAILHOST` or a remapped name into `SPROUT_APP_ENV`. Worked remap for an
+app that speaks `SMTP_*`:
+
+```yaml
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  env:
+    MAILHOST: SMTP_HOST
+    MAILPORT: SMTP_PORT
+    MAILUSER: SMTP_USER
+    MAILPASSWORD: SMTP_PASS
+```
+
+The entrypoint must read the adopter names (`SMTP_HOST`, …).
+
+The `mail:` block has three postures. Omitted is opportunistic: mail env
+is injected when the gateway configures it and silently skipped when it
+does not. Explicit `mail: enabled` requires mail: on a gateway without
+`SPROUT_MAIL_*` the deploy fails fast with `mail_not_configured`
+(`repo <repo> declares mail enabled but the gateway has no mail
+configured: missing SPROUT_MAIL_HOST` — same wording from the CLI and
+the gateway). `mail: none` opts out: no mail env is injected for that
+repo, and the preview never shows the `Mailbox:` note line.
+
+```yaml
+mail: enabled   # require mail; fail fast without a configured gateway
+mail: none      # opt out even when the gateway configures mail
+mail:
+  mode: enabled
+  from: "noreply+{pr_id}@preview.invalid"   # send-from override (below)
+```
+
+An adopter can enable mail with this guide alone: keep the `mail:` block
+omitted (or `enabled`), remap `preview.env` onto the app's SMTP names,
+deploy, and look for the preview's From address in the inbox linked from
+the MR note (`Mailbox:` line).
+
+#### Which preview did this mail come from?
+
+Every preview sends from its own address so testers can tell deployments
+apart in the shared inbox:
+
+- `MAILFROM` defaults to `<slug>-pr<pr_id>@<from-domain>`, e.g.
+  `myapp-pr42@preview.invalid`. `MAILREPLYTO` carries the same address.
+- `MAILFROMNAME` is the human label `<slug> PR <pr_id>`
+  (e.g. `myapp PR 42`).
+- The from-domain is the operator's `SPROUT_MAIL_FROM_DOMAIN` (default
+  `preview.invalid`, a reserved suffix that can never deliver real mail).
+
+`mail.from` overrides the address with a `{pr_id}` template using the
+same grammar as `preview.hostname` — it must contain `{pr_id}`, support
+no other placeholder, contain no whitespace, and read as an address once
+`{pr_id}` is substituted. An app that must send from its own convention
+points that convention at the preview-identifying address:
+
+```yaml
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  env:
+    MAILFROM: MAIL_FROM      # app's own from variable reads the identity
+mail:
+  from: "noreply+{pr_id}@preview.invalid"
+```
+
+`mail.from` with `mail: none` is rejected (`mail.from requires mail
+enabled`); malformed templates fail at manifest parse (`mail.from …`
+naming the problem, e.g. `must contain {pr_id}`).
+
+The MR note and `sprout list` show what to filter for: the note gains
+`- Mail from: <address>` alongside `- Mailbox: <inbox-url>`, `sprout
+deploy` / `sprout ci preview` print `mail_from=` (and `mailbox_url=`),
+and `sprout list` includes `mail_from`, `mail_from_name`, and
+`mailbox_url` for previews that received mail env. Inbox recipe: search
+the Mailpit UI for the preview's From address, or query the Mailpit API
+(`GET /api/v1/messages`) and keep messages whose `From.Address` equals
+that address.
+
+#### Shared inbox
+
+All previews on one gateway write into one mailbox — there is no
+per-preview isolation. Testers tell mail apart by the recipient / From /
+subject convention above, not by separate inboxes. If previews must not
+see each other's mail at all, run a second Mailpit plus a second gateway
+pointed at it; one gateway holds exactly one mail configuration.
 
 ### CLI `ci` commands
 
@@ -642,7 +760,11 @@ parse errors name the key or file without echoing the value.
 | `sprout ci reseed` without an image | `ci reseed requires -s <seed-image>` | Pass `-s` with the seed image; reseed runs against the existing database without rebuilding. |
 | `seed:` block with `db.provider: none` | `seed requires db.provider postgres or sqlite (db.provider is none)` (manifest parse and `422 seed_requires_database` at the deploy route) | Remove the `seed:` block — a no-database preview has nothing to seed. If the app needs fixtures, it is not a `none` repo; use `postgres` or `sqlite`. |
 | `-s` / `--reseed` / `sprout ci reseed -s …` on a `none` repo | `seed requires db.provider postgres or sqlite (db.provider is none)` (`422 seed_requires_database` from the gateway) | Drop the seed flags — there is no database to re-seed. The CLI fails before any network call; the gateway agrees on the message. |
-| `preview.env` database key with `db.provider: none` | `preview.env.<KEY> requires db.provider <postgres\|sqlite>` (manifest parse and `422 invalid_env_for_provider` at the deploy route) | Remove the entry — `none` previews inject no connection env. Keep only `preview.app_env` / `--app-env` for non-connection values. |
+| `preview.env` database key with `db.provider: none` | `preview.env.<KEY> requires db.provider <postgres\|sqlite>` (manifest parse and `422 invalid_env_for_provider` at the deploy route) | Remove the entry — `none` previews inject no connection env. Keep only `preview.app_env` / `--app-env` for non-connection values. Mail (`MAIL*`) remaps are allowed on every provider, including `none`. |
+| `mail: enabled` on a gateway without mail | `mail_not_configured: repo <repo> declares mail enabled but the gateway has no mail configured: missing SPROUT_MAIL_HOST` | Ask the operator to configure `SPROUT_MAIL_*` (see [Operator deployment](deploy.md#preview-mail-mailpit)), or omit the `mail:` block (opportunistic), or set `mail: none` to opt out. |
+| Mail never arrives | no error; the message is missing from the inbox | Check the app reads the injected names (`MAILHOST`/`MAILPORT`, or the `preview.env` remap targets) and that the Mailpit host is reachable on the preview network — the operator may need `SPROUT_MAIL_NETWORK` so preview containers join Mailpit's network. |
+| App logs `connection refused` on SMTP after the operator moved Mailpit | connection errors in `sprout ci logs` | The Mailpit hostname or network changed — the operator updates `SPROUT_MAIL_HOST` / `SPROUT_MAIL_NETWORK` and redeploys. Nothing in `.sprout.yaml` needs to change. |
+| Messages from another PR are visible in the inbox | no error | Expected — one gateway shares one mailbox. Filter by the preview's From address (`- Mail from:` line in the MR note). Per-preview isolation means a second Mailpit + gateway. |
 | Truncated GitLab MR description with a reset box | `GitLab MR description is truncated (CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED=true); move the '- [ ] Sprout: reset preview' checkbox and the '<!-- sprout-reset: <token> -->' marker into the first 2700 characters so the reset request is visible` | Paste the [reset-request snippet](#reset-request-checkbox) at the top of the MR description and retry the job. The tick is never silently ignored. |
 | Ticked box does not reset a second time | no error; the run deploys normally | The marker was already handled (exactly-once key on the preview row). To reset again, tick the box **and** rotate the marker token to something new. A hand-run `sprout ci reset` also consumes the pending request, so the next push does not wipe again. |
 | Reset on a `db.provider: none` or `sqlite` preview | no error; the reset redeploys but there is no Postgres database to wipe | Expected: `none` redeploys containers only (no database step); `sqlite` drops and recreates the named per-preview volume instead of `DROP DATABASE`. Migrations/seed re-run as usual. |
@@ -1057,6 +1179,15 @@ tests):
   `apps/server/src/app-deployment/services.test.ts` (gateway shape)
 - Gateway connection env (remap replaces names, colliding adopter keys
   stripped): `apps/server/src/app-deployment/pg-env.test.ts`
+- Preview mail (manifest `mail:` / `mail.from` parse):
+  `apps/cli/src/yaml-mail.test.ts`, `packages/preview-env/src/mail.test.ts`
+- Mail env assembly (canonical keys, remap, reservation, `mail: none`,
+  `mail_not_configured`): `apps/server/src/app-deployment/mail-env.test.ts`,
+  `apps/server/src/preview/runtime.mail.test.ts`,
+  `apps/server/src/http/deploy-mail.test.ts`
+- Mailbox / From presentation (MR note lines, settled deploy output):
+  `apps/cli/src/commands/forge-note.test.ts`
+- Send-and-read-back through Mailpit's API: `e2e/mail.test.ts`
 - Substituted hostname on a live deploy: `e2e/lifecycle.test.ts`
 - Component inputs / dotenv / `on_stop` wiring: `templates/preview.test.ts`
 
