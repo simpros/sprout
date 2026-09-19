@@ -7,9 +7,10 @@ import {
 import { runCiLogs } from "./ci-logs.ts";
 import { runCiPreview } from "./ci-preview.ts";
 import { runCiReseed } from "./ci-reseed.ts";
+import { runCiReset } from "./ci-reset.ts";
 import { runCiTeardown } from "./ci-teardown.ts";
 
-const CI_HELP = `usage: sprout ci <preview|teardown|reseed|logs> …
+const CI_HELP = `usage: sprout ci <preview|teardown|reseed|reset|logs> …
 
 CI command group — infers repo, PR/MR id, and pipeline source from the CI env.
 
@@ -17,19 +18,23 @@ CI command group — infers repo, PR/MR id, and pipeline source from the CI env.
             sprout ci preview [--tail N] [--dotenv-file PATH]
               [--app-env K=V …] [--seed-env K=V …] [--seed-arg …]
   teardown  Tear down the preview for this merge request
-  reseed    Re-run the seed job against the existing preview database:
+  reseed    Re-run the seed job against the existing preview database (data kept):
             sprout ci reseed -s <seed-image> [--seed-env K=V …] [--seed-arg …]
+  reset     Wipe the preview database and redeploy from scratch (data wiped):
+            sprout ci reset [--tail N] [--dotenv-file PATH]
+              [--app-env K=V …] [--seed-env K=V …] [--seed-arg …]
   logs      Print preview container logs from the gateway:
             sprout ci logs [--tail N]
 `;
 
-type CiSubcommand = "preview" | "teardown" | "reseed" | "logs";
+type CiSubcommand = "preview" | "teardown" | "reseed" | "reset" | "logs";
 
 function parseCiSubcommand(token: string): CiSubcommand | null {
   switch (token) {
     case "preview":
     case "teardown":
     case "reseed":
+    case "reset":
     case "logs":
       return token;
     default:
@@ -65,12 +70,18 @@ export async function runCi(
     return printHelp(ctx);
   }
 
-  if (subcommand === "preview") {
+  if (subcommand === "preview" || subcommand === "reset") {
     const preview = await resolveCiPreviewIdentity(ctx.deps);
     if (!preview.ok) return fail(ctx.deps.io, preview.error);
     const client = await authedClient(ctx.deps);
     if (!client.ok) return fail(ctx.deps.io, client.error);
-    return runCiPreview(preview.value, rest, {
+    if (subcommand === "preview") {
+      return runCiPreview(preview.value, rest, {
+        deps: ctx.deps,
+        client: client.value,
+      });
+    }
+    return runCiReset(preview.value, rest, {
       deps: ctx.deps,
       client: client.value,
     });

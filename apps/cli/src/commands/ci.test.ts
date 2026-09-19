@@ -46,7 +46,10 @@ describe("sprout ci", () => {
     expect(help).toContain("preview");
     expect(help).toContain("teardown");
     expect(help).toContain("reseed");
+    expect(help).toContain("reset");
     expect(help).toContain("logs");
+    expect(help).toContain("data kept");
+    expect(help).toContain("data wiped");
     expect(stderr).toEqual([]);
   });
 

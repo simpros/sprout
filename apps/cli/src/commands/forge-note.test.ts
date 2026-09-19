@@ -3,7 +3,9 @@ import { createApiClient } from "@sprout/api-client";
 import type { CliDeps } from "../run.ts";
 import {
   buildPreviewNote,
+  buildResetNote,
   buildTeardownNote,
+  resolveResetActor,
   SPROUT_NOTE_MARKER,
   upsertForgeNote,
 } from "./forge-note.ts";
@@ -76,6 +78,53 @@ describe("buildTeardownNote", () => {
     expect(body).toContain(SPROUT_NOTE_MARKER);
     expect(body).toContain("removed");
     expect(body).not.toContain("deleted");
+  });
+});
+
+describe("buildResetNote", () => {
+  test("reuses the marker, refreshes URL/SHA, and names the reset actor", () => {
+    const body = buildResetNote({
+      previewUrl: "https://pr-17.example.com",
+      sha: "abc123456789",
+      prId: 17,
+      actor: "ada",
+      at: "2026-09-19T12:00:00.000Z",
+    });
+    expect(body).toContain(SPROUT_NOTE_MARKER);
+    expect(body).toContain("https://pr-17.example.com");
+    expect(body).toContain("`abc1234`");
+    expect(body).toContain("Reset: ada at 2026-09-19T12:00:00.000Z");
+    expect(body).toContain("data wiped");
+    expect(body).toContain("sprout ci logs 17");
+  });
+});
+
+describe("resolveResetActor", () => {
+  test("prefers GitHub triggering actor, then actor", () => {
+    expect(
+      resolveResetActor(
+        { GITHUB_ACTOR: "octo", GITHUB_TRIGGERING_ACTOR: "trigger" },
+        "github",
+      ),
+    ).toBe("trigger");
+    expect(resolveResetActor({ GITHUB_ACTOR: "octo" }, "github")).toBe("octo");
+  });
+
+  test("prefers GitLab user login, then commit author", () => {
+    expect(
+      resolveResetActor(
+        { GITLAB_USER_LOGIN: "ada", CI_COMMIT_AUTHOR: "other" },
+        "gitlab",
+      ),
+    ).toBe("ada");
+    expect(resolveResetActor({ CI_COMMIT_AUTHOR: "other" }, "gitlab")).toBe(
+      "other",
+    );
+  });
+
+  test("falls back to ci", () => {
+    expect(resolveResetActor({}, "github")).toBe("ci");
+    expect(resolveResetActor({}, "gitlab")).toBe("ci");
   });
 });
 

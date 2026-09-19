@@ -55,6 +55,42 @@ export function buildTeardownNote(input: {
   return lines.join("\n");
 }
 
+export function resolveResetActor(
+  env: NodeJS.ProcessEnv,
+  forge: "gitlab" | "github",
+): string {
+  if (forge === "github") {
+    return (
+      env.GITHUB_TRIGGERING_ACTOR?.trim() ||
+      env.GITHUB_ACTOR?.trim() ||
+      "ci"
+    );
+  }
+  return env.GITLAB_USER_LOGIN?.trim() || env.CI_COMMIT_AUTHOR?.trim() || "ci";
+}
+
+export function buildResetNote(input: {
+  previewUrl: string;
+  sha?: string;
+  prId: number;
+  actor: string;
+  at: string;
+}): string {
+  const lines = [
+    SPROUT_NOTE_MARKER,
+    "🌱 **Sprout preview ready** (reset — data wiped)",
+    "",
+    `- Preview: ${input.previewUrl}`,
+  ];
+  const short = shortSha(input.sha);
+  if (short) lines.push(`- Commit: \`${short}\``);
+  lines.push("- Health: healthy");
+  lines.push(`- Reset: ${input.actor} at ${input.at}`);
+  lines.push("");
+  lines.push(`Logs: \`sprout ci logs ${input.prId}\``);
+  return lines.join("\n");
+}
+
 type GitlabTarget = {
   forge: "gitlab";
   base: string;
@@ -356,6 +392,25 @@ export async function publishTeardownNote(
     deps,
     identity,
     buildTeardownNote({ prId: identity.prId, sha: identity.commitSha }),
+  );
+}
+
+export async function publishResetNote(
+  deps: CliDeps,
+  identity: CiIdentity,
+  previewUrl: string,
+): Promise<Result<void>> {
+  const at = new Date(deps.now?.() ?? Date.now()).toISOString();
+  return upsertForgeNote(
+    deps,
+    identity,
+    buildResetNote({
+      previewUrl,
+      sha: identity.commitSha,
+      prId: identity.prId,
+      actor: resolveResetActor(deps.env, identity.forge),
+      at,
+    }),
   );
 }
 
