@@ -1,7 +1,7 @@
 import {
   dbSpecIssueMessage,
-  isMailRequired,
   isServicePort,
+  mailIntent,
   mailSpecIssueMessage,
   normalizeDbSpec,
   parseDbSpec,
@@ -188,7 +188,7 @@ export function resolveDeployDbAndEnv(
   // gateway configures mail, silently skip when not); explicit enabled
   // means required (fail when unconfigured); none means off. Only the
   // required case can fail this gate; the plan layer never throws.
-  if (isMailRequired(mail) && !materialization.mail) {
+  if (mailIntent(mail) === "required" && !materialization.mail) {
     return {
       ok: false,
       status: 500,
@@ -481,16 +481,14 @@ export function getPreview(
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    return mapResult(
-      await requireReadablePreview(
-        deps,
-        auth,
-        query.canonical_repo_id,
-        query.pr_id,
-        mailboxUrl,
-      ),
-      set,
+    const result = await requireReadablePreview(
+      deps,
+      auth,
+      query.canonical_repo_id,
+      query.pr_id,
     );
+    if (!result.ok) return mapResult(result, set);
+    return withMailbox(result.value, mailboxUrl);
   };
 }
 

@@ -1,5 +1,5 @@
 import {
-  isMailEnabled,
+  mailIntent,
   requiresDatabase,
   sqliteDatabaseUrl,
   type DbProvider,
@@ -7,10 +7,7 @@ import {
   type MailSpec,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
-import {
-  mailConnectionEnv,
-  resolveMailIdentity,
-} from "../app-deployment/mail-env.ts";
+import { mailConnectionEnv } from "../app-deployment/mail-env.ts";
 import type { MailConfig } from "../config.ts";
 import { pgConnectionEnv, type AppDeployPg } from "../app-deployment/pg-env.ts";
 import { previewDbName } from "../preview-db/names.ts";
@@ -55,12 +52,8 @@ function resolveMailPart(
     slug: string;
     prId: number;
   },
-): {
-  env: string[];
-  networks: string[];
-  mailFrom?: string;
-} {
-  if (input.mail !== undefined && !isMailEnabled(input.mail)) {
+): MailPart {
+  if (mailIntent(input.mail) === "off") {
     return { env: [], networks: [] };
   }
   const configured = ctx.mail;
@@ -73,13 +66,48 @@ function resolveMailPart(
     prId: input.prId,
     ...(input.mail?.from !== undefined ? { fromTemplate: input.mail.from } : {}),
   };
-  const resolved = resolveMailIdentity(configured, identity);
-  const env = mailConnectionEnv(configured, input.connectionEnv, resolved);
+  const { env, resolved } = mailConnectionEnv(
+    configured,
+    identity,
+    input.connectionEnv,
+  );
   const networks = configured.network ? [configured.network] : [];
   return {
     env,
     networks,
     mailFrom: resolved.address,
+  };
+}
+
+type MailPart = {
+  env: string[];
+  networks: string[];
+  mailFrom?: string;
+};
+
+/**
+ * Mail merge is orthogonal to the provider branch. App containers always join
+ * the mail network when configured so MAILHOST resolves. Seed jobs join too
+ * whenever a seed can run (any provider except none, which rejects seeds);
+ * none never runs a seed, so joining would only widen isolation for no benefit.
+ */
+function withMail(
+  base: Omit<PreviewDbPlan, "mailFrom">,
+  mail: MailPart,
+  seedable: boolean,
+): PreviewDbPlan {
+  return {
+    ...base,
+    gatewayEnv: [...base.gatewayEnv, ...mail.env],
+    appNetworks:
+      mail.networks.length > 0
+        ? [...base.appNetworks, ...mail.networks]
+        : base.appNetworks,
+    seedNetworks:
+      mail.networks.length > 0 && seedable
+        ? [...base.seedNetworks, ...mail.networks]
+        : base.seedNetworks,
+    ...(mail.mailFrom !== undefined ? { mailFrom: mail.mailFrom } : {}),
   };
 }
 
@@ -102,62 +130,57 @@ export function resolvePreviewPlan(
         ? previewDbName(input.slug, input.prId)
         : null;
   const mailPart = resolveMailPart(ctx, input);
-  // Provider branches build the mail-free base; the mail merge applies once
-  // here, orthogonal to the provider, so the network guards read in one place.
-  let base: Omit<PreviewDbPlan, "mailFrom">;
   if (input.spec.provider === "none") {
-    base = {
-      provider: "none",
-      dbName,
-      gatewayEnv: [],
-      volumes: [],
-      appNetworks: [ctx.traefikNetwork],
-      // Seed is rejected for none, so no seed network ever runs.
-      seedNetworks: [],
-    };
-  } else if (input.spec.provider === "sqlite") {
+    return withMail(
+      {
+        provider: "none",
+        dbName,
+        gatewayEnv: [],
+        volumes: [],
+        appNetworks: [ctx.traefikNetwork],
+        seedNetworks: [],
+      },
+      mailPart,
+      false,
+    );
+  }
+  if (input.spec.provider === "sqlite") {
     const target = input.connectionEnv?.DATABASE_URL ?? "DATABASE_URL";
-    base = {
-      provider: "sqlite",
-      dbName,
-      gatewayEnv: [
-        `${target}=${sqliteDatabaseUrl(input.spec.path, input.spec.file)}`,
-      ],
-      volumes: [`${sqliteVolumeName(input.slug, input.prId)}:${input.spec.path}`],
-      appNetworks: [ctx.traefikNetwork],
-      // Seed needs no postgres data; traefik is the network that always exists.
-      seedNetworks: [ctx.traefikNetwork],
-    };
-  } else {
-    const postgres = ctx.postgres;
-    if (!postgres) {
-      throw new Error(
-        `postgres plan requested for ${dbName} without postgres config`,
-      );
-    }
-    if (dbName == null) {
-      throw new Error("postgres plan requested without a database name");
-    }
-    base = {
+    return withMail(
+      {
+        provider: "sqlite",
+        dbName,
+        gatewayEnv: [
+          `${target}=${sqliteDatabaseUrl(input.spec.path, input.spec.file)}`,
+        ],
+        volumes: [`${sqliteVolumeName(input.slug, input.prId)}:${input.spec.path}`],
+        appNetworks: [ctx.traefikNetwork],
+        // Seed needs no postgres data; traefik is the network that always exists.
+        seedNetworks: [ctx.traefikNetwork],
+      },
+      mailPart,
+      true,
+    );
+  }
+  const postgres = ctx.postgres;
+  if (!postgres) {
+    throw new Error(
+      `postgres plan requested for ${dbName} without postgres config`,
+    );
+  }
+  if (dbName == null) {
+    throw new Error("postgres plan requested without a database name");
+  }
+  return withMail(
+    {
       provider: "postgres",
       dbName,
       gatewayEnv: pgConnectionEnv(postgres.pg, dbName, input.connectionEnv),
       volumes: [],
       appNetworks: [ctx.traefikNetwork, postgres.network],
       seedNetworks: [postgres.network],
-    };
-  }
-  return {
-    ...base,
-    gatewayEnv: [...base.gatewayEnv, ...mailPart.env],
-    appNetworks:
-      mailPart.networks.length > 0
-        ? [...base.appNetworks, ...mailPart.networks]
-        : base.appNetworks,
-    seedNetworks:
-      mailPart.networks.length > 0 && base.seedNetworks.length > 0
-        ? [...base.seedNetworks, ...mailPart.networks]
-        : base.seedNetworks,
-    ...(mailPart.mailFrom !== undefined ? { mailFrom: mailPart.mailFrom } : {}),
-  };
+    },
+    mailPart,
+    true,
+  );
 }

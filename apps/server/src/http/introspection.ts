@@ -73,23 +73,19 @@ export function listPreviews(db: StateDb, mailboxUrl?: string) {
       // paths, so the no-From ⇒ no-link invariant has a single home.
       const snap = withMailbox(previewSnapshotFromRow(row), mailboxUrl);
       listed.push({
-        canonical_repo_id: row.canonicalRepoId,
-        pr_id: row.prId,
-        slug: row.slug,
-        db_name: row.dbName,
-        hostname: row.hostname,
+        canonical_repo_id: snap.canonical_repo_id,
+        pr_id: snap.pr_id,
+        slug: snap.slug,
+        db_name: snap.db_name,
+        hostname: snap.hostname,
         status: toDisplayStatus(status.value),
         created_at: row.createdAt,
+        ...(snap.mail_from !== undefined ? { mail_from: snap.mail_from } : {}),
+        ...(snap.mail_from_name !== undefined
+          ? { mail_from_name: snap.mail_from_name }
+          : {}),
         ...(snap.mailbox_url !== undefined
           ? { mailbox_url: snap.mailbox_url }
-          : {}),
-        ...(snap.mail_from !== undefined
-          ? {
-              mail_from: snap.mail_from,
-              ...(snap.mail_from_name !== undefined
-                ? { mail_from_name: snap.mail_from_name }
-                : {}),
-            }
           : {}),
       });
     }

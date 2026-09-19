@@ -2,8 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   deriveMailFrom,
   deriveMailFromName,
-  isMailEnabled,
-  isMailRequired,
+  mailIntent,
   parseMailSpec,
   resolveMailFrom,
   resolveMailIdentity,
@@ -81,13 +80,10 @@ describe("mail.from template", () => {
     expect(validateMailFromTemplate("a+{pr_id}@b").ok).toBe(false);
   });
 
-  test("omitted mail is neither enabled nor required", () => {
-    expect(isMailEnabled(undefined)).toBe(false);
-    expect(isMailRequired(undefined)).toBe(false);
-    expect(isMailEnabled({ mode: "enabled" })).toBe(true);
-    expect(isMailRequired({ mode: "enabled" })).toBe(true);
-    expect(isMailEnabled({ mode: "none" })).toBe(false);
-    expect(isMailRequired({ mode: "none" })).toBe(false);
+  test("omitted mail is opportunistic, enabled is required, none is off", () => {
+    expect(mailIntent(undefined)).toBe("omitted");
+    expect(mailIntent({ mode: "enabled" })).toBe("required");
+    expect(mailIntent({ mode: "none" })).toBe("off");
   });
 
   test("resolveMailIdentity substitutes once for derived and template forms", () => {

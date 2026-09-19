@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  mailConnectionEnv,
-  resolveMailIdentity,
-} from "./mail-env.ts";
+import { mailConnectionEnv } from "./mail-env.ts";
 import type { MailConfig } from "../config.ts";
 import { withGatewayConnectionEnv } from "./pg-env.ts";
 
@@ -18,18 +15,8 @@ const mail: MailConfig = {
 const identity = { slug: "myapp", prId: 42 };
 
 describe("mailConnectionEnv", () => {
-  test("absent remap emits canonical MAIL* without secure/ui", () => {
-    expect(mailConnectionEnv(mail)).toEqual([
-      "MAILHOST=mailpit",
-      "MAILPORT=1025",
-      "MAILUSER=mailpit",
-      "MAILPASSWORD=mailpit",
-    ]);
-  });
-
-  test("identity adds derived From/FromName/ReplyTo", () => {
-    const resolved = resolveMailIdentity(mail, identity);
-    expect(mailConnectionEnv(mail, undefined, resolved)).toEqual([
+  test("resolves derived From/FromName/ReplyTo with the connection env", () => {
+    expect(mailConnectionEnv(mail, identity).env).toEqual([
       "MAILHOST=mailpit",
       "MAILPORT=1025",
       "MAILUSER=mailpit",
@@ -41,22 +28,23 @@ describe("mailConnectionEnv", () => {
   });
 
   test("from template override resolves per preview", () => {
-    const resolved = resolveMailIdentity(mail, {
+    const { env } = mailConnectionEnv(mail, {
       ...identity,
       fromTemplate: "noreply+{pr_id}@preview.invalid",
     });
-    expect(mailConnectionEnv(mail, undefined, resolved)).toContain(
-      "MAILFROM=noreply+42@preview.invalid",
-    );
+    expect(env).toContain("MAILFROM=noreply+42@preview.invalid");
   });
 
   test("secure and uiUrl only emit when configured", () => {
     expect(
-      mailConnectionEnv({
-        ...mail,
-        secure: true,
-        uiUrl: "https://mail.example.com",
-      }),
+      mailConnectionEnv(
+        {
+          ...mail,
+          secure: true,
+          uiUrl: "https://mail.example.com",
+        },
+        identity,
+      ).env,
     ).toEqual([
       "MAILHOST=mailpit",
       "MAILPORT=1025",
@@ -64,56 +52,78 @@ describe("mailConnectionEnv", () => {
       "MAILPASSWORD=mailpit",
       "MAILSECURE=true",
       "MAILUIURL=https://mail.example.com",
+      "MAILFROM=myapp-pr42@preview.invalid",
+      "MAILFROMNAME=myapp PR 42",
+      "MAILREPLYTO=myapp-pr42@preview.invalid",
     ]);
   });
 
   test("omitted credentials emit no MAILUSER/MAILPASSWORD", () => {
     expect(
-      mailConnectionEnv({
-        host: "mailpit",
-        port: 1025,
-        secure: false,
-        fromDomain: "preview.invalid",
-      }),
-    ).toEqual(["MAILHOST=mailpit", "MAILPORT=1025"]);
+      mailConnectionEnv(
+        {
+          host: "mailpit",
+          port: 1025,
+          secure: false,
+          fromDomain: "preview.invalid",
+        },
+        identity,
+      ).env,
+    ).toEqual([
+      "MAILHOST=mailpit",
+      "MAILPORT=1025",
+      "MAILFROM=myapp-pr42@preview.invalid",
+      "MAILFROMNAME=myapp PR 42",
+      "MAILREPLYTO=myapp-pr42@preview.invalid",
+    ]);
   });
 
   test("full remap replaces names with no dual alias", () => {
     expect(
-      mailConnectionEnv(mail, {
+      mailConnectionEnv(mail, identity, {
         MAILHOST: "SMTP_HOST",
         MAILPORT: "SMTP_PORT",
         MAILUSER: "SMTP_USER",
         MAILPASSWORD: "SMTP_PASS",
-      }),
+      }).env,
     ).toEqual([
       "SMTP_HOST=mailpit",
       "SMTP_PORT=1025",
       "SMTP_USER=mailpit",
       "SMTP_PASS=mailpit",
+      "MAILFROM=myapp-pr42@preview.invalid",
+      "MAILFROMNAME=myapp PR 42",
+      "MAILREPLYTO=myapp-pr42@preview.invalid",
     ]);
   });
 
   test("partial remap keeps unmapped keys canonical", () => {
-    expect(mailConnectionEnv(mail, { MAILHOST: "SMTP_HOST" })).toEqual([
+    expect(
+      mailConnectionEnv(mail, identity, { MAILHOST: "SMTP_HOST" }).env,
+    ).toEqual([
       "SMTP_HOST=mailpit",
       "MAILPORT=1025",
       "MAILUSER=mailpit",
       "MAILPASSWORD=mailpit",
+      "MAILFROM=myapp-pr42@preview.invalid",
+      "MAILFROMNAME=myapp PR 42",
+      "MAILREPLYTO=myapp-pr42@preview.invalid",
     ]);
   });
 });
 
 describe("mail reservation via withGatewayConnectionEnv", () => {
   test("preview.app_env cannot override a canonical mail key", () => {
-    const gateway = mailConnectionEnv(mail);
+    const gateway = mailConnectionEnv(mail, identity).env;
     expect(
       withGatewayConnectionEnv(["FIXTURE_SET=demo", "MAILHOST=attacker"], gateway),
     ).toEqual(["FIXTURE_SET=demo", ...gateway]);
   });
 
   test("remapped target names are reserved too", () => {
-    const remapped = mailConnectionEnv(mail, { MAILHOST: "SMTP_HOST" });
+    const remapped = mailConnectionEnv(mail, identity, {
+      MAILHOST: "SMTP_HOST",
+    }).env;
     expect(
       withGatewayConnectionEnv(
         ["FIXTURE_SET=demo", "SMTP_HOST=attacker", "MAILPORT=evil"],

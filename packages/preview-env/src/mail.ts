@@ -138,17 +138,12 @@ export function mailSpecIssueMessage(issue: MailSpecIssue): string {
   }
 }
 
-export function normalizeMailSpec(spec: MailSpec | undefined): MailSpec {
-  return spec ?? { mode: "enabled" };
-}
+/** Explicit mail intent: omitted is opportunistic, enabled is required, none is off. */
+export type MailIntent = "omitted" | "required" | "off";
 
-export function isMailEnabled(spec: MailSpec | undefined): boolean {
-  return spec !== undefined && normalizeMailSpec(spec).mode !== "none";
-}
-
-/** Explicit-enabled mail is required: the deploy gate 500s when unconfigured. */
-export function isMailRequired(spec: MailSpec | undefined): boolean {
-  return spec !== undefined && spec.mode !== "none";
+export function mailIntent(spec: MailSpec | undefined): MailIntent {
+  if (spec === undefined) return "omitted";
+  return spec.mode === "none" ? "off" : "required";
 }
 
 export type MailIdentity = {
