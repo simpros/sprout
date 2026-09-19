@@ -4,7 +4,7 @@ spec:
       description: "sprout release tag to install (e.g. v0.6.0). The published component pins this to the release shipping the file; override to pin or trial another CLI build. Remote includes must set this explicitly."
       default: "@SPROUT_COMPONENT_VERSION@"
     stage:
-      description: "Pipeline stage for both the deploy and the on_stop teardown jobs."
+      description: "Pipeline stage for the deploy, on_stop teardown, and manual reset jobs."
       default: "deploy"
     sprout_url:
       description: "Gateway URL. When empty, $SPROUT_URL (masked CI variable) is used."
@@ -125,3 +125,34 @@ sprout-stop-preview:
     - |
       set -eu
       sprout ci teardown
+
+sprout-reset:
+  extends: .sprout-cli
+  stage: $[[ inputs.stage ]]
+  # Optional manual reset: job-level when stays optional; explicit
+  # allow_failure keeps the MR pipeline green when nobody runs it.
+  when: manual
+  allow_failure: true
+  interruptible: false
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+  artifacts:
+    reports:
+      dotenv: $[[ inputs.dotenv_file ]]
+  script:
+    - |
+      set -eu
+      APP_CONTEXT="$[[ inputs.app_context ]]"
+      DOTENV_FILE="$[[ inputs.dotenv_file ]]"
+      TAIL="$[[ inputs.tail ]]"
+      APP_ENV_FILE="$[[ inputs.app_env_file ]]"
+      SEED_ENV_FILE="$[[ inputs.seed_env_file ]]"
+      abs() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$CI_PROJECT_DIR/$1" ;; esac; }
+      DOTENV_FILE="$(abs "$DOTENV_FILE")"
+      if [ -n "$APP_ENV_FILE" ]; then APP_ENV_FILE="$(abs "$APP_ENV_FILE")"; fi
+      if [ -n "$SEED_ENV_FILE" ]; then SEED_ENV_FILE="$(abs "$SEED_ENV_FILE")"; fi
+      cd "$APP_CONTEXT"
+      set -- --tail "$TAIL" --dotenv-file "$DOTENV_FILE"
+      if [ -n "$APP_ENV_FILE" ]; then set -- "$@" --app-env-file "$APP_ENV_FILE"; fi
+      if [ -n "$SEED_ENV_FILE" ]; then set -- "$@" --seed-env-file "$SEED_ENV_FILE"; fi
+      sprout ci reset "$@"

@@ -88,6 +88,13 @@ What you get:
 - `sprout-stop-preview` job (`on_stop`, Stop button / MR close / merge /
   `auto_stop_in` expiry): `sprout ci teardown` (idempotent — exit 0 when
   already gone).
+- `sprout-reset` job (manual, instant): `sprout ci reset` — wipe the preview
+  database and redeploy + seed from scratch (data wiped). Press **Run** on it
+  inside the MR pipeline when you want the reset *now*; ticking the reset box
+  in the MR description is the declarative path honored on the next pipeline
+  run instead (GitLab has no description-edit → pipeline trigger, and a fresh
+  "Run pipeline" arrives as `CI_PIPELINE_SOURCE=web`, which `sprout ci`
+  refuses — so the instant path lives inside the existing MR pipeline).
 - Prerequisites owned by the component: dind service, registry login,
   `apk` packages. Adopters declare no packages and no Docker setup.
 
@@ -100,13 +107,14 @@ minted the deploy token. Pull credentials on the gateway follow the deploy
 
 ### Component → CLI ownership
 
-The component YAML above calls exactly two `sprout ci` subcommands —
+The component YAML above calls exactly three `sprout ci` subcommands —
 everything else is manual (run from a merge-request pipeline or laptop):
 
 | Component job | CLI call | Owns |
 |---|---|---|
 | `sprout-preview` | `sprout ci preview --tail … --dotenv-file … [--app-env-file …] [--seed-env-file …] [--reseed]` | Install check aside, the CLI builds + pushes the app image and — when `.sprout.yaml` sets `seed` — the seed image (always rebuilt, unless explicit `seed.inputs` opt into content-addressed reuse: an existing tag skips the rebuild, reuse is logged, a failed check rebuilds), deploys (with `--reseed` when the flag is passed), writes `PREVIEW_URL=` to the dotenv artifact, dumps the gateway log tail on failure, and posts/updates the MR note (best-effort). |
 | `sprout-stop-preview` | `sprout ci teardown` (no flags) | Idempotent teardown; rewrites the MR note in place ("preview was removed"). No Docker daemon, no registry login on this path. |
+| `sprout-reset` | `sprout ci reset --tail … --dotenv-file … [--app-env-file …] [--seed-env-file …]` | Wipe the preview database and redeploy + seed from scratch (data wiped — the instant path; the ticked box is the declarative path honored on the next pipeline run). No rebuild: reuses the already pushed images for the commit, so no Docker daemon and no registry login on this path. |
 
 Manual helpers (never called by the component): `sprout ci reseed -s …`
 (re-run the seed against the existing database) and `sprout ci logs
@@ -368,7 +376,7 @@ before the row is rewritten, so no resource strands.
 
 ### CLI `ci` commands
 
-`usage: sprout ci <preview|teardown|reseed|logs> …` — repo, MR id, and
+`usage: sprout ci <preview|teardown|reseed|reset|logs> …` — repo, MR id, and
 pipeline source are inferred from CI env (`CI_PROJECT_URL` /
 `CI_MERGE_REQUEST_IID` / `CI_PIPELINE_SOURCE` on GitLab;
 `GITHUB_REPOSITORY` + event payload on GitHub). Identity resolves before
@@ -388,8 +396,9 @@ contract; test pointers live in [Test coverage](#test-coverage-maintainers).
 | | `--dotenv-file PATH` | Dotenv artifact the CLI writes `PREVIEW_URL=` to (default `sprout-preview.env`, relative to the workspace root). Emitted only once the preview is healthy. |
 | | `--reseed` | Force the gateway to re-run the seed against the existing database (requires a `seed` block) — re-seeds even when the seed image is unchanged. A changed seed image already re-seeds automatically; without seed changes, omit it — a reused image still seeds every fresh PR (`seeded_at` unset). |
 | `sprout ci teardown` | *(no flags — extra args are rejected)* | Tear down this MR's preview. Idempotent; rewrites the MR note in place ("preview was removed"). Note failures only warn so gateway success owns the exit code. |
-| `sprout ci reseed` | `-s <seed-image>` (required) | Re-run the seed job against the existing database (no image build; app tag from `CI_REGISTRY_IMAGE` + SHA). Body is a reseed request, so companions stay as last deployed by construction. |
+| `sprout ci reseed` | `-s <seed-image>` (required) | Re-run the seed job against the existing database (data kept; no image build; app tag from `CI_REGISTRY_IMAGE` + SHA). Body is a reseed request, so companions stay as last deployed by construction. |
 | | `--seed-env`, `--seed-env-file`, `--seed-arg`, `--app-env`, `--app-env-file` | Same env layering as `preview` (yaml + blob + files + flags). |
+| `sprout ci reset` | `--tail N`, `--dotenv-file PATH`, `--app-env[-file]`, `--seed-env[-file]`, `--seed-arg`, `--service`, `--clear-services` (same deploy flags as `preview`, no `--reseed`) | Wipe the preview database and redeploy + seed from scratch (data wiped; no rebuild — reuses the already pushed images for the commit). The component's `sprout-reset` manual job and the ticked reset box both funnel here. |
 | `sprout ci logs` | `--tail N` | Preview container logs through the gateway (app, then seed when available). |
 
 On success `sprout ci preview` prints `preview_url=` to stdout (and writes
@@ -415,7 +424,7 @@ component inputs — companions go through `sprout ci preview --service`.
 | Input | Default | Purpose |
 |---|---|---|
 | `sprout_version` | release tag shipping the file (sentinel replaced at publish) | CLI release to install (checksum-verified). Override to pin or trial another build. Remote includes must set it explicitly to the tag in the URL. |
-| `stage` | `deploy` | Stage for both jobs. |
+| `stage` | `deploy` | Stage for all three jobs. |
 | `sprout_url` | `""` (use `$SPROUT_URL`) | Gateway URL override. |
 | `app_context` | `.` | Directory holding `.sprout.yaml`; the CLI builds (`docker build … .`) and resolves Dockerfiles relative to it. |
 | `auto_stop_in` | `1 week` | `environment:auto_stop_in` for the preview. |
@@ -522,7 +531,8 @@ include:
 ```
 
 After the migration no adopter shell script remains: the component declares
-both jobs (`sprout-preview`, `sprout-stop-preview`), and every behavior the
+all three jobs (`sprout-preview`, `sprout-stop-preview`, `sprout-reset`), and
+every behavior the
 old script hand-built (install, build/push, deploy, dotenv, MR note, log
 dump on failure) is owned by `sprout ci preview` / `sprout ci teardown`.
 The `.sprout.yaml` `seed:` block replaces the `-s` plumbing: when present,
