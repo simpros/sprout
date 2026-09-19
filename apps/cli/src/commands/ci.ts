@@ -47,6 +47,11 @@ function printHelp(ctx: CliContext): number {
   return 0;
 }
 
+const CI_DEPLOY_COMMANDS = {
+  preview: runCiPreview,
+  reset: runCiReset,
+} as const;
+
 /** Resolve identity before auth so outside-pipeline errors win over missing-token. */
 export async function runCi(
   tokens: string[],
@@ -75,13 +80,7 @@ export async function runCi(
     if (!preview.ok) return fail(ctx.deps.io, preview.error);
     const client = await authedClient(ctx.deps);
     if (!client.ok) return fail(ctx.deps.io, client.error);
-    if (subcommand === "preview") {
-      return runCiPreview(preview.value, rest, {
-        deps: ctx.deps,
-        client: client.value,
-      });
-    }
-    return runCiReset(preview.value, rest, {
+    return CI_DEPLOY_COMMANDS[subcommand](preview.value, rest, {
       deps: ctx.deps,
       client: client.value,
     });

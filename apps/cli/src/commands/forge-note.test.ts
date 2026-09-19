@@ -3,7 +3,6 @@ import { createApiClient } from "@sprout/api-client";
 import type { CliDeps } from "../run.ts";
 import {
   buildPreviewNote,
-  buildResetNote,
   buildTeardownNote,
   resolveResetActor,
   SPROUT_NOTE_MARKER,
@@ -81,14 +80,13 @@ describe("buildTeardownNote", () => {
   });
 });
 
-describe("buildResetNote", () => {
+describe("buildPreviewNote with reset", () => {
   test("reuses the marker, refreshes URL/SHA, and names the reset actor", () => {
-    const body = buildResetNote({
+    const body = buildPreviewNote({
       previewUrl: "https://pr-17.example.com",
       sha: "abc123456789",
       prId: 17,
-      actor: "ada",
-      at: "2026-09-19T12:00:00.000Z",
+      reset: { actor: "ada", at: "2026-09-19T12:00:00.000Z" },
     });
     expect(body).toContain(SPROUT_NOTE_MARKER);
     expect(body).toContain("https://pr-17.example.com");

@@ -23,16 +23,20 @@ export function buildPreviewNote(input: {
   previewUrl: string;
   sha?: string;
   prId: number;
+  reset?: { actor: string; at: string };
 }): string {
   const lines = [
     SPROUT_NOTE_MARKER,
-    "🌱 **Sprout preview ready**",
+    input.reset
+      ? "🌱 **Sprout preview ready** (reset — data wiped)"
+      : "🌱 **Sprout preview ready**",
     "",
     `- Preview: ${input.previewUrl}`,
   ];
   const short = shortSha(input.sha);
   if (short) lines.push(`- Commit: \`${short}\``);
   lines.push("- Health: healthy");
+  if (input.reset) lines.push(`- Reset: ${input.reset.actor} at ${input.reset.at}`);
   lines.push("");
   lines.push(`Logs: \`sprout ci logs ${input.prId}\``);
   return lines.join("\n");
@@ -67,28 +71,6 @@ export function resolveResetActor(
     );
   }
   return env.GITLAB_USER_LOGIN?.trim() || env.CI_COMMIT_AUTHOR?.trim() || "ci";
-}
-
-export function buildResetNote(input: {
-  previewUrl: string;
-  sha?: string;
-  prId: number;
-  actor: string;
-  at: string;
-}): string {
-  const lines = [
-    SPROUT_NOTE_MARKER,
-    "🌱 **Sprout preview ready** (reset — data wiped)",
-    "",
-    `- Preview: ${input.previewUrl}`,
-  ];
-  const short = shortSha(input.sha);
-  if (short) lines.push(`- Commit: \`${short}\``);
-  lines.push("- Health: healthy");
-  lines.push(`- Reset: ${input.actor} at ${input.at}`);
-  lines.push("");
-  lines.push(`Logs: \`sprout ci logs ${input.prId}\``);
-  return lines.join("\n");
 }
 
 type GitlabTarget = {
@@ -376,11 +358,23 @@ export async function publishPreviewNote(
   deps: CliDeps,
   identity: CiIdentity,
   previewUrl: string,
+  opts?: { reset?: boolean },
 ): Promise<Result<void>> {
+  const reset = opts?.reset
+    ? {
+        actor: resolveResetActor(deps.env, identity.forge),
+        at: new Date(deps.now?.() ?? Date.now()).toISOString(),
+      }
+    : undefined;
   return upsertForgeNote(
     deps,
     identity,
-    buildPreviewNote({ previewUrl, sha: identity.commitSha, prId: identity.prId }),
+    buildPreviewNote({
+      previewUrl,
+      sha: identity.commitSha,
+      prId: identity.prId,
+      ...(reset ? { reset } : {}),
+    }),
   );
 }
 
@@ -392,25 +386,6 @@ export async function publishTeardownNote(
     deps,
     identity,
     buildTeardownNote({ prId: identity.prId, sha: identity.commitSha }),
-  );
-}
-
-export async function publishResetNote(
-  deps: CliDeps,
-  identity: CiIdentity,
-  previewUrl: string,
-): Promise<Result<void>> {
-  const at = new Date(deps.now?.() ?? Date.now()).toISOString();
-  return upsertForgeNote(
-    deps,
-    identity,
-    buildResetNote({
-      previewUrl,
-      sha: identity.commitSha,
-      prId: identity.prId,
-      actor: resolveResetActor(deps.env, identity.forge),
-      at,
-    }),
   );
 }
 
