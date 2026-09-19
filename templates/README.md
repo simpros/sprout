@@ -46,17 +46,18 @@ Secrets never appear in job logs, CLI output, or the MR note (the CLI prints onl
 
 Tick a box in the MR description and the next preview run wipes the database
 and redeploys from scratch — no webhook, no extra token. Paste
-[`templates/reset-request-snippet.md`](./reset-request-snippet.md) into the MR
-description:
+[`templates/reset-request-snippet.md`](./reset-request-snippet.md) at the top
+of the MR description:
 
 ```markdown
 - [ ] Sprout: reset preview <!-- sprout-reset: ada-2026-09-19-1 -->
 ```
 
 To request a reset, tick the box **and** change the token to something new.
-Keep the snippet inside the first 2700 characters of the description (GitLab
+Paste the snippet at the top of the description (GitLab
 exposes only that prefix to CI; truncation fails the job loudly instead of
-ignoring the tick). `sprout ci reset` consumes a pending request too.
+ignoring the tick). A handled marker never fires twice — re-runs and retries
+deploy normally; `sprout ci reset` consumes a pending request too.
 
 Prerequisites on the GitLab side:
 
@@ -97,6 +98,13 @@ which `sprout ci` refuses by design (only merge-request pipelines deploy),
 so the instantaneous path has to be a job *inside* the existing MR pipeline.
 Like the stop job, it is `when: manual` at job level plus `allow_failure:
 true`, so an MR pipeline nobody resets stays green with zero clicks.
+A reset while another deploy is in flight exits `409
+preview_deploy_in_progress` (or `preview_teardown_in_progress`) — wait for
+the current run to settle and retry; never run `sprout-preview` and
+`sprout-reset` at the same time. On `db.provider: none` or `sqlite` previews
+the reset still redeploys, but there is no Postgres database to wipe (`none`
+redeploys containers only; `sqlite` drops and recreates the named
+per-preview volume).
 
 ## Inputs
 
@@ -123,6 +131,9 @@ shell guards or argv appenders.
 | Symptom | Error (stderr) | Fix |
 |---|---|---|
 | File-type CI variable passed via `app_env_file` / `seed_env_file` input (e.g. `inputs: { app_env_file: $MY_ENV_FILE }`) | `preview.app_env.<KEY>: required value missing` (nothing points at the input) — had the flag been passed with a bad path, the CLI would say `cannot read --app-env-file: <path>` instead; the required-missing error means the flag never reached the CLI | Never pass file-type variables via `inputs:` — they expand to empty at pipeline-config time and the component's `[ -n "$APP_ENV_FILE" ]` guard skips `--app-env-file` silently. Map the blob at job runtime instead, which the CLI reads automatically: `sprout-preview: { variables: { SPROUT_APP_ENV: $MY_ENV_FILE } }` (seed: `SPROUT_SEED_ENV: $MY_SEED_FILE`). `variables:` merges safely under `extends`; never use job-level `before_script:` here — it replaces the component's CLI install. `app_env_file` / `seed_env_file` are only for repo-relative dotenv paths. |
+| Truncated MR description with a reset box | `GitLab MR description is truncated (CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED=true); move the '- [ ] Sprout: reset preview' checkbox and the '<!-- sprout-reset: <token> -->' marker into the first 2700 characters so the reset request is visible` | Paste the snippet at the top of the MR description and retry the job. The tick is never silently ignored. |
+| Ticked box does not reset a second time | no error; the run deploys normally | The marker was already handled. Tick the box **and** rotate the token for another reset. |
+| Reset while another deploy is in flight | `409 preview_deploy_in_progress` (or `preview_teardown_in_progress`) | Wait for the current run to settle and retry; full rows in [adoption Troubleshooting](../docs/adoption.md#troubleshooting). |
 
 ## Remote-include fallback
 
