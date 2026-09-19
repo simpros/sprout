@@ -187,6 +187,7 @@ async function closeRunning(
       hostname: updated.hostname,
       status: "running",
       preview_url: `https://${updated.hostname}`,
+      reset_request_marker: updated.resetRequestMarker,
     },
   };
 }

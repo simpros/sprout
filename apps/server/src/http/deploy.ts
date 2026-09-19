@@ -15,13 +15,16 @@ import {
   type PreviewServiceSpec,
 } from "@sprout/preview-env";
 import { t } from "elysia";
+import { parseResetMarkerToken } from "@sprout/preview-db";
 import type { AuthContext } from "../auth/middleware.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
   postgresNotConfiguredDetail,
 } from "../config.ts";
 import {
+  previewSnapshotFromRow,
   teardownPreview,
+  setResetRequestMarker,
   type LifecycleDeps,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
@@ -34,11 +37,10 @@ import {
   runAsyncDeploy,
 } from "../preview/async-deploy.ts";
 import {
-  validatePrId,
   validatePreviewIdentity,
   validateServiceName,
 } from "../preview-db/names.ts";
-import { mapResult, requireReadablePreview, resolveRepo } from "./result-map.ts";
+import { mapResult, requirePreviewTarget, requireReadablePreview } from "./result-map.ts";
 
 const healthBody = t.Object({
   path: t.String({ minLength: 1 }),
@@ -87,6 +89,12 @@ export const deployBody = t.Object({
 export const teardownBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   pr_id: t.Number(),
+});
+
+export const resetMarkerBody = t.Object({
+  canonical_repo_id: t.String({ minLength: 1 }),
+  pr_id: t.Number(),
+  marker: t.String({ minLength: 1, maxLength: 256 }),
 });
 
 export const previewQuery = t.Object({
@@ -312,6 +320,12 @@ export type TeardownBody = {
   pr_id: number;
 };
 
+export type ResetMarkerBody = {
+  canonical_repo_id: string;
+  pr_id: number;
+  marker: string;
+};
+
 export type PreviewQuery = {
   canonical_repo_id: string;
   pr_id: string;
@@ -331,13 +345,13 @@ export function deploy(
     auth: AuthContext | null;
     set: { status?: number | string };
   }): Promise<PreviewSnapshot | { error: string; detail?: string }> => {
-    if (!auth) {
-      set.status = 401;
-      return { error: "unauthorized" };
-    }
-    const repo = resolveRepo(auth, body.canonical_repo_id);
-    if (!repo.ok) return mapResult(repo, set);
-    const identityErr = validatePreviewIdentity(body.slug, body.pr_id);
+    const target = requirePreviewTarget(
+      auth,
+      body.canonical_repo_id,
+      body.pr_id,
+    );
+    if (!target.ok) return mapResult(target, set);
+    const identityErr = validatePreviewIdentity(body.slug, target.value.prId);
     if (identityErr) {
       set.status = 422;
       return { error: identityErr };
@@ -347,7 +361,7 @@ export function deploy(
       set.status = 422;
       return { error: "invalid_hostname" };
     }
-    const dbAndEnv = resolveDeployDbAndEnv(body, deps.materialization, repo.value);
+    const dbAndEnv = resolveDeployDbAndEnv(body, deps.materialization, target.value.repo);
     if (!dbAndEnv.ok) {
       set.status = dbAndEnv.status;
       return dbAndEnv.detail
@@ -357,7 +371,7 @@ export function deploy(
     const plan = resolvePreviewPlan(deps.materialization, {
       spec: dbAndEnv.value.spec,
       slug: body.slug,
-      prId: body.pr_id,
+      prId: target.value.prId,
       connectionEnv: dbAndEnv.value.connectionEnv,
     });
     const seed = resolveSeedRequest(body, dbAndEnv.value.spec.provider);
@@ -384,8 +398,8 @@ export function deploy(
     }
 
     const input = {
-      repo: repo.value,
-      prId: body.pr_id,
+      repo: target.value.repo,
+      prId: target.value.prId,
       slug: body.slug,
       hostname,
       appImage: body.app_image,
@@ -441,24 +455,51 @@ export function teardown(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    if (!auth) {
-      set.status = 401;
-      return { error: "unauthorized" };
-    }
-    const repo = resolveRepo(auth, body.canonical_repo_id);
-    if (!repo.ok) return mapResult(repo, set);
-    const prErr = validatePrId(body.pr_id);
-    if (prErr) {
-      set.status = 422;
-      return { error: prErr };
-    }
+    const target = requirePreviewTarget(
+      auth,
+      body.canonical_repo_id,
+      body.pr_id,
+    );
+    if (!target.ok) return mapResult(target, set);
 
     return mapResult(
       await teardownPreview(deps, {
-        repo: repo.value,
-        prId: body.pr_id,
+        repo: target.value.repo,
+        prId: target.value.prId,
       }),
       set,
     );
+  };
+}
+
+export function setResetMarker(deps: LifecycleDeps) {
+  return async ({
+    body,
+    auth,
+    set,
+  }: {
+    body: ResetMarkerBody;
+    auth: AuthContext | null;
+    set: { status?: number | string };
+  }) => {
+    const target = requirePreviewTarget(
+      auth,
+      body.canonical_repo_id,
+      body.pr_id,
+    );
+    if (!target.ok) return mapResult(target, set);
+    const marker = parseResetMarkerToken(body.marker);
+    if (!marker) {
+      set.status = 422;
+      return { error: "invalid_reset_marker" };
+    }
+    const stored = await setResetRequestMarker(
+      deps.db,
+      target.value.repo,
+      target.value.prId,
+      marker,
+    );
+    if (!stored.ok) return mapResult(stored, set);
+    return previewSnapshotFromRow(stored.value);
   };
 }

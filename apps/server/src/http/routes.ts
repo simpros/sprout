@@ -11,7 +11,7 @@ import {
   listTokens,
   revokeToken,
 } from "./admin-tokens.ts";
-import { deploy, deployBody, getPreview, previewQuery, teardown, teardownBody } from "./deploy.ts";
+import { deploy, deployBody, getPreview, previewQuery, resetMarkerBody, setResetMarker, teardown, teardownBody } from "./deploy.ts";
 import { doctor, drop, dropBody, listPreviews } from "./introspection.ts";
 import {
   getPreviewLogs,
@@ -77,6 +77,9 @@ export function createRoutes(deps: RouteDeps) {
         .post("/deploy", deploy(deployDeps), { body: deployBody })
         .get("/preview", getPreview(lifecycle), { query: previewQuery })
         .post("/teardown", teardown(lifecycle), { body: teardownBody })
+        .post("/reset-marker", setResetMarker(lifecycle), {
+          body: resetMarkerBody,
+        })
         .all("/*", stubNotImplemented),
     );
 }

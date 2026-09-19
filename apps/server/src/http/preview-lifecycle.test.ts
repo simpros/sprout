@@ -159,6 +159,7 @@ describe("POST /v1/deploy", () => {
       hostname: "pr-42.myapp.preview.example.com",
       status: "running",
       preview_url: "https://pr-42.myapp.preview.example.com",
+      reset_request_marker: null,
     });
     expect(fakePreviewDb!.created).toEqual(["sprout_myapp_pr42"]);
 

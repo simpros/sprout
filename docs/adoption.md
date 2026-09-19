@@ -404,7 +404,7 @@ contract; test pointers live in [Test coverage](#test-coverage-maintainers).
 | `sprout ci teardown` | *(no flags — extra args are rejected)* | Tear down this MR's preview. Idempotent; rewrites the MR note in place ("preview was removed"). Note failures only warn so gateway success owns the exit code. |
 | `sprout ci reseed` | `-s <seed-image>` (required) | Re-run the seed job against the existing database (data kept; no image build; app tag from `CI_REGISTRY_IMAGE` + SHA). Body is a reseed request, so companions stay as last deployed by construction. |
 | | `--seed-env`, `--seed-env-file`, `--seed-arg`, `--app-env`, `--app-env-file` | Same env layering as `preview` (yaml + blob + files + flags). |
-| `sprout ci reset` | `--tail N`, `--dotenv-file PATH`, `--app-env[-file]`, `--seed-env[-file]`, `--seed-arg`, `--service`, `--clear-services` (same deploy flags as `preview`, no `--reseed`) | Wipe the preview database and redeploy + seed from scratch (data wiped; no rebuild — reuses the already pushed images for the commit). The component's `sprout-reset` manual job and the ticked reset box both funnel here. |
+| `sprout ci reset` | `--tail N`, `--dotenv-file PATH`, `--app-env[-file]`, `--seed-env[-file]`, `--seed-arg`, `--service`, `--clear-services` (same deploy flags as `preview`, no `--reseed`) | Wipe the preview database and redeploy + seed from scratch (data wiped; no rebuild — reuses the already pushed images for the commit). The note gains a `Reset: <actor> at <utc>` line. The component's `sprout-reset` manual job and a ticked [reset-request checkbox](#reset-request-checkbox) both funnel here. |
 | `sprout ci logs` | `--tail N` | Preview container logs through the gateway (app, then seed when available). |
 
 On success `sprout ci preview` prints `preview_url=` to stdout (and writes
@@ -418,6 +418,26 @@ Low-level equivalents (`sprout deploy -i … -s …`, `sprout teardown`,
 [Debugging](#debugging). Their env/seed/service flags mirror the `ci`
 surface (`-i`, `-s`, `--reseed`, `--service`, `--clear-services`,
 `--app-env[-file]`, `--seed-env[-file]`, `--seed-arg`).
+
+### Reset request checkbox
+
+Tick a box in the MR/PR description and the next `sprout ci preview` run
+wipes the preview database and redeploys from scratch — declarative, no
+webhook receiver. Snippet (also shipped as
+[`templates/reset-request-snippet.md`](../templates/reset-request-snippet.md)):
+
+```markdown
+- [ ] Sprout: reset preview <!-- sprout-reset: ada-2026-09-19-1 -->
+```
+
+To request a reset, tick the box (`- [x]`) **and** change the marker token to
+something new. The token is the exactly-once key: the gateway stores the
+handled token on the preview row, so re-runs and pipeline retries deploy
+normally. An unticked box, a missing marker, or a tick/marker inside a fenced
+code block does nothing. GitHub runs untick the box after the reset (marker
+kept); GitLab keeps the tick, guarded by the stored token. Keep the snippet
+inside the first 2700 characters of a GitLab MR description — truncation
+fails the job with a named error instead of ignoring the tick.
 
 ### Component inputs (`templates/preview.yml`)
 

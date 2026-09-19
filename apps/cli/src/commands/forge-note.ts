@@ -1,6 +1,7 @@
 import type { CliDeps, CliIo } from "../context.ts";
 import type { Result } from "../result.ts";
 import type { CiIdentity } from "./ci-identity.ts";
+import { untickResetBox } from "./reset-request.ts";
 
 /** Hidden marker keying one sprout note per MR; re-runs edit in place. */
 export const SPROUT_NOTE_MARKER = "<!-- sprout-preview-note -->";
@@ -104,6 +105,31 @@ function repoPathFromCanonical(repo: string, host: string): string | null {
   } catch {
     return null;
   }
+}
+
+function githubWriteHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+}
+
+/** GitHub-only narrowing of resolveForgeTarget for PR-body writes. */
+function resolveGithubTarget(
+  env: NodeJS.ProcessEnv,
+  identity: CiIdentity,
+): Result<{ skipped: true } | { skipped: false; target: GithubTarget }> {
+  const resolved = resolveForgeTarget(env, identity);
+  if (!resolved.ok) return resolved;
+  if (resolved.value.skipped) {
+    return { ok: true, value: { skipped: true } };
+  }
+  const target = resolved.value.target;
+  if (target.forge !== "github") {
+    return { ok: true, value: { skipped: true } };
+  }
+  return { ok: true, value: { skipped: false, target } };
 }
 
 function resolveForgeTarget(
@@ -258,11 +284,7 @@ function adapterForTarget(target: ForgeTarget): ForgeAdapter {
       },
     };
   }
-  const headers = {
-    Authorization: `Bearer ${target.token}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
+  const headers = githubWriteHeaders(target.token);
   const collection =
     `${target.base}/repos/${target.repoPath}/issues/${target.prId}/comments`;
   return {
@@ -392,4 +414,36 @@ export async function publishTeardownNote(
 /** Gateway success owns the exit code; note failures only warn. */
 export function warnForgeNote(io: CliIo, result: Result<void>): void {
   if (!result.ok) io.stderr(`warning: MR note update failed: ${result.error}`);
+}
+
+/** Rewrite the GitHub PR body with the box unticked; no token means skip. */
+export async function untickGithubResetBox(
+  deps: CliDeps,
+  identity: CiIdentity,
+  body: string,
+): Promise<Result<void>> {
+  if (identity.forge !== "github") return { ok: true, value: undefined };
+  const unticked = untickResetBox(body);
+  if (!unticked) return { ok: true, value: undefined };
+  const resolved = resolveGithubTarget(deps.env, identity);
+  if (!resolved.ok) return resolved;
+  if (resolved.value.skipped) return { ok: true, value: undefined };
+  const target = resolved.value.target;
+  const res = await forgeRequest(
+    fetchFn(deps),
+    "GitHub PR body rewrite",
+    `${target.base}/repos/${target.repoPath}/pulls/${target.prId}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...githubWriteHeaders(target.token),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ body: unticked }),
+    },
+  );
+  if (!res.ok) {
+    return { ok: false, error: `GitHub PR body rewrite failed: ${res.error}` };
+  }
+  return { ok: true, value: undefined };
 }
