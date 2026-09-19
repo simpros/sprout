@@ -42,8 +42,7 @@ export type DeployRequest = {
   services?: DeployService[];
   env?: PreviewEnvMap;
   db?: DbSpec;
-  mail?: string;
-  mail_from?: string;
+  mail?: string | { mode: string; from?: string };
   reseed?: boolean;
 };
 
@@ -327,8 +326,10 @@ export function buildDeployRequest(
   if (yaml.preview.env) body.env = yaml.preview.env;
   if (yaml.db) body.db = yaml.db;
   if (yaml.mail) {
-    body.mail = yaml.mail.mode;
-    if (yaml.mail.from !== undefined) body.mail_from = yaml.mail.from;
+    body.mail =
+      yaml.mail.from !== undefined
+        ? { mode: yaml.mail.mode, from: yaml.mail.from }
+        : yaml.mail.mode;
   }
 
   const services = resolveDeployServices(yaml, identity.prId, {

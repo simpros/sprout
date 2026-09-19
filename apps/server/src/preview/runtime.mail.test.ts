@@ -13,28 +13,22 @@ const PG = {
 };
 
 const MAIL = {
-  mail: {
-    host: "mailpit",
-    port: 1025,
-    user: "mailpit",
-    password: "mailpit",
-    fromDomain: "preview.invalid",
-  },
+  host: "mailpit",
+  port: 1025,
+  user: "mailpit",
+  password: "mailpit",
+  fromDomain: "preview.invalid",
 };
 
 const MAIL_FULL = {
-  mail: {
-    mail: {
-      host: "mailpit",
-      port: 1025,
-      user: "u",
-      password: "p",
-      secure: true as const,
-      fromDomain: "preview.invalid",
-    },
-    network: "mailnet",
-    uiUrl: "https://mail.example.com",
-  },
+  host: "mailpit",
+  port: 1025,
+  user: "u",
+  password: "p",
+  secure: true as const,
+  fromDomain: "preview.invalid",
+  network: "mailnet",
+  uiUrl: "https://mail.example.com",
 };
 
 const SQLITE_DB: DbSpec = {
@@ -44,17 +38,7 @@ const SQLITE_DB: DbSpec = {
 };
 
 function ctxWithMail(
-  mailPart: PreviewMaterializationCtx["mail"] = MAIL.mail
-    ? {
-        mail: {
-          host: "mailpit",
-          port: 1025,
-          user: "mailpit",
-          password: "mailpit",
-          fromDomain: "preview.invalid",
-        },
-      }
-    : undefined,
+  mailPart: PreviewMaterializationCtx["mail"] = MAIL,
 ): PreviewMaterializationCtx {
   return {
     traefikNetwork: "sprout-traefik",
@@ -145,7 +129,7 @@ describe("resolvePreviewPlan mail", () => {
       {
         traefikNetwork: "sprout-traefik",
         postgres: { pg: PG, network: "sprout-postgres" },
-        mail: MAIL_FULL.mail,
+        mail: MAIL_FULL,
       },
       {
         spec: defaultDbSpec(),

@@ -10,7 +10,7 @@ import {
 import {
   mailConnectionEnv,
   resolveMailFromAddress,
-  type AppDeployMail,
+  type MaterializationMail,
 } from "../app-deployment/mail-env.ts";
 import { pgConnectionEnv, type AppDeployPg } from "../app-deployment/pg-env.ts";
 import { previewDbName } from "../preview-db/names.ts";
@@ -27,11 +27,7 @@ export type PreviewMaterializationCtx = {
     pg: AppDeployPg;
     network: string;
   };
-  mail?: {
-    mail: AppDeployMail;
-    network?: string;
-    uiUrl?: string;
-  };
+  mail?: MaterializationMail;
 };
 
 /**
@@ -72,19 +68,15 @@ function resolveMailPart(
     if (input.mail === undefined) return { env: [], networks: [] };
     throw new Error("mail plan requested without mail config");
   }
-  const merged: AppDeployMail = {
-    ...configured.mail,
-    ...(configured.uiUrl !== undefined ? { uiUrl: configured.uiUrl } : {}),
-  };
   const identity = {
     slug: input.slug,
     prId: input.prId,
     ...(input.mail?.from !== undefined ? { fromTemplate: input.mail.from } : {}),
   };
-  const env = mailConnectionEnv(merged, input.connectionEnv, identity);
+  const env = mailConnectionEnv(configured, input.connectionEnv, identity);
   const networks = configured.network ? [configured.network] : [];
   const mailboxUrl = configured.uiUrl;
-  const mailFrom = resolveMailFromAddress(merged, identity);
+  const mailFrom = resolveMailFromAddress(configured, identity);
   return {
     env,
     networks,

@@ -30,6 +30,7 @@ import {
   teardownPreview,
   setResetRequestMarker,
   type LifecycleDeps,
+  type MailPresentation,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
 import {
@@ -73,6 +74,14 @@ const dbBody = t.Object({
   file: t.Optional(t.String()),
 });
 
+const mailBody = t.Union([
+  t.String(),
+  t.Object({
+    mode: t.Optional(t.String()),
+    from: t.Optional(t.String()),
+  }),
+]);
+
 export const deployBody = t.Object({
   canonical_repo_id: t.String({ minLength: 1 }),
   pr_id: t.Number(),
@@ -81,8 +90,7 @@ export const deployBody = t.Object({
   app_image: t.String({ minLength: 1 }),
   env: t.Optional(t.Record(t.String(), t.String())),
   db: t.Optional(dbBody),
-  mail: t.Optional(t.String()),
-  mail_from: t.Optional(t.String()),
+  mail: t.Optional(mailBody),
   health: t.Optional(healthBody),
   seed_image: t.Optional(t.String({ minLength: 1 })),
   seed_env: t.Optional(t.Array(t.String())),
@@ -116,8 +124,7 @@ export type DeployBody = {
   app_image: string;
   env?: Record<string, string>;
   db?: { provider?: string; path?: string; file?: string };
-  mail?: string;
-  mail_from?: string;
+  mail?: string | { mode?: string; from?: string };
   health?: HealthRequest;
   seed_image?: string;
   seed_env?: string[];
@@ -142,7 +149,7 @@ export type DeployDbAndEnv = {
  * reads it from there so deploy has a single source of truth.
  */
 export function resolveDeployDbAndEnv(
-  body: Pick<DeployBody, "db" | "env" | "mail" | "mail_from">,
+  body: Pick<DeployBody, "db" | "env" | "mail">,
   materialization: PreviewMaterializationCtx,
   repo: string,
 ):
@@ -166,11 +173,7 @@ export function resolveDeployDbAndEnv(
       detail: postgresNotConfiguredDetail(undefined, repo),
     };
   }
-  const mailParsed = parseMailSpec(
-    body.mail_from !== undefined
-      ? { mode: body.mail ?? "enabled", from: body.mail_from }
-      : body.mail,
-  );
+  const mailParsed = parseMailSpec(body.mail);
   if (!mailParsed.ok) {
     return {
       ok: false,
@@ -185,7 +188,7 @@ export function resolveDeployDbAndEnv(
       ok: false,
       status: 500,
       error: "mail_not_configured",
-      detail: mailNotConfiguredDetail(undefined, repo),
+      detail: mailNotConfiguredDetail(repo),
     };
   }
   if (mail?.mode === "none" && mail.from !== undefined) {
@@ -465,7 +468,7 @@ export function deploy(
 
 export function getPreview(
   deps: LifecycleDeps,
-  mailboxUrl?: string,
+  mail?: MailPresentation,
 ) {
   return async ({
     query,
@@ -482,7 +485,7 @@ export function getPreview(
         auth,
         query.canonical_repo_id,
         query.pr_id,
-        mailboxUrl,
+        mail,
       ),
       set,
     );

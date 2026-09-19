@@ -101,6 +101,29 @@ describe("POST /v1/deploy mail", () => {
     expect(res.body).not.toHaveProperty("mail_from");
   });
 
+  test("mail:none hides the mailbox link even when the gateway has one", async () => {
+    const { deployToken } = await setup({
+      ...MAIL,
+      network: "mailnet",
+      uiUrl: "https://mail.example.com",
+    });
+    const res = await postDeploy(deployToken, deployBody({ mail: "none" }));
+    expect(res.settleStatus).toBe(200);
+    expect(res.body).not.toHaveProperty("mail_from");
+    expect(res.body).not.toHaveProperty("mailbox_url");
+
+    const list = await testApp!.app.handle(
+      new Request("http://localhost/v1/previews", {
+        headers: bearer(testApp!.adminToken),
+      }),
+    );
+    const listed = (await list.json()) as {
+      previews: Array<{ mailbox_url?: string; mail_from?: string }>;
+    };
+    expect(listed.previews[0]).not.toHaveProperty("mailbox_url");
+    expect(listed.previews[0]).not.toHaveProperty("mail_from");
+  });
+
   test("mail:enabled on unconfigured gateway returns mail_not_configured", async () => {
     fakePreviewDb = createFakePreviewDb();
     fakeDocker = createFakeDockerClient({
@@ -124,7 +147,7 @@ describe("POST /v1/deploy mail", () => {
     const { deployToken } = await setup();
     const res = await postDeploy(
       deployToken,
-      deployBody({ mail_from: "not-an-address" }),
+      deployBody({ mail: { from: "not-an-address" } }),
     );
     expect(res.settleStatus).toBe(422);
     expect(res.body).toMatchObject({ error: "invalid_mail" });
@@ -135,7 +158,9 @@ describe("POST /v1/deploy mail", () => {
     const { deployToken } = await setup();
     const res = await postDeploy(
       deployToken,
-      deployBody({ mail_from: "noreply+{pr_id}@preview.invalid" }),
+      deployBody({
+        mail: { mode: "enabled", from: "noreply+{pr_id}@preview.invalid" },
+      }),
     );
     expect(res.settleStatus).toBe(200);
     expect(fakeDocker!.creates[0]!.env).toContain(

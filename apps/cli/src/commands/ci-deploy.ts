@@ -19,6 +19,7 @@ import {
   buildDeployRequest,
   postDeployAndWait,
   requireHealthWhenSeeding,
+  type DeploySettled,
 } from "./deploy-core.ts";
 import { warnForgeNote } from "./forge-note.ts";
 import { fetchPreviewLogs, parseTailFlag, printLogs } from "./logs.ts";
@@ -42,9 +43,7 @@ export type CiDeployPolicy = {
   publishNote: (
     deps: CliDeps,
     identity: CiIdentity,
-    previewUrl: string,
-    mailboxUrl?: string,
-    mailFrom?: string,
+    settled: DeploySettled & { reset?: boolean },
   ) => Promise<Result<void>>;
 };
 
@@ -178,13 +177,7 @@ export async function runCiDeploy(
   const write = ctx.deps.writeTextFile ?? defaultWriteTextFile;
   warnForgeNote(
     ctx.deps.io,
-    await policy.publishNote(
-      ctx.deps,
-      identity,
-      settled.value.previewUrl,
-      settled.value.mailboxUrl,
-      settled.value.mailFrom,
-    ),
+    await policy.publishNote(ctx.deps, identity, settled.value),
   );
   try {
     await write(dotenvPath, `PREVIEW_URL=${settled.value.previewUrl}\n`);

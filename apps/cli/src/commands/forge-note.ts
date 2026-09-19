@@ -383,22 +383,14 @@ export async function upsertForgeNote(
 export async function publishPreviewNote(
   deps: CliDeps,
   identity: CiIdentity,
-  previewUrl: string,
-  mailboxUrl?: string,
-  mailFromOrOpts?: string | { reset?: boolean },
-  maybeOpts?: { reset?: boolean },
+  note: {
+    previewUrl: string;
+    mailboxUrl?: string;
+    mailFrom?: string;
+    reset?: boolean;
+  },
 ): Promise<Result<void>> {
-  let mailFrom: string | undefined;
-  let opts: { reset?: boolean } | undefined;
-  if (typeof mailFromOrOpts === "string") {
-    mailFrom = mailFromOrOpts;
-    opts = maybeOpts;
-  } else if (mailFromOrOpts !== undefined) {
-    opts = mailFromOrOpts;
-  } else {
-    opts = maybeOpts;
-  }
-  const reset = opts?.reset
+  const reset = note.reset
     ? {
         actor: resolveResetActor(deps.env, identity.forge),
         at: new Date(deps.now?.() ?? Date.now()).toISOString(),
@@ -408,9 +400,9 @@ export async function publishPreviewNote(
     deps,
     identity,
     buildPreviewNote({
-      previewUrl,
-      ...(mailboxUrl ? { mailboxUrl } : {}),
-      ...(mailFrom ? { mailFrom } : {}),
+      previewUrl: note.previewUrl,
+      ...(note.mailboxUrl ? { mailboxUrl: note.mailboxUrl } : {}),
+      ...(note.mailFrom ? { mailFrom: note.mailFrom } : {}),
       sha: identity.commitSha,
       prId: identity.prId,
       ...(reset ? { reset } : {}),

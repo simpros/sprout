@@ -1,5 +1,6 @@
 import { bindPreviewOps } from "./app-deployment/ops.ts";
 import { bootstrapAdminToken } from "./auth/bootstrap-admin.ts";
+import { toMaterializationMail } from "./app-deployment/mail-env.ts";
 import {
   configSummary,
   loadConfig,
@@ -63,20 +64,7 @@ const materialization: PreviewMaterializationCtx = {
       }
     : {}),
   ...(mail
-    ? {
-        mail: {
-          mail: {
-            host: mail.host,
-            port: mail.port,
-            user: mail.user,
-            password: mail.password,
-            ...(mail.secure ? { secure: true as const } : {}),
-            fromDomain: mail.fromDomain,
-          },
-          ...(mail.network !== undefined ? { network: mail.network } : {}),
-          ...(mail.uiUrl !== undefined ? { uiUrl: mail.uiUrl } : {}),
-        },
-      }
+    ? { mail: toMaterializationMail(mail) }
     : {}),
 };
 

@@ -4,7 +4,7 @@ import {
   getPreviewRow,
   markPreviewFailed,
   parsePreviewStatus,
-  previewSnapshotFromRow,
+  snapshotForPlan,
   provisionPreview,
   withPreviewLock,
   type LifecycleDeps,
@@ -38,7 +38,7 @@ export async function acceptAsyncDeploy(
           return {
             ok: true,
             value: {
-              snapshot: previewSnapshotFromRow(row, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName),
+              snapshot: snapshotForPlan(row, input.plan),
               launch: false,
             },
           };

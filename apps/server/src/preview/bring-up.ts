@@ -22,6 +22,7 @@ import type {
   PreviewSnapshot,
   ProvisionInput,
 } from "./types.ts";
+import { snapshotForPlan } from "./snapshot.ts";
 
 const clearLastError = {
   lastError: null,
@@ -179,26 +180,7 @@ async function closeRunning(
   );
   return {
     ok: true,
-    value: {
-      ok: true,
-      canonical_repo_id: updated.canonicalRepoId,
-      pr_id: updated.prId,
-      slug: updated.slug,
-      db_name: updated.dbName,
-      hostname: updated.hostname,
-      status: "running",
-      preview_url: `https://${updated.hostname}`,
-      reset_request_marker: updated.resetRequestMarker,
-      ...(input.plan.mailboxUrl !== undefined
-        ? { mailbox_url: input.plan.mailboxUrl }
-        : {}),
-      ...(input.plan.mailFrom !== undefined
-        ? { mail_from: input.plan.mailFrom }
-        : {}),
-      ...(input.plan.mailFromName !== undefined
-        ? { mail_from_name: input.plan.mailFromName }
-        : {}),
-    },
+    value: snapshotForPlan(updated, input.plan),
   };
 }
 

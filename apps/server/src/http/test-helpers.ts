@@ -20,6 +20,7 @@ import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
 import { runMigrations } from "../scripts/migrate.ts";
 import { createRoutes } from "./routes.ts";
 import type { MailConfig, PostgresConfig } from "../config.ts";
+import { toMaterializationMail } from "../app-deployment/mail-env.ts";
 
 export type TestDb = {
   db: StateDb;
@@ -53,22 +54,7 @@ const defaultTestMaterialization = (
     },
     network: "sprout-postgres",
   },
-  ...(mail
-    ? {
-        mail: {
-          mail: {
-            host: mail.host,
-            port: mail.port,
-            user: mail.user,
-            password: mail.password,
-            ...(mail.secure ? { secure: true as const } : {}),
-            fromDomain: mail.fromDomain ?? "preview.invalid",
-          },
-          ...(mail.network !== undefined ? { network: mail.network } : {}),
-          ...(mail.uiUrl !== undefined ? { uiUrl: mail.uiUrl } : {}),
-        },
-      }
-    : {}),
+  ...(mail ? { mail: toMaterializationMail(mail) } : {}),
 });
 
 const defaultTestPostgres: PostgresConfig = {
@@ -145,18 +131,7 @@ export async function createTestApp(
     : mail
       ? {
           traefikNetwork: "sprout-traefik",
-          mail: {
-            mail: {
-              host: mail.host,
-              port: mail.port,
-              user: mail.user,
-              password: mail.password,
-              ...(mail.secure ? { secure: true as const } : {}),
-              fromDomain: mail.fromDomain ?? "preview.invalid",
-            },
-            ...(mail.network !== undefined ? { network: mail.network } : {}),
-            ...(mail.uiUrl !== undefined ? { uiUrl: mail.uiUrl } : {}),
-          },
+          mail: toMaterializationMail(mail),
         }
       : { traefikNetwork: "sprout-traefik" };
   return {

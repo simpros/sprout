@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   configSummary,
-  isMailConfigured,
   isPostgresConfigured,
   loadConfig,
   MAIL_ENV_KEYS,
@@ -445,10 +444,9 @@ describe("loadConfig", () => {
     process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
     const config = loadConfig();
     expect(config.mail).toBeUndefined();
-    expect(isMailConfigured(config.mail)).toBe(false);
-    expect(
-      mailNotConfiguredDetail(config.mail, "https://github.com/org/repo"),
-    ).toContain("mail");
+    expect(mailNotConfiguredDetail("https://github.com/org/repo")).toContain(
+      "mail",
+    );
   });
 
   test("mail partially set without host fails fast naming the host", () => {
@@ -473,7 +471,7 @@ describe("loadConfig", () => {
       secure: false,
       fromDomain: "preview.invalid",
     });
-    expect(isMailConfigured(config.mail)).toBe(true);
+    expect(config.mail).toBeDefined();
   });
 
   test("mail complete group parses explicit values", () => {

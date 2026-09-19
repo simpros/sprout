@@ -366,15 +366,7 @@ export function postgresNotConfiguredDetail(
   );
 }
 
-export function isMailConfigured(mail: MailConfig | undefined): boolean {
-  return mail !== undefined;
-}
-
-export function mailNotConfiguredDetail(
-  mail: MailConfig | undefined,
-  repo: string,
-): string {
-  void mail;
+export function mailNotConfiguredDetail(repo: string): string {
   return (
     `repo ${repo} declares mail enabled but the gateway has no mail configured: ` +
     `missing ${[...MAIL_ENV_KEYS].join(", ")}`

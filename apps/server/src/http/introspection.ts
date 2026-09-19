@@ -7,6 +7,7 @@ import {
   purgePreview,
   toDisplayStatus,
   type LifecycleDeps,
+  type MailPresentation,
 } from "../preview/lifecycle.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import { planOrphans } from "../sweep/reconcile.ts";
@@ -50,7 +51,7 @@ export type DropBody = {
   yes?: boolean;
 };
 
-export function listPreviews(db: StateDb, mailboxUrl?: string) {
+export function listPreviews(db: StateDb, mail?: MailPresentation) {
   return async ({ set }: { set: { status?: number | string } }) => {
     const rows = await db
       .select()
@@ -73,7 +74,9 @@ export function listPreviews(db: StateDb, mailboxUrl?: string) {
         hostname: row.hostname,
         status: toDisplayStatus(status.value),
         created_at: row.createdAt,
-        ...(mailboxUrl !== undefined ? { mailbox_url: mailboxUrl } : {}),
+        ...(mail?.mailboxUrl !== undefined && storedFrom !== undefined
+          ? { mailbox_url: mail.mailboxUrl }
+          : {}),
         ...(storedFrom !== undefined ? { mail_from: storedFrom } : {}),
       });
     }

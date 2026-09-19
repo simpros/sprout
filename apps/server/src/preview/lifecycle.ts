@@ -13,6 +13,10 @@ import {
 } from "./row.ts";
 import { canSeedWithoutAppReplace, seedWorkOutstanding } from "./seed-phase.ts";
 import type { Result } from "./result.ts";
+import {
+  parsePreviewStatus,
+  snapshotForPlan,
+} from "./snapshot.ts";
 import type {
   BringUpPlan,
   DisplayPreviewStatus,
@@ -39,6 +43,12 @@ export type {
   TeardownInput,
   TeardownSnapshot,
 } from "./types.ts";
+export {
+  parsePreviewStatus,
+  previewSnapshotFromRow,
+  snapshotForPlan,
+  type MailPresentation,
+} from "./snapshot.ts";
 export { withPreviewLock, withDbNameLock } from "./locks.ts";
 export {
   markPreviewFailed,
@@ -55,71 +65,6 @@ export function toDisplayStatus(status: PreviewStatus): DisplayPreviewStatus {
   }
 }
 
-export function previewSnapshotFromRow(
-  row: PreviewRow,
-  mailboxUrl?: string,
-  mailFrom?: string,
-  mailFromName?: string,
-): PreviewSnapshot {
-  const status = parsePreviewStatus(row.status);
-  const parsed = status.ok ? status.value : "failed";
-  const effectiveFrom = mailFrom ?? row.mailFrom ?? undefined;
-  const effectiveName =
-    mailFromName ?? (effectiveFrom !== undefined ? `${row.slug} PR ${row.prId}` : undefined);
-  return {
-    ok: true,
-    canonical_repo_id: row.canonicalRepoId,
-    pr_id: row.prId,
-    slug: row.slug,
-    db_name: row.dbName,
-    hostname: row.hostname,
-    status: parsed,
-    ...(parsed === "running" ? { preview_url: `https://${row.hostname}` } : {}),
-    ...(mailboxUrl !== undefined ? { mailbox_url: mailboxUrl } : {}),
-    ...(effectiveFrom !== undefined ? { mail_from: effectiveFrom } : {}),
-    ...(effectiveName !== undefined ? { mail_from_name: effectiveName } : {}),
-    ...(row.lastError != null ? { last_error: row.lastError } : {}),
-    ...(row.lastErrorDetail != null
-      ? { last_error_detail: row.lastErrorDetail }
-      : {}),
-    reset_request_marker: row.resetRequestMarker,
-  };
-}
-
-export function withMailbox(
-  snapshot: PreviewSnapshot,
-  mailboxUrl?: string,
-  mailFrom?: string,
-  mailFromName?: string,
-): PreviewSnapshot {
-  if (
-    mailboxUrl === undefined &&
-    mailFrom === undefined &&
-    mailFromName === undefined
-  )
-    return snapshot;
-  return {
-    ...snapshot,
-    ...(mailboxUrl !== undefined ? { mailbox_url: mailboxUrl } : {}),
-    ...(mailFrom !== undefined ? { mail_from: mailFrom } : {}),
-    ...(mailFromName !== undefined ? { mail_from_name: mailFromName } : {}),
-  };
-}
-
-export function parsePreviewStatus(status: string): Result<PreviewStatus> {
-  switch (status) {
-    case "provisioning":
-    case "starting":
-    case "seeding":
-    case "running":
-    case "failed":
-    case "removing":
-    case "removed":
-      return { ok: true, value: status };
-    default:
-      return { ok: false, status: 500, error: "unknown_preview_status" };
-  }
-}
 
 export async function getPreviewRow(
   db: StateDb,
@@ -361,7 +306,7 @@ export async function claimDeployIntent(
     if (!inserted) {
       return { ok: false, status: 500, error: "preview_row_missing" };
     }
-    return { ok: true, value: previewSnapshotFromRow(inserted, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
+    return { ok: true, value: snapshotForPlan(inserted, input.plan) };
   }
 
   const status = parsePreviewStatus(row.status);
@@ -378,7 +323,7 @@ export async function claimDeployIntent(
   ) {
     const intentDbName = requestedDbName ?? row.dbName;
     const intent = await writeProvisioningIntent(deps, input, intentDbName);
-    return { ok: true, value: previewSnapshotFromRow(intent, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
+    return { ok: true, value: snapshotForPlan(intent, input.plan) };
   }
 
   switch (status.value) {
@@ -394,20 +339,20 @@ export async function claimDeployIntent(
         input,
         requestedDbName,
       );
-      return { ok: true, value: previewSnapshotFromRow(intent, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
+      return { ok: true, value: snapshotForPlan(intent, input.plan) };
     }
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
         const planned = planAcceptBringUp(row, input, "failed");
         const next = await patchAccept(deps, row, { ...planned, mailFrom: input.plan.mailFrom ?? null });
-        return { ok: true, value: previewSnapshotFromRow(next, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
+        return { ok: true, value: snapshotForPlan(next, input.plan) };
       }
       const intent = await writeProvisioningIntent(
         deps,
         input,
         requestedDbName,
       );
-      return { ok: true, value: previewSnapshotFromRow(intent, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
+      return { ok: true, value: snapshotForPlan(intent, input.plan) };
     }
     case "seeding": {
       const identity = requireDbIdentity(row, input, requestedDbName);
@@ -416,7 +361,7 @@ export async function claimDeployIntent(
         ...planAcceptBringUp(row, input, "seeding"),
         mailFrom: input.plan.mailFrom ?? null,
       });
-      return { ok: true, value: previewSnapshotFromRow(next, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
+      return { ok: true, value: snapshotForPlan(next, input.plan) };
     }
     case "running":
     case "starting": {
@@ -426,7 +371,7 @@ export async function claimDeployIntent(
         ...planAcceptBringUp(row, input, status.value),
         mailFrom: input.plan.mailFrom ?? null,
       });
-      return { ok: true, value: previewSnapshotFromRow(next, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
+      return { ok: true, value: snapshotForPlan(next, input.plan) };
     }
     case "provisioning": {
       const identity = requireDbIdentity(row, input, requestedDbName);
@@ -438,7 +383,7 @@ export async function claimDeployIntent(
         hostname: input.hostname,
         mailFrom: input.plan.mailFrom ?? null,
       });
-      return { ok: true, value: previewSnapshotFromRow(next, input.plan.mailboxUrl, input.plan.mailFrom, input.plan.mailFromName) };
+      return { ok: true, value: snapshotForPlan(next, input.plan) };
     }
   }
 }
