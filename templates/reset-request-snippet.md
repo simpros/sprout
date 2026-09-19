@@ -3,7 +3,8 @@
 
 Tick a box in the MR/PR description and the next `sprout ci preview` run
 wipes the preview database and redeploys from scratch — no webhook, no extra
-token, no adopter script. Paste this snippet into the MR/PR description:
+token, no adopter script. Paste this snippet at the top of the MR/PR
+description (GitLab exposes only the first 2700 characters to CI):
 
 ```markdown
 - [ ] Sprout: reset preview <!-- sprout-reset: ada-2026-09-19-1 -->

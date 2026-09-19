@@ -419,6 +419,58 @@ Low-level equivalents (`sprout deploy -i … -s …`, `sprout teardown`,
 surface (`-i`, `-s`, `--reseed`, `--service`, `--clear-services`,
 `--app-env[-file]`, `--seed-env[-file]`, `--seed-arg`).
 
+### Reset a preview
+
+One command wipes the preview database and redeploys + seeds from scratch:
+
+```bash
+sprout ci reset
+```
+
+It tears down this MR's preview (container + database), then deploys again
+with the already pushed images for the commit — no rebuild — re-running
+migrations and the seed behind the health gate, then printing `preview_url=`
+like `sprout ci preview`. The MR/PR note gains a `Reset: <actor> at <utc>`
+line; the note is never duplicated.
+
+Wipe vs re-seed in one sentence each: `sprout ci reset` wipes the database
+and redeploys from scratch (data wiped), while `--reseed` / `sprout ci
+reseed -s …` re-runs the seed against the existing database (data kept).
+
+If the reset leaves the preview unhealthy, pull container logs through the
+gateway (`sprout ci logs [--tail N]`, same output as `sprout logs`) and fix
+forward — app crash-loop (migrations, missing env, wrong port) is the usual
+cause; a failed seed keeps the app up and routable with `seeded_at` unset
+(see [Troubleshooting](#troubleshooting)).
+
+#### GitLab triggering
+
+GitLab has no "description edited → run a pipeline" trigger, so a ticked
+[reset-request checkbox](#reset-request-checkbox) is honored at the **next**
+pipeline run, not when it is ticked. Two paths, one operation:
+
+- **Ticked box (declarative):** tick the box and rotate the marker token;
+  the next `sprout-preview` run resets first, then deploys normally.
+- **Run button (instant):** press **Run** on the `sprout-reset` manual job
+  inside the existing MR pipeline — same `sprout ci reset`, same inputs as
+  `sprout-preview`, no new commit.
+
+A fresh "Run pipeline" from the GitLab UI cannot be used for the instant
+path: it arrives as `CI_PIPELINE_SOURCE=web`, which `sprout ci` refuses by
+design (only merge-request pipelines deploy), so the instant path has to be
+a job *inside* the existing MR pipeline.
+
+#### GitHub triggering
+
+The caller workflow listens to `pull_request: types: [opened, synchronize,
+reopened, edited, closed]`. An `edited` run first checks the PR body cheaply
+and skips the preview job before checkout when no reset is requested — a
+title edit never rebuilds or redeploys. A ticked box plus a rotated marker
+token redeploys from scratch on that run. After the reset the job rewrites
+the box back to `- [ ]`, keeping the marker, so the `edited` event that
+rewrite causes is a no-op. Title edits are deliberately ignored: the reset
+contract is owned by `parseResetRequest` in the CLI, not by the event type.
+
 ### Reset request checkbox
 
 Tick a box in the MR/PR description and the next `sprout ci preview` run
@@ -435,9 +487,9 @@ something new. The token is the exactly-once key: the gateway stores the
 handled token on the preview row, so re-runs and pipeline retries deploy
 normally. An unticked box, a missing marker, or a tick/marker inside a fenced
 code block does nothing. GitHub runs untick the box after the reset (marker
-kept); GitLab keeps the tick, guarded by the stored token. Keep the snippet
-inside the first 2700 characters of a GitLab MR description — truncation
-fails the job with a named error instead of ignoring the tick.
+kept); GitLab keeps the tick, guarded by the stored token. Paste the snippet
+at the top of the MR/PR description — GitLab exposes only the first 2700
+characters to CI, so truncation fails the job with a named error instead of ignoring the tick.
 
 ### Component inputs (`templates/preview.yml`)
 
@@ -591,6 +643,10 @@ parse errors name the key or file without echoing the value.
 | `seed:` block with `db.provider: none` | `seed requires db.provider postgres or sqlite (db.provider is none)` (manifest parse and `422 seed_requires_database` at the deploy route) | Remove the `seed:` block — a no-database preview has nothing to seed. If the app needs fixtures, it is not a `none` repo; use `postgres` or `sqlite`. |
 | `-s` / `--reseed` / `sprout ci reseed -s …` on a `none` repo | `seed requires db.provider postgres or sqlite (db.provider is none)` (`422 seed_requires_database` from the gateway) | Drop the seed flags — there is no database to re-seed. The CLI fails before any network call; the gateway agrees on the message. |
 | `preview.env` database key with `db.provider: none` | `preview.env.<KEY> requires db.provider <postgres\|sqlite>` (manifest parse and `422 invalid_env_for_provider` at the deploy route) | Remove the entry — `none` previews inject no connection env. Keep only `preview.app_env` / `--app-env` for non-connection values. |
+| Truncated GitLab MR description with a reset box | `GitLab MR description is truncated (CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED=true); move the '- [ ] Sprout: reset preview' checkbox and the '<!-- sprout-reset: <token> -->' marker into the first 2700 characters so the reset request is visible` | Paste the [reset-request snippet](#reset-request-checkbox) at the top of the MR description and retry the job. The tick is never silently ignored. |
+| Ticked box does not reset a second time | no error; the run deploys normally | The marker was already handled (exactly-once key on the preview row). To reset again, tick the box **and** rotate the marker token to something new. A hand-run `sprout ci reset` also consumes the pending request, so the next push does not wipe again. |
+| Reset on a `db.provider: none` or `sqlite` preview | no error; the reset redeploys but there is no Postgres database to wipe | Expected: `none` redeploys containers only (no database step); `sqlite` drops and recreates the named per-preview volume instead of `DROP DATABASE`. Migrations/seed re-run as usual. |
+| Reset while another deploy is in flight | `409 preview_deploy_in_progress` (or `preview_teardown_in_progress`) | Wait for the current run to settle, then retry. GitHub runs serialize per PR via the workflow concurrency group; on GitLab avoid running `sprout-preview` and `sprout-reset` at the same time. |
 
 ## App image: migrate at startup
 
@@ -881,7 +937,9 @@ bootstrapper over `sprout ci preview` / `sprout ci teardown`):
   The pre-filter over-triggers by design (no fence or token validation); the
   reset contract itself is owned by `parseResetRequest` in the CLI, which
   decides reset vs normal deploy on the runs that proceed. A ticked box +
-  rotated marker redeploys from scratch on that run.
+  rotated marker redeploys from scratch on that run. After the reset the job
+  rewrites the box back to `- [ ]` while keeping the marker, so the
+  follow-up `edited` run exits without resetting.
 - Per-PR serial runs via a `sprout-preview-<PR>` concurrency group.
 
 Caller permissions: a reusable workflow cannot elevate permissions, so the
