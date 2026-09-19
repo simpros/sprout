@@ -2,12 +2,14 @@ import type { AuthContext } from "../auth/middleware.ts";
 import { gateReadablePreviewRow } from "../preview/async-deploy.ts";
 import {
   getPreviewRow,
-  previewSnapshotFromRow,
   type LifecycleDeps,
-  type MailPresentation,
   type PreviewRow,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
+import {
+  previewSnapshotFromRow,
+  type MailPresentation,
+} from "../preview/snapshot.ts";
 import type { Result } from "../preview/result.ts";
 import { validatePrId } from "../preview-db/names.ts";
 

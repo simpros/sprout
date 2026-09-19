@@ -59,4 +59,22 @@ describe("mail.from template", () => {
     const unknown = parseMailSpec({ bogus: 1 });
     expect(unknown.ok).toBe(false);
   });
+
+  test("parseMailSpec rejects from with mode none", () => {
+    const rejected = parseMailSpec({
+      mode: "none",
+      from: "noreply+{pr_id}@preview.invalid",
+    });
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) {
+      expect(rejected.issue.code).toBe("invalid_mail_from");
+      expect(rejected.issue).toMatchObject({
+        detail: "requires mail enabled",
+      });
+    }
+  });
+
+  test("rejects templates without a dotted domain", () => {
+    expect(validateMailFromTemplate("a+{pr_id}@b").ok).toBe(false);
+  });
 });

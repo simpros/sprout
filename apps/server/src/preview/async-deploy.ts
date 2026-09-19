@@ -3,8 +3,6 @@ import {
   claimDeployIntent,
   getPreviewRow,
   markPreviewFailed,
-  parsePreviewStatus,
-  snapshotForPlan,
   provisionPreview,
   withPreviewLock,
   type LifecycleDeps,
@@ -12,6 +10,10 @@ import {
   type PreviewSnapshot,
   type ProvisionInput,
 } from "./lifecycle.ts";
+import {
+  parsePreviewStatus,
+  previewSnapshotFromRow,
+} from "./snapshot.ts";
 
 const inFlightDeploys = new Map<string, { slug: string; dbName: string | null }>();
 
@@ -38,7 +40,12 @@ export async function acceptAsyncDeploy(
           return {
             ok: true,
             value: {
-              snapshot: snapshotForPlan(row, input.plan),
+              snapshot: previewSnapshotFromRow(
+                row,
+                input.plan.mailboxUrl !== undefined
+                  ? { mailboxUrl: input.plan.mailboxUrl }
+                  : undefined,
+              ),
               launch: false,
             },
           };

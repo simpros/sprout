@@ -154,6 +154,16 @@ describe("POST /v1/deploy mail", () => {
     expect(JSON.stringify(res.body)).toContain("mail.from");
   });
 
+  test("mail none with from rejects as invalid_mail", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({ mail: { mode: "none", from: "noreply+{pr_id}@preview.invalid" } }),
+    );
+    expect(res.settleStatus).toBe(422);
+    expect(res.body).toMatchObject({ error: "invalid_mail" });
+  });
+
   test("mail.from override resolves per preview", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(

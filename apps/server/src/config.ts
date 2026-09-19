@@ -29,8 +29,6 @@ export const MAIL_ENV_KEYS = [
   "SPROUT_MAIL_FROM_DOMAIN",
 ] as const;
 
-export const MAIL_PLACEHOLDER_USER = "mailpit";
-export const MAIL_PLACEHOLDER_PASSWORD = "mailpit";
 export const MAIL_DEFAULT_FROM_DOMAIN = "preview.invalid";
 
 export const OPTIONAL_ENV_DEFAULTS = {
@@ -79,8 +77,8 @@ export type PostgresConfig = {
 export type MailConfig = {
   host: string;
   port: number;
-  user: string;
-  password: string;
+  user?: string;
+  password?: string;
   secure: boolean;
   network?: string;
   uiUrl?: string;
@@ -150,22 +148,14 @@ function parseMailSecure(raw: string): boolean {
 /** Mail is host-enabled: any SPROUT_MAIL_* without a host fails boot naming the host. */
 function parseMailConfig(): MailConfig | undefined {
   const host = optionalEnv("SPROUT_MAIL_HOST");
-  const portRaw = process.env.SPROUT_MAIL_PORT?.trim() ?? "";
+  const portRaw = optionalEnv("SPROUT_MAIL_PORT");
   const user = optionalEnv("SPROUT_MAIL_USER");
   const password = optionalEnv("SPROUT_MAIL_PASSWORD");
-  const secureRaw = process.env.SPROUT_MAIL_SECURE?.trim() ?? "";
+  const secureRaw = optionalEnv("SPROUT_MAIL_SECURE");
   const network = optionalEnv("SPROUT_MAIL_NETWORK");
   const uiUrl = optionalEnv("SPROUT_MAIL_UI_URL");
   const fromDomainRaw = optionalEnv("SPROUT_MAIL_FROM_DOMAIN");
-  const anySet =
-    host !== "" ||
-    portRaw !== "" ||
-    user !== "" ||
-    password !== "" ||
-    secureRaw !== "" ||
-    network !== "" ||
-    uiUrl !== "" ||
-    fromDomainRaw !== "";
+  const anySet = MAIL_ENV_KEYS.some((key) => optionalEnv(key) !== "");
   if (!anySet) return undefined;
   if (host === "") {
     throw new Error(
@@ -179,8 +169,8 @@ function parseMailConfig(): MailConfig | undefined {
       process.env.SPROUT_MAIL_PORT,
       OPTIONAL_ENV_DEFAULTS.SPROUT_MAIL_PORT,
     ),
-    user: user === "" ? MAIL_PLACEHOLDER_USER : user,
-    password: password === "" ? MAIL_PLACEHOLDER_PASSWORD : password,
+    ...(user === "" ? {} : { user }),
+    ...(password === "" ? {} : { password }),
     secure: parseMailSecure(secureRaw),
     ...(network === "" ? {} : { network }),
     ...(uiUrl === "" ? {} : { uiUrl }),
@@ -369,7 +359,7 @@ export function postgresNotConfiguredDetail(
 export function mailNotConfiguredDetail(repo: string): string {
   return (
     `repo ${repo} declares mail enabled but the gateway has no mail configured: ` +
-    `missing ${[...MAIL_ENV_KEYS].join(", ")}`
+    `missing SPROUT_MAIL_HOST`
   );
 }
 
@@ -386,7 +376,7 @@ export function configSummary(config: Config): Record<string, string | number> {
     postgresNetwork: pg ? pg.network : "[unset]",
     previewMailHost: mail ? mail.host : "[unset]",
     previewMailPort: mail ? mail.port : "[unset]",
-    previewMailUser: mail ? mail.user : "[unset]",
+    previewMailUser: mail?.user ?? "[unset]",
     previewMailSecure: mail ? String(mail.secure) : "[unset]",
     mailNetwork: mail?.network ?? "[unset]",
     mailUiUrl: mail?.uiUrl ?? "[unset]",

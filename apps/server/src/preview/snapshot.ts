@@ -1,3 +1,4 @@
+import { deriveMailFromName } from "@sprout/preview-env";
 import type { Result } from "./result.ts";
 import type { PreviewRow } from "./row.ts";
 import type {
@@ -6,11 +7,9 @@ import type {
   ProvisionInput,
 } from "./types.ts";
 
-/** Mail presentation attached to a snapshot: mailbox link plus From identity. */
+/** Config-level mail presentation: the mailbox link only. From lives on the row. */
 export type MailPresentation = {
   mailboxUrl?: string;
-  mailFrom?: string;
-  mailFromName?: string;
 };
 
 export function parsePreviewStatus(status: string): Result<PreviewStatus> {
@@ -28,16 +27,22 @@ export function parsePreviewStatus(status: string): Result<PreviewStatus> {
   }
 }
 
+/** Single derivation of the stored From column from a resolved plan. */
+export function planMailFrom(plan: ProvisionInput["plan"]): string | null {
+  return plan.mailFrom ?? null;
+}
+
 export function previewSnapshotFromRow(
   row: PreviewRow,
   mail?: MailPresentation,
 ): PreviewSnapshot {
   const status = parsePreviewStatus(row.status);
   const parsed = status.ok ? status.value : "failed";
-  const effectiveFrom = mail?.mailFrom ?? row.mailFrom ?? undefined;
+  const effectiveFrom = row.mailFrom ?? undefined;
   const effectiveName =
-    mail?.mailFromName ??
-    (effectiveFrom !== undefined ? `${row.slug} PR ${row.prId}` : undefined);
+    effectiveFrom !== undefined
+      ? deriveMailFromName(row.slug, row.prId)
+      : undefined;
   const mailboxUrl = mail?.mailboxUrl;
   return {
     ok: true,
@@ -61,18 +66,4 @@ export function previewSnapshotFromRow(
       : {}),
     reset_request_marker: row.resetRequestMarker,
   };
-}
-
-/** Snapshot for a deploy intent: the plan carries the whole presentation. */
-export function snapshotForPlan(
-  row: PreviewRow,
-  plan: ProvisionInput["plan"],
-): PreviewSnapshot {
-  return previewSnapshotFromRow(row, {
-    ...(plan.mailboxUrl !== undefined ? { mailboxUrl: plan.mailboxUrl } : {}),
-    ...(plan.mailFrom !== undefined ? { mailFrom: plan.mailFrom } : {}),
-    ...(plan.mailFromName !== undefined
-      ? { mailFromName: plan.mailFromName }
-      : {}),
-  });
 }

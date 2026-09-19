@@ -458,7 +458,7 @@ describe("loadConfig", () => {
     );
   });
 
-  test("mail host alone parses with port/secure defaults and placeholder credentials", () => {
+  test("mail host alone parses with port/secure defaults and no credentials", () => {
     clearGatewayEnv();
     process.env.SPROUT_TRAEFIK_NETWORK = "traefik";
     process.env.SPROUT_MAIL_HOST = "mailpit";
@@ -466,8 +466,6 @@ describe("loadConfig", () => {
     expect(config.mail).toEqual({
       host: "mailpit",
       port: 1025,
-      user: "mailpit",
-      password: "mailpit",
       secure: false,
       fromDomain: "preview.invalid",
     });

@@ -3,10 +3,8 @@ import { authPlugin, requireAdmin, requireAuth } from "../auth/middleware.ts";
 import type { PreviewAppOps } from "../app-deployment/ops.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import type { PreviewDbRouter } from "../preview-db/routing.ts";
-import type {
-  LifecycleDeps,
-  MailPresentation,
-} from "../preview/lifecycle.ts";
+import type { LifecycleDeps } from "../preview/lifecycle.ts";
+import type { MailPresentation } from "../preview/snapshot.ts";
 import type { PreviewMaterializationCtx } from "../preview/runtime.ts";
 import {
   createDeployToken,

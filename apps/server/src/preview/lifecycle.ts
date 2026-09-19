@@ -15,7 +15,9 @@ import { canSeedWithoutAppReplace, seedWorkOutstanding } from "./seed-phase.ts";
 import type { Result } from "./result.ts";
 import {
   parsePreviewStatus,
-  snapshotForPlan,
+  planMailFrom,
+  previewSnapshotFromRow,
+  type MailPresentation,
 } from "./snapshot.ts";
 import type {
   BringUpPlan,
@@ -43,12 +45,6 @@ export type {
   TeardownInput,
   TeardownSnapshot,
 } from "./types.ts";
-export {
-  parsePreviewStatus,
-  previewSnapshotFromRow,
-  snapshotForPlan,
-  type MailPresentation,
-} from "./snapshot.ts";
 export { withPreviewLock, withDbNameLock } from "./locks.ts";
 export {
   markPreviewFailed,
@@ -179,7 +175,7 @@ async function writeProvisioningIntent(
       containerId: null,
       seededAt: null,
       seededSeedImage: null,
-      mailFrom: input.plan.mailFrom ?? null,
+      mailFrom: planMailFrom(input.plan),
       ...clearLastError,
       // New generation: TTL means age of this intent, not birth of the row key.
       createdAt: now,
@@ -197,8 +193,8 @@ async function patchAccept(
     plan: BringUpPlan;
     remint?: boolean;
     hostname?: string;
-    mailFrom?: string | null;
   },
+  dbPlan: ProvisionInput["plan"],
 ): Promise<PreviewRow> {
   const now = utcIsoNow();
   return updatePreviewRow(
@@ -208,7 +204,7 @@ async function patchAccept(
       status: fields.status,
       bringUpPlan: fields.plan,
       ...(fields.hostname != null ? { hostname: fields.hostname } : {}),
-      ...(fields.mailFrom !== undefined ? { mailFrom: fields.mailFrom } : {}),
+      mailFrom: planMailFrom(dbPlan),
       lastError: null,
       lastErrorDetail: null,
       seedLog: null,
@@ -281,6 +277,12 @@ function planAcceptBringUp(
   }
   return { status: "provisioning", plan: "full_replace" };
 }
+/** Config-level mailbox link for a snapshot; From is read from the row. */
+function mailboxOf(plan: ProvisionInput["plan"]): MailPresentation | undefined {
+  return plan.mailboxUrl !== undefined
+    ? { mailboxUrl: plan.mailboxUrl }
+    : undefined;
+}
 export async function claimDeployIntent(
   deps: LifecycleDeps,
   input: ProvisionInput,
@@ -300,13 +302,16 @@ export async function claimDeployIntent(
         hostname: input.hostname,
         status: "provisioning",
         bringUpPlan: "full_replace",
-        mailFrom: input.plan.mailFrom ?? null,
+        mailFrom: planMailFrom(input.plan),
       })
       .returning();
     if (!inserted) {
       return { ok: false, status: 500, error: "preview_row_missing" };
     }
-    return { ok: true, value: snapshotForPlan(inserted, input.plan) };
+    return {
+      ok: true,
+      value: previewSnapshotFromRow(inserted, mailboxOf(input.plan)),
+    };
   }
 
   const status = parsePreviewStatus(row.status);
@@ -323,7 +328,10 @@ export async function claimDeployIntent(
   ) {
     const intentDbName = requestedDbName ?? row.dbName;
     const intent = await writeProvisioningIntent(deps, input, intentDbName);
-    return { ok: true, value: snapshotForPlan(intent, input.plan) };
+    return {
+      ok: true,
+      value: previewSnapshotFromRow(intent, mailboxOf(input.plan)),
+    };
   }
 
   switch (status.value) {
@@ -339,51 +347,77 @@ export async function claimDeployIntent(
         input,
         requestedDbName,
       );
-      return { ok: true, value: snapshotForPlan(intent, input.plan) };
+      return {
+        ok: true,
+        value: previewSnapshotFromRow(intent, mailboxOf(input.plan)),
+      };
     }
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
         const planned = planAcceptBringUp(row, input, "failed");
-        const next = await patchAccept(deps, row, { ...planned, mailFrom: input.plan.mailFrom ?? null });
-        return { ok: true, value: snapshotForPlan(next, input.plan) };
+        const next = await patchAccept(deps, row, planned, input.plan);
+        return {
+          ok: true,
+          value: previewSnapshotFromRow(next, mailboxOf(input.plan)),
+        };
       }
       const intent = await writeProvisioningIntent(
         deps,
         input,
         requestedDbName,
       );
-      return { ok: true, value: snapshotForPlan(intent, input.plan) };
+      return {
+        ok: true,
+        value: previewSnapshotFromRow(intent, mailboxOf(input.plan)),
+      };
     }
     case "seeding": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(deps, row, {
-        ...planAcceptBringUp(row, input, "seeding"),
-        mailFrom: input.plan.mailFrom ?? null,
-      });
-      return { ok: true, value: snapshotForPlan(next, input.plan) };
+      const next = await patchAccept(
+        deps,
+        row,
+        planAcceptBringUp(row, input, "seeding"),
+        input.plan,
+      );
+      return {
+        ok: true,
+        value: previewSnapshotFromRow(next, mailboxOf(input.plan)),
+      };
     }
     case "running":
     case "starting": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(deps, row, {
-        ...planAcceptBringUp(row, input, status.value),
-        mailFrom: input.plan.mailFrom ?? null,
-      });
-      return { ok: true, value: snapshotForPlan(next, input.plan) };
+      const next = await patchAccept(
+        deps,
+        row,
+        planAcceptBringUp(row, input, status.value),
+        input.plan,
+      );
+      return {
+        ok: true,
+        value: previewSnapshotFromRow(next, mailboxOf(input.plan)),
+      };
     }
     case "provisioning": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(deps, row, {
-        status: "provisioning",
-        plan: "full_replace",
-        remint: true,
-        hostname: input.hostname,
-        mailFrom: input.plan.mailFrom ?? null,
-      });
-      return { ok: true, value: snapshotForPlan(next, input.plan) };
+      const next = await patchAccept(
+        deps,
+        row,
+        {
+          status: "provisioning",
+          plan: "full_replace",
+          remint: true,
+          hostname: input.hostname,
+        },
+        input.plan,
+      );
+      return {
+        ok: true,
+        value: previewSnapshotFromRow(next, mailboxOf(input.plan)),
+      };
     }
   }
 }

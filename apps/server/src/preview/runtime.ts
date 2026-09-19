@@ -1,5 +1,4 @@
 import {
-  deriveMailFromName,
   requiresDatabase,
   sqliteDatabaseUrl,
   type DbProvider,
@@ -9,7 +8,7 @@ import {
 } from "@sprout/preview-env";
 import {
   mailConnectionEnv,
-  resolveMailFromAddress,
+  resolveMailIdentity,
   type MaterializationMail,
 } from "../app-deployment/mail-env.ts";
 import { pgConnectionEnv, type AppDeployPg } from "../app-deployment/pg-env.ts";
@@ -76,13 +75,13 @@ function resolveMailPart(
   const env = mailConnectionEnv(configured, input.connectionEnv, identity);
   const networks = configured.network ? [configured.network] : [];
   const mailboxUrl = configured.uiUrl;
-  const mailFrom = resolveMailFromAddress(configured, identity);
+  const resolved = resolveMailIdentity(configured, identity);
   return {
     env,
     networks,
     ...(mailboxUrl !== undefined ? { mailboxUrl } : {}),
-    mailFrom,
-    mailFromName: deriveMailFromName(identity.slug, identity.prId),
+    mailFrom: resolved.address,
+    mailFromName: resolved.name,
   };
 }
 

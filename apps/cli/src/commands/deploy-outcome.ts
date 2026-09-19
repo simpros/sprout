@@ -1,3 +1,5 @@
+import type { CliIo } from "../context.ts";
+
 export type DeploySnapshotFields = {
   status?: string;
   preview_url?: string | null;
@@ -5,6 +7,13 @@ export type DeploySnapshotFields = {
   mail_from?: string | null;
   last_error?: string | null;
   last_error_detail?: string | null;
+};
+
+/** Settled deploy presentation shared by core, poll, and forge-note. */
+export type DeploySettled = {
+  previewUrl: string;
+  mailboxUrl?: string;
+  mailFrom?: string;
 };
 
 export type DeployOutcome =
@@ -45,4 +54,24 @@ export function deployOutcome(data: DeploySnapshotFields): DeployOutcome {
     };
   }
   return { kind: "pending" };
+}
+
+export function toDeploySettled(
+  outcome: Extract<DeployOutcome, { kind: "ready" }>,
+): DeploySettled {
+  return {
+    previewUrl: outcome.previewUrl,
+    ...(outcome.mailboxUrl ? { mailboxUrl: outcome.mailboxUrl } : {}),
+    ...(outcome.mailFrom ? { mailFrom: outcome.mailFrom } : {}),
+  };
+}
+
+export function printSettled(io: CliIo, settled: DeploySettled): void {
+  io.stdout(`preview_url=${settled.previewUrl}`);
+  if (settled.mailboxUrl) {
+    io.stdout(`mailbox_url=${settled.mailboxUrl}`);
+  }
+  if (settled.mailFrom) {
+    io.stdout(`mail_from=${settled.mailFrom}`);
+  }
 }

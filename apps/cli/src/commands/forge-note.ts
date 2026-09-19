@@ -1,5 +1,6 @@
 import type { CliDeps, CliIo } from "../context.ts";
 import type { Result } from "../result.ts";
+import type { DeploySettled } from "./deploy-outcome.ts";
 import type { CiIdentity } from "./ci-identity.ts";
 import { untickResetBox } from "./reset-request.ts";
 
@@ -383,12 +384,7 @@ export async function upsertForgeNote(
 export async function publishPreviewNote(
   deps: CliDeps,
   identity: CiIdentity,
-  note: {
-    previewUrl: string;
-    mailboxUrl?: string;
-    mailFrom?: string;
-    reset?: boolean;
-  },
+  note: DeploySettled & { reset?: boolean },
 ): Promise<Result<void>> {
   const reset = note.reset
     ? {

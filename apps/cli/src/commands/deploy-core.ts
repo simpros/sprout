@@ -25,8 +25,12 @@ import type {
   PreviewEnvMap,
   SproutYaml,
 } from "../yaml.ts";
-import { deployOutcome } from "./deploy-outcome.ts";
+import type { MailSpec } from "../yaml.ts";
+import { deployOutcome, printSettled, toDeploySettled } from "./deploy-outcome.ts";
+import type { DeploySettled } from "./deploy-outcome.ts";
 import { DEPLOY_POLL_BUFFER_MS, pollPreviewReady } from "./deploy-poll.ts";
+
+export type { DeploySettled };
 
 export type DeployRequest = {
   canonical_repo_id: string;
@@ -42,14 +46,8 @@ export type DeployRequest = {
   services?: DeployService[];
   env?: PreviewEnvMap;
   db?: DbSpec;
-  mail?: string | { mode: string; from?: string };
+  mail?: MailSpec;
   reseed?: boolean;
-};
-
-export type DeploySettled = {
-  previewUrl: string;
-  mailboxUrl?: string;
-  mailFrom?: string;
 };
 
 /** A type that cannot carry `services` makes "leave" the default instead of a forgotten field. */
@@ -196,20 +194,11 @@ export async function postDeployAndWait(opts: {
   if (outcome.kind === "failed") return { ok: false, error: outcome.message };
 
   if (outcome.kind === "ready") {
-    opts.deps.io.stdout(`preview_url=${outcome.previewUrl}`);
-    if (outcome.mailboxUrl) {
-      opts.deps.io.stdout(`mailbox_url=${outcome.mailboxUrl}`);
-    }
-    if (outcome.mailFrom) {
-      opts.deps.io.stdout(`mail_from=${outcome.mailFrom}`);
-    }
+    const settled = toDeploySettled(outcome);
+    printSettled(opts.deps.io, settled);
     return {
       ok: true,
-      value: {
-        previewUrl: outcome.previewUrl,
-        ...(outcome.mailboxUrl ? { mailboxUrl: outcome.mailboxUrl } : {}),
-        ...(outcome.mailFrom ? { mailFrom: outcome.mailFrom } : {}),
-      },
+      value: settled,
     };
   }
 
@@ -232,13 +221,7 @@ export async function postDeployAndWait(opts: {
     now,
   });
   if (!poll.ok) return poll;
-  opts.deps.io.stdout(`preview_url=${poll.value.previewUrl}`);
-  if (poll.value.mailboxUrl) {
-    opts.deps.io.stdout(`mailbox_url=${poll.value.mailboxUrl}`);
-  }
-  if (poll.value.mailFrom) {
-    opts.deps.io.stdout(`mail_from=${poll.value.mailFrom}`);
-  }
+  printSettled(opts.deps.io, poll.value);
   return { ok: true, value: poll.value };
 }
 
@@ -325,12 +308,7 @@ export function buildDeployRequest(
   if (inputs.reseed) body.reseed = true;
   if (yaml.preview.env) body.env = yaml.preview.env;
   if (yaml.db) body.db = yaml.db;
-  if (yaml.mail) {
-    body.mail =
-      yaml.mail.from !== undefined
-        ? { mode: yaml.mail.mode, from: yaml.mail.from }
-        : yaml.mail.mode;
-  }
+  if (yaml.mail) body.mail = { ...yaml.mail };
 
   const services = resolveDeployServices(yaml, identity.prId, {
     service: inputs.service,

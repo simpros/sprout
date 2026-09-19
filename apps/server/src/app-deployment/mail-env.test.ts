@@ -60,6 +60,16 @@ describe("mailConnectionEnv", () => {
     ]);
   });
 
+  test("omitted credentials emit no MAILUSER/MAILPASSWORD", () => {
+    expect(
+      mailConnectionEnv({
+        host: "mailpit",
+        port: 1025,
+        fromDomain: "preview.invalid",
+      }),
+    ).toEqual(["MAILHOST=mailpit", "MAILPORT=1025"]);
+  });
+
   test("full remap replaces names with no dual alias", () => {
     expect(
       mailConnectionEnv(mail, {

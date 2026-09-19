@@ -3,12 +3,14 @@ import { t } from "elysia";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import {
-  parsePreviewStatus,
   purgePreview,
   toDisplayStatus,
   type LifecycleDeps,
-  type MailPresentation,
 } from "../preview/lifecycle.ts";
+import {
+  parsePreviewStatus,
+  type MailPresentation,
+} from "../preview/snapshot.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import { planOrphans } from "../sweep/reconcile.ts";
 

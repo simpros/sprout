@@ -22,7 +22,7 @@ import type {
   PreviewSnapshot,
   ProvisionInput,
 } from "./types.ts";
-import { snapshotForPlan } from "./snapshot.ts";
+import { previewSnapshotFromRow } from "./snapshot.ts";
 
 const clearLastError = {
   lastError: null,
@@ -180,7 +180,12 @@ async function closeRunning(
   );
   return {
     ok: true,
-    value: snapshotForPlan(updated, input.plan),
+    value: previewSnapshotFromRow(
+      updated,
+      input.plan.mailboxUrl !== undefined
+        ? { mailboxUrl: input.plan.mailboxUrl }
+        : undefined,
+    ),
   };
 }
 

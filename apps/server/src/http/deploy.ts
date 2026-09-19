@@ -30,9 +30,9 @@ import {
   teardownPreview,
   setResetRequestMarker,
   type LifecycleDeps,
-  type MailPresentation,
   type PreviewSnapshot,
 } from "../preview/lifecycle.ts";
+import type { MailPresentation } from "../preview/snapshot.ts";
 import {
   resolvePreviewPlan,
   type PreviewMaterializationCtx,
@@ -189,14 +189,6 @@ export function resolveDeployDbAndEnv(
       status: 500,
       error: "mail_not_configured",
       detail: mailNotConfiguredDetail(repo),
-    };
-  }
-  if (mail?.mode === "none" && mail.from !== undefined) {
-    return {
-      ok: false,
-      status: 422,
-      error: "invalid_mail",
-      detail: "mail.from requires mail enabled",
     };
   }
   const connectionEnv = parsePreviewEnvForProvider(body.env, spec.provider);

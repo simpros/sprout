@@ -41,22 +41,6 @@ const defaultOpsDeps: Omit<BindPreviewOpsDeps, "docker"> = {
   seedTimeoutMs: 180_000,
 };
 
-const defaultTestMaterialization = (
-  mail?: MailConfig,
-): PreviewMaterializationCtx => ({
-  traefikNetwork: "sprout-traefik",
-  postgres: {
-    pg: {
-      host: "postgres",
-      port: 5432,
-      user: "sprout_preview",
-      password: "preview-secret",
-    },
-    network: "sprout-postgres",
-  },
-  ...(mail ? { mail: toMaterializationMail(mail) } : {}),
-});
-
 const defaultTestPostgres: PostgresConfig = {
   url: "postgres://sprout_preview:preview-secret@postgres:5432/sprout",
   host: "postgres",
@@ -126,14 +110,23 @@ export async function createTestApp(
   // `postgres: undefined` opts into a sqlite-only gateway with no pg block.
   const pg = "postgres" in opts ? opts.postgres : defaultTestPostgres;
   const mail = "mail" in opts ? opts.mail : undefined;
-  const materialization = pg
-    ? defaultTestMaterialization(mail)
-    : mail
+  const materialization: PreviewMaterializationCtx = {
+    traefikNetwork: "sprout-traefik",
+    ...(pg
       ? {
-          traefikNetwork: "sprout-traefik",
-          mail: toMaterializationMail(mail),
+          postgres: {
+            pg: {
+              host: pg.host,
+              port: pg.port,
+              user: pg.user,
+              password: pg.password,
+            },
+            network: pg.network,
+          },
         }
-      : { traefikNetwork: "sprout-traefik" };
+      : {}),
+    ...(mail ? { mail: toMaterializationMail(mail) } : {}),
+  };
   return {
     app: createRoutes({
       db,

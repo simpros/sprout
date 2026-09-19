@@ -40,7 +40,7 @@ export function validateMailFromTemplate(
     return { ok: false, detail: "must not contain whitespace" };
   }
   const probed = trimmed.replaceAll("{pr_id}", "42");
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(probed) && !/^[^\s@]+@[^\s@]+$/.test(probed)) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(probed)) {
     return { ok: false, detail: "must be an email address template" };
   }
   return { ok: true };
@@ -112,6 +112,15 @@ export function parseMailSpec(
   }
   if (raw.mode === undefined && raw.from === undefined) {
     return { ok: true, value: undefined };
+  }
+  if (mode === "none" && from !== undefined) {
+    return {
+      ok: false,
+      issue: {
+        code: "invalid_mail_from",
+        detail: "requires mail enabled",
+      },
+    };
   }
   return { ok: true, value: { mode, ...(from !== undefined ? { from } : {}) } };
 }
