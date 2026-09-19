@@ -272,6 +272,44 @@ describe("bearer auth", () => {
     );
     expect(res.status).toBe(202);
   });
+
+  test("deploy token can run the reset sequence (teardown + deploy) without admin", async () => {
+    testApp = await createTestApp();
+    const { body } = await postDeployToken(testApp, {
+      canonical_repo_id: REPO,
+      slug: "myapp",
+    });
+
+    const torn = await testApp.app.handle(
+      new Request("http://localhost/v1/teardown", {
+        method: "POST",
+        headers: {
+          ...bearer(body.token),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ canonical_repo_id: REPO, pr_id: 1 }),
+      }),
+    );
+    expect(torn.status).toBe(200);
+
+    const deployed = await testApp.app.handle(
+      new Request("http://localhost/v1/deploy", {
+        method: "POST",
+        headers: {
+          ...bearer(body.token),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          canonical_repo_id: REPO,
+          pr_id: 1,
+          slug: "myapp",
+          hostname: "pr-1.example.com",
+          app_image: "ghcr.io/org/myapp:test",
+        }),
+      }),
+    );
+    expect(deployed.status).toBe(202);
+  });
 });
 
 describe("ensureAdminToken", () => {

@@ -23,16 +23,20 @@ export function buildPreviewNote(input: {
   previewUrl: string;
   sha?: string;
   prId: number;
+  reset?: { actor: string; at: string };
 }): string {
   const lines = [
     SPROUT_NOTE_MARKER,
-    "🌱 **Sprout preview ready**",
+    input.reset
+      ? "🌱 **Sprout preview ready** (reset — data wiped)"
+      : "🌱 **Sprout preview ready**",
     "",
     `- Preview: ${input.previewUrl}`,
   ];
   const short = shortSha(input.sha);
   if (short) lines.push(`- Commit: \`${short}\``);
   lines.push("- Health: healthy");
+  if (input.reset) lines.push(`- Reset: ${input.reset.actor} at ${input.reset.at}`);
   lines.push("");
   lines.push(`Logs: \`sprout ci logs ${input.prId}\``);
   return lines.join("\n");
@@ -53,6 +57,20 @@ export function buildTeardownNote(input: {
   lines.push("");
   lines.push(`\`sprout ci logs ${input.prId}\` will report no preview until the next deploy.`);
   return lines.join("\n");
+}
+
+export function resolveResetActor(
+  env: NodeJS.ProcessEnv,
+  forge: "gitlab" | "github",
+): string {
+  if (forge === "github") {
+    return (
+      env.GITHUB_TRIGGERING_ACTOR?.trim() ||
+      env.GITHUB_ACTOR?.trim() ||
+      "ci"
+    );
+  }
+  return env.GITLAB_USER_LOGIN?.trim() || env.CI_COMMIT_AUTHOR?.trim() || "ci";
 }
 
 type GitlabTarget = {
@@ -340,11 +358,23 @@ export async function publishPreviewNote(
   deps: CliDeps,
   identity: CiIdentity,
   previewUrl: string,
+  opts?: { reset?: boolean },
 ): Promise<Result<void>> {
+  const reset = opts?.reset
+    ? {
+        actor: resolveResetActor(deps.env, identity.forge),
+        at: new Date(deps.now?.() ?? Date.now()).toISOString(),
+      }
+    : undefined;
   return upsertForgeNote(
     deps,
     identity,
-    buildPreviewNote({ previewUrl, sha: identity.commitSha, prId: identity.prId }),
+    buildPreviewNote({
+      previewUrl,
+      sha: identity.commitSha,
+      prId: identity.prId,
+      ...(reset ? { reset } : {}),
+    }),
   );
 }
 
