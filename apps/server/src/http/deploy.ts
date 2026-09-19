@@ -15,6 +15,7 @@ import {
   type PreviewServiceSpec,
 } from "@sprout/preview-env";
 import { t } from "elysia";
+import { parseResetMarkerToken } from "@sprout/preview-db";
 import type { AuthContext } from "../auth/middleware.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
@@ -36,11 +37,10 @@ import {
   runAsyncDeploy,
 } from "../preview/async-deploy.ts";
 import {
-  validatePrId,
   validatePreviewIdentity,
   validateServiceName,
 } from "../preview-db/names.ts";
-import { mapResult, requireReadablePreview, resolveRepo } from "./result-map.ts";
+import { mapResult, requirePreviewWriteTarget, requireReadablePreview, resolveRepo } from "./result-map.ts";
 
 const healthBody = t.Object({
   path: t.String({ minLength: 1 }),
@@ -455,22 +455,17 @@ export function teardown(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    if (!auth) {
-      set.status = 401;
-      return { error: "unauthorized" };
-    }
-    const repo = resolveRepo(auth, body.canonical_repo_id);
-    if (!repo.ok) return mapResult(repo, set);
-    const prErr = validatePrId(body.pr_id);
-    if (prErr) {
-      set.status = 422;
-      return { error: prErr };
-    }
+    const target = requirePreviewWriteTarget(
+      auth,
+      body.canonical_repo_id,
+      body.pr_id,
+    );
+    if (!target.ok) return mapResult(target, set);
 
     return mapResult(
       await teardownPreview(deps, {
-        repo: repo.value,
-        prId: body.pr_id,
+        repo: target.value.repo,
+        prId: target.value.prId,
       }),
       set,
     );
@@ -487,26 +482,21 @@ export function setResetMarker(deps: LifecycleDeps) {
     auth: AuthContext | null;
     set: { status?: number | string };
   }) => {
-    if (!auth) {
-      set.status = 401;
-      return { error: "unauthorized" };
-    }
-    const repo = resolveRepo(auth, body.canonical_repo_id);
-    if (!repo.ok) return mapResult(repo, set);
-    const prErr = validatePrId(body.pr_id);
-    if (prErr) {
-      set.status = 422;
-      return { error: prErr };
-    }
-    const marker = body.marker.trim();
-    if (!marker || marker.length > 256 || /[<>\r\n]/.test(marker)) {
+    const target = requirePreviewWriteTarget(
+      auth,
+      body.canonical_repo_id,
+      body.pr_id,
+    );
+    if (!target.ok) return mapResult(target, set);
+    const marker = parseResetMarkerToken(body.marker);
+    if (!marker) {
       set.status = 422;
       return { error: "invalid_reset_marker" };
     }
     const stored = await setResetRequestMarker(
       deps.db,
-      repo.value,
-      body.pr_id,
+      target.value.repo,
+      target.value.prId,
       marker,
     );
     if (!stored.ok) return mapResult(stored, set);

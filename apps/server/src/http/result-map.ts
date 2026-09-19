@@ -20,23 +20,33 @@ export function resolveRepo(
   return { ok: true, value: requested };
 }
 
+/** Shared auth + repo + pr guard for preview write endpoints. */
+export function requirePreviewWriteTarget(
+  auth: AuthContext | null,
+  repoId: string,
+  prId: number,
+): Result<{ repo: string; prId: number }> {
+  if (!auth) {
+    return { ok: false, status: 401, error: "unauthorized" };
+  }
+  const repo = resolveRepo(auth, repoId);
+  if (!repo.ok) return repo;
+  const prErr = validatePrId(prId);
+  if (prErr) {
+    return { ok: false, status: 422, error: prErr };
+  }
+  return { ok: true, value: { repo: repo.value, prId } };
+}
+
 export async function requireReadablePreviewRow(
   deps: Pick<LifecycleDeps, "db">,
   auth: AuthContext | null,
   repoId: string,
   prRaw: string | number,
 ): Promise<Result<PreviewRow>> {
-  if (!auth) {
-    return { ok: false, status: 401, error: "unauthorized" };
-  }
-  const repo = resolveRepo(auth, repoId);
-  if (!repo.ok) return repo;
-  const prId = Number(prRaw);
-  const prErr = validatePrId(prId);
-  if (prErr) {
-    return { ok: false, status: 422, error: prErr };
-  }
-  const row = await getPreviewRow(deps.db, repo.value, prId);
+  const target = requirePreviewWriteTarget(auth, repoId, Number(prRaw));
+  if (!target.ok) return target;
+  const row = await getPreviewRow(deps.db, target.value.repo, target.value.prId);
   return gateReadablePreviewRow(row);
 }
 

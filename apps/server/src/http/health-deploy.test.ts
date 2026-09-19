@@ -148,6 +148,7 @@ describe("POST /v1/deploy health polling", () => {
       hostname: "pr-42.myapp.preview.example.com",
       status: "running",
       preview_url: "https://pr-42.myapp.preview.example.com",
+      reset_request_marker: null,
     });
 
     const [row] = await testApp!.db

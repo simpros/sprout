@@ -68,7 +68,7 @@ function startStatefulGateway(initialMarker: string | null = null) {
     slug: "myapp",
     db_name: "sprout_myapp_pr17",
     hostname: "pr-17.myapp.preview.example.com",
-    ...(storedMarker ? { reset_request_marker: storedMarker } : {}),
+    reset_request_marker: storedMarker,
   });
   server = Bun.serve({
     port: 0,
@@ -173,8 +173,8 @@ describe("sprout ci preview reset request", () => {
     expect(await run()).toBe(0);
     expect(captured.map((c) => c.path)).toEqual([
       "/v1/teardown",
-      "/v1/reset-marker",
       "/v1/deploy",
+      "/v1/reset-marker",
     ]);
     expect(gw.getStoredMarker()).toBe("ada-1");
 
@@ -356,7 +356,7 @@ describe("GitHub un-tick rewrite", () => {
     expect(code).toBe(0);
     expect(
       captured.map((c) => c.path),
-    ).toEqual(["/v1/teardown", "/v1/reset-marker", "/v1/deploy"]);
+    ).toEqual(["/v1/teardown", "/v1/deploy", "/v1/reset-marker"]);
     expect(prPatches).toHaveLength(1);
     const rewritten = String(
       (prPatches[0] as { body?: unknown }).body ?? "",

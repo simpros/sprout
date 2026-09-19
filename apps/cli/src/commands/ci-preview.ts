@@ -2,14 +2,13 @@ import type { CliContext } from "../context.ts";
 import { fail } from "../context.ts";
 import type { CiPreviewIdentity } from "./ci-identity.ts";
 import { runCiDeploy, type CiDeployPolicy } from "./ci-deploy.ts";
-import { publishPreviewNote } from "./forge-note.ts";
+import { publishPreviewNote, untickGithubResetBox } from "./forge-note.ts";
 import { buildAndPush } from "./image-build.ts";
 import {
   fetchHandledMarker,
   parseResetRequest,
   readResetRequestBody,
   recordHandledMarker,
-  untickGithubResetBox,
 } from "./reset-request.ts";
 import { ensureSeedImage } from "./seed-image.ts";
 import { teardownPreview } from "./teardown.ts";
@@ -32,10 +31,6 @@ export const previewDeployPolicy: CiDeployPolicy = {
     publishPreviewNote(deps, identity, previewUrl),
 };
 
-function isNotFoundMessage(message: string): boolean {
-  return /^404\b/.test(message);
-}
-
 export async function runCiPreview(
   identity: CiPreviewIdentity,
   tokens: string[],
@@ -54,31 +49,18 @@ export async function runCiPreview(
     return runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
   }
 
-  let preMarked = false;
+  // One marker write after a successful deploy: a failed deploy leaves the
+  // token unhandled so the retry resets again instead of deploying over a
+  // half-torn state.
   const policy: CiDeployPolicy = {
     ...previewDeployPolicy,
-    beforeDeploy: async (client, id) => {
-      const torn = await teardownPreview(client, id);
-      if (!torn.ok) return torn;
-      const marked = await recordHandledMarker(client, id, marker);
-      if (!marked.ok) {
-        if (isNotFoundMessage(marked.error)) {
-          preMarked = false;
-          return { ok: true, value: undefined };
-        }
-        return marked;
-      }
-      preMarked = true;
-      return { ok: true, value: undefined };
-    },
+    beforeDeploy: (client, id) => teardownPreview(client, id),
   };
   const code = await runCiDeploy(identity, tokens, ctx, policy);
   if (code !== 0) return code;
 
-  if (!preMarked) {
-    const marked = await recordHandledMarker(ctx.client, identity, marker);
-    if (!marked.ok) return fail(ctx.deps.io, marked.error);
-  }
+  const marked = await recordHandledMarker(ctx.client, identity, marker);
+  if (!marked.ok) return fail(ctx.deps.io, marked.error);
   if (raw.value) {
     const unticked = await untickGithubResetBox(ctx.deps, identity, raw.value);
     if (!unticked.ok) {

@@ -67,7 +67,7 @@ describe("POST /v1/reset-marker", () => {
 
     const before = await getPreview(testApp, body.token);
     expect(before.status).toBe(200);
-    expect(before.body.reset_request_marker).toBeUndefined();
+    expect(before.body.reset_request_marker).toBeNull();
 
     const set = await setMarker(testApp, body.token, {
       canonical_repo_id: REPO,
