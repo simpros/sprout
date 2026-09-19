@@ -1,7 +1,11 @@
 import { deriveMailFromName } from "@sprout/preview-env";
 import type { Result } from "./result.ts";
 import type { PreviewRow } from "./row.ts";
-import type { PreviewSnapshot, PreviewStatus } from "./types.ts";
+import type {
+  DisplayPreviewStatus,
+  PreviewSnapshot,
+  PreviewStatus,
+} from "./types.ts";
 
 /**
  * Single home for the mailbox invariant: a preview with no From identity
@@ -66,4 +70,46 @@ export function presentPreviewSnapshot(
     return snapshot;
   }
   return { ...snapshot, mailbox_url: mailboxUrl };
+}
+
+export type ListedPreview = {
+  canonical_repo_id: string;
+  pr_id: number;
+  slug: string;
+  db_name: string | null;
+  hostname: string;
+  status: DisplayPreviewStatus;
+  created_at: string;
+  mailbox_url?: string;
+  mail_from?: string;
+  mail_from_name?: string;
+};
+
+/**
+ * Sole list presenter: the decorated snapshot plus the list-only wire shape
+ * (display status, created_at). Read edges map rows through this with no
+ * spreads so preview_url/last_error never leak into the list.
+ */
+export function presentListedPreview(
+  row: PreviewRow,
+  mailboxUrl: string | undefined,
+  status: DisplayPreviewStatus,
+): ListedPreview {
+  const snap = presentPreviewSnapshot(row, mailboxUrl);
+  return {
+    canonical_repo_id: snap.canonical_repo_id,
+    pr_id: snap.pr_id,
+    slug: snap.slug,
+    db_name: snap.db_name,
+    hostname: snap.hostname,
+    status,
+    created_at: row.createdAt,
+    ...(snap.mail_from !== undefined ? { mail_from: snap.mail_from } : {}),
+    ...(snap.mail_from_name !== undefined
+      ? { mail_from_name: snap.mail_from_name }
+      : {}),
+    ...(snap.mailbox_url !== undefined
+      ? { mailbox_url: snap.mailbox_url }
+      : {}),
+  };
 }

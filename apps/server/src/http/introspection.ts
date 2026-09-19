@@ -9,23 +9,13 @@ import {
 } from "../preview/lifecycle.ts";
 import {
   parsePreviewStatus,
-  presentPreviewSnapshot,
+  presentListedPreview,
+  type ListedPreview,
 } from "../preview/snapshot.ts";
 import { validatePrId } from "../preview-db/names.ts";
 import { planOrphans } from "../sweep/reconcile.ts";
 
-export type ListedPreview = {
-  canonical_repo_id: string;
-  pr_id: number;
-  slug: string;
-  db_name: string | null;
-  hostname: string;
-  status: ReturnType<typeof toDisplayStatus>;
-  created_at: string;
-  mailbox_url?: string;
-  mail_from?: string;
-  mail_from_name?: string;
-};
+export type { ListedPreview } from "../preview/snapshot.ts";
 
 export type DoctorOrphan =
   | {
@@ -68,27 +58,9 @@ export function listPreviews(db: StateDb, mailboxUrl?: string) {
         set.status = 500;
         return { error: status.error };
       }
-      // One presenter for every read edge: stored mail_from plus the
-      // config-level mailbox link. ListedPreview keeps its own wire shape
-      // (display status, created_at) so fields are picked explicitly rather
-      // than spread, which would leak preview_url/last_error.
-      const snap = presentPreviewSnapshot(row, mailboxUrl);
-      listed.push({
-        canonical_repo_id: snap.canonical_repo_id,
-        pr_id: snap.pr_id,
-        slug: snap.slug,
-        db_name: snap.db_name,
-        hostname: snap.hostname,
-        status: toDisplayStatus(status.value),
-        created_at: row.createdAt,
-        ...(snap.mail_from !== undefined ? { mail_from: snap.mail_from } : {}),
-        ...(snap.mail_from_name !== undefined
-          ? { mail_from_name: snap.mail_from_name }
-          : {}),
-        ...(snap.mailbox_url !== undefined
-          ? { mailbox_url: snap.mailbox_url }
-          : {}),
-      });
+      listed.push(
+        presentListedPreview(row, mailboxUrl, toDisplayStatus(status.value)),
+      );
     }
 
     return { previews: listed };
