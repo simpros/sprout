@@ -185,10 +185,10 @@ async function writeProvisioningIntent(
 async function patchAccept(
   deps: LifecycleDeps,
   row: PreviewRow,
+  input: ProvisionInput,
   fields: {
     status: "provisioning" | "seeding";
     plan: BringUpPlan;
-    mailFrom?: string;
     remint?: boolean;
     hostname?: string;
   },
@@ -201,7 +201,7 @@ async function patchAccept(
       status: fields.status,
       bringUpPlan: fields.plan,
       ...(fields.hostname != null ? { hostname: fields.hostname } : {}),
-      mailFrom: fields.mailFrom ?? null,
+      mailFrom: input.plan.mailFrom ?? null,
       lastError: null,
       lastErrorDetail: null,
       seedLog: null,
@@ -338,10 +338,7 @@ export async function claimDeployIntent(
     case "failed": {
       if (dbIdentityMatches(row, input, requestedDbName)) {
         const planned = planAcceptBringUp(row, input, "failed");
-        const next = await patchAccept(deps, row, {
-          ...planned,
-          mailFrom: input.plan.mailFrom,
-        });
+        const next = await patchAccept(deps, row, input, planned);
         return { ok: true, value: next };
       }
       const intent = await writeProvisioningIntent(
@@ -355,10 +352,7 @@ export async function claimDeployIntent(
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
       const planned = planAcceptBringUp(row, input, "seeding");
-      const next = await patchAccept(deps, row, {
-        ...planned,
-        mailFrom: input.plan.mailFrom,
-      });
+      const next = await patchAccept(deps, row, input, planned);
       return { ok: true, value: next };
     }
     case "running":
@@ -366,26 +360,18 @@ export async function claimDeployIntent(
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
       const planned = planAcceptBringUp(row, input, status.value);
-      const next = await patchAccept(deps, row, {
-        ...planned,
-        mailFrom: input.plan.mailFrom,
-      });
+      const next = await patchAccept(deps, row, input, planned);
       return { ok: true, value: next };
     }
     case "provisioning": {
       const identity = requireDbIdentity(row, input, requestedDbName);
       if (!identity.ok) return identity;
-      const next = await patchAccept(
-        deps,
-        row,
-        {
-          status: "provisioning",
-          plan: "full_replace",
-          mailFrom: input.plan.mailFrom,
-          remint: true,
-          hostname: input.hostname,
-        },
-      );
+      const next = await patchAccept(deps, row, input, {
+        status: "provisioning",
+        plan: "full_replace",
+        remint: true,
+        hostname: input.hostname,
+      });
       return { ok: true, value: next };
     }
   }
