@@ -115,19 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run_heavy: ${{ steps.gate.outputs.run_heavy }}
-      version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Resolve sprout version
-        id: version
-        run: |
-          set -eu
-          VERSION="${{ inputs.sprout_version }}"
-          if [ -z "$VERSION" ]; then
-            echo "sprout_version input is empty (set it explicitly to the tag in the caller's uses: ref)" >&2
-            exit 1
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Check reset request (edited only)
         id: reset_check
         if: github.event.action == 'edited'
@@ -174,9 +162,13 @@ jobs:
 
       - name: Install sprout
         env:
-          SPROUT_VERSION: ${{ needs.setup.outputs.version }}
+          SPROUT_VERSION: ${{ inputs.sprout_version }}
         run: |
           set -eu
+          if [ -z "$SPROUT_VERSION" ]; then
+            echo "sprout_version input is empty (set it explicitly to the tag in the caller's uses: ref)" >&2
+            exit 1
+          fi
           ASSET=sprout-linux-x64
           INSTALL_TMP="$(mktemp -d)"
           curl -fsSL -o "$INSTALL_TMP/$ASSET" \

@@ -114,9 +114,13 @@ describe("reusable preview workflow contract", () => {
     expect(input?.default).toBeUndefined();
     expect(WORKFLOW).not.toContain("github.workflow_ref");
     expect(WORKFLOW).not.toContain("refs/tags/");
-    const resolve = stepByName("setup", "Resolve sprout version").run ?? "";
-    expect(resolve).toContain("inputs.sprout_version");
-    expect(resolve).toContain("set it explicitly");
+    expect(WORKFLOW).not.toContain("Resolve sprout version");
+    expect(DOC.jobs.setup?.outputs?.version).toBeUndefined();
+    const install = stepByName("preview", "Install sprout");
+    expect(String(install.env?.SPROUT_VERSION)).toContain(
+      "inputs.sprout_version",
+    );
+    expect(install.run ?? "").toContain("sprout_version input is empty");
   });
 
   test("exposes preview_url output from the deploy step", () => {
