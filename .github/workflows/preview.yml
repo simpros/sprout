@@ -4,7 +4,11 @@ name: sprout preview (reusable)
 # checksum-verified `sprout` binary and calls `sprout ci preview` /
 # `sprout ci teardown`. All preview behaviour (image build and push, seed
 # image, deploy, PR comment, dotenv emission, log dump on failure) lives in
-# the CLI.
+# the CLI. The reset-request contract (ticked box + marker token, fences
+# ignored) is owned by `parseResetRequest` in apps/cli — the workflow keeps
+# only a cheap `edited` pre-filter that over-triggers by design and lets the
+# CLI decide. The `setup` job computes the single `run_heavy` gate, so the
+# skip path is checkout-free and never downloads the binary.
 #
 # Caller (`.github/workflows/sprout.yml` in the adopting repo):
 #
@@ -19,6 +23,8 @@ name: sprout preview (reusable)
 #   jobs:
 #     preview:
 #       uses: simpros/sprout/.github/workflows/preview.yml@v0.7.0
+#       with:
+#         sprout_version: v0.7.0
 #       secrets:
 #         SPROUT_URL: ${{ secrets.SPROUT_URL }}
 #         SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
@@ -33,18 +39,21 @@ name: sprout preview (reusable)
 # - No `on_stop` / `auto_stop_in` equivalent: teardown runs on `closed`, and
 #   the gateway sweep is the safety net for stranded previews.
 # - `environment: url` reads the deploy step's `preview_url` output.
+# - Like remote GitLab includes, the caller pins `sprout_version` explicitly
+#   to the tag in the `uses:` ref — the workflow never derives it.
 #
 # Contract tests: `bun test ./.github/workflows/preview.test.ts` (inputs and
-# secrets are exactly this set; `edited` without a reset request skips every
-# heavy step; deploy/teardown entrypoints; shell syntax of all scripts).
+# secrets are exactly this set; `sprout_version` is required; `edited`
+# without a reset request skips the preview job before checkout/install;
+# deploy/teardown entrypoints; shell syntax of all scripts).
 
 on:
   workflow_call:
     inputs:
       sprout_version:
-        description: "sprout release tag to install (e.g. v0.7.0). Empty derives it from the workflow ref, so changing only @v… in the caller changes the CLI version."
+        description: "sprout release tag to install (e.g. v0.7.0). Set explicitly to the tag in the caller's uses: ref."
         type: string
-        default: ""
+        required: true
       app_context:
         description: "Directory holding .sprout.yaml; image builds and Dockerfile resolution run relative to it."
         type: string
@@ -58,7 +67,7 @@ on:
         type: string
         default: ""
       app_env_file:
-        description: "Optional repo-relative dotenv file passed as --app-env-file (on top of the SPROUT_APP_ENV secret). Resolved against the repo root before cd into app_context."
+        description: "Optional repo-relative dotenv file passed as --app-env-file (on top of the SPROUT_APP_ENV secret). Resolved against the repo root; the deploy step runs in app_context."
         type: string
         default: ""
       seed_env_file:
@@ -102,7 +111,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      run_heavy: ${{ steps.gate.outputs.run_heavy }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Resolve sprout version
+        id: version
+        run: |
+          set -eu
+          VERSION="${{ inputs.sprout_version }}"
+          if [ -z "$VERSION" ]; then
+            echo "sprout_version input is empty (set it explicitly to the tag in the caller's uses: ref)" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check reset request (edited only)
+        id: reset_check
+        if: github.event.action == 'edited'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -eu
+          # Cheap pre-filter only: over-triggers by design (no fence or
+          # token validation — a fenced example rebuilds once and the CLI
+          # deploys normally). The reset contract itself is owned by
+          # parseResetRequest in apps/cli; never re-implement it here.
+          BODY="${PR_BODY:-}"
+          if printf '%s' "$BODY" | grep -qiE '^[[:space:]]*[-*][[:space:]]*\[[xX]\][[:space:]]*Sprout:[[:space:]]*reset[[:space:]][[:space:]]*preview' \
+            && printf '%s' "$BODY" | grep -q 'sprout-reset'; then
+            echo "reset_requested=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reset_requested=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute run gate
+        id: gate
+        env:
+          ACTION: ${{ github.event.action }}
+          RESET_REQUESTED: ${{ steps.reset_check.outputs.reset_requested }}
+        run: |
+          set -eu
+          if [ "$ACTION" = "edited" ] && [ "$RESET_REQUESTED" != "true" ]; then
+            echo "run_heavy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_heavy=true" >> "$GITHUB_OUTPUT"
+          fi
+
   preview:
+    needs: [setup]
+    if: needs.setup.outputs.run_heavy == 'true'
     runs-on: ubuntu-latest
     outputs:
       preview_url: ${{ steps.deploy.outputs.preview_url }}
@@ -112,30 +172,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve sprout version
-        id: version
-        run: |
-          set -eu
-          VERSION="${{ inputs.sprout_version }}"
-          if [ -z "$VERSION" ]; then
-            REF="${{ github.workflow_ref }}"
-            TAG="${REF##*@}"
-            case "$TAG" in
-              refs/tags/*) TAG="${TAG#refs/tags/}" ;;
-            esac
-            case "$TAG" in
-              v*.*) VERSION="$TAG" ;;
-              *)
-                echo "sprout_version input is empty and workflow ref '${REF}' carries no release tag (set inputs.sprout_version explicitly to the tag in the uses: ref)" >&2
-                exit 1
-                ;;
-            esac
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Install sprout
         env:
-          SPROUT_VERSION: ${{ steps.version.outputs.version }}
+          SPROUT_VERSION: ${{ needs.setup.outputs.version }}
         run: |
           set -eu
           ASSET=sprout-linux-x64
@@ -155,51 +194,8 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           test "$("$RUNNER_TEMP/bin/sprout" --version)" = "$SPROUT_VERSION"
 
-      - name: Check reset request (edited only)
-        id: reset_check
-        if: github.event.action == 'edited'
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import re
-          body = os.environ.get("PR_BODY") or ""
-          lines = body.split("\n")
-          visible = []
-          in_fence = None
-          for line in lines:
-              m = re.match(r"^\s*(`{3,}|~{3,})", line)
-              if m:
-                  ch = m.group(1)[0]
-                  if in_fence is None:
-                      in_fence = ch
-                  elif in_fence == ch:
-                      in_fence = None
-                  continue
-              if in_fence is None:
-                  visible.append(line)
-          marker = None
-          for line in visible:
-              for match in re.finditer(r"<!--\s*sprout-reset\s*:\s*([^<>]*?)\s*-->", line):
-                  token = (match.group(1) or "").strip()
-                  if token and len(token) <= 256 and not re.search(r"[<>\r\n]", token):
-                      marker = token
-          ticked = any(
-              re.match(r"^\s*[-*]\s*\[(x|X)\]\s*Sprout:\s*reset\s+preview\b", line, re.IGNORECASE)
-              for line in visible
-          )
-          requested = bool(marker and ticked)
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write("reset_requested=%s\n" % ("true" if requested else "false"))
-          PY
-
-      - name: Skip title-only edit
-        if: github.event.action == 'edited' && steps.reset_check.outputs.reset_requested != 'true'
-        run: echo "No reset requested in the PR body; skipping rebuild and redeploy."
-
       - name: Log in to container registry
-        if: github.event.action != 'closed' && (github.event.action != 'edited' || steps.reset_check.outputs.reset_requested == 'true')
+        if: github.event.action != 'closed'
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.registry }}
@@ -208,7 +204,7 @@ jobs:
 
       - name: Prepare image ref and env blobs
         id: prep
-        if: github.event.action != 'closed' && (github.event.action != 'edited' || steps.reset_check.outputs.reset_requested == 'true')
+        if: github.event.action != 'closed'
         env:
           APP_ENV_BLOB: ${{ secrets.SPROUT_APP_ENV }}
           SEED_ENV_BLOB: ${{ secrets.SPROUT_SEED_ENV }}
@@ -232,26 +228,18 @@ jobs:
 
       - name: Deploy preview
         id: deploy
-        if: github.event.action != 'closed' && (github.event.action != 'edited' || steps.reset_check.outputs.reset_requested == 'true')
+        if: github.event.action != 'closed'
+        working-directory: ${{ inputs.app_context }}
         env:
           SPROUT_URL: ${{ secrets.SPROUT_URL }}
           SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          APP_CONTEXT="${{ inputs.app_context }}"
-          DOTENV_FILE="${{ inputs.dotenv_file }}"
           TAIL="${{ inputs.tail }}"
-          APP_ENV_FILE="${{ inputs.app_env_file }}"
-          SEED_ENV_FILE="${{ inputs.seed_env_file }}"
-          abs() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$GITHUB_WORKSPACE/$1" ;; esac; }
-          DOTENV_FILE="$(abs "$DOTENV_FILE")"
-          if [ -n "$APP_ENV_FILE" ]; then APP_ENV_FILE="$(abs "$APP_ENV_FILE")"; fi
-          if [ -n "$SEED_ENV_FILE" ]; then SEED_ENV_FILE="$(abs "$SEED_ENV_FILE")"; fi
-          cd "$APP_CONTEXT"
-          set -- --tail "$TAIL" --dotenv-file "$DOTENV_FILE"
-          if [ -n "$APP_ENV_FILE" ]; then set -- "$@" --app-env-file "$APP_ENV_FILE"; fi
-          if [ -n "$SEED_ENV_FILE" ]; then set -- "$@" --seed-env-file "$SEED_ENV_FILE"; fi
+          set -- --tail "$TAIL" --dotenv-file "$GITHUB_WORKSPACE/${{ inputs.dotenv_file }}"
+          if [ -n "${{ inputs.app_env_file }}" ]; then set -- "$@" --app-env-file "$GITHUB_WORKSPACE/${{ inputs.app_env_file }}"; fi
+          if [ -n "${{ inputs.seed_env_file }}" ]; then set -- "$@" --seed-env-file "$GITHUB_WORKSPACE/${{ inputs.seed_env_file }}"; fi
           sprout ci preview "$@" | tee deploy.log
           line="$(grep '^preview_url=' deploy.log || true)"
           if [ -n "$line" ]; then
@@ -260,11 +248,11 @@ jobs:
 
       - name: Teardown preview
         if: github.event.action == 'closed'
+        working-directory: ${{ inputs.app_context }}
         env:
           SPROUT_URL: ${{ secrets.SPROUT_URL }}
           SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          cd "${{ inputs.app_context }}"
           sprout ci teardown

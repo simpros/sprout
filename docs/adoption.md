@@ -855,6 +855,8 @@ permissions:
 jobs:
   preview:
     uses: simpros/sprout/.github/workflows/preview.yml@v0.7.0
+    with:
+      sprout_version: v0.7.0
     secrets:
       SPROUT_URL: ${{ secrets.SPROUT_URL }}
       SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
@@ -874,8 +876,11 @@ bootstrapper over `sprout ci preview` / `sprout ci teardown`):
 - Teardown on `closed`: `sprout ci teardown` (idempotent — exit 0 if
   already gone).
 - Reset via the ticked [reset-request checkbox](#reset-request-checkbox):
-  `edited` runs a cheap body check first and exits without rebuilding when
-  no reset is requested — a title edit never redeploys. A ticked box +
+  `edited` runs a cheap body pre-filter first and skips the preview job
+  before checkout when no reset is requested — a title edit never redeploys.
+  The pre-filter over-triggers by design (no fence or token validation); the
+  reset contract itself is owned by `parseResetRequest` in the CLI, which
+  decides reset vs normal deploy on the runs that proceed. A ticked box +
   rotated marker redeploys from scratch on that run.
 - Per-PR serial runs via a `sprout-preview-<PR>` concurrency group.
 
@@ -902,11 +907,11 @@ GitLab `variables:` mapping, without the config-time expansion trap
 
 Deliberate differences from the GitLab component: there is no `on_stop` /
 `auto_stop_in` equivalent — teardown on `closed` plus the gateway sweep is
-the safety net, so a long-open PR keeps its preview. Changing only `@v…`
-in the caller's `uses:` line changes the CLI version used (empty
-`sprout_version` derives from the workflow ref); no adopter-side
-version/checksum variables remain. Canonical repo id is derived from
-`GITHUB_REPOSITORY` automatically.
+the safety net, so a long-open PR keeps its preview. Like remote GitLab
+includes, the caller pins `sprout_version` explicitly to the tag in the
+`uses:` ref (the workflow never derives a version — an empty input fails
+fast); no adopter-side version/checksum variables remain. Canonical repo id
+is derived from `GITHUB_REPOSITORY` automatically.
 
 ### Manual install (laptops, hand-rolled jobs)
 
