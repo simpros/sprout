@@ -1,9 +1,10 @@
 import {
   dbSpecIssueMessage,
-  ENV_TARGET_RE,
+  isServicePort,
   normalizeDbSpec,
   parseDbSpec,
   parsePreviewEnvForProvider,
+  parseServiceEnvMap,
   requiresDatabase,
   resolveHealthSpec,
   seedRequiresDatabaseMessage,
@@ -11,10 +12,10 @@ import {
   type DbSpec,
   type HealthRequest,
   type PreviewEnvMap,
+  type PreviewServiceSpec,
 } from "@sprout/preview-env";
 import { t } from "elysia";
 import type { AuthContext } from "../auth/middleware.ts";
-import type { PreviewServiceSpec } from "../app-deployment/ops.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
   postgresNotConfiguredDetail,
@@ -51,7 +52,7 @@ const serviceBody = t.Object({
   image: t.String({ minLength: 1 }),
   hostname: t.Optional(t.String({ minLength: 1 })),
   path: t.Optional(t.String({ minLength: 1 })),
-  port: t.Optional(t.Number()),
+  port: t.Optional(t.Integer({ minimum: 1, maximum: 65535 })),
   env: t.Optional(t.Record(t.String(), t.String())),
 });
 
@@ -291,37 +292,16 @@ export function resolveServicesRequest(
     }
     if (path) spec.path = path;
     if (entry.port !== undefined) {
-      if (
-        typeof entry.port !== "number" ||
-        !Number.isInteger(entry.port) ||
-        entry.port < 1 ||
-        entry.port > 65535
-      ) {
+      if (!isServicePort(entry.port)) {
         return { ok: false, error: "invalid_service_port" };
       }
       spec.port = entry.port;
     }
-    if (entry.env !== undefined) {
-      const env = entry.env as unknown;
-      if (
-        typeof env !== "object" ||
-        env === null ||
-        Array.isArray(env)
-      ) {
-        return { ok: false, error: "invalid_service_env" };
-      }
-      const out_env: Record<string, string> = {};
-      for (const [key, value] of Object.entries(env)) {
-        if (key.trim() === "" || !ENV_TARGET_RE.test(key)) {
-          return { ok: false, error: "invalid_service_env" };
-        }
-        if (typeof value !== "string") {
-          return { ok: false, error: "invalid_service_env" };
-        }
-        out_env[key] = value;
-      }
-      if (Object.keys(out_env).length > 0) spec.env = out_env;
+    const parsedEnv = parseServiceEnvMap(entry.env);
+    if (!parsedEnv.ok) {
+      return { ok: false, error: "invalid_service_env" };
     }
+    if (parsedEnv.value !== undefined) spec.env = parsedEnv.value;
     out.push(spec);
   }
   return { ok: true, value: out };

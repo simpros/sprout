@@ -152,6 +152,47 @@ describe("POST /v1/deploy services", () => {
     expect(fakePreviewDb!.created).toEqual([]);
   });
 
+  test("explicit port and env pass validation and reach the workload", async () => {
+    const SVC = "ghcr.io/org/api:sha";
+    const { deployToken } = await setup({
+      exposedPorts: { [APP_IMAGE]: 3000, [SVC]: 4000 },
+    });
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        services: [
+          {
+            name: "api",
+            image: SVC,
+            hostname: "api-pr-42.myapp.preview.example.com",
+            port: 4001,
+            env: { API_KEY: "secret" },
+          },
+        ],
+      }),
+    );
+    expect(res.settleStatus).toBe(200);
+    const svc = fakeDocker!.creates.find((c) => c.name.endsWith("-svc-api"))!;
+    expect(
+      svc.labels[
+        "traefik.http.services.sprout-myapp-pr-42-svc-api.loadbalancer.server.port"
+      ],
+    ).toBe("4001");
+    expect(svc.env).toContain("API_KEY=secret");
+  });
+
+  test("rejects out-of-range service ports", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        services: [{ name: "api", image: "img:1", port: 99999 }],
+      }),
+    );
+    expect(res.settleStatus).toBe(422);
+    expect(fakePreviewDb!.created).toEqual([]);
+  });
+
   test("companion deploy failure keeps healthy app containerId", async () => {
     const SVC = "ghcr.io/org/api:sha";
     const { deployToken } = await setup({

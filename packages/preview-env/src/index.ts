@@ -32,7 +32,9 @@ export const POSTGRES_ENV_KEYS: readonly PostgresEnvKey[] = [
 
 export type PreviewEnvMap = Partial<Record<CanonicalEnvKey, string>>;
 
-export const ENV_TARGET_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+import { ENV_TARGET_RE } from "./services.ts";
+
+export { ENV_TARGET_RE } from "./services.ts";
 
 /** Single home table for every canonical key; partitions derive from it. */
 export const ENV_KEY_HOME: Record<CanonicalEnvKey, DbProvider> = {
@@ -184,3 +186,14 @@ export {
   parseSqliteVolumeName,
   sqliteVolumeName,
 } from "./naming.ts";
+
+export {
+  copyServiceExtras,
+  isServicePort,
+  parseServiceEnvMap,
+  SERVICE_PORT_MAX,
+  SERVICE_PORT_MIN,
+  type PreviewServiceSpec,
+  type ServiceEnvIssue,
+  type ServiceFields,
+} from "./services.ts";

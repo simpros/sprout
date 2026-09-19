@@ -1,9 +1,10 @@
 import {
   dbSpecIssueMessage,
-  ENV_TARGET_RE,
+  isServicePort,
   normalizeDbSpec,
   parseDbSpec,
   parsePreviewEnvForProvider,
+  parseServiceEnvMap,
   requiresDatabase,
   resolveHealthSpec,
   seedRequiresDatabaseMessage,
@@ -11,6 +12,7 @@ import {
   type DbSpec,
   type HealthIssue,
   type PreviewEnvMap,
+  type ServiceFields,
 } from "@sprout/preview-env";
 import { hostnameIssueMessage } from "./hostname.ts";
 import type { Result } from "./result.ts";
@@ -33,9 +35,7 @@ export type SproutYamlService = {
   image?: string;
   hostname?: string;
   path?: string;
-  port?: number;
-  env?: Record<string, string>;
-};
+} & ServiceFields;
 
 export type SproutDockerfileBlock = {
   /** Dockerfile path relative to the repo root. */
@@ -322,7 +322,7 @@ function parseSeedBlock(raw: unknown): Result<SproutSeed | undefined> {
 
 function parseServicePort(raw: unknown, path: string): Result<number | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
-  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > 65535) {
+  if (!isServicePort(raw)) {
     return { ok: false, error: `${path}.port must be an integer between 1 and 65535` };
   }
   return { ok: true, value: raw };
@@ -332,26 +332,21 @@ function parseServiceEnv(
   raw: unknown,
   path: string,
 ): Result<Record<string, string> | undefined> {
-  if (raw === undefined) return { ok: true, value: undefined };
-  if (!isPlainObject(raw)) {
-    return { ok: false, error: `${path}.env must be a mapping` };
-  }
-  const entries = Object.entries(raw);
-  if (entries.length === 0) return { ok: true, value: undefined };
-  const out: Record<string, string> = {};
-  for (const [key, value] of entries) {
-    if (key.trim() === "") {
+  const parsed = parseServiceEnvMap(raw);
+  if (parsed.ok) return parsed;
+  switch (parsed.issue.code) {
+    case "not_a_mapping":
+      return { ok: false, error: `${path}.env must be a mapping` };
+    case "empty_key":
       return { ok: false, error: `${path}.env key is required` };
-    }
-    if (!ENV_TARGET_RE.test(key)) {
-      return { ok: false, error: `${path}.env.${key} is invalid` };
-    }
-    if (typeof value !== "string") {
-      return { ok: false, error: `${path}.env.${key} must be a string` };
-    }
-    out[key] = value;
+    case "invalid_key":
+      return { ok: false, error: `${path}.env.${parsed.issue.key} is invalid` };
+    case "invalid_value":
+      return {
+        ok: false,
+        error: `${path}.env.${parsed.issue.key} must be a string`,
+      };
   }
-  return { ok: true, value: out };
 }
 
 function parseServices(
