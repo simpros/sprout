@@ -17,7 +17,7 @@ export type DeploySettled = {
 };
 
 export type DeployOutcome =
-  | { kind: "ready"; previewUrl: string; mailboxUrl?: string; mailFrom?: string }
+  | { kind: "ready"; settled: DeploySettled }
   | { kind: "failed"; message: string }
   | { kind: "pending" };
 
@@ -48,22 +48,14 @@ export function deployOutcome(data: DeploySnapshotFields): DeployOutcome {
       typeof data.mail_from === "string" ? data.mail_from.trim() : "";
     return {
       kind: "ready",
-      previewUrl: data.preview_url,
-      ...(mailboxRaw !== "" ? { mailboxUrl: mailboxRaw } : {}),
-      ...(fromRaw !== "" ? { mailFrom: fromRaw } : {}),
+      settled: {
+        previewUrl: data.preview_url,
+        ...(mailboxRaw !== "" ? { mailboxUrl: mailboxRaw } : {}),
+        ...(fromRaw !== "" ? { mailFrom: fromRaw } : {}),
+      },
     };
   }
   return { kind: "pending" };
-}
-
-export function toDeploySettled(
-  outcome: Extract<DeployOutcome, { kind: "ready" }>,
-): DeploySettled {
-  return {
-    previewUrl: outcome.previewUrl,
-    ...(outcome.mailboxUrl ? { mailboxUrl: outcome.mailboxUrl } : {}),
-    ...(outcome.mailFrom ? { mailFrom: outcome.mailFrom } : {}),
-  };
 }
 
 export function printSettled(io: CliIo, settled: DeploySettled): void {

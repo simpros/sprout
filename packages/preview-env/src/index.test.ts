@@ -42,9 +42,11 @@ describe("env key partitions", () => {
     expect(envKeysForProvider("none")).toEqual([]);
   });
 
-  test("every canonical key has a home in the map", () => {
+  test("every database key has a home in the map; mail keys stay exempt", () => {
     expect(Object.keys(ENV_KEY_HOME).sort()).toEqual(
-      [...CANONICAL_ENV_KEYS].sort(),
+      [...CANONICAL_ENV_KEYS]
+        .filter((key) => !(MAIL_ENV_KEYS as readonly string[]).includes(key))
+        .sort(),
     );
     expect(ENV_KEY_HOME.DATABASE_URL).toBe("sqlite");
     expect(ENV_KEY_HOME.PGHOST).toBe("postgres");

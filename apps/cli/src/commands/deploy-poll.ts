@@ -3,7 +3,6 @@ import { readEden } from "../eden.ts";
 import type { Result } from "../result.ts";
 import {
   deployOutcome,
-  toDeploySettled,
   type DeploySettled,
   type DeploySnapshotFields,
 } from "./deploy-outcome.ts";
@@ -40,7 +39,7 @@ export async function pollPreviewReady(
     const outcome = deployOutcome(statusResult.data);
     if (outcome.kind === "failed") return { ok: false, error: outcome.message };
     if (outcome.kind === "ready") {
-      return { ok: true, value: toDeploySettled(outcome) };
+      return { ok: true, value: outcome.settled };
     }
     await poller.sleep(poller.intervalMs);
   }

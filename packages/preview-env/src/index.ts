@@ -50,10 +50,11 @@ import { ENV_TARGET_RE } from "./services.ts";
 
 export { ENV_TARGET_RE } from "./services.ts";
 
-/** Single home table for every canonical key; partitions derive from it. Mail keys live outside the db provider scope and are allowed on any provider. */
-export type EnvKeyHome = DbProvider | "mail";
-
-export const ENV_KEY_HOME: Record<CanonicalEnvKey, EnvKeyHome> = {
+/** Home table covers database keys only; mail keys are exempt by set membership below. */
+export const ENV_KEY_HOME: Record<
+  Exclude<CanonicalEnvKey, MailEnvKey>,
+  DbProvider
+> = {
   PGHOST: "postgres",
   PGPORT: "postgres",
   PGUSER: "postgres",
@@ -62,15 +63,6 @@ export const ENV_KEY_HOME: Record<CanonicalEnvKey, EnvKeyHome> = {
   PGAPPUSER: "postgres",
   PGAPPPASSWORD: "postgres",
   DATABASE_URL: "sqlite",
-  MAILHOST: "mail",
-  MAILPORT: "mail",
-  MAILUSER: "mail",
-  MAILPASSWORD: "mail",
-  MAILSECURE: "mail",
-  MAILUIURL: "mail",
-  MAILFROM: "mail",
-  MAILFROMNAME: "mail",
-  MAILREPLYTO: "mail",
 };
 
 export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
@@ -80,7 +72,12 @@ export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
 export function envKeysForProvider(
   provider: DbProvider,
 ): readonly CanonicalEnvKey[] {
-  return CANONICAL_ENV_KEYS.filter((key) => ENV_KEY_HOME[key] === provider);
+  return CANONICAL_ENV_KEYS.filter((key) => {
+    if ((MAIL_ENV_KEYS as readonly string[]).includes(key)) return false;
+    return (
+      ENV_KEY_HOME[key as Exclude<CanonicalEnvKey, MailEnvKey>] === provider
+    );
+  });
 }
 
 export function envProviderMismatch(
@@ -89,8 +86,10 @@ export function envProviderMismatch(
 ): { key: CanonicalEnvKey; home: DbProvider } | null {
   for (const key of Object.keys(env ?? {})) {
     const canonical = key as CanonicalEnvKey;
-    const home = ENV_KEY_HOME[canonical];
-    if (home === "mail") continue;
+    // Mail keys live outside the db provider scope and are allowed on any provider.
+    if ((MAIL_ENV_KEYS as readonly string[]).includes(canonical)) continue;
+    const home =
+      ENV_KEY_HOME[canonical as Exclude<CanonicalEnvKey, MailEnvKey>];
     if (home !== provider) {
       return { key: canonical, home };
     }
@@ -234,7 +233,6 @@ export {
   mailIntent,
   mailSpecIssueMessage,
   parseMailSpec,
-  resolveMailFrom,
   resolveMailIdentity,
   validateMailFromTemplate,
   type MailIdentity,

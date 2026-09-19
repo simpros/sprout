@@ -46,15 +46,6 @@ export function validateMailFromTemplate(
   return { ok: true };
 }
 
-export function resolveMailFrom(
-  template: string,
-  prId: number,
-): { ok: true; value: string } | { ok: false; detail: string } {
-  const checked = validateMailFromTemplate(template);
-  if (!checked.ok) return checked;
-  return { ok: true, value: template.trim().replaceAll("{pr_id}", String(prId)) };
-}
-
 export function deriveMailFrom(
   slug: string,
   prId: number,
@@ -150,14 +141,14 @@ export type MailIdentity = {
   slug: string;
   prId: number;
   /** Optional `{pr_id}` template overriding the derived From address. */
-  fromTemplate?: string;
+  from?: string;
 };
 
 /** Single resolve for a preview From identity; env and plan share it. */
 export type ResolvedMailIdentity = { address: string; name: string };
 
 /**
- * Single substitution site for the From identity. The deploy/yaml boundary
+ * Sole substitution site for the From identity. The deploy/yaml boundary
  * already validates the template via parseMailSpec, so this substitutes
  * directly with no second validation and no throw.
  */
@@ -165,11 +156,11 @@ export function resolveMailIdentity(
   fromDomain: string,
   slug: string,
   prId: number,
-  fromTemplate?: string,
+  from?: string,
 ): ResolvedMailIdentity {
   const address =
-    fromTemplate !== undefined
-      ? fromTemplate.trim().replaceAll("{pr_id}", String(prId))
+    from !== undefined
+      ? from.trim().replaceAll("{pr_id}", String(prId))
       : deriveMailFrom(slug, prId, fromDomain);
   return { address, name: deriveMailFromName(slug, prId) };
 }

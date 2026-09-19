@@ -26,7 +26,7 @@ import type {
   SproutYaml,
 } from "../yaml.ts";
 import type { MailSpec } from "../yaml.ts";
-import { deployOutcome, printSettled, toDeploySettled } from "./deploy-outcome.ts";
+import { deployOutcome, printSettled } from "./deploy-outcome.ts";
 import type { DeploySettled } from "./deploy-outcome.ts";
 import { DEPLOY_POLL_BUFFER_MS, pollPreviewReady } from "./deploy-poll.ts";
 
@@ -194,11 +194,10 @@ export async function postDeployAndWait(opts: {
   if (outcome.kind === "failed") return { ok: false, error: outcome.message };
 
   if (outcome.kind === "ready") {
-    const settled = toDeploySettled(outcome);
-    printSettled(opts.deps.io, settled);
+    printSettled(opts.deps.io, outcome.settled);
     return {
       ok: true,
-      value: settled,
+      value: outcome.settled,
     };
   }
 

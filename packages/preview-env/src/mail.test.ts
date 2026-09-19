@@ -4,7 +4,6 @@ import {
   deriveMailFromName,
   mailIntent,
   parseMailSpec,
-  resolveMailFrom,
   resolveMailIdentity,
   validateMailFromTemplate,
 } from "./mail.ts";
@@ -21,10 +20,6 @@ describe("mail.from template", () => {
     expect(
       validateMailFromTemplate("noreply+{pr_id}@preview.invalid"),
     ).toEqual({ ok: true });
-    expect(resolveMailFrom("noreply+{pr_id}@preview.invalid", 42)).toEqual({
-      ok: true,
-      value: "noreply+42@preview.invalid",
-    });
   });
 
   test("rejects templates without {pr_id} or with other placeholders", () => {

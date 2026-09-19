@@ -118,7 +118,10 @@ describe("deployOutcome", () => {
         status: "running",
         preview_url: "https://pr-42.example.com",
       }),
-    ).toEqual({ kind: "ready", previewUrl: "https://pr-42.example.com" });
+    ).toEqual({
+      kind: "ready",
+      settled: { previewUrl: "https://pr-42.example.com" },
+    });
   });
 });
 

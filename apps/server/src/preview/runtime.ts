@@ -52,23 +52,26 @@ function resolveMailPart(
     slug: string;
     prId: number;
   },
-): MailPart {
+): { env: string[]; networks: string[]; mailFrom?: string } {
   if (mailIntent(input.mail) === "off") {
     return { env: [], networks: [] };
   }
   const configured = ctx.mail;
-  // Omitted mail is opportunistic (inject when configured, skip when not);
-  // explicit-enabled without config is rejected by the deploy gate, so an
-  // unconfigured gateway here always means skip, never throw.
+  // Explicit-enabled without config is rejected by the deploy gate, so
+  // reaching here means a new caller skipped it: fail loudly like the
+  // postgres branch instead of silently deploying without mail.
+  if (mailIntent(input.mail) === "required" && !configured) {
+    throw new Error("mail plan requested without mail config");
+  }
+  // Omitted mail is opportunistic: inject when configured, skip when not.
   if (!configured) return { env: [], networks: [] };
-  const identity = {
-    slug: input.slug,
-    prId: input.prId,
-    ...(input.mail?.from !== undefined ? { fromTemplate: input.mail.from } : {}),
-  };
   const { env, resolved } = mailConnectionEnv(
     configured,
-    identity,
+    {
+      slug: input.slug,
+      prId: input.prId,
+      ...(input.mail?.from !== undefined ? { from: input.mail.from } : {}),
+    },
     input.connectionEnv,
   );
   const networks = configured.network ? [configured.network] : [];
@@ -76,38 +79,6 @@ function resolveMailPart(
     env,
     networks,
     mailFrom: resolved.address,
-  };
-}
-
-type MailPart = {
-  env: string[];
-  networks: string[];
-  mailFrom?: string;
-};
-
-/**
- * Mail merge is orthogonal to the provider branch. App containers always join
- * the mail network when configured so MAILHOST resolves. Seed jobs join too
- * whenever a seed can run (any provider except none, which rejects seeds);
- * none never runs a seed, so joining would only widen isolation for no benefit.
- */
-function withMail(
-  base: Omit<PreviewDbPlan, "mailFrom">,
-  mail: MailPart,
-  seedable: boolean,
-): PreviewDbPlan {
-  return {
-    ...base,
-    gatewayEnv: [...base.gatewayEnv, ...mail.env],
-    appNetworks:
-      mail.networks.length > 0
-        ? [...base.appNetworks, ...mail.networks]
-        : base.appNetworks,
-    seedNetworks:
-      mail.networks.length > 0 && seedable
-        ? [...base.seedNetworks, ...mail.networks]
-        : base.seedNetworks,
-    ...(mail.mailFrom !== undefined ? { mailFrom: mail.mailFrom } : {}),
   };
 }
 
@@ -129,38 +100,39 @@ export function resolvePreviewPlan(
       : requiresDatabase(input.spec.provider)
         ? previewDbName(input.slug, input.prId)
         : null;
-  const mailPart = resolveMailPart(ctx, input);
+  const mail = resolveMailPart(ctx, input);
+  const mailFrom =
+    mail.mailFrom !== undefined ? { mailFrom: mail.mailFrom } : {};
+  // The mail merge is identical in every branch: app containers always join
+  // the mail network when configured so MAILHOST resolves. Seed jobs join it
+  // too whenever a seed can run; provider none rejects seeds, so its empty
+  // seedNetworks stay empty instead of widening isolation for no benefit.
   if (input.spec.provider === "none") {
-    return withMail(
-      {
-        provider: "none",
-        dbName,
-        gatewayEnv: [],
-        volumes: [],
-        appNetworks: [ctx.traefikNetwork],
-        seedNetworks: [],
-      },
-      mailPart,
-      false,
-    );
+    return {
+      provider: "none",
+      dbName,
+      gatewayEnv: [...mail.env],
+      volumes: [],
+      appNetworks: [ctx.traefikNetwork, ...mail.networks],
+      seedNetworks: [],
+      ...mailFrom,
+    };
   }
   if (input.spec.provider === "sqlite") {
     const target = input.connectionEnv?.DATABASE_URL ?? "DATABASE_URL";
-    return withMail(
-      {
-        provider: "sqlite",
-        dbName,
-        gatewayEnv: [
-          `${target}=${sqliteDatabaseUrl(input.spec.path, input.spec.file)}`,
-        ],
-        volumes: [`${sqliteVolumeName(input.slug, input.prId)}:${input.spec.path}`],
-        appNetworks: [ctx.traefikNetwork],
-        // Seed needs no postgres data; traefik is the network that always exists.
-        seedNetworks: [ctx.traefikNetwork],
-      },
-      mailPart,
-      true,
-    );
+    return {
+      provider: "sqlite",
+      dbName,
+      gatewayEnv: [
+        `${target}=${sqliteDatabaseUrl(input.spec.path, input.spec.file)}`,
+        ...mail.env,
+      ],
+      volumes: [`${sqliteVolumeName(input.slug, input.prId)}:${input.spec.path}`],
+      appNetworks: [ctx.traefikNetwork, ...mail.networks],
+      // Seed needs no postgres data; traefik is the network that always exists.
+      seedNetworks: [ctx.traefikNetwork, ...mail.networks],
+      ...mailFrom,
+    };
   }
   const postgres = ctx.postgres;
   if (!postgres) {
@@ -171,16 +143,16 @@ export function resolvePreviewPlan(
   if (dbName == null) {
     throw new Error("postgres plan requested without a database name");
   }
-  return withMail(
-    {
-      provider: "postgres",
-      dbName,
-      gatewayEnv: pgConnectionEnv(postgres.pg, dbName, input.connectionEnv),
-      volumes: [],
-      appNetworks: [ctx.traefikNetwork, postgres.network],
-      seedNetworks: [postgres.network],
-    },
-    mailPart,
-    true,
-  );
+  return {
+    provider: "postgres",
+    dbName,
+    gatewayEnv: [
+      ...pgConnectionEnv(postgres.pg, dbName, input.connectionEnv),
+      ...mail.env,
+    ],
+    volumes: [],
+    appNetworks: [ctx.traefikNetwork, postgres.network, ...mail.networks],
+    seedNetworks: [postgres.network, ...mail.networks],
+    ...mailFrom,
+  };
 }

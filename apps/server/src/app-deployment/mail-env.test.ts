@@ -30,7 +30,7 @@ describe("mailConnectionEnv", () => {
   test("from template override resolves per preview", () => {
     const { env } = mailConnectionEnv(mail, {
       ...identity,
-      fromTemplate: "noreply+{pr_id}@preview.invalid",
+      from: "noreply+{pr_id}@preview.invalid",
     });
     expect(env).toContain("MAILFROM=noreply+42@preview.invalid");
   });

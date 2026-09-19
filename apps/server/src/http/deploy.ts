@@ -187,7 +187,8 @@ export function resolveDeployDbAndEnv(
   // Mail intent is tri-state: omitted means opportunistic (inject when the
   // gateway configures mail, silently skip when not); explicit enabled
   // means required (fail when unconfigured); none means off. Only the
-  // required case can fail this gate; the plan layer never throws.
+  // required case can fail this gate; the plan layer throws for it as a bug
+  // guard, so this gate is the single path that maps it to a status.
   if (mailIntent(mail) === "required" && !materialization.mail) {
     return {
       ok: false,

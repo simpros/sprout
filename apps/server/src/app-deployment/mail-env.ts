@@ -6,19 +6,17 @@ import {
 } from "@sprout/preview-env";
 import type { MailConfig } from "../config.ts";
 
-export type MailIdentity = PreviewMailIdentity;
-
 /** Single canonical call: resolves the From identity once and builds the connection env. */
 export function mailConnectionEnv(
   mail: MailConfig,
-  identity: MailIdentity,
+  identity: PreviewMailIdentity,
   connectionEnv?: PreviewEnvMap,
 ): { env: string[]; resolved: { address: string; name: string } } {
   const resolved = resolvePreviewMailIdentity(
     mail.fromDomain,
     identity.slug,
     identity.prId,
-    identity.fromTemplate,
+    identity.from,
   );
   const fields: [MailEnvKey, string][] = [
     ["MAILHOST", mail.host],
