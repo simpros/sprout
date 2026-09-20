@@ -61,12 +61,12 @@ from the variable automatically.
 
 ```yaml
 include:
-  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.7.0
     inputs: { stage: deploy }
 ```
 
 Replace `<group>/sprout-ci` with the component project path on your GitLab
-instance and `v0.6.0` with the sprout release you adopt. Where the component
+instance and `v0.7.0` with the sprout release you adopt. Where the component
 project is unavailable on your instance, use the `include: remote` fallback
 documented in [`templates/README.md`](../templates/README.md)
 (remote includes must set `sprout_version` explicitly to the tag in the URL).
@@ -671,7 +671,7 @@ preview:
   variables: { DOCKER_HOST: tcp://docker:2375, DOCKER_TLS_CERTDIR: "" }
   script:
     - apk add --no-cache curl ca-certificates libstdc++
-    - curl -fsSL -o /usr/local/bin/sprout "https://github.com/simpros/sprout/releases/download/v0.6.0/sprout-linux-x64-musl"
+    - curl -fsSL -o /usr/local/bin/sprout "https://github.com/simpros/sprout/releases/download/v0.7.0/sprout-linux-x64-musl"
     - chmod +x /usr/local/bin/sprout
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
     - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" .
@@ -692,7 +692,7 @@ stop-preview:
   image: docker:24
   script:
     - apk add --no-cache curl ca-certificates libstdc++
-    - curl -fsSL -o /usr/local/bin/sprout "https://github.com/simpros/sprout/releases/download/v0.6.0/sprout-linux-x64-musl"
+    - curl -fsSL -o /usr/local/bin/sprout "https://github.com/simpros/sprout/releases/download/v0.7.0/sprout-linux-x64-musl"
     - chmod +x /usr/local/bin/sprout
     - sprout teardown
   environment:
@@ -722,7 +722,7 @@ seed:
 
 ```yaml
 include:
-  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.6.0
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.7.0
     inputs: { stage: deploy }
 ```
 
@@ -1103,7 +1103,7 @@ Pick the asset that matches the host libc (names are honest):
 | `sprout-linux-x64-musl` | musl | Alpine runners; install `libstdc++` |
 
 ```bash
-TAG=v0.6.0   # pin ≥ the release that ships glibc `sprout-linux-x64`
+TAG=v0.7.0   # pin ≥ the release that ships glibc `sprout-linux-x64`
 
 # glibc hosts
 curl -fsSL -o /usr/local/bin/sprout \
