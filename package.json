@@ -1,6 +1,6 @@
 {
   "name": "sprout",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "workspaces": [
