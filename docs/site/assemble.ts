@@ -20,7 +20,7 @@ export const publishFiles = [
   "e2e/README.md",
   "deploy/traefik/README.md",
   "deploy/coolify/README.md",
-  "deploy/coolify/sprout.yaml",
+  "deploy/coolify/gateway.compose.yml",
   "deploy/traefik/certificates-resolver.dns.yml",
   "deploy/traefik/wildcard-bootstrap.compose.yml",
   "deploy/postgres/ensure-preview-role.sh",

@@ -137,7 +137,7 @@ needs no `SPROUT_POSTGRES_NETWORK` at all.
 ## One-click Coolify (Docker Compose Empty)
 
 For a one-click Coolify resource with its own Postgres, paste
-[`deploy/coolify/sprout.yaml`](../deploy/coolify/sprout.yaml) and follow
+[`deploy/coolify/gateway.compose.yml`](../deploy/coolify/gateway.compose.yml) and follow
 [`deploy/coolify/README.md`](../deploy/coolify/README.md) (wildcard DNS,
 preview hostname template, optional mail/forwardAuth). Both
 `SPROUT_TRAEFIK_NETWORK` and `SPROUT_POSTGRES_NETWORK` point at the
@@ -683,7 +683,7 @@ below.
 - [Public docs](site/index.html) — how it works, CLI, FAQ
 - `examples/adopting-repo/` — copy-paste adopting-repo files
 - [`deploy/traefik/README.md`](../deploy/traefik/README.md) — wildcard DNS-01 resolver fragment + one-shot bootstrap compose
-- [`deploy/coolify/README.md`](../deploy/coolify/README.md) + [`deploy/coolify/sprout.yaml`](../deploy/coolify/sprout.yaml) — one-click Coolify Docker Compose Empty stack (bundled Postgres)
+- [`deploy/coolify/README.md`](../deploy/coolify/README.md) + [`deploy/coolify/gateway.compose.yml`](../deploy/coolify/gateway.compose.yml) — one-click Coolify Docker Compose Empty stack (bundled Postgres)
 - [`deploy/postgres/ensure-preview-role.sh`](../deploy/postgres/ensure-preview-role.sh) — optional manual role helper
 - [`CONTEXT.md`](../CONTEXT.md) — domain vocabulary
 - [Spec #12](https://github.com/simpros/sprout/issues/12) — normative v0.1 specification

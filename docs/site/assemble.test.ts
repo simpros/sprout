@@ -13,6 +13,14 @@ import { check, defaultCheckPaths } from "./check.ts";
 import { isAdrPath } from "./adr-policy.ts";
 import { writeCorpusFixture } from "./test-fixture.ts";
 
+function pathCovers(pattern: string, file: string): boolean {
+  if (pattern.endsWith("/**")) {
+    const prefix = pattern.slice(0, -"/**".length);
+    return file === prefix || file.startsWith(`${prefix}/`);
+  }
+  return pattern === file;
+}
+
 describe("publish manifest", () => {
   test("includes adoption.md and the deep-link trees", () => {
     expect(publishFiles).toContain("docs/adoption.md");
@@ -35,6 +43,20 @@ describe("publish manifest", () => {
     }
     expect(html).toContain(`url=${siteEntryPath}`);
     expect(html).toContain(`href="${siteEntryPath}"`);
+  });
+
+  test("every publishFiles entry retriggers the docs workflow", async () => {
+    const text = await readFile(
+      join(import.meta.dir, "../../.github/workflows/docs.yml"),
+      "utf8",
+    );
+    const doc = Bun.YAML.parse(text) as {
+      on: { push: { paths: string[] } };
+    };
+    const uncovered = publishFiles.filter(
+      (file) => !doc.on.push.paths.some((pattern) => pathCovers(pattern, file)),
+    );
+    expect(uncovered).toEqual([]);
   });
 });
 

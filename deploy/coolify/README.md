@@ -1,6 +1,6 @@
 # Sprout gateway on Coolify (Docker Compose Empty)
 
-Paste [`sprout.yaml`](./sprout.yaml) into a Coolify **Docker Compose Empty**
+Paste [`gateway.compose.yml`](./gateway.compose.yml) into a Coolify **Docker Compose Empty**
 resource. You get a self-contained gateway + bundled Postgres; no bundled
 Traefik or Mailpit — previews are routed by the proxy Coolify already runs.
 
@@ -12,39 +12,18 @@ preview routes via Traefik Docker labels only.
 
 ## Operator steps
 
-1. **Deploy.** Create the resource, paste `sprout.yaml`, deploy. Coolify
+1. **Deploy.** Create the resource, paste `gateway.compose.yml`, deploy. Coolify
    generates the `SERVICE_PASSWORD_*` values (symbol-free, so they
    interpolate into the admin DSN without URL-encoding) and the gateway
    domain (`SERVICE_FQDN_GATEWAY`). The resource is healthy when
    `https://<generated-domain>/healthz` answers through the Coolify proxy.
-2. **Wildcard DNS.** Point the preview wildcard (e.g.
-   `*.previews.example.com` — placeholders only, use your own domain) at
-   the Coolify server, so per-PR preview hosts resolve to the proxy. Each
-   preview host orders its own Let's Encrypt certificate through the
-   `letsencrypt` (HTTP-01) resolver, so fleets past a handful of PRs hit
-   the 50-certs/week rate limit — for a single shared wildcard instead,
-   follow [Wildcard preview certificate
-   (DNS-01)](../../docs/deploy.md#wildcard-preview-certificate-dns-01).
-3. **Preview hostname template.** In each adopting repo's `.sprout.yaml`,
-   set `preview.hostname` to a bare host under that wildcard containing
-   `{pr_id}` (e.g. `pr-{pr_id}.previews.example.com`). See the
-   [adoption guide](../../docs/adoption.md).
-4. **CLI auth.** `sprout` against `SPROUT_URL=https://<generated-domain>`
-   with `SPROUT_TOKEN` set to the `SPROUT_ADMIN_TOKEN` value shown in
-   Coolify's Environment Variables UI (it mirrors
-   `SERVICE_PASSWORD_SPROUTADMIN`); see
-   [Bootstrap admin token](../../docs/deploy.md#bootstrap-admin-token)
-   for the token file, the pinned-vs-generated split, and the CLI
-   resolution order.
-5. **Optional mail.** `SPROUT_MAIL_*` is unset here: previews deploy
-   without mail env. To add a shared Mailpit, follow
-   [Preview mail](../../docs/deploy.md#preview-mail-mailpit) and add the
-   `SPROUT_MAIL_HOST` / `SPROUT_MAIL_NETWORK` entries to the gateway
-   environment.
-6. **Optional SSO gate.** To front previews with Traefik forwardAuth (e.g.
-   VoidAuth), set `SPROUT_TRAEFIK_MIDDLEWARES` plus
-   `SPROUT_FORWARDAUTH_ADDRESS` together (or leave both empty) — see
-   [Production-shaped deploy](../../docs/deploy.md#production-shaped-deploy-external--coolify-traefik).
+2. Then follow the canonical guides in order — this README owns only the
+   Coolify delta above, not the procedures below:
+   1. [Wildcard preview certificate (DNS-01)](../../docs/deploy.md#wildcard-preview-certificate-dns-01) — point the preview wildcard at the Coolify server (single shared wildcard past a handful of PRs).
+   2. [Adoption guide](../../docs/adoption.md) — set `preview.hostname` to a bare host under that wildcard containing `{pr_id}`.
+   3. [Bootstrap admin token](../../docs/deploy.md#bootstrap-admin-token) — `sprout` against `SPROUT_URL=https://<generated-domain>` with the `SPROUT_ADMIN_TOKEN` value from Coolify's Environment Variables UI.
+   4. [Preview mail](../../docs/deploy.md#preview-mail-mailpit) (optional) — add the shared Mailpit entries to the gateway environment.
+   5. [Production-shaped deploy](../../docs/deploy.md#production-shaped-deploy-external--coolify-traefik) (optional) — set `SPROUT_TRAEFIK_MIDDLEWARES` plus `SPROUT_FORWARDAUTH_ADDRESS` together (or leave both empty) to front previews with Traefik forwardAuth.
 
 ## Caveats
 

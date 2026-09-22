@@ -13,7 +13,7 @@
     "docs:check": "bun run docs/site/check.ts",
     "docs:assemble": "bun run docs/site/assemble.ts",
     "docs:preview": "bun run docs/site/preview.ts",
-    "test": "turbo test && bun test docs/site/",
+    "test": "turbo test && bun test docs/site/ deploy/ .github/workflows/ scripts/",
     "typecheck": "turbo build && bun run docs:check",
     "test:e2e": "bun run e2e/run.ts",
     "sprout": "bun run apps/cli/src/index.ts",
