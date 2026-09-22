@@ -1,13 +1,31 @@
 import { cp, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  escapeHtml,
+  pageTitle,
+  renderMarkdownPage,
+} from "./markdown.ts";
 
 const siteDir = dirname(fileURLToPath(import.meta.url));
 export const repoRootDir = resolve(siteDir, "../..");
 
 export const siteEntryPath = "docs/site/index.html";
 
-export const docsPages: { file: string; title: string; description: string }[] = [
+// Agent-facing origin for absolute index links; shared with the link checker
+// so generated URLs and the gate resolve against one source of truth.
+export const SITE_ORIGIN = "https://simpros.github.io/sprout";
+
+export type DocsPage = {
+  file: string;
+  title: string;
+  description: string;
+  legacy?: boolean;
+};
+
+// The only description of the page set: the publish list, the rendered HTML,
+// docs/index.html, and llms.txt are all derived from this.
+export const docsPages: DocsPage[] = [
   { file: "docs/getting-started.md", title: "Getting started", description: "first preview in one sitting." },
   { file: "docs/adopting-a-repo.md", title: "Adopting a repo", description: "`.sprout.yaml` manifest reference and app entrypoints." },
   { file: "docs/ci-integration.md", title: "CI integration", description: "GitLab component, GitHub reusable workflow, variables, reset, notes." },
@@ -17,29 +35,71 @@ export const docsPages: { file: string; title: string; description: string }[] =
   { file: "docs/troubleshooting.md", title: "Troubleshooting", description: "adopter and operator error catalogue." },
   { file: "docs/onboarding-prompt.md", title: "Onboarding prompt", description: "copy-paste agent block (entry point for agents)." },
   { file: "docs/herdr-integration.md", title: "Herdr integration", description: "operator-side review automation." },
-  { file: "docs/adoption.md", title: "Adopting repo guide", description: "thin map to the per-topic pages (legacy path)." },
-  { file: "docs/deploy.md", title: "Operator deployment", description: "thin map to the operator page (legacy path)." },
+  { file: "docs/adoption.md", title: "Adoption guide", description: "thin map to the per-topic pages (legacy path).", legacy: true },
+  { file: "docs/deploy.md", title: "Operator deploy guide", description: "thin map to the operator page (legacy path).", legacy: true },
 ];
 
-export const publishFiles = [
+export function renderedHtmlPages(): Set<string> {
+  return new Set(docsPages.map((p) => p.file.replace(/\.md$/, ".html")));
+}
+
+// Rendered `.html` for humans; the `.md` twin stays the agent source.
+function descriptionHtml(description: string): string {
+  return escapeHtml(description).replace(
+    /`([^`]+)`/g,
+    (_, code: string) => `<code>${code}</code>`,
+  );
+}
+
+export function renderDocsIndexHtml(): string {
+  const main = docsPages.filter((p) => !p.legacy);
+  const legacy = docsPages.filter((p) => p.legacy);
+  const item = (p: DocsPage) =>
+    `      <li><a href="${p.file.replace(/^docs\//, "").replace(/\.md$/, ".html")}">${escapeHtml(p.title)}</a> — ${descriptionHtml(p.description)}</li>`;
+  return [
+    "<!DOCTYPE html>",
+    '<html lang="en">',
+    "<head>",
+    '  <meta charset="utf-8" />',
+    '  <meta name="viewport" content="width=device-width, initial-scale=1" />',
+    "  <title>sprout docs</title>",
+    '  <meta name="description" content="sprout docs: adopting repos, CI wiring, previews, operator deploy, CLI, troubleshooting." />',
+    "</head>",
+    "<body>",
+    "  <main>",
+    "    <h1>sprout docs</h1>",
+    '    <p>Markdown is canonical: every page below is served as plain <code>.md</code> (agents) and as rendered <code>.html</code> (humans) from the same source. Machine-readable index: <a href="../llms.txt">llms.txt</a>. Start with the <a href="onboarding-prompt.html">onboarding prompt</a>.</p>',
+    "    <ul>",
+    ...main.map(item),
+    "    </ul>",
+    `    <p>Legacy entry points: ${legacy.map((p) => `<a href="${p.file.replace(/^docs\//, "").replace(/\.md$/, ".html")}">${escapeHtml(p.title)}</a>`).join(", ")} (thin maps to the pages above; old deep links still land).</p>`,
+    "  </main>",
+    "</body>",
+    "</html>",
+    "",
+  ].join("\n");
+}
+
+// Machine-readable agent index; the checked-in root copy serves raw GitHub
+// fetches, the assembled copy serves Pages.
+export function renderLlmsTxt(): string {
+  const onboarding = docsPages.find(
+    (p) => p.file === "docs/onboarding-prompt.md",
+  )!;
+  const rest = docsPages.filter((p) => p !== onboarding);
+  const lines = [onboarding, ...rest].map(
+    (p) => `- [${p.title}](${SITE_ORIGIN}/${p.file}): ${p.description}`,
+  );
+  return ["These docs are for agents. Start with the onboarding prompt.", ...lines, ""].join("\n");
+}
+
+// Raw copies; docs pages and generated indexes join via docsPages below.
+const copyOnlyFiles = [
   "README.md",
   "CONTEXT.md",
   "LICENSE",
   "compose.env.example",
   ".env.example",
-  "llms.txt",
-  "docs/index.html",
-  "docs/deploy.md",
-  "docs/adoption.md",
-  "docs/getting-started.md",
-  "docs/adopting-a-repo.md",
-  "docs/ci-integration.md",
-  "docs/operator-deploy.md",
-  "docs/previews.md",
-  "docs/cli-reference.md",
-  "docs/troubleshooting.md",
-  "docs/onboarding-prompt.md",
-  "docs/herdr-integration.md",
   "docs/site/index.html",
   "e2e/README.md",
   "deploy/traefik/README.md",
@@ -48,6 +108,14 @@ export const publishFiles = [
   "deploy/traefik/certificates-resolver.dns.yml",
   "deploy/traefik/wildcard-bootstrap.compose.yml",
   "deploy/postgres/ensure-preview-role.sh",
+];
+
+export const generatedFiles = ["docs/index.html", "llms.txt"];
+
+export const publishFiles = [
+  ...copyOnlyFiles,
+  ...docsPages.map((p) => p.file),
+  ...generatedFiles,
 ];
 
 export const publishDirs = [
@@ -86,155 +154,6 @@ export function rootRedirectHtml(): string {
   ].join("\n");
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function renderInline(text: string): string {
-  const codeSpans: string[] = [];
-  const withCode = text.replace(/`([^`]+)`/g, (_, code: string) => {
-    codeSpans.push(`<code>${escapeHtml(code)}</code>`);
-    return `__SPROUT_CODE_${codeSpans.length - 1}__`;
-  });
-  const escaped = escapeHtml(withCode);
-  const withLinks = escaped.replace(
-    /\[([^\]]*)\]\(([^)]+)\)/g,
-    (_, label: string, href: string) => `<a href="${href}">${label}</a>`,
-  );
-  const withStrong = withLinks.replace(
-    /\*\*([^*]+)\*\*/g,
-    (_, bold: string) => `<strong>${bold}</strong>`,
-  );
-  return withStrong.replace(/__SPROUT_CODE_(\d+)__/g, (_, i: string) => codeSpans[Number(i)]!);
-}
-
-function isTableSeparator(line: string): boolean {
-  const cells = line.trim().split("|").slice(1, -1);
-  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c.trim()));
-}
-
-function renderTableRow(line: string, cell: "td" | "th"): string {
-  const cells = line.trim().split("|").slice(1, -1);
-  return `<tr>${cells.map((c) => `<${cell}>${renderInline(c.trim())}</${cell}>`).join("")}</tr>`;
-}
-
-export function markdownToHtmlBody(markdown: string): string {
-  const lines = markdown.split("\n");
-  const html: string[] = [];
-  let i = 0;
-  let paragraph: string[] = [];
-  const flushParagraph = () => {
-    if (paragraph.length > 0) {
-      html.push(`<p>${renderInline(paragraph.join(" "))}</p>`);
-      paragraph = [];
-    }
-  };
-
-  while (i < lines.length) {
-    const line = lines[i]!;
-    if (line.startsWith("```")) {
-      flushParagraph();
-      const code: string[] = [];
-      i += 1;
-      while (i < lines.length && !lines[i]!.startsWith("```")) {
-        code.push(lines[i]!);
-        i += 1;
-      }
-      i += 1;
-      html.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
-      continue;
-    }
-    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (heading) {
-      flushParagraph();
-      const level = heading[1]!.length;
-      html.push(`<h${level}>${renderInline(heading[2]!)}</h${level}>`);
-      i += 1;
-      continue;
-    }
-    if (/^---+$/.test(line.trim())) {
-      flushParagraph();
-      html.push("<hr />");
-      i += 1;
-      continue;
-    }
-    if (
-      line.trim().startsWith("|") &&
-      i + 1 < lines.length &&
-      isTableSeparator(lines[i + 1]!)
-    ) {
-      flushParagraph();
-      const header = line;
-      i += 2;
-      const rows: string[] = [];
-      while (i < lines.length && lines[i]!.trim().startsWith("|")) {
-        rows.push(lines[i]!);
-        i += 1;
-      }
-      html.push(
-        `<table><thead>${renderTableRow(header, "th")}</thead><tbody>${rows.map((r) => renderTableRow(r, "td")).join("")}</tbody></table>`,
-      );
-      continue;
-    }
-    if (/^(\s*[-*]\s+)/.test(line)) {
-      flushParagraph();
-      const items: string[] = [];
-      while (i < lines.length && /^(\s*[-*]\s+)/.test(lines[i]!)) {
-        items.push(lines[i]!.replace(/^(\s*[-*]\s+)/, ""));
-        i += 1;
-      }
-      html.push(`<ul>${items.map((it) => `<li>${renderInline(it)}</li>`).join("")}</ul>`);
-      continue;
-    }
-    if (/^\s*\d+\.\s+/.test(line)) {
-      flushParagraph();
-      const items: string[] = [];
-      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i]!)) {
-        items.push(lines[i]!.replace(/^\s*\d+\.\s+/, ""));
-        i += 1;
-      }
-      html.push(`<ol>${items.map((it) => `<li>${renderInline(it)}</li>`).join("")}</ol>`);
-      continue;
-    }
-    if (line.trim() === "") {
-      flushParagraph();
-      i += 1;
-      continue;
-    }
-    paragraph.push(line.trim());
-    i += 1;
-  }
-  flushParagraph();
-  return html.join("\n");
-}
-
-export function renderMarkdownPage(title: string, markdown: string): string {
-  return [
-    "<!DOCTYPE html>",
-    '<html lang="en">',
-    "<head>",
-    '<meta charset="utf-8" />',
-    `<title>${escapeHtml(title)}</title>`,
-    "</head>",
-    "<body>",
-    "<main>",
-    markdownToHtmlBody(markdown),
-    "</main>",
-    "</body>",
-    "</html>",
-    "",
-  ].join("\n");
-}
-
-export function pageTitle(markdown: string, fallback: string): string {
-  const match = /^#\s+(.*)$/m.exec(markdown);
-  return match ? match[1]!.trim() : fallback;
-}
-
 export async function assembleSite(
   repoRoot: string,
   outDir: string,
@@ -243,7 +162,7 @@ export async function assembleSite(
   await mkdir(outDir, { recursive: true });
   const published: string[] = [];
 
-  for (const file of publishFiles) {
+  for (const file of copyOnlyFiles) {
     const dest = join(outDir, file);
     await mkdir(dirname(dest), { recursive: true });
     await copyFile(join(repoRoot, file), dest);
@@ -257,11 +176,25 @@ export async function assembleSite(
     }
   }
 
+  await mkdir(join(outDir, "docs"), { recursive: true });
+  await writeFile(join(outDir, "docs/index.html"), renderDocsIndexHtml());
+  published.push("docs/index.html");
+  await writeFile(join(outDir, "llms.txt"), renderLlmsTxt());
+  published.push("llms.txt");
+
+  const htmlPages = renderedHtmlPages();
   for (const { file } of docsPages) {
-    const markdown = await readFile(join(repoRoot, file), "utf8");
+    const dest = join(outDir, file);
+    await mkdir(dirname(dest), { recursive: true });
+    await copyFile(join(repoRoot, file), dest);
+    published.push(file);
+    const markdown = await readFile(dest, "utf8");
     const htmlFile = file.replace(/\.md$/, ".html");
     const title = pageTitle(markdown, htmlFile);
-    await writeFile(join(outDir, htmlFile), renderMarkdownPage(title, markdown));
+    await writeFile(
+      join(outDir, htmlFile),
+      renderMarkdownPage(title, markdown, file, htmlPages),
+    );
     published.push(htmlFile);
   }
 

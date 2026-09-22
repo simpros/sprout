@@ -32,6 +32,7 @@ await check(await defaultCheckPaths(siteRoot));
 function contentType(path: string): string | undefined {
   if (path.endsWith(".html")) return "text/html; charset=utf-8";
   if (path.endsWith(".md")) return "text/markdown; charset=utf-8";
+  if (path.endsWith(".txt")) return "text/plain; charset=utf-8";
   if (path.endsWith(".css")) return "text/css; charset=utf-8";
   return undefined;
 }

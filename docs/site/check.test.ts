@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  assembleSite,
+  SITE_ORIGIN,
+} from "./assemble.ts";
 import {
   check,
   defaultCheckPaths,
@@ -47,6 +51,7 @@ describe("defaultCheckPaths", () => {
     const paths = await defaultCheckPaths(root);
     expect(paths.htmlFiles).toContain(join(root, "docs/site/index.html"));
     expect(paths.htmlFiles).toContain(join(root, "docs/index.html"));
+    expect(paths.textFiles).toContain(join(root, "llms.txt"));
     for (const rel of [
       "docs/adoption.md",
       "docs/getting-started.md",
@@ -93,6 +98,80 @@ describe("defaultCheckPaths", () => {
       /adoption\.md/,
     );
   });
+
+  test("fails on a dead link in llms.txt", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(
+      join(root, "llms.txt"),
+      `Start.\n- [Missing](${SITE_ORIGIN}/docs/no-such-page.md): gone.\n`,
+    );
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
+      /dead link/,
+    );
+  });
+
+  test("resolves absolute index links against the checked tree", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    const llms = await readFile(join(root, "llms.txt"), "utf8");
+    expect(llms).toContain(SITE_ORIGIN);
+    await check(await defaultCheckPaths(root));
+  });
+});
+
+describe("fragment resolution", () => {
+  let root: string | undefined;
+
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+    root = undefined;
+  });
+
+  test("accepts a markdown fragment whose heading exists", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(join(root, "docs", "deploy.md"), "# Deploy\n");
+    await writeFile(
+      join(root, "docs", "adoption.md"),
+      "See [deploy](deploy.md#deploy).\n",
+    );
+    await check(await defaultCheckPaths(root));
+  });
+
+  test("rejects a markdown fragment whose heading is missing", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(
+      join(root, "docs", "adoption.md"),
+      "See [deploy](deploy.md#no-such-heading).\n",
+    );
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
+      /dead fragment/,
+    );
+  });
+
+  test("rejects an html fragment whose id is missing", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(
+      join(root, "docs", "index.html"),
+      `<html><body><a href="adoption.md">adopt</a><a href="#no-such-id">x</a></body></html>\n`,
+    );
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
+      /dead fragment/,
+    );
+  });
+
+  test("accepts a same-page anchor whose id exists", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(
+      join(root, "docs", "index.html"),
+      `<html><body><h2 id="cli">CLI</h2><a href="#cli">x</a></body></html>\n`,
+    );
+    await check(await defaultCheckPaths(root));
+  });
 });
 
 describe("static-host rule", () => {
@@ -108,7 +187,7 @@ describe("static-host rule", () => {
     await mkdir(join(root, "sub"), { recursive: true });
     await writeFile(join(root, "page.md"), "See [sub](sub/).\n");
     await expect(
-      check({ rootDir: root, htmlFiles: [], markdownFiles: [join(root, "page.md")] }),
+      check({ rootDir: root, htmlFiles: [], markdownFiles: [join(root, "page.md")], textFiles: [] }),
     ).rejects.toThrow(/dead link/);
   });
 
@@ -121,6 +200,7 @@ describe("static-host rule", () => {
       rootDir: root,
       htmlFiles: [],
       markdownFiles: [join(root, "page.md")],
+      textFiles: [],
     });
   });
 });
@@ -210,18 +290,16 @@ describe("agent-first index", () => {
   test("every llms.txt entry resolves in the assembled tree", async () => {
     root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
     await writeCorpusFixture(root);
-    const { assembleSite } = await import("./assemble.ts");
     const out = join(root, "site");
     await assembleSite(root, out);
-    const { readFile, stat } = await import("node:fs/promises");
     const llms = await readFile(join(out, "llms.txt"), "utf8");
-    const urls = [...llms.matchAll(/\((https:\/\/simpros\.github\.io\/sprout\/[^)]+)\)/g)].map(
-      (m) => m[1]!,
+    const urls = [...llms.matchAll(new RegExp(`\\((?:${SITE_ORIGIN.replace(/\./g, "\\.")}\\/[^)]+)\\)`, "g"))].map(
+      (m) => m[0]!.slice(1, -1),
     );
     expect(urls.length).toBeGreaterThan(5);
     expect(llms).toMatch(/onboarding/i);
     for (const url of urls) {
-      const rel = url.replace("https://simpros.github.io/sprout/", "");
+      const rel = url.replace(`${SITE_ORIGIN}/`, "");
       expect((await stat(join(out, rel))).isFile()).toBe(true);
     }
     await check(await defaultCheckPaths(out));
