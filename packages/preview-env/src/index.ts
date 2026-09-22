@@ -215,6 +215,14 @@ export {
 } from "./naming.ts";
 
 export {
+  LABEL_KEY_RE,
+  labelIssueMessage,
+  parseLabelMap,
+  type LabelMapIssue,
+  type PreviewLabels,
+} from "./labels.ts";
+
+export {
   copyServiceExtras,
   isServicePort,
   parseServiceEnvMap,

@@ -876,4 +876,140 @@ preview:
       error: "seed.inputs[0] is required",
     });
   });
+
+  test("parses preview.labels and service labels", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  labels:
+    traefik.docker.network: traefik
+    com.example.backup: "true"
+  services:
+    - name: api
+      image: api:1
+      labels:
+        traefik.http.routers.api-pr.middlewares: "my-sso@file"
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          labels: {
+            "traefik.docker.network": "traefik",
+            "com.example.backup": "true",
+          },
+          services: [
+            {
+              name: "api",
+              image: "api:1",
+              labels: {
+                "traefik.http.routers.api-pr.middlewares": "my-sso@file",
+              },
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  test("treats empty labels maps as absent", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  labels: {}
+  services:
+    - name: api
+      image: api:1
+      labels: {}
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          services: [{ name: "api", image: "api:1" }],
+        },
+      },
+    });
+  });
+
+  test("rejects malformed preview.labels", () => {
+    const base = (extra: string) =>
+      parseSproutYaml(
+        `slug: myapp\npreview:\n  hostname: "pr-{pr_id}.example.com"\n${extra}`,
+      );
+    expect(base("  labels: not-a-map\n")).toEqual({
+      ok: false,
+      error: "preview.labels must be a mapping",
+    });
+    expect(base("  labels:\n    '': x\n")).toEqual({
+      ok: false,
+      error: "preview.labels key is required",
+    });
+    expect(base("  labels:\n    'bad key': x\n")).toEqual({
+      ok: false,
+      error: "preview.labels.bad key is invalid",
+    });
+    expect(base("  labels:\n    com.example.backup: 1\n")).toEqual({
+      ok: false,
+      error: "preview.labels.com.example.backup must be a string",
+    });
+    expect(base("  labels:\n    com.example.backup: ''\n")).toEqual({
+      ok: false,
+      error: "preview.labels.com.example.backup is required",
+    });
+  });
+
+  test("rejects malformed service labels", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  services:
+    - name: api
+      image: api:1
+      labels:
+        'bad key': x
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.services[0].labels.bad key is invalid",
+    });
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  services:
+    - name: api
+      image: api:1
+      labels:
+        com.example.backup: ''
+`),
+    ).toEqual({
+      ok: false,
+      error: "preview.services[0].labels.com.example.backup is required",
+    });
+  });
+
+  test("unknown preview key still fires alongside labels", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  foo: 1
+  labels:
+    com.example.backup: "true"
+`),
+    ).toEqual({ ok: false, error: "unknown key: preview.foo" });
+  });
 });

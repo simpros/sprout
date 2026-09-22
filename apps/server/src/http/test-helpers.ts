@@ -8,6 +8,10 @@ import {
   type PreviewAppOps,
 } from "../app-deployment/ops.ts";
 import type { HealthClock, HealthProbe } from "../app-deployment/health.ts";
+import type {
+  TraefikForwardAuth,
+  TraefikTls,
+} from "../app-deployment/labels.ts";
 import {
   createFakeDockerClient,
   type FakeDockerClient,
@@ -86,6 +90,8 @@ export async function createTestApp(
         previewDb?: PreviewDbRouter;
         docker?: PreviewDocker;
         replaceDeps?: Partial<Omit<BindPreviewOpsDeps, "docker">>;
+        traefikTls?: TraefikTls;
+        traefikForwardAuth?: TraefikForwardAuth;
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
         postgres?: PostgresConfig;
@@ -98,17 +104,22 @@ export async function createTestApp(
   const adminToken = opts.adminToken ?? "test-admin-token";
   const previewDb = opts.previewDb ?? createFakePreviewDb();
   const docker = opts.docker ?? createFakeDockerClient();
-  const appOps = bindTestPreviewApp(docker, {
-    ...opts.replaceDeps,
-    healthProbe: opts.healthProbe ?? defaultHealthProbe,
-    healthClock: opts.healthClock,
-  });
   const { db, cleanup } = await createTestDb();
   await ensureAdminToken(db, adminToken);
   // Postgres presence lives only on the materialization context: an explicit
   // `postgres: undefined` opts into a sqlite-only gateway with no pg block.
   const pg = "postgres" in opts ? opts.postgres : defaultTestPostgres;
   const mail = "mail" in opts ? opts.mail : undefined;
+  // The Traefik policy lives only on the materialization context: the
+  // deploy route validates adopter labels against it and forwards it
+  // per-deploy into the container inputs, so ops take no policy of their own.
+  const traefikTls = opts.traefikTls;
+  const traefikForwardAuth = opts.traefikForwardAuth;
+  const appOps = bindTestPreviewApp(docker, {
+    ...opts.replaceDeps,
+    healthProbe: opts.healthProbe ?? defaultHealthProbe,
+    healthClock: opts.healthClock,
+  });
   const materialization: PreviewMaterializationCtx = {
     traefikNetwork: "sprout-traefik",
     ...(pg
@@ -125,6 +136,8 @@ export async function createTestApp(
         }
       : {}),
     ...(mail ? { mail } : {}),
+    ...(traefikTls ? { traefikTls } : {}),
+    ...(traefikForwardAuth ? { traefikForwardAuth } : {}),
   };
   return {
     app: createRoutes({

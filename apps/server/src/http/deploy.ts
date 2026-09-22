@@ -1,10 +1,12 @@
 import {
   dbSpecIssueMessage,
   isServicePort,
+  labelIssueMessage,
   mailIntent,
   mailSpecIssueMessage,
   normalizeDbSpec,
   parseDbSpec,
+  parseLabelMap,
   parseMailSpec,
   parsePreviewEnvForProvider,
   parseServiceEnvMap,
@@ -16,12 +18,14 @@ import {
   type HealthRequest,
   type MailSpec,
   type PreviewEnvMap,
+  type PreviewLabels,
   type PreviewServiceSpec,
 } from "@sprout/preview-env";
 import { t } from "elysia";
 import { parseResetMarkerToken } from "@sprout/preview-db";
 import type { AuthContext } from "../auth/middleware.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
+import { resolveLabelCollisions } from "../app-deployment/label-collisions.ts";
 import {
   mailNotConfiguredDetail,
   postgresNotConfiguredDetail,
@@ -61,6 +65,7 @@ const serviceBody = t.Object({
   path: t.Optional(t.String({ minLength: 1 })),
   port: t.Optional(t.Integer({ minimum: 1, maximum: 65535 })),
   env: t.Optional(t.Record(t.String(), t.String())),
+  labels: t.Optional(t.Record(t.String(), t.String())),
 });
 
 const MAX_SEED_ENV = 16;
@@ -97,6 +102,7 @@ export const deployBody = t.Object({
   seed_arg: t.Optional(t.Array(t.String())),
   app_env: t.Optional(t.Array(t.String())),
   services: t.Optional(t.Array(serviceBody)),
+  labels: t.Optional(t.Record(t.String(), t.String())),
   reseed: t.Optional(t.Boolean()),
 });
 
@@ -131,6 +137,7 @@ export type DeployBody = {
   seed_arg?: string[];
   app_env?: string[];
   services?: PreviewServiceSpec[];
+  labels?: PreviewLabels;
   reseed?: boolean;
 };
 
@@ -302,7 +309,7 @@ export function resolveServicesRequest(
   body: Pick<DeployBody, "services">,
 ):
   | { ok: true; value: PreviewServiceSpec[] | undefined }
-  | { ok: false; error: string } {
+  | { ok: false; error: string; detail?: string } {
   if (body.services === undefined) {
     return { ok: true, value: undefined };
   }
@@ -312,7 +319,7 @@ export function resolveServicesRequest(
   }
   const seen = new Set<string>();
   const out: PreviewServiceSpec[] = [];
-  for (const entry of raw) {
+  for (const [index, entry] of raw.entries()) {
     const name = entry.name.trim();
     const image = entry.image.trim();
     if (!name || !image) {
@@ -349,9 +356,40 @@ export function resolveServicesRequest(
       return { ok: false, error: "invalid_service_env" };
     }
     if (parsedEnv.value !== undefined) spec.env = parsedEnv.value;
+    const parsedLabels = parseLabelMap(entry.labels);
+    if (!parsedLabels.ok) {
+      return {
+        ok: false,
+        error: "invalid_service_labels",
+        detail: labelIssueMessage(
+          `preview.services[${index}].labels`,
+          parsedLabels.issue,
+        ),
+      };
+    }
+    if (parsedLabels.value !== undefined) spec.labels = parsedLabels.value;
     out.push(spec);
   }
   return { ok: true, value: out };
+}
+
+export function resolvePreviewLabelsRequest(
+  body: Pick<DeployBody, "labels">,
+):
+  | { ok: true; value: PreviewLabels | undefined }
+  | { ok: false; error: string; detail?: string } {
+  if (body.labels === undefined) {
+    return { ok: true, value: undefined };
+  }
+  const parsed = parseLabelMap(body.labels);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      error: "invalid_labels",
+      detail: labelIssueMessage("preview.labels", parsed.issue),
+    };
+  }
+  return { ok: true, value: parsed.value };
 }
 
 export type TeardownBody = {
@@ -369,6 +407,17 @@ export type PreviewQuery = {
   canonical_repo_id: string;
   pr_id: string;
 };
+
+/** Single 422 mapper for the request resolvers below. */
+function unprocessable(
+  set: { status?: number | string },
+  result: { error: string; detail?: string },
+): { error: string; detail?: string } {
+  set.status = 422;
+  return result.detail != null
+    ? { error: result.error, detail: result.detail }
+    : { error: result.error };
+}
 
 export function deploy(
   deps: LifecycleDeps & {
@@ -416,10 +465,7 @@ export function deploy(
     });
     const seed = resolveSeedRequest(body, deploySpecs.value.spec.provider);
     if (!seed.ok) {
-      set.status = 422;
-      return seed.detail != null
-        ? { error: seed.error, detail: seed.detail }
-        : { error: seed.error };
+      return unprocessable(set, seed);
     }
     const appEnv = resolveAppEnvRequest(body);
     if (!appEnv.ok) {
@@ -428,8 +474,23 @@ export function deploy(
     }
     const services = resolveServicesRequest(body);
     if (!services.ok) {
+      return unprocessable(set, services);
+    }
+    const labels = resolvePreviewLabelsRequest(body);
+    if (!labels.ok) {
+      return unprocessable(set, labels);
+    }
+    const collisions = resolveLabelCollisions({
+      slug: body.slug,
+      prId: target.value.prId,
+      hostname,
+      labels: labels.value,
+      services: services.value,
+      policy: deps.materialization,
+    });
+    if (!collisions.ok) {
       set.status = 422;
-      return { error: services.error };
+      return { error: collisions.error, detail: collisions.detail };
     }
     const health = resolveHealthSpec(body.health);
     if (!health.ok) {
@@ -447,8 +508,15 @@ export function deploy(
       seed: seed.value,
       appEnv: appEnv.value,
       services: services.value,
+      ...(labels.value !== undefined ? { labels: labels.value } : {}),
       plan,
       reseed: body.reseed === true,
+      ...(deps.materialization.traefikTls !== undefined
+        ? { traefikTls: deps.materialization.traefikTls }
+        : {}),
+      ...(deps.materialization.traefikForwardAuth !== undefined
+        ? { traefikForwardAuth: deps.materialization.traefikForwardAuth }
+        : {}),
     };
 
     // 202 before pull/health/seed so Cloudflare (~100s) cannot kill the POST.

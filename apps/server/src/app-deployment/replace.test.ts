@@ -119,11 +119,7 @@ describe("replacePreviewApp", () => {
     });
 
     await replacePreviewApp(
-      {
-        docker,
-        ...baseDeps,
-        traefikTls: { entrypoints: "websecure", certResolver: "myresolver" },
-      },
+      { docker, ...baseDeps },
       {
         slug: "myapp",
         prId: 42,
@@ -131,6 +127,7 @@ describe("replacePreviewApp", () => {
         image: "ghcr.io/org/app:sha",
         appEnv: [],
         plan: postgresPlan(),
+        traefikTls: { entrypoints: "websecure", certResolver: "myresolver" },
       },
     );
 
@@ -147,14 +144,7 @@ describe("replacePreviewApp", () => {
     });
 
     await replacePreviewApp(
-      {
-        docker,
-        ...baseDeps,
-        traefikForwardAuth: {
-          middleware: "voidauth",
-          address: "https://auth.example.com/api/authz/forward-auth",
-        },
-      },
+      { docker, ...baseDeps },
       {
         slug: "myapp",
         prId: 42,
@@ -162,6 +152,10 @@ describe("replacePreviewApp", () => {
         image: "ghcr.io/org/app:sha",
         appEnv: [],
         plan: postgresPlan(),
+        traefikForwardAuth: {
+          middleware: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
       },
     );
 
@@ -284,6 +278,37 @@ describe("replacePreviewApp", () => {
     expect(docker.removed).toEqual(["sprout-widgets-pr-3", "sprout-widgets-pr-3"]);
     expect(docker.creates.map((c) => c.image)).toEqual(["img:v1", "img:v2"]);
     expect(docker.running.get("sprout-widgets-pr-3")?.spec.image).toBe("img:v2");
+  });
+
+  test("merges preview labels onto the app container", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "ghcr.io/org/app:sha": 3000 },
+    });
+
+    await replacePreviewApp(
+      { docker, ...baseDeps },
+      {
+        slug: "myapp",
+        prId: 42,
+        hostname: "pr-42.myapp.preview.example.com",
+        image: "ghcr.io/org/app:sha",
+        appEnv: [],
+        plan: postgresPlan(),
+        labels: {
+          "traefik.docker.network": "traefik",
+          "com.example.backup": "true",
+        },
+      },
+    );
+
+    expect(docker.creates[0]!.labels).toEqual({
+      "traefik.enable": "true",
+      "traefik.http.routers.sprout-myapp-pr-42.rule":
+        "Host(`pr-42.myapp.preview.example.com`)",
+      "traefik.http.services.sprout-myapp-pr-42.loadbalancer.server.port": "3000",
+      "traefik.docker.network": "traefik",
+      "com.example.backup": "true",
+    });
   });
 });
 

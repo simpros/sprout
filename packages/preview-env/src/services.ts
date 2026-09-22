@@ -1,3 +1,5 @@
+import type { PreviewLabels } from "./labels.ts";
+
 export const ENV_TARGET_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export const SERVICE_PORT_MIN = 1;
@@ -6,6 +8,7 @@ export const SERVICE_PORT_MAX = 65535;
 export type ServiceFields = {
   port?: number;
   env?: Record<string, string>;
+  labels?: PreviewLabels;
 };
 
 export type PreviewServiceSpec = {
@@ -63,4 +66,5 @@ export function copyServiceExtras(
 ): void {
   if (src.port !== undefined) dst.port = src.port;
   if (src.env !== undefined) dst.env = { ...src.env };
+  if (src.labels !== undefined) dst.labels = { ...src.labels };
 }

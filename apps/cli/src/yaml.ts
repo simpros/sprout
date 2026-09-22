@@ -1,9 +1,11 @@
 import {
   dbSpecIssueMessage,
   isServicePort,
+  labelIssueMessage,
   mailSpecIssueMessage,
   normalizeDbSpec,
   parseDbSpec,
+  parseLabelMap,
   parseMailSpec,
   parsePreviewEnvForProvider,
   parseServiceEnvMap,
@@ -15,6 +17,7 @@ import {
   type HealthIssue,
   type MailSpec,
   type PreviewEnvMap,
+  type PreviewLabels,
   type ServiceFields,
 } from "@sprout/preview-env";
 import { hostnameIssueMessage } from "./hostname.ts";
@@ -26,6 +29,7 @@ export const SERVICE_NAME_RE = /^[a-z][a-z0-9]*$/;
 export type { PreviewEnvMap };
 export type { DbSpec };
 export type { MailSpec };
+export type { PreviewLabels };
 
 export type SproutHealth = {
   path: string;
@@ -66,6 +70,7 @@ export type SproutYaml = {
     env?: PreviewEnvMap;
     app_env?: Record<string, ManifestEnvValue>;
     services?: SproutYamlService[];
+    labels?: PreviewLabels;
   };
   db?: DbSpec;
   mail?: MailSpec;
@@ -75,9 +80,9 @@ export type SproutYaml = {
 };
 
 const TOP_KEYS = new Set(["slug", "preview", "health", "build", "seed", "db", "mail"]);
-const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services"]);
+const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services", "labels"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
-const SERVICE_KEYS = new Set(["name", "image", "hostname", "path", "port", "env"]);
+const SERVICE_KEYS = new Set(["name", "image", "hostname", "path", "port", "env", "labels"]);
 const DOCKERFILE_KEYS = new Set(["dockerfile"]);
 const SEED_KEYS = new Set(["dockerfile", "inputs", "env", "args"]);
 
@@ -362,6 +367,15 @@ function parseServiceEnv(
   }
 }
 
+function parseLabels(
+  raw: unknown,
+  path: string,
+): Result<PreviewLabels | undefined> {
+  const parsed = parseLabelMap(raw);
+  if (parsed.ok) return parsed;
+  return { ok: false, error: labelIssueMessage(path, parsed.issue) };
+}
+
 function parseServices(
   raw: unknown,
 ): Result<SproutYamlService[] | undefined> {
@@ -429,6 +443,9 @@ function parseServices(
     const env = parseServiceEnv(entry.env, path);
     if (!env.ok) return env;
     if (env.value !== undefined) service.env = env.value;
+    const labels = parseLabels(entry.labels, `${path}.labels`);
+    if (!labels.ok) return labels;
+    if (labels.value !== undefined) service.labels = labels.value;
     out.push(service);
   }
   return { ok: true, value: out };
@@ -489,6 +506,9 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const services = parseServices(parsed.preview.services);
   if (!services.ok) return services;
 
+  const labels = parseLabels(parsed.preview.labels, "preview.labels");
+  if (!labels.ok) return labels;
+
   const build = parseDockerfileBlock(parsed.build, "build", "Dockerfile");
   if (!build.ok) return build;
 
@@ -510,6 +530,7 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   if (env.value) value.preview.env = env.value;
   if (appEnv.value) value.preview.app_env = appEnv.value;
   if (services.value) value.preview.services = services.value;
+  if (labels.value) value.preview.labels = labels.value;
   if (db.value) value.db = db.value;
   if (mail.value) value.mail = mail.value;
   if (build.value) value.build = build.value;

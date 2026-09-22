@@ -205,6 +205,56 @@ describe("POST /v1/deploy", () => {
     });
   });
 
+  test("applies preview labels alongside the gateway Traefik labels", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        labels: {
+          "traefik.docker.network": "traefik",
+          "com.example.backup": "true",
+        },
+      }),
+    );
+    expect(res.settleStatus).toBe(200);
+    expect(fakeDocker!.creates[0]!.labels).toEqual({
+      "traefik.enable": "true",
+      "traefik.http.routers.sprout-myapp-pr-42.rule":
+        "Host(`pr-42.myapp.preview.example.com`)",
+      "traefik.http.services.sprout-myapp-pr-42.loadbalancer.server.port": "3000",
+      "traefik.docker.network": "traefik",
+      "com.example.backup": "true",
+    });
+  });
+
+  test("rejects reserved preview labels before SQL", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({ labels: { "traefik.enable": "false" } }),
+    );
+    expect(res.settleStatus).toBe(422);
+    expect(res.body).toEqual({
+      error: "reserved_preview_label",
+      detail: "preview.labels.traefik.enable collides with a gateway label",
+    });
+    expect(fakePreviewDb!.created).toEqual([]);
+  });
+
+  test("rejects malformed preview labels before SQL", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({ labels: { "bad key": "x" } }),
+    );
+    expect(res.settleStatus).toBe(422);
+    expect(res.body).toEqual({
+      error: "invalid_labels",
+      detail: "preview.labels.bad key is invalid",
+    });
+    expect(fakePreviewDb!.created).toEqual([]);
+  });
+
   test("deploy token cannot deploy for a different canonical repo", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(

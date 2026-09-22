@@ -138,19 +138,16 @@ describe("replacePreviewServices", () => {
     });
 
     await replacePreviewServices(
-      {
-        docker,
-        ...baseDeps,
-        traefikForwardAuth: {
-          middleware: "voidauth",
-          address: "https://auth.example.com/api/authz/forward-auth",
-        },
-      },
+      { docker, ...baseDeps },
       {
         slug: "myapp",
         prId: 42,
         appHostname: "pr-42.myapp.preview.example.com",
         plan: postgresPlan("sprout_myapp_pr42"),
+        traefikForwardAuth: {
+          middleware: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
         services: [
           {
             name: "api",
@@ -174,19 +171,16 @@ describe("replacePreviewServices", () => {
     });
 
     await replacePreviewServices(
-      {
-        docker,
-        ...baseDeps,
-        traefikForwardAuth: {
-          middleware: "voidauth",
-          address: "https://auth.example.com/api/authz/forward-auth",
-        },
-      },
+      { docker, ...baseDeps },
       {
         slug: "myapp",
         prId: 42,
         appHostname: "pr-42.myapp.preview.example.com",
         plan: postgresPlan("sprout_myapp_pr42"),
+        traefikForwardAuth: {
+          middleware: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
         services: [{ name: "worker", image: "ghcr.io/org/worker:sha" }],
       },
     );
@@ -252,6 +246,77 @@ describe("replacePreviewServices", () => {
 
     expect(docker.running.has("sprout-myapp-pr-1-svc-ok")).toBe(false);
     expect(docker.running.has("sprout-myapp-pr-1-svc-bad")).toBe(false);
+  });
+
+  test("preview labels land on every service; service labels stay local", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: {
+        "ghcr.io/org/api:sha": 4000,
+        "ghcr.io/org/worker:sha": 5000,
+      },
+    });
+
+    await replacePreviewServices(
+      { docker, ...baseDeps },
+      {
+        slug: "myapp",
+        prId: 42,
+        appHostname: "pr-42.myapp.preview.example.com",
+        plan: postgresPlan("sprout_myapp_pr42"),
+        previewLabels: { "com.example.backup": "true" },
+        services: [
+          {
+            name: "api",
+            image: "ghcr.io/org/api:sha",
+            hostname: "api-pr-42.myapp.preview.example.com",
+            labels: {
+              "traefik.http.routers.api-pr.middlewares": "my-sso@file",
+            },
+          },
+          { name: "worker", image: "ghcr.io/org/worker:sha" },
+        ],
+      },
+    );
+
+    const api = docker.creates.find((c) => c.name.endsWith("-svc-api"))!;
+    expect(api.labels).toMatchObject({
+      "traefik.enable": "true",
+      "com.example.backup": "true",
+      "traefik.http.routers.api-pr.middlewares": "my-sso@file",
+    });
+    const worker = docker.creates.find((c) => c.name.endsWith("-svc-worker"))!;
+    expect(worker.labels).toEqual({ "com.example.backup": "true" });
+    expect(worker.labels).not.toHaveProperty(
+      "traefik.http.routers.api-pr.middlewares",
+    );
+  });
+
+  test("per-service value wins over the preview level for the same key", async () => {
+    const docker = createFakeDockerClient({
+      exposedPorts: { "ghcr.io/org/worker:sha": 5000 },
+    });
+
+    await replacePreviewServices(
+      { docker, ...baseDeps },
+      {
+        slug: "myapp",
+        prId: 42,
+        appHostname: "pr-42.myapp.preview.example.com",
+        plan: postgresPlan("sprout_myapp_pr42"),
+        previewLabels: { "com.example.team": "preview" },
+        services: [
+          {
+            name: "worker",
+            image: "ghcr.io/org/worker:sha",
+            labels: { "com.example.team": "service" },
+          },
+        ],
+      },
+    );
+
+    expect(docker.creates[0]!.labels).toEqual({
+      "com.example.team": "service",
+    });
   });
 });
 

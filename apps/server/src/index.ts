@@ -65,13 +65,15 @@ const materialization: PreviewMaterializationCtx = {
   ...(mail
     ? { mail }
     : {}),
+  ...(config.traefikTls ? { traefikTls: config.traefikTls } : {}),
+  ...(config.traefikForwardAuth
+    ? { traefikForwardAuth: config.traefikForwardAuth }
+    : {}),
 };
 
 const app = bindPreviewOps({
   docker,
   previewPortDefault: config.previewPortDefault,
-  traefikTls: config.traefikTls,
-  traefikForwardAuth: config.traefikForwardAuth,
   seedTimeoutMs: config.seedTimeout * 1000,
 });
 

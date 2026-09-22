@@ -154,6 +154,11 @@ async function syncPreviewServices(
       appHostname: input.hostname,
       services: input.services,
       plan: input.plan,
+      ...(input.labels !== undefined ? { previewLabels: input.labels } : {}),
+      ...(input.traefikTls !== undefined ? { traefikTls: input.traefikTls } : {}),
+      ...(input.traefikForwardAuth !== undefined
+        ? { traefikForwardAuth: input.traefikForwardAuth }
+        : {}),
     });
     return { ok: true, value: true };
   } catch {
@@ -242,6 +247,11 @@ async function attachAppContainer(
       image: input.appImage,
       appEnv: input.appEnv,
       plan: input.plan,
+      ...(input.labels !== undefined ? { labels: input.labels } : {}),
+      ...(input.traefikTls !== undefined ? { traefikTls: input.traefikTls } : {}),
+      ...(input.traefikForwardAuth !== undefined
+        ? { traefikForwardAuth: input.traefikForwardAuth }
+        : {}),
     }));
   } catch {
     await markPreviewFailed(
