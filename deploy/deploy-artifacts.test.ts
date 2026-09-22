@@ -138,13 +138,16 @@ describe("deploy artifacts agree", () => {
       "Dockerfile",
       "deploy/coolify/gateway.compose.yml",
       "deploy/coolify/README.md",
+      "docs/adoption.md",
       "docs/deploy.md",
       "examples/adopting-repo/.github/workflows/sprout.yml",
+      "examples/adopting-repo/.gitlab-ci.yml",
+      "templates/README.md",
     ];
     const pinPatterns = [
       /SPROUT_VERSION=v?([0-9][^\s`'")\],]*)/g,
       /ghcr\.io\/simpros\/sprout:([0-9][^\s`'")\],]*)/g,
-      /@v([0-9][^\s`'")\],]*)/g,
+      /(?:sprout-ci\/preview|simpros\/sprout\/\.github\/workflows\/preview\.yml)@v([0-9][^\s`'")\],]*)/g,
       /sprout_version:\s*v?([0-9][^\s`'")\],]*)/g,
     ];
     for (const rel of pinFiles) {
