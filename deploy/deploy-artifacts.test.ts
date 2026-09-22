@@ -41,16 +41,6 @@ function service(doc: ComposeDoc, name: string): ComposeService {
   return svc;
 }
 
-function envKeys(env: ComposeService["environment"]): Set<string> {
-  if (!env) return new Set();
-  if (Array.isArray(env)) {
-    return new Set(
-      env.map((entry) => entry.split("=", 1)[0]!.trim()).filter(Boolean),
-    );
-  }
-  return new Set(Object.keys(env));
-}
-
 function envValue(
   env: ComposeService["environment"],
   key: string,
@@ -97,11 +87,12 @@ describe("deploy artifacts agree", () => {
     }
   });
 
-  test("coolify gateway carries every required gateway env key", async () => {
+  test("coolify gateway carries every required gateway env key non-empty", async () => {
     const coolify = await loadYaml(coolifyComposePath);
-    const keys = envKeys(service(coolify, "gateway").environment);
+    const env = service(coolify, "gateway").environment;
     for (const key of [...REQUIRED_ENV, ...POSTGRES_REQUIRED_ENV]) {
-      expect(keys.has(key)).toBe(true);
+      const value = envValue(env, key);
+      expect(typeof value === "string" && value.trim() !== "").toBe(true);
     }
   });
 
@@ -149,12 +140,18 @@ describe("deploy artifacts agree", () => {
     const deployGuide = await Bun.file(
       join(repoRoot, "docs", "deploy.md"),
     ).text();
-    for (const match of deployGuide.matchAll(
-      /ghcr\.io\/simpros\/sprout:([0-9][^\s`]*)/g,
-    )) {
+    const imagePins = [
+      ...deployGuide.matchAll(/ghcr\.io\/simpros\/sprout:([0-9][^\s`]*)/g),
+    ];
+    expect(imagePins.length).toBeGreaterThan(0);
+    for (const match of imagePins) {
       expect(match[1]).toBe(pkg.version);
     }
-    for (const match of deployGuide.matchAll(/SPROUT_VERSION=([0-9][^\s]*)/g)) {
+    const versionPins = [
+      ...deployGuide.matchAll(/SPROUT_VERSION=([0-9][^\s]*)/g),
+    ];
+    expect(versionPins.length).toBeGreaterThan(0);
+    for (const match of versionPins) {
       expect(match[1]).toBe(pkg.version);
     }
   });

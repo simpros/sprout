@@ -45,7 +45,7 @@ describe("publish manifest", () => {
     expect(html).toContain(`href="${siteEntryPath}"`);
   });
 
-  test("every publishFiles entry retriggers the docs workflow", async () => {
+  test("every publish entry retriggers the docs workflow", async () => {
     const text = await readFile(
       join(import.meta.dir, "../../.github/workflows/docs.yml"),
       "utf8",
@@ -53,7 +53,7 @@ describe("publish manifest", () => {
     const doc = Bun.YAML.parse(text) as {
       on: { push: { paths: string[] } };
     };
-    const uncovered = publishFiles.filter(
+    const uncovered = [...publishFiles, ...publishDirs].filter(
       (file) => !doc.on.push.paths.some((pattern) => pathCovers(pattern, file)),
     );
     expect(uncovered).toEqual([]);
