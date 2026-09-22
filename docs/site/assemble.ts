@@ -21,41 +21,50 @@ export type DocsPage = {
   title: string;
   description: string;
   legacy?: boolean;
+  entry?: boolean;
 };
 
 // The only description of the page set: the publish list, the rendered HTML,
 // docs/index.html, and llms.txt are all derived from this.
 export const docsPages: DocsPage[] = [
   { file: "docs/getting-started.md", title: "Getting started", description: "first preview in one sitting." },
-  { file: "docs/adopting-a-repo.md", title: "Adopting a repo", description: "`.sprout.yaml` manifest reference and app entrypoints." },
+  { file: "docs/adopting-a-repo.md", title: "Adopting a repo", description: "sprout.yaml manifest reference and app entrypoints." },
   { file: "docs/ci-integration.md", title: "CI integration", description: "GitLab component, GitHub reusable workflow, variables, reset, notes." },
   { file: "docs/previews.md", title: "Previews", description: "lifecycle: database providers, seeding, services, mail." },
   { file: "docs/operator-deploy.md", title: "Operator deploy", description: "gateway compose stack, Traefik, env reference, admin token." },
-  { file: "docs/cli-reference.md", title: "CLI reference", description: "every `sprout` command, debugging, tokens." },
+  { file: "docs/cli-reference.md", title: "CLI reference", description: "every sprout command, debugging, tokens." },
   { file: "docs/troubleshooting.md", title: "Troubleshooting", description: "adopter and operator error catalogue." },
-  { file: "docs/onboarding-prompt.md", title: "Onboarding prompt", description: "copy-paste agent block (entry point for agents)." },
+  { file: "docs/onboarding-prompt.md", title: "Onboarding prompt", description: "copy-paste agent block (entry point for agents).", entry: true },
   { file: "docs/herdr-integration.md", title: "Herdr integration", description: "operator-side review automation." },
   { file: "docs/adoption.md", title: "Adoption guide", description: "thin map to the per-topic pages (legacy path).", legacy: true },
   { file: "docs/deploy.md", title: "Operator deploy guide", description: "thin map to the operator page (legacy path).", legacy: true },
 ];
 
-export function renderedHtmlPages(): Set<string> {
-  return new Set(docsPages.map((p) => p.file.replace(/\.md$/, ".html")));
+// The `.md → .html` mapping, derived once: source path, artifact path, and
+// the docs-relative href the index links with.
+export function pageHtmlFile(file: string): string {
+  return file.replace(/\.md$/, ".html");
 }
 
-// Rendered `.html` for humans; the `.md` twin stays the agent source.
-function descriptionHtml(description: string): string {
-  return escapeHtml(description).replace(
-    /`([^`]+)`/g,
-    (_, code: string) => `<code>${code}</code>`,
-  );
+export function pageIndexHref(page: DocsPage): string {
+  return pageHtmlFile(page.file).replace(/^docs\//, "");
+}
+
+function docsEntry(): DocsPage {
+  const entry = docsPages.find((p) => p.entry);
+  if (!entry) throw new Error("docsPages has no entry page");
+  return entry;
+}
+
+export function renderedHtmlPages(): Set<string> {
+  return new Set(docsPages.map((p) => pageHtmlFile(p.file)));
 }
 
 export function renderDocsIndexHtml(): string {
   const main = docsPages.filter((p) => !p.legacy);
   const legacy = docsPages.filter((p) => p.legacy);
   const item = (p: DocsPage) =>
-    `      <li><a href="${p.file.replace(/^docs\//, "").replace(/\.md$/, ".html")}">${escapeHtml(p.title)}</a> — ${descriptionHtml(p.description)}</li>`;
+    `      <li><a href="${pageIndexHref(p)}">${escapeHtml(p.title)}</a> — ${escapeHtml(p.description)}</li>`;
   return [
     "<!DOCTYPE html>",
     '<html lang="en">',
@@ -72,7 +81,7 @@ export function renderDocsIndexHtml(): string {
     "    <ul>",
     ...main.map(item),
     "    </ul>",
-    `    <p>Legacy entry points: ${legacy.map((p) => `<a href="${p.file.replace(/^docs\//, "").replace(/\.md$/, ".html")}">${escapeHtml(p.title)}</a>`).join(", ")} (thin maps to the pages above; old deep links still land).</p>`,
+    `    <p>Legacy entry points: ${legacy.map((p) => `<a href="${pageIndexHref(p)}">${escapeHtml(p.title)}</a>`).join(", ")} (thin maps to the pages above; old deep links still land).</p>`,
     "  </main>",
     "</body>",
     "</html>",
@@ -83,9 +92,7 @@ export function renderDocsIndexHtml(): string {
 // Machine-readable agent index; the checked-in root copy serves raw GitHub
 // fetches, the assembled copy serves Pages.
 export function renderLlmsTxt(): string {
-  const onboarding = docsPages.find(
-    (p) => p.file === "docs/onboarding-prompt.md",
-  )!;
+  const onboarding = docsEntry();
   const rest = docsPages.filter((p) => p !== onboarding);
   const lines = [onboarding, ...rest].map(
     (p) => `- [${p.title}](${SITE_ORIGIN}/${p.file}): ${p.description}`,
@@ -110,7 +117,7 @@ const copyOnlyFiles = [
   "deploy/postgres/ensure-preview-role.sh",
 ];
 
-export const generatedFiles = ["docs/index.html", "llms.txt"];
+const generatedFiles = ["docs/index.html", "llms.txt"];
 
 export const publishFiles = [
   ...copyOnlyFiles,
@@ -189,7 +196,7 @@ export async function assembleSite(
     await copyFile(join(repoRoot, file), dest);
     published.push(file);
     const markdown = await readFile(dest, "utf8");
-    const htmlFile = file.replace(/\.md$/, ".html");
+    const htmlFile = pageHtmlFile(file);
     const title = pageTitle(markdown, htmlFile);
     await writeFile(
       join(outDir, htmlFile),

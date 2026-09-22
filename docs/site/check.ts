@@ -2,45 +2,45 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { SITE_ORIGIN, assembleSite, listFilesRecursive, repoRootDir } from "./assemble.ts";
-import { extractHtmlIds, markdownToHtmlBody } from "./markdown.ts";
+import {
+  extractHtmlIds,
+  isExternalHref,
+  markdownToHtmlBody,
+  splitHref,
+} from "./markdown.ts";
 import { findAdrMention, isAdrHref, isAdrPath } from "./adr-policy.ts";
 
-export type CheckPaths = {
-  rootDir: string;
-  htmlFiles: string[];
-  markdownFiles: string[];
-  textFiles: string[];
-};
+export type CheckedFileKind = "html" | "markdown" | "text";
+export type CheckedFile = { path: string; kind: CheckedFileKind };
+export type CheckPaths = { rootDir: string; files: CheckedFile[] };
 
 export async function defaultCheckPaths(rootDir: string): Promise<CheckPaths> {
-  const htmlFiles: string[] = [];
-  const markdownFiles: string[] = [];
-  const textFiles: string[] = [];
-
+  const files: CheckedFile[] = [];
   for (const abs of await listFilesRecursive(rootDir)) {
-    if (abs.endsWith(".html")) htmlFiles.push(abs);
-    else if (abs.endsWith(".md")) markdownFiles.push(abs);
-    else if (abs.endsWith(".txt")) textFiles.push(abs);
+    if (abs.endsWith(".html")) files.push({ path: abs, kind: "html" });
+    else if (abs.endsWith(".md"))
+      files.push({ path: abs, kind: "markdown" });
+    else if (abs.endsWith(".txt")) files.push({ path: abs, kind: "text" });
   }
-
-  return { rootDir, htmlFiles, markdownFiles, textFiles };
+  return { rootDir, files };
 }
 
 // Pages serves a directory only via its own index.html, never a generated listing.
-async function siteTargetExists(path: string): Promise<boolean> {
+async function resolveSiteTarget(path: string): Promise<string | null> {
   try {
     const st = await stat(path);
-    if (st.isFile()) return true;
+    if (st.isFile()) return path;
     if (st.isDirectory()) {
+      const index = join(path, "index.html");
       try {
-        return (await stat(join(path, "index.html"))).isFile();
+        return (await stat(index)).isFile() ? index : null;
       } catch {
-        return false;
+        return null;
       }
     }
-    return false;
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -58,7 +58,8 @@ async function readCached(ctx: HrefContext, abs: string): Promise<string> {
 }
 
 // Heading ids of a link target, rendered through the same parser that ships
-// the HTML view so md fragments and html ids cannot disagree.
+// the HTML view (GitHub slugs in both), so md fragments and html ids share
+// one namespace instead of the gate validating the renderer against itself.
 async function targetIds(abs: string, ctx: HrefContext): Promise<Set<string> | null> {
   if (abs.endsWith(".html")) {
     return new Set(extractHtmlIds(await readCached(ctx, abs)));
@@ -75,68 +76,24 @@ async function assertHref(
   ctx: HrefContext,
 ): Promise<void> {
   // Absolute index links resolve against the checked tree, not the network.
-  if (href.startsWith(`${SITE_ORIGIN}/`)) {
-    const after = href.slice(SITE_ORIGIN.length + 1);
-    const end = Math.min(
-      ...["#", "?"].map((c) => {
-        const i = after.indexOf(c);
-        return i === -1 ? after.length : i;
-      }),
+  const absolute = href.startsWith(`${SITE_ORIGIN}/`);
+  const raw = absolute ? href.slice(SITE_ORIGIN.length + 1) : href;
+  const baseDir = absolute ? ctx.rootDir : dirname(fromFile);
+  if (isExternalHref(raw)) return;
+  const { path, fragment } = splitHref(raw);
+  const resolved = path
+    ? await resolveSiteTarget(resolve(baseDir, path))
+    : fromFile;
+  if (resolved === null) {
+    throw new Error(
+      `dead link in ${fromFile}: ${href} → ${resolve(baseDir, path)}`,
     );
-    const resolved = resolve(ctx.rootDir, after.slice(0, end));
-    if (!(await siteTargetExists(resolved))) {
-      throw new Error(`dead link in ${fromFile}: ${href} → ${resolved}`);
-    }
-    const hash = after.indexOf("#");
-    const fragment = hash === -1 ? null : after.slice(hash + 1);
-    if (fragment !== null && fragment !== "") {
-      const ids = await targetIds(resolved, ctx);
-      if (ids && !ids.has(fragment)) {
-        throw new Error(
-          `dead fragment in ${fromFile}: ${href} → #${fragment} missing in ${resolved}`,
-        );
-      }
-    }
-    return;
   }
-
-  if (
-    href.startsWith("//") ||
-    href.startsWith("http://") ||
-    href.startsWith("https://") ||
-    href.startsWith("mailto:")
-  ) {
-    return;
-  }
-
-  const hash = href.indexOf("#");
-  const query = href.indexOf("?");
-  const end = Math.min(
-    hash === -1 ? href.length : hash,
-    query === -1 ? href.length : query,
-  );
-  const pathPart = href.slice(0, end);
-  const fragment = hash === -1 ? null : href.slice(hash + 1);
-
-  const resolved = !pathPart ? fromFile : resolve(dirname(fromFile), pathPart);
-  let target = resolved;
-  if (pathPart) {
-    try {
-      const st = await stat(resolved);
-      if (st.isDirectory()) target = join(resolved, "index.html");
-    } catch {
-      throw new Error(`dead link in ${fromFile}: ${href} → ${resolved}`);
-    }
-    if (!(await siteTargetExists(target))) {
-      throw new Error(`dead link in ${fromFile}: ${href} → ${resolved}`);
-    }
-  }
-
   if (fragment !== null && fragment !== "") {
-    const ids = await targetIds(target, ctx);
+    const ids = await targetIds(resolved, ctx);
     if (ids && !ids.has(fragment)) {
       throw new Error(
-        `dead fragment in ${fromFile}: ${href} → #${fragment} missing in ${target}`,
+        `dead fragment in ${fromFile}: ${href} → #${fragment} missing in ${resolved}`,
       );
     }
   }
@@ -162,23 +119,36 @@ export function extractMarkdownDestinations(text: string): string[] {
   return targets;
 }
 
+// Bare same-site URLs (the onboarding prompt lists them as plain text, not
+// links) are gated too. Only the site origin qualifies: placeholders and
+// external hosts stay out, exactly like the link gate itself.
+export function extractBareSiteUrls(text: string): string[] {
+  const targets: string[] = [];
+  const re = new RegExp(
+    `${SITE_ORIGIN.replace(/\./g, "\\.")}[^\\s)"'\\]]*`,
+    "g",
+  );
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    targets.push(match[0]!.replace(/[.,;:!?]+$/, ""));
+  }
+  return targets;
+}
+
+export function extractHrefs(text: string, kind: CheckedFileKind): string[] {
+  if (kind === "html") return extractHtmlHrefs(text);
+  return [...extractMarkdownDestinations(text), ...extractBareSiteUrls(text)];
+}
+
 export type LoadedPage = { file: string; text: string; hrefs: string[] };
 
 async function loadPages(paths: CheckPaths): Promise<LoadedPage[]> {
-  return Promise.all([
-    ...paths.htmlFiles.map(async (file) => {
-      const text = await readFile(file, "utf8");
-      return { file, text, hrefs: extractHtmlHrefs(text) };
+  return Promise.all(
+    paths.files.map(async ({ path, kind }) => {
+      const text = await readFile(path, "utf8");
+      return { file: path, text, hrefs: extractHrefs(text, kind) };
     }),
-    ...paths.markdownFiles.map(async (file) => {
-      const text = await readFile(file, "utf8");
-      return { file, text, hrefs: extractMarkdownDestinations(text) };
-    }),
-    ...paths.textFiles.map(async (file) => {
-      const text = await readFile(file, "utf8");
-      return { file, text, hrefs: extractMarkdownDestinations(text) };
-    }),
-  ]);
+  );
 }
 
 async function collectAdrLeaks(
@@ -243,11 +213,7 @@ export async function check(paths: CheckPaths): Promise<void> {
     throw new Error(`dead links:\n${failures.join("\n")}`);
   }
 
-  const relative = [
-    ...paths.htmlFiles.map((p) => p.slice(paths.rootDir.length + 1)),
-    ...paths.markdownFiles.map((p) => p.slice(paths.rootDir.length + 1)),
-    ...paths.textFiles.map((p) => p.slice(paths.rootDir.length + 1)),
-  ];
+  const relative = paths.files.map((f) => f.path.slice(paths.rootDir.length + 1));
   console.log(`docs links OK (${relative.join(" + ")})`);
 }
 

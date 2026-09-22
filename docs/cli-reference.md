@@ -43,7 +43,7 @@ auth so outside-pipeline errors win over missing-token.
 | | `--seed-env KEY=VALUE` (repeat) | One-off seed env. |
 | | `--seed-env-file PATH` (repeat) | Explicit dotenv file(s) for the seed, on top of `SPROUT_SEED_ENV`. |
 | | `--seed-arg ARG` (repeat) | Extra seed container args (appended after yaml `seed.args`; values may start with `-`). |
-| | `--service name=image` (repeat) | Create/refresh companion services (see [Previews](previews.md#multi-image-previews-app-services)). |
+| | `--service name=image` (repeat) | Create/refresh companion services (see [Previews](previews.md#multi-image-previews-app--services)). |
 | | `--clear-services` | Remove all companions (`services: []` on the API). Cannot combine with `--service`. |
 | | `--tail N` | Gateway log lines printed when the deploy fails (default `200`; must be a positive integer, checked before building). |
 | | `--dotenv-file PATH` | Dotenv artifact the CLI writes `PREVIEW_URL=` to (default `sprout-preview.env`, relative to the workspace root). Emitted only once the preview is healthy. |

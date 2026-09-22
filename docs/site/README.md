@@ -16,14 +16,16 @@ is the machine-readable index (onboarding prompt = entry point).
 ## Render
 
 `docs/site/assemble.ts` renders each page markdown → HTML at assemble time
-via `docs/site/markdown.ts` (the runtime's built-in GFM renderer, heading
-`id`s on), so both `.md` (agents, plain GET) and `.html` (humans) ship from
-one source. Intra-page `.md` links rewrite to their `.html` twins
-(fragments preserved); links to files with no HTML twin (examples,
-templates, env samples) stay `.md`. Every new page joins `docsPages` there —
-the publish list, the rendered HTML, `docs/index.html`, and `llms.txt` are
-all generated from that one manifest, and tests assert the checked-in
-`docs/index.html` / `llms.txt` match the generators byte for byte.
+via `docs/site/markdown.ts` (the runtime's built-in GFM renderer, with
+heading `id`s retitled to the GitHub anchor dialect the in-corpus
+`#fragment`s already assume), so both `.md` (agents, plain GET) and `.html`
+(humans) ship from one source. Intra-page `.md` links rewrite to their
+`.html` twins (fragments preserved); links to files with no HTML twin
+(examples, templates, env samples) stay `.md`. Every new page joins
+`docsPages` there — the publish list, the rendered HTML, `docs/index.html`,
+and `llms.txt` are all generated from that one manifest, and tests assert
+the checked-in `llms.txt` matches the generator byte for byte
+(`docs/index.html` lives only in the assembled artifact).
 
 ## Preview
 
@@ -51,9 +53,10 @@ bun run docs:check
 and checks every HTML/markdown/text page found there with static-host semantics
 — a target must be a file (or a directory carrying its own `index.html`;
 Pages never serves generated listings), and every `#fragment` must resolve
-to a heading `id` in its target (same parser as the render, so the two
-cannot disagree). Absolute `llms.txt` links resolve against the checked
-tree via the shared `SITE_ORIGIN`. Check roots are discovered by
+to a GitHub-slug heading `id` in its target (the renderer emits the same
+slugs, so the two share one namespace). Absolute `llms.txt` links and bare
+same-site URLs (the onboarding prompt lists them as plain text) resolve
+against the checked tree via the shared `SITE_ORIGIN`. Check roots are discovered by
 walking the artifact, so a newly published page is always gated. Green
 `docs:check` therefore means the Pages URLs resolve, including
 `docs/adoption.md`. `bun run docs/site/check.ts <dir>` checks

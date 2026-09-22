@@ -34,7 +34,7 @@ Moved to [Operator deploy](operator-deploy.md#one-click-coolify-docker-compose-e
 
 ## Production-shaped deploy (external / Coolify Traefik)
 
-Moved to [Operator deploy](operator-deploy.md#production-shaped-deploy-external-coolify-traefik).
+Moved to [Operator deploy](operator-deploy.md#production-shaped-deploy-external--coolify-traefik).
 
 ### Wildcard preview certificate (DNS-01)
 
@@ -42,7 +42,7 @@ Moved to [Operator deploy](operator-deploy.md#wildcard-preview-certificate-dns-0
 
 #### Prerequisites (secrets / access — not in this repo)
 
-Moved to [Operator deploy](operator-deploy.md#prerequisites-secrets-access-not-in-this-repo).
+Moved to [Operator deploy](operator-deploy.md#prerequisites-secrets--access--not-in-this-repo).
 
 #### Choose a path
 
@@ -79,7 +79,7 @@ Moved to [Operator deploy](operator-deploy.md#compose-project-composeenv).
 
 ### Optional gateway tuning (host `.env` / non-compose)
 
-Moved to [Operator deploy](operator-deploy.md#optional-gateway-tuning-host-env-non-compose).
+Moved to [Operator deploy](operator-deploy.md#optional-gateway-tuning-host-env--non-compose).
 
 ## Postgres preview role
 
@@ -96,7 +96,7 @@ Moved to [Operator deploy](operator-deploy.md#worktree-db-local-provisioner)
 
 ## Upgrade / redeploy
 
-Moved to [Operator deploy](operator-deploy.md#upgrade-redeploy).
+Moved to [Operator deploy](operator-deploy.md#upgrade--redeploy).
 
 ## Teardown
 

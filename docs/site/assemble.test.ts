@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   assembleSite,
   docsPages,
+  pageHtmlFile,
   publishDirs,
   publishFiles,
   renderDocsIndexHtml,
@@ -15,8 +16,11 @@ import {
 } from "./assemble.ts";
 import { check, checkPublishedSite, defaultCheckPaths } from "./check.ts";
 import {
+  isExternalHref,
   markdownToHtmlBody,
   renderMarkdownPage,
+  slugHeading,
+  splitHref,
 } from "./markdown.ts";
 import { isAdrPath } from "./adr-policy.ts";
 import { writeCorpusFixture } from "./test-fixture.ts";
@@ -52,16 +56,14 @@ describe("publish manifest", () => {
   });
 
   test("uses every title and description (no dead model fields)", () => {
-    const indexText = renderDocsIndexHtml()
-      .replace(/<[^>]+>/g, "")
-      .replace(/`/g, "");
+    const indexText = renderDocsIndexHtml().replace(/<[^>]+>/g, "");
     const llms = renderLlmsTxt();
     for (const page of docsPages) {
       expect(indexText).toContain(page.title);
       expect(llms).toContain(page.title);
       expect(llms).toContain(page.description);
       if (!page.legacy) {
-        expect(indexText).toContain(page.description.replace(/`/g, ""));
+        expect(indexText).toContain(page.description);
       }
     }
   });
@@ -132,7 +134,7 @@ describe("assembleSite", () => {
     );
 
     const paths = await defaultCheckPaths(out);
-    expect(paths.htmlFiles).toContain(join(out, "index.html"));
+    expect(paths.files.map((f) => f.path)).toContain(join(out, "index.html"));
     await check(paths);
   });
 
@@ -159,7 +161,7 @@ describe("assembleSite", () => {
     const published = await assembleSite(repo, out);
 
     for (const { file } of docsPages) {
-      const htmlFile = file.replace(/\.md$/, ".html");
+      const htmlFile = pageHtmlFile(file);
       expect(published).toContain(file);
       expect(published).toContain(htmlFile);
       expect((await stat(join(out, htmlFile))).isFile()).toBe(true);
@@ -212,10 +214,11 @@ describe("assembleSite", () => {
     const onDisk = await defaultCheckPaths(out);
     const rel = (abs: string) => abs.slice(out.length + 1);
     expect(
-      new Set([
-        ...onDisk.htmlFiles.map(rel),
-        ...onDisk.markdownFiles.map(rel),
-      ]),
+      new Set(
+        onDisk.files
+          .filter((f) => f.kind === "html" || f.kind === "markdown")
+          .map((f) => rel(f.path)),
+      ),
     ).toEqual(new Set(published.filter((p) => p.endsWith(".html") || p.endsWith(".md"))));
   });
 });
@@ -224,12 +227,6 @@ describe("real corpus", () => {
   test("checked-in llms.txt matches the generated index", async () => {
     expect(await readFile(join(repoRootDir, "llms.txt"), "utf8")).toBe(
       renderLlmsTxt(),
-    );
-  });
-
-  test("checked-in docs/index.html matches the generated page", async () => {
-    expect(await readFile(join(repoRootDir, "docs/index.html"), "utf8")).toBe(
-      renderDocsIndexHtml(),
     );
   });
 
@@ -254,4 +251,19 @@ describe("real corpus", () => {
   test("assembled real site passes the full gate", async () => {
     await checkPublishedSite();
   }, 30_000);
+
+  test("html view keeps the GitHub double-hyphen anchors", async () => {
+    const deploy = await readFile(
+      join(repoRootDir, "docs/operator-deploy.md"),
+      "utf8",
+    );
+    expect(markdownToHtmlBody(deploy)).toContain('id="upgrade--redeploy"');
+    const previews = await readFile(
+      join(repoRootDir, "docs/previews.md"),
+      "utf8",
+    );
+    expect(markdownToHtmlBody(previews)).toContain(
+      'id="multi-image-previews-app--services"',
+    );
+  });
 });

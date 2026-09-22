@@ -13,7 +13,7 @@ Moved to [Getting started](getting-started.md) and
 
 ### Component → CLI ownership
 
-Moved to [CI integration](ci-integration.md#component-cli-ownership).
+Moved to [CI integration](ci-integration.md#component--cli-ownership).
 
 ## Reference
 
@@ -117,7 +117,7 @@ Moved to [Adopting a repo](adopting-a-repo.md#shell-entrypoint-any-runtime).
 
 ### Bun / Node one-liner variant
 
-Moved to [Adopting a repo](adopting-a-repo.md#bun-node-one-liner-variant).
+Moved to [Adopting a repo](adopting-a-repo.md#bun--node-one-liner-variant).
 
 ## After-healthy hook (seed image)
 
@@ -125,7 +125,7 @@ Moved to [Previews](previews.md#after-healthy-hook-seed-image).
 
 ## Multi-image previews (app + services)
 
-Moved to [Previews](previews.md#multi-image-previews-app-services).
+Moved to [Previews](previews.md#multi-image-previews-app--services).
 
 ### Routing (optional)
 
