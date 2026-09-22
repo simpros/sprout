@@ -154,6 +154,7 @@ async function syncPreviewServices(
       appHostname: input.hostname,
       services: input.services,
       plan: input.plan,
+      ...(input.labels !== undefined ? { previewLabels: input.labels } : {}),
     });
     return { ok: true, value: true };
   } catch {
@@ -242,6 +243,7 @@ async function attachAppContainer(
       image: input.appImage,
       appEnv: input.appEnv,
       plan: input.plan,
+      ...(input.labels !== undefined ? { labels: input.labels } : {}),
     }));
   } catch {
     await markPreviewFailed(

@@ -477,6 +477,73 @@ describe("POST /v1/deploy services", () => {
     expect(row?.seededAt).not.toBeNull();
   });
 
+  test("preview labels land on every container; service labels stay local", async () => {
+    const SVC = "ghcr.io/org/api:sha";
+    const WORKER = "ghcr.io/org/worker:sha";
+    const { deployToken } = await setup({
+      exposedPorts: { [APP_IMAGE]: 3000, [SVC]: 4000, [WORKER]: 5000 },
+    });
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        labels: { "com.example.backup": "true" },
+        services: [
+          {
+            name: "api",
+            image: SVC,
+            hostname: "api-pr-42.myapp.preview.example.com",
+            labels: {
+              "traefik.http.routers.api-pr.middlewares": "my-sso@file",
+            },
+          },
+          { name: "worker", image: WORKER },
+        ],
+      }),
+    );
+    expect(res.settleStatus).toBe(200);
+    const app = fakeDocker!.creates.find(
+      (c) => c.name === "sprout-myapp-pr-42",
+    )!;
+    expect(app.labels).toMatchObject({ "com.example.backup": "true" });
+    const api = fakeDocker!.creates.find((c) => c.name.endsWith("-svc-api"))!;
+    expect(api.labels).toMatchObject({
+      "traefik.enable": "true",
+      "com.example.backup": "true",
+      "traefik.http.routers.api-pr.middlewares": "my-sso@file",
+    });
+    const worker = fakeDocker!.creates.find((c) =>
+      c.name.endsWith("-svc-worker"),
+    )!;
+    expect(worker.labels).toEqual({ "com.example.backup": "true" });
+  });
+
+  test("rejects reserved service labels before SQL", async () => {
+    const SVC = "ghcr.io/org/api:sha";
+    const { deployToken } = await setup({
+      exposedPorts: { [APP_IMAGE]: 3000, [SVC]: 4000 },
+    });
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        services: [
+          {
+            name: "api",
+            image: SVC,
+            hostname: "api-pr-42.myapp.preview.example.com",
+            labels: { "traefik.enable": "false" },
+          },
+        ],
+      }),
+    );
+    expect(res.settleStatus).toBe(422);
+    expect(res.body).toEqual({
+      error: "reserved_preview_label",
+      detail:
+        "preview.services[0].labels.traefik.enable collides with a gateway label",
+    });
+    expect(fakePreviewDb!.created).toEqual([]);
+  });
+
   test("seed runs before companion services on first deploy", async () => {
     const SVC = "ghcr.io/org/api:sha";
     const SEED = "ghcr.io/org/seed:sha";

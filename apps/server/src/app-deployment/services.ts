@@ -1,4 +1,4 @@
-import type { PreviewServiceSpec } from "@sprout/preview-env";
+import type { PreviewLabels, PreviewServiceSpec } from "@sprout/preview-env";
 import type { TraefikForwardAuth, TraefikTls } from "./labels.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewServiceContainerName } from "../preview/naming.ts";
@@ -23,6 +23,7 @@ export type ReplacePreviewServicesInput = {
   appHostname: string;
   services: PreviewServiceSpec[];
   plan: PreviewDbPlan;
+  previewLabels?: PreviewLabels;
 };
 
 function toEnvList(env: Record<string, string> | undefined): string[] {
@@ -37,7 +38,7 @@ export async function replacePreviewServices(
 
   try {
     await Promise.all(
-      input.services.map(async (service) => {
+      input.services.map(async (service, index) => {
         const name = previewServiceContainerName(
           input.slug,
           input.prId,
@@ -63,6 +64,10 @@ export async function replacePreviewServices(
           networkNames: input.plan.appNetworks,
           previewPortDefault: deps.previewPortDefault,
           portOverride: service.port,
+          ...(input.previewLabels !== undefined
+            ? { previewLabels: input.previewLabels }
+            : {}),
+          service: { labels: service.labels, index },
         });
       }),
     );

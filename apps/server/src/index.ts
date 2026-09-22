@@ -65,6 +65,10 @@ const materialization: PreviewMaterializationCtx = {
   ...(mail
     ? { mail }
     : {}),
+  ...(config.traefikTls ? { traefikTls: config.traefikTls } : {}),
+  ...(config.traefikForwardAuth
+    ? { traefikForwardAuth: config.traefikForwardAuth }
+    : {}),
 };
 
 const app = bindPreviewOps({

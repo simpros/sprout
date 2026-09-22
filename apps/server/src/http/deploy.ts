@@ -5,6 +5,7 @@ import {
   mailSpecIssueMessage,
   normalizeDbSpec,
   parseDbSpec,
+  parseLabelMap,
   parseMailSpec,
   parsePreviewEnvForProvider,
   parseServiceEnvMap,
@@ -14,14 +15,21 @@ import {
   validateHostname,
   type DbSpec,
   type HealthRequest,
+  type LabelMapIssue,
   type MailSpec,
   type PreviewEnvMap,
+  type PreviewLabels,
   type PreviewServiceSpec,
 } from "@sprout/preview-env";
 import { t } from "elysia";
 import { parseResetMarkerToken } from "@sprout/preview-db";
 import type { AuthContext } from "../auth/middleware.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
+import {
+  mergePreviewLabels,
+  isReservedPreviewLabel,
+  traefikLabels,
+} from "../app-deployment/labels.ts";
 import {
   mailNotConfiguredDetail,
   postgresNotConfiguredDetail,
@@ -45,6 +53,10 @@ import {
   validatePreviewIdentity,
   validateServiceName,
 } from "../preview-db/names.ts";
+import {
+  previewContainerName,
+  previewServiceContainerName,
+} from "../preview/naming.ts";
 import { mapResult, requirePreviewTarget, requireReadablePreviewRow } from "./result-map.ts";
 
 const healthBody = t.Object({
@@ -61,6 +73,7 @@ const serviceBody = t.Object({
   path: t.Optional(t.String({ minLength: 1 })),
   port: t.Optional(t.Integer({ minimum: 1, maximum: 65535 })),
   env: t.Optional(t.Record(t.String(), t.String())),
+  labels: t.Optional(t.Record(t.String(), t.String())),
 });
 
 const MAX_SEED_ENV = 16;
@@ -97,6 +110,7 @@ export const deployBody = t.Object({
   seed_arg: t.Optional(t.Array(t.String())),
   app_env: t.Optional(t.Array(t.String())),
   services: t.Optional(t.Array(serviceBody)),
+  labels: t.Optional(t.Record(t.String(), t.String())),
   reseed: t.Optional(t.Boolean()),
 });
 
@@ -131,6 +145,7 @@ export type DeployBody = {
   seed_arg?: string[];
   app_env?: string[];
   services?: PreviewServiceSpec[];
+  labels?: PreviewLabels;
   reseed?: boolean;
 };
 
@@ -302,7 +317,7 @@ export function resolveServicesRequest(
   body: Pick<DeployBody, "services">,
 ):
   | { ok: true; value: PreviewServiceSpec[] | undefined }
-  | { ok: false; error: string } {
+  | { ok: false; error: string; detail?: string } {
   if (body.services === undefined) {
     return { ok: true, value: undefined };
   }
@@ -312,7 +327,8 @@ export function resolveServicesRequest(
   }
   const seen = new Set<string>();
   const out: PreviewServiceSpec[] = [];
-  for (const entry of raw) {
+  for (let index = 0; index < raw.length; index++) {
+    const entry = raw[index]!;
     const name = entry.name.trim();
     const image = entry.image.trim();
     if (!name || !image) {
@@ -349,9 +365,114 @@ export function resolveServicesRequest(
       return { ok: false, error: "invalid_service_env" };
     }
     if (parsedEnv.value !== undefined) spec.env = parsedEnv.value;
+    const parsedLabels = parseLabelMap(entry.labels);
+    if (!parsedLabels.ok) {
+      return {
+        ok: false,
+        error: "invalid_service_labels",
+        detail: labelIssueMessage(
+          `preview.services[${index}].labels`,
+          parsedLabels.issue,
+        ),
+      };
+    }
+    if (parsedLabels.value !== undefined) spec.labels = parsedLabels.value;
     out.push(spec);
   }
   return { ok: true, value: out };
+}
+
+function labelIssueMessage(path: string, issue: LabelMapIssue): string {
+  switch (issue.code) {
+    case "not_a_mapping":
+      return `${path} must be a mapping`;
+    case "empty_key":
+      return `${path} key is required`;
+    case "invalid_key":
+      return `${path}.${issue.key} is invalid`;
+    case "invalid_value":
+      return `${path}.${issue.key} must be a string`;
+    case "empty_value":
+      return `${path}.${issue.key} is required`;
+  }
+}
+
+export function resolvePreviewLabelsRequest(
+  body: Pick<DeployBody, "labels">,
+):
+  | { ok: true; value: PreviewLabels | undefined }
+  | { ok: false; error: string; detail?: string } {
+  if (body.labels === undefined) {
+    return { ok: true, value: undefined };
+  }
+  const parsed = parseLabelMap(body.labels);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      error: "invalid_labels",
+      detail: labelIssueMessage("preview.labels", parsed.issue),
+    };
+  }
+  return { ok: true, value: parsed.value };
+}
+
+/**
+ * Fail fast when an adopter label would silently override a gateway-owned
+ * Traefik label. The reserved set is derived from the same traefikLabels
+ * emission the containers get (port value never affects keys, so a dummy
+ * port suffices); internal services emit no gateway labels.
+ */
+export function resolveLabelCollisions(input: {
+  slug: string;
+  prId: number;
+  hostname: string;
+  labels: PreviewLabels | undefined;
+  services: PreviewServiceSpec[] | undefined;
+  materialization: PreviewMaterializationCtx;
+}): { ok: true } | { ok: false; error: string; detail?: string } {
+  try {
+    mergePreviewLabels(
+      traefikLabels({
+        routerName: previewContainerName(input.slug, input.prId),
+        hostname: input.hostname,
+        port: 0,
+        tls: input.materialization.traefikTls,
+        forwardAuth: input.materialization.traefikForwardAuth,
+      }),
+      input.labels,
+    );
+    (input.services ?? []).forEach((service, index) => {
+      const routed = service.hostname != null || service.path != null;
+      const gateway = routed
+        ? traefikLabels({
+            routerName: previewServiceContainerName(
+              input.slug,
+              input.prId,
+              service.name,
+            ),
+            hostname: service.hostname ?? input.hostname,
+            port: 0,
+            pathPrefix: service.path,
+            tls: input.materialization.traefikTls,
+            forwardAuth: input.materialization.traefikForwardAuth,
+          })
+        : {};
+      mergePreviewLabels(gateway, input.labels, {
+        labels: service.labels,
+        index,
+      });
+    });
+  } catch (err) {
+    if (isReservedPreviewLabel(err)) {
+      return {
+        ok: false,
+        error: "reserved_preview_label",
+        detail: err.message,
+      };
+    }
+    throw err;
+  }
+  return { ok: true };
 }
 
 export type TeardownBody = {
@@ -429,7 +550,30 @@ export function deploy(
     const services = resolveServicesRequest(body);
     if (!services.ok) {
       set.status = 422;
-      return { error: services.error };
+      return services.detail != null
+        ? { error: services.error, detail: services.detail }
+        : { error: services.error };
+    }
+    const labels = resolvePreviewLabelsRequest(body);
+    if (!labels.ok) {
+      set.status = 422;
+      return labels.detail != null
+        ? { error: labels.error, detail: labels.detail }
+        : { error: labels.error };
+    }
+    const collisions = resolveLabelCollisions({
+      slug: body.slug,
+      prId: target.value.prId,
+      hostname,
+      labels: labels.value,
+      services: services.value,
+      materialization: deps.materialization,
+    });
+    if (!collisions.ok) {
+      set.status = 422;
+      return collisions.detail != null
+        ? { error: collisions.error, detail: collisions.detail }
+        : { error: collisions.error };
     }
     const health = resolveHealthSpec(body.health);
     if (!health.ok) {
@@ -447,6 +591,7 @@ export function deploy(
       seed: seed.value,
       appEnv: appEnv.value,
       services: services.value,
+      ...(labels.value !== undefined ? { labels: labels.value } : {}),
       plan,
       reseed: body.reseed === true,
     };

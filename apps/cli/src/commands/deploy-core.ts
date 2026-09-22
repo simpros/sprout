@@ -23,6 +23,7 @@ import type {
   DbSpec,
   ManifestEnvValue,
   PreviewEnvMap,
+  PreviewLabels,
   SproutYaml,
 } from "../yaml.ts";
 import type { MailSpec } from "../yaml.ts";
@@ -44,6 +45,7 @@ export type DeployRequest = {
   seed_arg?: string[];
   app_env?: string[];
   services?: DeployService[];
+  labels?: PreviewLabels;
   env?: PreviewEnvMap;
   db?: DbSpec;
   mail?: MailSpec;
@@ -306,6 +308,7 @@ export function buildDeployRequest(
   if (seed.seed_arg) body.seed_arg = seed.seed_arg;
   if (inputs.reseed) body.reseed = true;
   if (yaml.preview.env) body.env = yaml.preview.env;
+  if (yaml.preview.labels) body.labels = { ...yaml.preview.labels };
   if (yaml.db) body.db = yaml.db;
   if (yaml.mail) body.mail = { ...yaml.mail };
 

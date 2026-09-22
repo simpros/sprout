@@ -40,6 +40,14 @@ const deps = (docker: ReturnType<typeof createFakeDockerClient>) => ({
 });
 
 describe("runSeedImage", () => {
+  test("creates the one-shot seed container with empty labels", async () => {
+    const docker = createFakeDockerClient();
+    const result = await runSeedImage(deps(docker), input());
+    expect(result).toEqual({ ok: true });
+    expect(docker.creates).toHaveLength(1);
+    expect(docker.creates[0]!.labels).toEqual({});
+  });
+
   test("captures logs before remove on non-zero exit", async () => {
     const docker = createFakeDockerClient({
       waitResults: { "sprout-app-pr-1-seed": { exitCode: 7 } },

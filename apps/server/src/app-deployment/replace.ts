@@ -3,6 +3,7 @@ import type { PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
 import type { PreviewDbPlan } from "../preview/runtime.ts";
 import { materializePreviewWorkload } from "./preview-containers.ts";
+import type { PreviewLabels } from "@sprout/preview-env";
 
 export type ReplacePreviewAppDeps = {
   docker: PreviewDocker;
@@ -18,6 +19,7 @@ export type ReplacePreviewAppInput = {
   image: string;
   appEnv: string[];
   plan: PreviewDbPlan;
+  labels?: PreviewLabels;
 };
 
 export async function replacePreviewApp(
@@ -40,5 +42,6 @@ export async function replacePreviewApp(
     volumes: input.plan.volumes,
     networkNames: input.plan.appNetworks,
     previewPortDefault: deps.previewPortDefault,
+    ...(input.labels !== undefined ? { previewLabels: input.labels } : {}),
   });
 }

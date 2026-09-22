@@ -221,6 +221,15 @@ router attachment on preview containers (no Traefik file/static config).
 Both env vars must be set together (or both empty); setting only one fails at
 gateway boot. `SPROUT_TRAEFIK_MIDDLEWARES` is one name (commas rejected).
 
+Per-repo alternative: adopting repos can attach their own previews to
+Traefik routers or middlewares defined outside the gateway with
+`preview.labels` / `preview.services[].labels` in `.sprout.yaml` (see the
+adoption guide, [Preview labels](adoption.md#preview-labels-adopter-supplied-container-labels)).
+The gateway-wide knobs above change every preview on the gateway; the
+manifest keys change one repo's previews. Gateway-emitted keys stay
+reserved — a manifest key colliding with one fails the deploy fast instead
+of silently overriding routing.
+
 **VoidAuth / SSO setup:** add the preview domain (e.g. `*.internal.example.com`)
 in the VoidAuth UI, then point `SPROUT_FORWARDAUTH_ADDRESS` at the forward-auth
 endpoint (e.g. `https://auth.example.com/api/authz/forward-auth`). That URL

@@ -125,6 +125,15 @@ export async function createTestApp(
         }
       : {}),
     ...(mail ? { mail } : {}),
+    // Traefik policy lives on both seams: ops materialize it into labels,
+    // the deploy route derives the reserved set from it for fail-fast
+    // collision checks. Tests configure it via replaceDeps.
+    ...(opts.replaceDeps?.traefikTls
+      ? { traefikTls: opts.replaceDeps.traefikTls }
+      : {}),
+    ...(opts.replaceDeps?.traefikForwardAuth
+      ? { traefikForwardAuth: opts.replaceDeps.traefikForwardAuth }
+      : {}),
   };
   return {
     app: createRoutes({

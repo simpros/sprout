@@ -1,4 +1,4 @@
-import type { HealthSpec } from "@sprout/preview-env";
+import type { HealthSpec, PreviewLabels } from "@sprout/preview-env";
 import type {
   PreviewAppOps,
   PreviewServiceSpec,
@@ -53,6 +53,7 @@ export type ProvisionInput = {
   seed?: SeedImageSpec;
   appEnv: string[];
   services?: PreviewServiceSpec[];
+  labels?: PreviewLabels;
   plan: PreviewDbPlan;
   reseed?: boolean;
 };

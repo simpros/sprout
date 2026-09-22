@@ -67,4 +67,28 @@ describe("mergeServices", () => {
       error: "at most 8 services",
     });
   });
+
+  test("carries yaml labels through the merge", () => {
+    expect(
+      mergeServices(
+        [
+          {
+            name: "api",
+            image: "api:1",
+            labels: { "com.example.backup": "true" },
+          },
+        ],
+        [],
+      ),
+    ).toEqual({
+      ok: true,
+      value: [
+        {
+          name: "api",
+          image: "api:1",
+          labels: { "com.example.backup": "true" },
+        },
+      ],
+    });
+  });
 });

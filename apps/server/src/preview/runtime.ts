@@ -7,6 +7,10 @@ import {
   type MailSpec,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
+import type {
+  TraefikForwardAuth,
+  TraefikTls,
+} from "../app-deployment/labels.ts";
 import { mailConnectionEnv } from "../app-deployment/mail-env.ts";
 import type { MailConfig } from "../config.ts";
 import { pgConnectionEnv, type AppDeployPg } from "../app-deployment/pg-env.ts";
@@ -25,6 +29,8 @@ export type PreviewMaterializationCtx = {
     network: string;
   };
   mail?: MailConfig;
+  traefikTls?: TraefikTls;
+  traefikForwardAuth?: TraefikForwardAuth;
 };
 
 /**
