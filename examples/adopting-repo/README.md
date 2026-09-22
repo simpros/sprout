@@ -14,4 +14,4 @@ paths, and migrate/seed commands for your stack.
 | `docker-entrypoint.sh` | Wait for DB → migrate → exec app |
 | `docker-seed-entrypoint.sh` | Seed container entrypoint (`bun run seed`) |
 
-See [docs/adoption.md](../../docs/adoption.md) for the full guide.
+See [CI integration](../../docs/ci-integration.md) for the full guide.

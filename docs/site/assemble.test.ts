@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assembleSite,
+  docsPages,
+  markdownToHtmlBody,
   publishDirs,
   publishFiles,
+  renderMarkdownPage,
   rootRedirectHtml,
   siteEntryPath,
 } from "./assemble.ts";
@@ -27,6 +30,29 @@ describe("publish manifest", () => {
     expect(publishFiles).toContain("docs/herdr-integration.md");
     expect(publishDirs).toContain("templates");
     expect(publishDirs).toContain("examples/adopting-repo");
+  });
+
+  test("includes the agent-first page set, the docs index, and llms.txt", () => {
+    for (const page of [
+      "docs/getting-started.md",
+      "docs/adopting-a-repo.md",
+      "docs/ci-integration.md",
+      "docs/operator-deploy.md",
+      "docs/previews.md",
+      "docs/cli-reference.md",
+      "docs/troubleshooting.md",
+      "docs/onboarding-prompt.md",
+      "docs/herdr-integration.md",
+      "docs/adoption.md",
+      "docs/deploy.md",
+      "docs/index.html",
+      "llms.txt",
+    ]) {
+      expect(publishFiles).toContain(page);
+    }
+    for (const { file } of docsPages) {
+      expect(publishFiles).toContain(file);
+    }
   });
 
   test("keeps ADRs out of the consumer surface", () => {
@@ -97,6 +123,34 @@ describe("assembleSite", () => {
     const paths = await defaultCheckPaths(out);
     expect(paths.htmlFiles).toContain(join(out, "index.html"));
     await check(paths);
+  });
+
+  test("renders each docs page to HTML from the same markdown source", async () => {
+    expect(markdownToHtmlBody("# Hi\n\nSee [other](other.md).\n")).toContain(
+      '<a href="other.md">other</a>',
+    );
+    expect(
+      renderMarkdownPage("Hi", "# Hi\n"),
+    ).toContain("<h1>Hi</h1>");
+
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-assemble-"));
+    const repo = join(root, "repo");
+    const out = join(root, "site");
+    await writeCorpusFixture(repo);
+
+    const published = await assembleSite(repo, out);
+
+    for (const { file } of docsPages) {
+      const htmlFile = file.replace(/\.md$/, ".html");
+      expect(published).toContain(file);
+      expect(published).toContain(htmlFile);
+      expect((await stat(join(out, htmlFile))).isFile()).toBe(true);
+    }
+    expect(published).toContain("llms.txt");
+    expect(published).toContain("docs/index.html");
+    const rendered = await readFile(join(out, "docs/adoption.html"), "utf8");
+    expect(rendered).toContain("<main>");
+    await check(await defaultCheckPaths(out));
   });
 
   test("never publishes maintainer ADR files left in the repo", async () => {

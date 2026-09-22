@@ -9,6 +9,7 @@ on:
       - "README.md"
       - "CONTEXT.md"
       - "LICENSE"
+      - "llms.txt"
       - "e2e/README.md"
       - "examples/adopting-repo/**"
       - "deploy/traefik/**"

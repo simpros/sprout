@@ -45,9 +45,18 @@ describe("defaultCheckPaths", () => {
     root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
     await writeCorpusFixture(root);
     const paths = await defaultCheckPaths(root);
-    expect(paths.htmlFiles).toEqual([join(root, "docs/site/index.html")]);
+    expect(paths.htmlFiles).toContain(join(root, "docs/site/index.html"));
+    expect(paths.htmlFiles).toContain(join(root, "docs/index.html"));
     for (const rel of [
       "docs/adoption.md",
+      "docs/getting-started.md",
+      "docs/adopting-a-repo.md",
+      "docs/ci-integration.md",
+      "docs/operator-deploy.md",
+      "docs/previews.md",
+      "docs/cli-reference.md",
+      "docs/troubleshooting.md",
+      "docs/onboarding-prompt.md",
       "examples/adopting-repo/README.md",
       "templates/README.md",
     ]) {
@@ -187,5 +196,34 @@ describe("ADR exclusion (standing rule: never consumer docs)", () => {
       `<html><body><a href="../adoption.md">adopt</a><p>see ADR 0007</p></body></html>\n`,
     );
     await expect(check(await defaultCheckPaths(root))).rejects.toThrow(/ADR leak/);
+  });
+});
+
+describe("agent-first index", () => {
+  let root: string | undefined;
+
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+    root = undefined;
+  });
+
+  test("every llms.txt entry resolves in the assembled tree", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    const { assembleSite } = await import("./assemble.ts");
+    const out = join(root, "site");
+    await assembleSite(root, out);
+    const { readFile, stat } = await import("node:fs/promises");
+    const llms = await readFile(join(out, "llms.txt"), "utf8");
+    const urls = [...llms.matchAll(/\((https:\/\/simpros\.github\.io\/sprout\/[^)]+)\)/g)].map(
+      (m) => m[1]!,
+    );
+    expect(urls.length).toBeGreaterThan(5);
+    expect(llms).toMatch(/onboarding/i);
+    for (const url of urls) {
+      const rel = url.replace("https://simpros.github.io/sprout/", "");
+      expect((await stat(join(out, rel))).isFile()).toBe(true);
+    }
+    await check(await defaultCheckPaths(out));
   });
 });

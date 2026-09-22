@@ -117,6 +117,6 @@ worktree gone, channel deleted`.
 
 ## See also
 
-- [Adopting repo guide](adoption.md) — the one-include flow this automation
+- [CI integration](ci-integration.md) — the one-include flow this automation
   reviews (no adopter action needed for review/fix to run).
-- [Operator deployment](deploy.md) — the gateway stack the previews run on.
+- [Operator deploy](operator-deploy.md) — the gateway stack the previews run on.

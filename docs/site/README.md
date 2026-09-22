@@ -1,8 +1,24 @@
 # Public docs site
 
-Single-page static docs for sprout.
+Multi-page agent-first docs for sprout.
 
 **Live:** https://simpros.github.io/sprout/
+
+## Pages
+
+Markdown is canonical under `docs/`: `getting-started`, `adopting-a-repo`,
+`ci-integration`, `operator-deploy`, `previews`, `cli-reference`,
+`troubleshooting`, `onboarding-prompt`, plus `herdr-integration`. Legacy
+`docs/adoption.md` / `docs/deploy.md` stay as thin maps so old deep links
+still land. `docs/index.html` lists every page; `llms.txt` at the site root
+is the machine-readable index (onboarding prompt = entry point).
+
+## Render
+
+`docs/site/assemble.ts` renders each page markdown → HTML at assemble time
+(`markdownToHtmlBody` / `renderMarkdownPage`, no new dependency), so both
+`.md` (agents, plain GET) and `.html` (humans) ship from one source. Every
+new page must join `publishFiles` and `docsPages` there.
 
 ## Preview
 
