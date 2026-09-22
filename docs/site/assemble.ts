@@ -19,6 +19,8 @@ export const publishFiles = [
   "docs/site/index.html",
   "e2e/README.md",
   "deploy/traefik/README.md",
+  "deploy/coolify/README.md",
+  "deploy/coolify/gateway.compose.yml",
   "deploy/traefik/certificates-resolver.dns.yml",
   "deploy/traefik/wildcard-bootstrap.compose.yml",
   "deploy/postgres/ensure-preview-role.sh",
