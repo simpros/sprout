@@ -187,7 +187,6 @@ describe("resolveLabelCollisions", () => {
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
-        hostname: "pr-42.myapp.preview.example.com",
         labels: { "com.example.backup": "true" },
         services: [
           {
@@ -209,7 +208,6 @@ describe("resolveLabelCollisions", () => {
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
-        hostname: "pr-42.myapp.preview.example.com",
         labels: { "traefik.enable": "false" },
         services: undefined,
         materialization,
@@ -226,7 +224,6 @@ describe("resolveLabelCollisions", () => {
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
-        hostname: "pr-42.myapp.preview.example.com",
         labels: undefined,
         services: [
           {
@@ -251,7 +248,6 @@ describe("resolveLabelCollisions", () => {
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
-        hostname: "pr-42.myapp.preview.example.com",
         labels: undefined,
         services: [
           {
@@ -270,7 +266,6 @@ describe("resolveLabelCollisions", () => {
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
-        hostname: "pr-42.myapp.preview.example.com",
         labels: { "traefik.enable": "true" },
         services: [{ name: "worker", image: "img:1" }],
         materialization,

@@ -1,24 +1,17 @@
 import {
   mergePreviewLabels,
-  traefikLabels,
   type ServiceLabelSource,
-  type TraefikForwardAuth,
-  type TraefikTls,
 } from "./labels.ts";
+import {
+  gatewayLabels as gatewayLabelsForWorkload,
+  type PreviewWorkloadRouting,
+} from "./workload-labels.ts";
 import { withGatewayConnectionEnv } from "./pg-env.ts";
 import type { PreviewDocker } from "../docker/port.ts";
 import { previewContainerName } from "../preview/naming.ts";
 import type { PreviewLabels } from "@sprout/preview-env";
 
-export type PreviewWorkloadRouting =
-  | {
-      kind: "routed";
-      hostname: string;
-      pathPrefix?: string;
-      tls?: TraefikTls;
-      forwardAuth?: TraefikForwardAuth;
-    }
-  | { kind: "internal" };
+export type { PreviewWorkloadRouting } from "./workload-labels.ts";
 
 export type MaterializePreviewWorkloadInput = {
   name: string;
@@ -42,16 +35,7 @@ export async function materializePreviewWorkload(
     input.portOverride ??
     ((await docker.firstExposedPort(input.image)) ?? input.previewPortDefault);
   const gatewayLabels =
-    input.routing.kind === "routed"
-      ? traefikLabels({
-          routerName: input.name,
-          hostname: input.routing.hostname,
-          port,
-          pathPrefix: input.routing.pathPrefix,
-          tls: input.routing.tls,
-          forwardAuth: input.routing.forwardAuth,
-        })
-      : {};
+    gatewayLabelsForWorkload(input.name, input.routing, port);
   const labels = mergePreviewLabels(
     gatewayLabels,
     input.previewLabels,

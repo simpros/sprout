@@ -7,6 +7,7 @@ import {
   materializePreviewWorkload,
   removePreviewServices,
 } from "./preview-containers.ts";
+import { serviceRouting } from "./workload-labels.ts";
 
 export type { PreviewServiceSpec };
 
@@ -44,21 +45,12 @@ export async function replacePreviewServices(
           input.prId,
           service.name,
         );
-        const routed = service.hostname != null || service.path != null;
         const userEnv = toEnvList(service.env);
         await materializePreviewWorkload(deps.docker, {
           name,
           image: service.image,
           userEnv,
-          routing: routed
-            ? {
-                kind: "routed",
-                hostname: service.hostname ?? input.appHostname,
-                pathPrefix: service.path,
-                tls: deps.traefikTls,
-                forwardAuth: deps.traefikForwardAuth,
-              }
-            : { kind: "internal" },
+          routing: serviceRouting(service, input.appHostname, deps),
           gatewayEnv: input.plan.gatewayEnv,
           volumes: input.plan.volumes,
           networkNames: input.plan.appNetworks,

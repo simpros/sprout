@@ -64,28 +64,47 @@ export function traefikLabels(input: {
   return labels;
 }
 
+/**
+ * Reserved key shapes without a port/hostname: key names never depend on
+ * the rule value or the loadbalancer port, so dummy values suffice. Built
+ * on traefikLabels so the set cannot drift from the emission.
+ */
+export function traefikLabelKeys(input: {
+  routerName: string;
+  tls?: TraefikTls;
+  forwardAuth?: TraefikForwardAuth;
+}): string[] {
+  return Object.keys(
+    traefikLabels({
+      routerName: input.routerName,
+      hostname: "localhost",
+      port: 1,
+      tls: input.tls,
+      forwardAuth: input.forwardAuth,
+    }),
+  );
+}
+
+const RESERVED = Symbol("ReservedPreviewLabel");
+
 export type ReservedPreviewLabel = Error & {
   manifestPath: string;
-  labelKey: string;
+  [RESERVED]: true;
 };
 
 export function reservedPreviewLabel(
   manifestPath: string,
-  labelKey: string,
 ): ReservedPreviewLabel {
-  return Object.assign(
-    new Error(`${manifestPath} collides with a gateway label`),
-    { manifestPath, labelKey },
-  );
+  return Object.assign(new Error(`${manifestPath} collides with a gateway label`), {
+    manifestPath,
+    [RESERVED]: true as true,
+  });
 }
 
 export function isReservedPreviewLabel(
   err: unknown,
 ): err is ReservedPreviewLabel {
-  return (
-    err instanceof Error &&
-    typeof (err as { manifestPath?: unknown }).manifestPath === "string"
-  );
+  return err instanceof Error && RESERVED in err;
 }
 
 export type ServiceLabelSource = {
@@ -99,21 +118,32 @@ export type ServiceLabelSource = {
  * set is the gateway emission itself, so it cannot drift from traefikLabels.
  * Per-service values win over preview-level ones for the same key.
  */
+export function checkReservedKeys(
+  gatewayKeys: readonly string[] | ReadonlySet<string>,
+  preview: PreviewLabels | undefined,
+  service?: ServiceLabelSource,
+): void {
+  const reserved =
+    gatewayKeys instanceof Set ? gatewayKeys : new Set(gatewayKeys);
+  const effective = { ...preview, ...service?.labels };
+  for (const key of Object.keys(effective)) {
+    if (reserved.has(key)) {
+      const fromService =
+        service?.labels !== undefined && key in service.labels;
+      throw reservedPreviewLabel(
+        fromService
+          ? `preview.services[${service.index}].labels.${key}`
+          : `preview.labels.${key}`,
+      );
+    }
+  }
+}
+
 export function mergePreviewLabels(
   gateway: PreviewLabels,
   preview: PreviewLabels | undefined,
   service?: ServiceLabelSource,
 ): PreviewLabels {
-  const effective = { ...preview, ...service?.labels };
-  for (const key of Object.keys(effective)) {
-    if (key in gateway) {
-      const fromService =
-        service?.labels !== undefined && key in service.labels;
-      const manifestPath = fromService
-        ? `preview.services[${service.index}].labels.${key}`
-        : `preview.labels.${key}`;
-      throw reservedPreviewLabel(manifestPath, key);
-    }
-  }
-  return { ...gateway, ...effective };
+  checkReservedKeys(Object.keys(gateway), preview, service);
+  return { ...gateway, ...preview, ...service?.labels };
 }

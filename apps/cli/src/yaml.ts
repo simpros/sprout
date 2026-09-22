@@ -1,6 +1,7 @@
 import {
   dbSpecIssueMessage,
   isServicePort,
+  labelIssueMessage,
   mailSpecIssueMessage,
   normalizeDbSpec,
   parseDbSpec,
@@ -14,7 +15,6 @@ import {
   validateHostnameValue,
   type DbSpec,
   type HealthIssue,
-  type LabelMapIssue,
   type MailSpec,
   type PreviewEnvMap,
   type PreviewLabels,
@@ -364,21 +364,6 @@ function parseServiceEnv(
         ok: false,
         error: `${path}.env.${parsed.issue.key} must be a string`,
       };
-  }
-}
-
-function labelIssueMessage(path: string, issue: LabelMapIssue): string {
-  switch (issue.code) {
-    case "not_a_mapping":
-      return `${path} must be a mapping`;
-    case "empty_key":
-      return `${path} key is required`;
-    case "invalid_key":
-      return `${path}.${issue.key} is invalid`;
-    case "invalid_value":
-      return `${path}.${issue.key} must be a string`;
-    case "empty_value":
-      return `${path}.${issue.key} is required`;
   }
 }
 

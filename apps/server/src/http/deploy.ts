@@ -1,6 +1,7 @@
 import {
   dbSpecIssueMessage,
   isServicePort,
+  labelIssueMessage,
   mailIntent,
   mailSpecIssueMessage,
   normalizeDbSpec,
@@ -15,7 +16,6 @@ import {
   validateHostname,
   type DbSpec,
   type HealthRequest,
-  type LabelMapIssue,
   type MailSpec,
   type PreviewEnvMap,
   type PreviewLabels,
@@ -26,10 +26,13 @@ import { parseResetMarkerToken } from "@sprout/preview-db";
 import type { AuthContext } from "../auth/middleware.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import {
-  mergePreviewLabels,
+  checkReservedKeys,
   isReservedPreviewLabel,
-  traefikLabels,
 } from "../app-deployment/labels.ts";
+import {
+  appGatewayKeys,
+  serviceGatewayKeys,
+} from "../app-deployment/workload-labels.ts";
 import {
   mailNotConfiguredDetail,
   postgresNotConfiguredDetail,
@@ -53,10 +56,6 @@ import {
   validatePreviewIdentity,
   validateServiceName,
 } from "../preview-db/names.ts";
-import {
-  previewContainerName,
-  previewServiceContainerName,
-} from "../preview/naming.ts";
 import { mapResult, requirePreviewTarget, requireReadablePreviewRow } from "./result-map.ts";
 
 const healthBody = t.Object({
@@ -382,21 +381,6 @@ export function resolveServicesRequest(
   return { ok: true, value: out };
 }
 
-function labelIssueMessage(path: string, issue: LabelMapIssue): string {
-  switch (issue.code) {
-    case "not_a_mapping":
-      return `${path} must be a mapping`;
-    case "empty_key":
-      return `${path} key is required`;
-    case "invalid_key":
-      return `${path}.${issue.key} is invalid`;
-    case "invalid_value":
-      return `${path}.${issue.key} must be a string`;
-    case "empty_value":
-      return `${path}.${issue.key} is required`;
-  }
-}
-
 export function resolvePreviewLabelsRequest(
   body: Pick<DeployBody, "labels">,
 ):
@@ -418,49 +402,36 @@ export function resolvePreviewLabelsRequest(
 
 /**
  * Fail fast when an adopter label would silently override a gateway-owned
- * Traefik label. The reserved set is derived from the same traefikLabels
- * emission the containers get (port value never affects keys, so a dummy
- * port suffices); internal services emit no gateway labels.
+ * Traefik label. The reserved key sets come from the same workload-labels
+ * seam the containers materialize from, so validation cannot drift from
+ * the gateway's TLS and forwardAuth policy.
  */
 export function resolveLabelCollisions(input: {
   slug: string;
   prId: number;
-  hostname: string;
   labels: PreviewLabels | undefined;
   services: PreviewServiceSpec[] | undefined;
   materialization: PreviewMaterializationCtx;
 }): { ok: true } | { ok: false; error: string; detail?: string } {
   try {
-    mergePreviewLabels(
-      traefikLabels({
-        routerName: previewContainerName(input.slug, input.prId),
-        hostname: input.hostname,
-        port: 0,
-        tls: input.materialization.traefikTls,
-        forwardAuth: input.materialization.traefikForwardAuth,
-      }),
+    checkReservedKeys(
+      appGatewayKeys(input.slug, input.prId, input.materialization),
       input.labels,
     );
     (input.services ?? []).forEach((service, index) => {
-      const routed = service.hostname != null || service.path != null;
-      const gateway = routed
-        ? traefikLabels({
-            routerName: previewServiceContainerName(
-              input.slug,
-              input.prId,
-              service.name,
-            ),
-            hostname: service.hostname ?? input.hostname,
-            port: 0,
-            pathPrefix: service.path,
-            tls: input.materialization.traefikTls,
-            forwardAuth: input.materialization.traefikForwardAuth,
-          })
-        : {};
-      mergePreviewLabels(gateway, input.labels, {
-        labels: service.labels,
-        index,
-      });
+      checkReservedKeys(
+        serviceGatewayKeys(
+          input.slug,
+          input.prId,
+          service,
+          input.materialization,
+        ),
+        input.labels,
+        {
+          labels: service.labels,
+          index,
+        },
+      );
     });
   } catch (err) {
     if (isReservedPreviewLabel(err)) {
@@ -564,7 +535,6 @@ export function deploy(
     const collisions = resolveLabelCollisions({
       slug: body.slug,
       prId: target.value.prId,
-      hostname,
       labels: labels.value,
       services: services.value,
       materialization: deps.materialization,

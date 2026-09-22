@@ -14,8 +14,7 @@ export function parseLabelMap(
   raw: unknown,
 ):
   | { ok: true; value: PreviewLabels | undefined }
-  | { ok: false; issue: LabelMapIssue } {
-  if (raw === undefined) return { ok: true, value: undefined };
+  | { ok: false; issue: LabelMapIssue } {  if (raw === undefined) return { ok: true, value: undefined };
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ok: false, issue: { code: "not_a_mapping" } };
   }
@@ -38,4 +37,19 @@ export function parseLabelMap(
     out[key] = value;
   }
   return { ok: true, value: out };
+}
+
+export function labelIssueMessage(path: string, issue: LabelMapIssue): string {
+  switch (issue.code) {
+    case "not_a_mapping":
+      return `${path} must be a mapping`;
+    case "empty_key":
+      return `${path} key is required`;
+    case "invalid_key":
+      return `${path}.${issue.key} is invalid`;
+    case "invalid_value":
+      return `${path}.${issue.key} must be a string`;
+    case "empty_value":
+      return `${path}.${issue.key} is required`;
+  }
 }

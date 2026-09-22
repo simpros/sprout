@@ -98,17 +98,24 @@ export async function createTestApp(
   const adminToken = opts.adminToken ?? "test-admin-token";
   const previewDb = opts.previewDb ?? createFakePreviewDb();
   const docker = opts.docker ?? createFakeDockerClient();
-  const appOps = bindTestPreviewApp(docker, {
-    ...opts.replaceDeps,
-    healthProbe: opts.healthProbe ?? defaultHealthProbe,
-    healthClock: opts.healthClock,
-  });
   const { db, cleanup } = await createTestDb();
   await ensureAdminToken(db, adminToken);
   // Postgres presence lives only on the materialization context: an explicit
   // `postgres: undefined` opts into a sqlite-only gateway with no pg block.
   const pg = "postgres" in opts ? opts.postgres : defaultTestPostgres;
   const mail = "mail" in opts ? opts.mail : undefined;
+  // Single source for the Traefik policy in tests: ops materialize it into
+  // labels, the deploy route derives the reserved set from it for fail-fast
+  // collision checks. Both read the same local.
+  const traefikTls = opts.replaceDeps?.traefikTls;
+  const traefikForwardAuth = opts.replaceDeps?.traefikForwardAuth;
+  const appOps = bindTestPreviewApp(docker, {
+    ...opts.replaceDeps,
+    ...(traefikTls ? { traefikTls } : {}),
+    ...(traefikForwardAuth ? { traefikForwardAuth } : {}),
+    healthProbe: opts.healthProbe ?? defaultHealthProbe,
+    healthClock: opts.healthClock,
+  });
   const materialization: PreviewMaterializationCtx = {
     traefikNetwork: "sprout-traefik",
     ...(pg
@@ -125,15 +132,8 @@ export async function createTestApp(
         }
       : {}),
     ...(mail ? { mail } : {}),
-    // Traefik policy lives on both seams: ops materialize it into labels,
-    // the deploy route derives the reserved set from it for fail-fast
-    // collision checks. Tests configure it via replaceDeps.
-    ...(opts.replaceDeps?.traefikTls
-      ? { traefikTls: opts.replaceDeps.traefikTls }
-      : {}),
-    ...(opts.replaceDeps?.traefikForwardAuth
-      ? { traefikForwardAuth: opts.replaceDeps.traefikForwardAuth }
-      : {}),
+    ...(traefikTls ? { traefikTls } : {}),
+    ...(traefikForwardAuth ? { traefikForwardAuth } : {}),
   };
   return {
     app: createRoutes({

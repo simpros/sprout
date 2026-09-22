@@ -216,6 +216,7 @@ export {
 
 export {
   LABEL_KEY_RE,
+  labelIssueMessage,
   parseLabelMap,
   type LabelMapIssue,
   type PreviewLabels,

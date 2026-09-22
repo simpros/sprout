@@ -74,8 +74,15 @@ const materialization: PreviewMaterializationCtx = {
 const app = bindPreviewOps({
   docker,
   previewPortDefault: config.previewPortDefault,
-  traefikTls: config.traefikTls,
-  traefikForwardAuth: config.traefikForwardAuth,
+  // Traefik policy reaches ops from the materialization context above, never
+  // from config a second time, so the route validates against the same
+  // policy the containers receive.
+  ...(materialization.traefikTls
+    ? { traefikTls: materialization.traefikTls }
+    : {}),
+  ...(materialization.traefikForwardAuth
+    ? { traefikForwardAuth: materialization.traefikForwardAuth }
+    : {}),
   seedTimeoutMs: config.seedTimeout * 1000,
 });
 

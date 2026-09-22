@@ -255,7 +255,8 @@ describe("POST /v1/deploy", () => {
     expect(fakePreviewDb!.created).toEqual([]);
   });
 
-  test("deploy token cannot deploy for a different canonical repo", async () => {    const { deployToken } = await setup();
+  test("deploy token cannot deploy for a different canonical repo", async () => {
+    const { deployToken } = await setup();
     const res = await postDeploy(
       deployToken,
       deployBody({ canonical_repo_id: OTHER_REPO }),
