@@ -54,16 +54,16 @@ registry push or external orchestrators:
 
 ```bash
 # From the repo root (reproducible with Bun 1.4.0 base + frozen lockfile)
-docker build -t ghcr.io/simpros/sprout:0.6.3 \
-  --build-arg SPROUT_VERSION=0.6.3 \
+docker build -t ghcr.io/simpros/sprout:0.7.0 \
+  --build-arg SPROUT_VERSION=0.7.0 \
   .
 # Optional: push after docker login to GHCR (or your registry)
-# docker push ghcr.io/simpros/sprout:0.6.3
+# docker push ghcr.io/simpros/sprout:0.7.0
 ```
 
 Image label `org.opencontainers.image.version` mirrors `SPROUT_VERSION`
 (Dockerfile default tracks the monorepo pin; prefer a published release tag such
-as `v0.6.3` / image `:0.6.3` in production). Pin operators and CI to a release
+as `v0.7.0` / image `:0.7.0` in production). Pin operators and CI to a release
 tag or GHCR digest — not an untagged local build — when publishing previews.
 
 ## Architecture
@@ -134,26 +134,27 @@ Traefik reachability. SQLite preview containers (app, services, seed) mount
 their named volume instead and join **Traefik only**; a SQLite-only gateway
 needs no `SPROUT_POSTGRES_NETWORK` at all.
 
+## One-click Coolify (Docker Compose Empty)
+
+For a one-click Coolify resource with its own Postgres, paste
+[`deploy/coolify/sprout.yaml`](../deploy/coolify/sprout.yaml) and follow
+[`deploy/coolify/README.md`](../deploy/coolify/README.md) (wildcard DNS,
+preview hostname template, optional mail/forwardAuth). Both
+`SPROUT_TRAEFIK_NETWORK` and `SPROUT_POSTGRES_NETWORK` point at the
+predefined external `coolify` network — the only name known at template
+time that the Coolify proxy (`coolify-proxy`) is attached to.
+
 ## Production-shaped deploy (external / Coolify Traefik)
 
 sprout does **not** manage Traefik or call the Coolify API. It registers
 routes by setting standard [Traefik Docker labels](https://doc.traefik.io/traefik/providers/docker/)
 on preview app containers.
 
-### Coolify Docker Compose Empty (bundled Postgres)
-
-For a one-click Coolify resource with its own Postgres, paste
-[`deploy/coolify/sprout.yaml`](../deploy/coolify/sprout.yaml) and follow
-[`deploy/coolify/README.md`](../deploy/coolify/README.md) (wildcard DNS,
-preview hostname template, optional mail/forwardAuth). The rest of this
-section covers the external-overlay path (existing Postgres / dedicated
-DB network) instead.
-
 To coexist with an **externally managed Traefik** (including Coolify's), use the
 overlay instead of forking the reference file:
 
 1. Set `SPROUT_TRAEFIK_NETWORK` / `SPROUT_POSTGRES_NETWORK` in `compose.env` to the
-   existing network names (Coolify often uses `traefik`).
+   existing network names (Coolify's predefined shared network is `coolify`).
 2. For HTTPS routers, set Traefik TLS knobs to match that proxy — e.g.
    `SPROUT_TRAEFIK_ENTRYPOINTS=https` and optionally
    `SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt` on Coolify (HTTP-01 is fine for

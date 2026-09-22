@@ -19,7 +19,12 @@ preview routes via Traefik Docker labels only.
    `https://<generated-domain>/healthz` answers through the Coolify proxy.
 2. **Wildcard DNS.** Point the preview wildcard (e.g.
    `*.previews.example.com` — placeholders only, use your own domain) at
-   the Coolify server, so per-PR preview hosts resolve to the proxy.
+   the Coolify server, so per-PR preview hosts resolve to the proxy. Each
+   preview host orders its own Let's Encrypt certificate through the
+   `letsencrypt` (HTTP-01) resolver, so fleets past a handful of PRs hit
+   the 50-certs/week rate limit — for a single shared wildcard instead,
+   follow [Wildcard preview certificate
+   (DNS-01)](../../docs/deploy.md#wildcard-preview-certificate-dns-01).
 3. **Preview hostname template.** In each adopting repo's `.sprout.yaml`,
    set `preview.hostname` to a bare host under that wildcard containing
    `{pr_id}` (e.g. `pr-{pr_id}.previews.example.com`). See the
@@ -27,9 +32,10 @@ preview routes via Traefik Docker labels only.
 4. **CLI auth.** `sprout` against `SPROUT_URL=https://<generated-domain>`
    with `SPROUT_TOKEN` set to the `SPROUT_ADMIN_TOKEN` value shown in
    Coolify's Environment Variables UI (it mirrors
-   `SERVICE_PASSWORD_SPROUTADMIN`). Fallback: the gateway also writes the
-   raw bearer to `/data/admin-token` (mode `0600`) inside the gateway
-   container — readable via `docker exec`.
+   `SERVICE_PASSWORD_SPROUTADMIN`); see
+   [Bootstrap admin token](../../docs/deploy.md#bootstrap-admin-token)
+   for the token file, the pinned-vs-generated split, and the CLI
+   resolution order.
 5. **Optional mail.** `SPROUT_MAIL_*` is unset here: previews deploy
    without mail env. To add a shared Mailpit, follow
    [Preview mail](../../docs/deploy.md#preview-mail-mailpit) and add the
@@ -45,7 +51,11 @@ preview routes via Traefik Docker labels only.
 - **Shared `coolify` network.** Both `SPROUT_TRAEFIK_NETWORK` and
   `SPROUT_POSTGRES_NETWORK` point at the predefined external `coolify`
   network — the only name known at template time that the proxy is
-  attached to. Cost: the bundled Postgres is reachable from every
+  attached to. Confirm membership with
+  `docker network inspect coolify --format '{{range .Containers}}{{.Name}} {{end}}'`
+  (it must list `coolify-proxy`); if the instance names the proxy network
+  differently, change the `networks:` block and both `SPROUT_*_NETWORK`
+  values together. Cost: the bundled Postgres is reachable from every
   container on `coolify`. Operators wanting a dedicated DB network keep
   using the external-overlay path in
   [`docs/deploy.md`](../../docs/deploy.md#production-shaped-deploy-external--coolify-traefik).

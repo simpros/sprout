@@ -30,6 +30,8 @@ services:
     restart: unless-stopped
     networks:
       - coolify
+    expose:
+      - "7331"
     environment:
       - SERVICE_FQDN_GATEWAY
       - SPROUT_PREVIEW_POSTGRES_URL=postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/postgres
