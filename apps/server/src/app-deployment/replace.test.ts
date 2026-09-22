@@ -119,11 +119,7 @@ describe("replacePreviewApp", () => {
     });
 
     await replacePreviewApp(
-      {
-        docker,
-        ...baseDeps,
-        traefikTls: { entrypoints: "websecure", certResolver: "myresolver" },
-      },
+      { docker, ...baseDeps },
       {
         slug: "myapp",
         prId: 42,
@@ -131,6 +127,7 @@ describe("replacePreviewApp", () => {
         image: "ghcr.io/org/app:sha",
         appEnv: [],
         plan: postgresPlan(),
+        traefikTls: { entrypoints: "websecure", certResolver: "myresolver" },
       },
     );
 
@@ -147,14 +144,7 @@ describe("replacePreviewApp", () => {
     });
 
     await replacePreviewApp(
-      {
-        docker,
-        ...baseDeps,
-        traefikForwardAuth: {
-          middleware: "voidauth",
-          address: "https://auth.example.com/api/authz/forward-auth",
-        },
-      },
+      { docker, ...baseDeps },
       {
         slug: "myapp",
         prId: 42,
@@ -162,6 +152,10 @@ describe("replacePreviewApp", () => {
         image: "ghcr.io/org/app:sha",
         appEnv: [],
         plan: postgresPlan(),
+        traefikForwardAuth: {
+          middleware: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
       },
     );
 
@@ -315,30 +309,6 @@ describe("replacePreviewApp", () => {
       "traefik.docker.network": "traefik",
       "com.example.backup": "true",
     });
-  });
-
-  test("rejects a gateway-owned app label with the manifest path", async () => {
-    const docker = createFakeDockerClient({
-      exposedPorts: { "ghcr.io/org/app:sha": 3000 },
-    });
-
-    const err = await replacePreviewApp(
-      { docker, ...baseDeps },
-      {
-        slug: "myapp",
-        prId: 42,
-        hostname: "pr-42.myapp.preview.example.com",
-        image: "ghcr.io/org/app:sha",
-        appEnv: [],
-        plan: postgresPlan(),
-        labels: { "traefik.enable": "false" },
-      },
-    ).then(
-      () => null,
-      (e: unknown) => e,
-    );
-    expect((err as Error).message).toContain("preview.labels.traefik.enable");
-    expect(docker.creates).toHaveLength(0);
   });
 });
 

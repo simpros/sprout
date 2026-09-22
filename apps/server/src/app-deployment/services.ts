@@ -14,8 +14,6 @@ export type { PreviewServiceSpec };
 export type ReplacePreviewServicesDeps = {
   docker: PreviewDocker;
   previewPortDefault: number;
-  traefikTls?: TraefikTls;
-  traefikForwardAuth?: TraefikForwardAuth;
 };
 
 export type ReplacePreviewServicesInput = {
@@ -25,6 +23,8 @@ export type ReplacePreviewServicesInput = {
   services: PreviewServiceSpec[];
   plan: PreviewDbPlan;
   previewLabels?: PreviewLabels;
+  traefikTls?: TraefikTls;
+  traefikForwardAuth?: TraefikForwardAuth;
 };
 
 function toEnvList(env: Record<string, string> | undefined): string[] {
@@ -50,7 +50,7 @@ export async function replacePreviewServices(
           name,
           image: service.image,
           userEnv,
-          routing: serviceRouting(service, input.appHostname, deps),
+          routing: serviceRouting(service, input.appHostname, input),
           gatewayEnv: input.plan.gatewayEnv,
           volumes: input.plan.volumes,
           networkNames: input.plan.appNetworks,

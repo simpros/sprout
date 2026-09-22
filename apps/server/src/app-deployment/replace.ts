@@ -9,8 +9,6 @@ import type { PreviewLabels } from "@sprout/preview-env";
 export type ReplacePreviewAppDeps = {
   docker: PreviewDocker;
   previewPortDefault: number;
-  traefikTls?: TraefikTls;
-  traefikForwardAuth?: TraefikForwardAuth;
 };
 
 export type ReplacePreviewAppInput = {
@@ -21,6 +19,8 @@ export type ReplacePreviewAppInput = {
   appEnv: string[];
   plan: PreviewDbPlan;
   labels?: PreviewLabels;
+  traefikTls?: TraefikTls;
+  traefikForwardAuth?: TraefikForwardAuth;
 };
 
 export async function replacePreviewApp(
@@ -33,7 +33,7 @@ export async function replacePreviewApp(
     name,
     image: input.image,
     userEnv: input.appEnv,
-    routing: appRouting(input.hostname, deps),
+    routing: appRouting(input.hostname, input),
     gatewayEnv: input.plan.gatewayEnv,
     volumes: input.plan.volumes,
     networkNames: input.plan.appNetworks,

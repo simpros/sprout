@@ -3,6 +3,10 @@ import type {
   PreviewAppOps,
   PreviewServiceSpec,
 } from "../app-deployment/ops.ts";
+import type {
+  TraefikForwardAuth,
+  TraefikTls,
+} from "../app-deployment/labels.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
 import type { StateDb } from "../infrastructure/db/client.ts";
 import type { PreviewDbRouter } from "../preview-db/routing.ts";
@@ -56,6 +60,8 @@ export type ProvisionInput = {
   labels?: PreviewLabels;
   plan: PreviewDbPlan;
   reseed?: boolean;
+  traefikTls?: TraefikTls;
+  traefikForwardAuth?: TraefikForwardAuth;
 };
 
 export type TeardownInput = {

@@ -8,6 +8,10 @@ import {
   type PreviewAppOps,
 } from "../app-deployment/ops.ts";
 import type { HealthClock, HealthProbe } from "../app-deployment/health.ts";
+import type {
+  TraefikForwardAuth,
+  TraefikTls,
+} from "../app-deployment/labels.ts";
 import {
   createFakeDockerClient,
   type FakeDockerClient,
@@ -86,6 +90,8 @@ export async function createTestApp(
         previewDb?: PreviewDbRouter;
         docker?: PreviewDocker;
         replaceDeps?: Partial<Omit<BindPreviewOpsDeps, "docker">>;
+        traefikTls?: TraefikTls;
+        traefikForwardAuth?: TraefikForwardAuth;
         healthProbe?: HealthProbe;
         healthClock?: HealthClock;
         postgres?: PostgresConfig;
@@ -104,15 +110,13 @@ export async function createTestApp(
   // `postgres: undefined` opts into a sqlite-only gateway with no pg block.
   const pg = "postgres" in opts ? opts.postgres : defaultTestPostgres;
   const mail = "mail" in opts ? opts.mail : undefined;
-  // Single source for the Traefik policy in tests: ops materialize it into
-  // labels, the deploy route derives the reserved set from it for fail-fast
-  // collision checks. Both read the same local.
-  const traefikTls = opts.replaceDeps?.traefikTls;
-  const traefikForwardAuth = opts.replaceDeps?.traefikForwardAuth;
+  // The Traefik policy lives only on the materialization context: the
+  // deploy route validates adopter labels against it and forwards it
+  // per-deploy into the container inputs, so ops take no policy of their own.
+  const traefikTls = opts.traefikTls;
+  const traefikForwardAuth = opts.traefikForwardAuth;
   const appOps = bindTestPreviewApp(docker, {
     ...opts.replaceDeps,
-    ...(traefikTls ? { traefikTls } : {}),
-    ...(traefikForwardAuth ? { traefikForwardAuth } : {}),
     healthProbe: opts.healthProbe ?? defaultHealthProbe,
     healthClock: opts.healthClock,
   });

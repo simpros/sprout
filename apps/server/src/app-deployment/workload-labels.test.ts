@@ -4,11 +4,9 @@ import {
   previewServiceContainerName,
 } from "../preview/naming.ts";
 import {
-  appGatewayKeys,
   appRouting,
   gatewayLabelKeys,
   gatewayLabels,
-  serviceGatewayKeys,
   serviceRouting,
 } from "./workload-labels.ts";
 
@@ -24,7 +22,7 @@ describe("workload-labels", () => {
   test("app reserved keys match the materialized gateway emission", () => {
     const routing = appRouting("pr-42.example.com", policy);
     expect(
-      appGatewayKeys("myapp", 42, policy).sort(),
+      gatewayLabelKeys(previewContainerName("myapp", 42), routing).sort(),
     ).toEqual(
       Object.keys(gatewayLabels(previewContainerName("myapp", 42), routing, 3000)).sort(),
     );
@@ -32,11 +30,9 @@ describe("workload-labels", () => {
 
   test("unrouted services reserve no keys; routed ones match the emission", () => {
     expect(
-      serviceGatewayKeys(
-        "myapp",
-        42,
-        { name: "worker" },
-        policy,
+      gatewayLabelKeys(
+        previewServiceContainerName("myapp", 42, "worker"),
+        serviceRouting({}, "pr-42.example.com", policy),
       ),
     ).toEqual([]);
     for (const service of [
@@ -46,7 +42,10 @@ describe("workload-labels", () => {
       const routing = serviceRouting(service, "pr-42.example.com", policy);
       expect(routing.kind).toBe("routed");
       expect(
-        serviceGatewayKeys("myapp", 42, service, policy).sort(),
+        gatewayLabelKeys(
+          previewServiceContainerName("myapp", 42, service.name),
+          routing,
+        ).sort(),
       ).toEqual(
         Object.keys(
           gatewayLabels(

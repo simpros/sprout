@@ -14,7 +14,8 @@ export function parseLabelMap(
   raw: unknown,
 ):
   | { ok: true; value: PreviewLabels | undefined }
-  | { ok: false; issue: LabelMapIssue } {  if (raw === undefined) return { ok: true, value: undefined };
+  | { ok: false; issue: LabelMapIssue } {
+  if (raw === undefined) return { ok: true, value: undefined };
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ok: false, issue: { code: "not_a_mapping" } };
   }

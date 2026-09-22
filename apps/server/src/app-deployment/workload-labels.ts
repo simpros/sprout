@@ -5,10 +5,6 @@ import {
   type TraefikForwardAuth,
   type TraefikTls,
 } from "./labels.ts";
-import {
-  previewContainerName,
-  previewServiceContainerName,
-} from "../preview/naming.ts";
 
 export type TraefikPolicy = {
   traefikTls?: TraefikTls;
@@ -27,9 +23,10 @@ export type PreviewWorkloadRouting =
 
 /**
  * Single seam for routing/label derivation: the app container is always
- * routed, a service is routed when it sets a hostname or path. The deploy
- * route derives its reserved sets from these same functions, so the
- * validation cannot drift from what the containers receive.
+ * routed, a service is routed when it sets a hostname or path. Both the
+ * materialization path and the deploy gate (resolveLabelCollisions) build
+ * their reserved sets from appRouting/serviceRouting plus gatewayLabelKeys,
+ * so validation cannot drift from what the containers receive.
  */
 export function appRouting(
   hostname: string,
@@ -89,31 +86,5 @@ export function gatewayLabelKeys(
     routerName: name,
     tls: routing.tls,
     forwardAuth: routing.forwardAuth,
-  });
-}
-
-export function appGatewayKeys(
-  slug: string,
-  prId: number,
-  policy: TraefikPolicy,
-): string[] {
-  return traefikLabelKeys({
-    routerName: previewContainerName(slug, prId),
-    tls: policy.traefikTls,
-    forwardAuth: policy.traefikForwardAuth,
-  });
-}
-
-export function serviceGatewayKeys(
-  slug: string,
-  prId: number,
-  service: Pick<PreviewServiceSpec, "name" | "hostname" | "path">,
-  policy: TraefikPolicy,
-): string[] {
-  if (service.hostname == null && service.path == null) return [];
-  return traefikLabelKeys({
-    routerName: previewServiceContainerName(slug, prId, service.name),
-    tls: policy.traefikTls,
-    forwardAuth: policy.traefikForwardAuth,
   });
 }

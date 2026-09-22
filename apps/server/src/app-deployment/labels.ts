@@ -85,65 +85,48 @@ export function traefikLabelKeys(input: {
   );
 }
 
-const RESERVED = Symbol("ReservedPreviewLabel");
-
-export type ReservedPreviewLabel = Error & {
-  manifestPath: string;
-  [RESERVED]: true;
-};
-
-export function reservedPreviewLabel(
-  manifestPath: string,
-): ReservedPreviewLabel {
-  return Object.assign(new Error(`${manifestPath} collides with a gateway label`), {
-    manifestPath,
-    [RESERVED]: true as true,
-  });
-}
-
-export function isReservedPreviewLabel(
-  err: unknown,
-): err is ReservedPreviewLabel {
-  return err instanceof Error && RESERVED in err;
-}
-
 export type ServiceLabelSource = {
   labels: PreviewLabels | undefined;
   index: number;
 };
 
 /**
- * Merge adopter labels over the gateway set, failing fast when an adopter
- * key would silently override a gateway-owned Traefik label. The reserved
- * set is the gateway emission itself, so it cannot drift from traefikLabels.
- * Per-service values win over preview-level ones for the same key.
+ * First collision wins: preview-level and per-service labels share one
+ * effective map per container, and a service value shadows the preview
+ * level for the same key. Returns the manifest path to quote, or null.
  */
-export function checkReservedKeys(
-  gatewayKeys: readonly string[] | ReadonlySet<string>,
+export function reservedKeyCollision(
+  gatewayKeys: readonly string[],
   preview: PreviewLabels | undefined,
   service?: ServiceLabelSource,
-): void {
-  const reserved =
-    gatewayKeys instanceof Set ? gatewayKeys : new Set(gatewayKeys);
+): { manifestPath: string } | null {
+  const reserved = new Set(gatewayKeys);
   const effective = { ...preview, ...service?.labels };
   for (const key of Object.keys(effective)) {
     if (reserved.has(key)) {
       const fromService =
         service?.labels !== undefined && key in service.labels;
-      throw reservedPreviewLabel(
-        fromService
+      return {
+        manifestPath: fromService
           ? `preview.services[${service.index}].labels.${key}`
           : `preview.labels.${key}`,
-      );
+      };
     }
   }
+  return null;
 }
 
+/**
+ * Pure merge of adopter labels over the gateway set. Collision rejection
+ * lives in the deploy gate (resolveLabelCollisions), which runs before any
+ * container exists; by the time inputs reach materialization the check has
+ * already passed, so this stays total and never throws.
+ * Per-service values win over preview-level ones for the same key.
+ */
 export function mergePreviewLabels(
   gateway: PreviewLabels,
   preview: PreviewLabels | undefined,
   service?: ServiceLabelSource,
 ): PreviewLabels {
-  checkReservedKeys(Object.keys(gateway), preview, service);
   return { ...gateway, ...preview, ...service?.labels };
 }

@@ -25,14 +25,7 @@ import { t } from "elysia";
 import { parseResetMarkerToken } from "@sprout/preview-db";
 import type { AuthContext } from "../auth/middleware.ts";
 import type { SeedImageSpec } from "../app-deployment/seed.ts";
-import {
-  checkReservedKeys,
-  isReservedPreviewLabel,
-} from "../app-deployment/labels.ts";
-import {
-  appGatewayKeys,
-  serviceGatewayKeys,
-} from "../app-deployment/workload-labels.ts";
+import { resolveLabelCollisions } from "../app-deployment/label-collisions.ts";
 import {
   mailNotConfiguredDetail,
   postgresNotConfiguredDetail,
@@ -326,8 +319,7 @@ export function resolveServicesRequest(
   }
   const seen = new Set<string>();
   const out: PreviewServiceSpec[] = [];
-  for (let index = 0; index < raw.length; index++) {
-    const entry = raw[index]!;
+  for (const [index, entry] of raw.entries()) {
     const name = entry.name.trim();
     const image = entry.image.trim();
     if (!name || !image) {
@@ -400,52 +392,6 @@ export function resolvePreviewLabelsRequest(
   return { ok: true, value: parsed.value };
 }
 
-/**
- * Fail fast when an adopter label would silently override a gateway-owned
- * Traefik label. The reserved key sets come from the same workload-labels
- * seam the containers materialize from, so validation cannot drift from
- * the gateway's TLS and forwardAuth policy.
- */
-export function resolveLabelCollisions(input: {
-  slug: string;
-  prId: number;
-  labels: PreviewLabels | undefined;
-  services: PreviewServiceSpec[] | undefined;
-  materialization: PreviewMaterializationCtx;
-}): { ok: true } | { ok: false; error: string; detail?: string } {
-  try {
-    checkReservedKeys(
-      appGatewayKeys(input.slug, input.prId, input.materialization),
-      input.labels,
-    );
-    (input.services ?? []).forEach((service, index) => {
-      checkReservedKeys(
-        serviceGatewayKeys(
-          input.slug,
-          input.prId,
-          service,
-          input.materialization,
-        ),
-        input.labels,
-        {
-          labels: service.labels,
-          index,
-        },
-      );
-    });
-  } catch (err) {
-    if (isReservedPreviewLabel(err)) {
-      return {
-        ok: false,
-        error: "reserved_preview_label",
-        detail: err.message,
-      };
-    }
-    throw err;
-  }
-  return { ok: true };
-}
-
 export type TeardownBody = {
   canonical_repo_id: string;
   pr_id: number;
@@ -461,6 +407,17 @@ export type PreviewQuery = {
   canonical_repo_id: string;
   pr_id: string;
 };
+
+/** Single 422 mapper for the request resolvers below. */
+function unprocessable(
+  set: { status?: number | string },
+  result: { error: string; detail?: string },
+): { error: string; detail?: string } {
+  set.status = 422;
+  return result.detail != null
+    ? { error: result.error, detail: result.detail }
+    : { error: result.error };
+}
 
 export function deploy(
   deps: LifecycleDeps & {
@@ -508,10 +465,7 @@ export function deploy(
     });
     const seed = resolveSeedRequest(body, deploySpecs.value.spec.provider);
     if (!seed.ok) {
-      set.status = 422;
-      return seed.detail != null
-        ? { error: seed.error, detail: seed.detail }
-        : { error: seed.error };
+      return unprocessable(set, seed);
     }
     const appEnv = resolveAppEnvRequest(body);
     if (!appEnv.ok) {
@@ -520,30 +474,23 @@ export function deploy(
     }
     const services = resolveServicesRequest(body);
     if (!services.ok) {
-      set.status = 422;
-      return services.detail != null
-        ? { error: services.error, detail: services.detail }
-        : { error: services.error };
+      return unprocessable(set, services);
     }
     const labels = resolvePreviewLabelsRequest(body);
     if (!labels.ok) {
-      set.status = 422;
-      return labels.detail != null
-        ? { error: labels.error, detail: labels.detail }
-        : { error: labels.error };
+      return unprocessable(set, labels);
     }
     const collisions = resolveLabelCollisions({
       slug: body.slug,
       prId: target.value.prId,
+      hostname,
       labels: labels.value,
       services: services.value,
-      materialization: deps.materialization,
+      policy: deps.materialization,
     });
     if (!collisions.ok) {
       set.status = 422;
-      return collisions.detail != null
-        ? { error: collisions.error, detail: collisions.detail }
-        : { error: collisions.error };
+      return { error: collisions.error, detail: collisions.detail };
     }
     const health = resolveHealthSpec(body.health);
     if (!health.ok) {
@@ -564,6 +511,12 @@ export function deploy(
       ...(labels.value !== undefined ? { labels: labels.value } : {}),
       plan,
       reseed: body.reseed === true,
+      ...(deps.materialization.traefikTls !== undefined
+        ? { traefikTls: deps.materialization.traefikTls }
+        : {}),
+      ...(deps.materialization.traefikForwardAuth !== undefined
+        ? { traefikForwardAuth: deps.materialization.traefikForwardAuth }
+        : {}),
     };
 
     // 202 before pull/health/seed so Cloudflare (~100s) cannot kill the POST.

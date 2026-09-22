@@ -138,19 +138,16 @@ describe("replacePreviewServices", () => {
     });
 
     await replacePreviewServices(
-      {
-        docker,
-        ...baseDeps,
-        traefikForwardAuth: {
-          middleware: "voidauth",
-          address: "https://auth.example.com/api/authz/forward-auth",
-        },
-      },
+      { docker, ...baseDeps },
       {
         slug: "myapp",
         prId: 42,
         appHostname: "pr-42.myapp.preview.example.com",
         plan: postgresPlan("sprout_myapp_pr42"),
+        traefikForwardAuth: {
+          middleware: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
         services: [
           {
             name: "api",
@@ -174,19 +171,16 @@ describe("replacePreviewServices", () => {
     });
 
     await replacePreviewServices(
-      {
-        docker,
-        ...baseDeps,
-        traefikForwardAuth: {
-          middleware: "voidauth",
-          address: "https://auth.example.com/api/authz/forward-auth",
-        },
-      },
+      { docker, ...baseDeps },
       {
         slug: "myapp",
         prId: 42,
         appHostname: "pr-42.myapp.preview.example.com",
         plan: postgresPlan("sprout_myapp_pr42"),
+        traefikForwardAuth: {
+          middleware: "voidauth",
+          address: "https://auth.example.com/api/authz/forward-auth",
+        },
         services: [{ name: "worker", image: "ghcr.io/org/worker:sha" }],
       },
     );
@@ -323,36 +317,6 @@ describe("replacePreviewServices", () => {
     expect(docker.creates[0]!.labels).toEqual({
       "com.example.team": "service",
     });
-  });
-
-  test("rejects a gateway-owned service key with the service manifest path", async () => {
-    const docker = createFakeDockerClient({
-      exposedPorts: { "ghcr.io/org/api:sha": 4000 },
-    });
-
-    const err = await replacePreviewServices(
-      { docker, ...baseDeps },
-      {
-        slug: "myapp",
-        prId: 42,
-        appHostname: "pr-42.myapp.preview.example.com",
-        plan: postgresPlan("sprout_myapp_pr42"),
-        services: [
-          {
-            name: "api",
-            image: "ghcr.io/org/api:sha",
-            hostname: "api-pr-42.myapp.preview.example.com",
-            labels: { "traefik.enable": "false" },
-          },
-        ],
-      },
-    ).then(
-      () => null,
-      (e: unknown) => e,
-    );
-    expect((err as Error).message).toContain(
-      "preview.services[0].labels.traefik.enable",
-    );
   });
 });
 

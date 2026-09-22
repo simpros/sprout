@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { resolveLabelCollisions } from "../app-deployment/label-collisions.ts";
 import {
-  resolveLabelCollisions,
   resolvePreviewLabelsRequest,
   resolveServicesRequest,
 } from "./deploy.ts";
@@ -180,13 +180,15 @@ describe("resolvePreviewLabelsRequest", () => {
 });
 
 describe("resolveLabelCollisions", () => {
-  const materialization = { traefikNetwork: "sprout-traefik" };
+  const policy = {};
+  const hostname = "pr-42.myapp.preview.example.com";
 
   test("non-colliding labels pass", () => {
     expect(
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
+        hostname,
         labels: { "com.example.backup": "true" },
         services: [
           {
@@ -198,7 +200,7 @@ describe("resolveLabelCollisions", () => {
             },
           },
         ],
-        materialization,
+        policy,
       }),
     ).toEqual({ ok: true });
   });
@@ -208,9 +210,10 @@ describe("resolveLabelCollisions", () => {
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
+        hostname,
         labels: { "traefik.enable": "false" },
         services: undefined,
-        materialization,
+        policy,
       }),
     ).toEqual({
       ok: false,
@@ -224,6 +227,7 @@ describe("resolveLabelCollisions", () => {
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
+        hostname,
         labels: undefined,
         services: [
           {
@@ -233,7 +237,7 @@ describe("resolveLabelCollisions", () => {
             labels: { "traefik.enable": "false" },
           },
         ],
-        materialization,
+        policy,
       }),
     ).toEqual({
       ok: false,
@@ -248,6 +252,7 @@ describe("resolveLabelCollisions", () => {
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
+        hostname,
         labels: undefined,
         services: [
           {
@@ -256,7 +261,7 @@ describe("resolveLabelCollisions", () => {
             labels: { "traefik.enable": "true" },
           },
         ],
-        materialization,
+        policy,
       }),
     ).toEqual({ ok: true });
   });
@@ -266,14 +271,46 @@ describe("resolveLabelCollisions", () => {
       resolveLabelCollisions({
         slug: "myapp",
         prId: 42,
+        hostname,
         labels: { "traefik.enable": "true" },
         services: [{ name: "worker", image: "img:1" }],
-        materialization,
+        policy,
       }),
     ).toEqual({
       ok: false,
       error: "reserved_preview_label",
       detail: "preview.labels.traefik.enable collides with a gateway label",
     });
+  });
+
+  test("tls policy widens the reserved set on both seams", () => {
+    const tlsPolicy = {
+      traefikTls: { entrypoints: "websecure", certResolver: "myresolver" },
+    };
+    const router = "sprout-myapp-pr-42";
+    expect(
+      resolveLabelCollisions({
+        slug: "myapp",
+        prId: 42,
+        hostname,
+        labels: { [`traefik.http.routers.${router}.tls`]: "false" },
+        services: undefined,
+        policy: tlsPolicy,
+      }),
+    ).toEqual({
+      ok: false,
+      error: "reserved_preview_label",
+      detail: `preview.labels.traefik.http.routers.${router}.tls collides with a gateway label`,
+    });
+    expect(
+      resolveLabelCollisions({
+        slug: "myapp",
+        prId: 42,
+        hostname,
+        labels: { [`traefik.http.routers.${router}.tls`]: "false" },
+        services: undefined,
+        policy,
+      }),
+    ).toEqual({ ok: true });
   });
 });

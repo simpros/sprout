@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-  isReservedPreviewLabel,
   mergePreviewLabels,
+  reservedKeyCollision,
   traefikLabels,
 } from "./labels.ts";
 
@@ -139,68 +139,6 @@ describe("mergePreviewLabels", () => {
     });
   });
 
-  test("rejects a gateway-owned key with the preview manifest path", () => {
-    let err: unknown;
-    try {
-      mergePreviewLabels(gateway, { "traefik.enable": "false" });
-    } catch (e) {
-      err = e;
-    }
-    expect(isReservedPreviewLabel(err)).toBe(true);
-    if (isReservedPreviewLabel(err)) {
-      expect(err.manifestPath).toBe("preview.labels.traefik.enable");
-      expect(err.message).toContain("preview.labels.traefik.enable");
-    }
-  });
-
-  test("derives the reserved set from emission, not a hard-coded list", () => {
-    const withTls = traefikLabels({
-      routerName: "sprout-myapp-pr-42",
-      hostname: "pr-42.myapp.preview.example.com",
-      port: 3000,
-      tls: { entrypoints: "websecure", certResolver: "myresolver" },
-      forwardAuth: {
-        middleware: "voidauth",
-        address: "https://auth.example.com/api/authz/forward-auth",
-      },
-    });
-    for (const key of Object.keys(withTls)) {
-      let err: unknown;
-      try {
-        mergePreviewLabels(withTls, { [key]: "x" });
-      } catch (e) {
-        err = e;
-      }
-      expect(isReservedPreviewLabel(err)).toBe(true);
-    }
-    expect(Object.keys(withTls).length).toBeGreaterThan(
-      Object.keys(gateway).length,
-    );
-  });
-
-  test("quotes the service manifest path when the service level collides", () => {
-    const svcGateway = traefikLabels({
-      routerName: "sprout-myapp-pr-42-svc-api",
-      hostname: "api-pr-42.myapp.preview.example.com",
-      port: 4000,
-    });
-    const rule = "traefik.http.routers.sprout-myapp-pr-42-svc-api.rule";
-    let err: unknown;
-    try {
-      mergePreviewLabels(
-        svcGateway,
-        { "com.example.backup": "true" },
-        { labels: { [rule]: "Host(`evil`)" }, index: 0 },
-      );
-    } catch (e) {
-      err = e;
-    }
-    expect(isReservedPreviewLabel(err)).toBe(true);
-    if (isReservedPreviewLabel(err)) {
-      expect(err.manifestPath).toBe(`preview.services[0].labels.${rule}`);
-    }
-  });
-
   test("per-service value wins over the preview level for the same key", () => {
     expect(
       mergePreviewLabels(
@@ -225,5 +163,69 @@ describe("mergePreviewLabels", () => {
       "traefik.docker.network": "traefik",
       "com.example.backup": "true",
     });
+  });
+});
+
+describe("reservedKeyCollision", () => {
+  const gateway = traefikLabels({
+    routerName: "sprout-myapp-pr-42",
+    hostname: "pr-42.myapp.preview.example.com",
+    port: 3000,
+  });
+
+  test("reports a gateway-owned key with the preview manifest path", () => {
+    expect(
+      reservedKeyCollision(Object.keys(gateway), {
+        "traefik.enable": "false",
+      }),
+    ).toEqual({ manifestPath: "preview.labels.traefik.enable" });
+  });
+
+  test("derives the reserved set from emission, not a hard-coded list", () => {
+    const withTls = traefikLabels({
+      routerName: "sprout-myapp-pr-42",
+      hostname: "pr-42.myapp.preview.example.com",
+      port: 3000,
+      tls: { entrypoints: "websecure", certResolver: "myresolver" },
+      forwardAuth: {
+        middleware: "voidauth",
+        address: "https://auth.example.com/api/authz/forward-auth",
+      },
+    });
+    for (const key of Object.keys(withTls)) {
+      expect(
+        reservedKeyCollision(Object.keys(withTls), { [key]: "x" }),
+      ).toEqual({
+        manifestPath: `preview.labels.${key}`,
+      });
+    }
+    expect(Object.keys(withTls).length).toBeGreaterThan(
+      Object.keys(gateway).length,
+    );
+  });
+
+  test("quotes the service manifest path when the service level collides", () => {
+    const svcGateway = traefikLabels({
+      routerName: "sprout-myapp-pr-42-svc-api",
+      hostname: "api-pr-42.myapp.preview.example.com",
+      port: 4000,
+    });
+    const rule = "traefik.http.routers.sprout-myapp-pr-42-svc-api.rule";
+    expect(
+      reservedKeyCollision(
+        Object.keys(svcGateway),
+        { "com.example.backup": "true" },
+        { labels: { [rule]: "Host(`evil`)" }, index: 0 },
+      ),
+    ).toEqual({ manifestPath: `preview.services[0].labels.${rule}` });
+  });
+
+  test("returns null when nothing collides", () => {
+    expect(
+      reservedKeyCollision(Object.keys(gateway), {
+        "com.example.backup": "true",
+      }),
+    ).toBeNull();
+    expect(reservedKeyCollision(Object.keys(gateway), undefined)).toBeNull();
   });
 });
