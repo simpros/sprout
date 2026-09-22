@@ -7,6 +7,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Contract guards for docs/deploy hand copies. Blocking (unlike acceptance
+  # below) so PRs cannot merge while the publish-set or pin invariants break.
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Guard suite
+        run: bun run test:guards
+      - name: Compose files validate under Compose
+        run: |
+          docker compose -f deploy/coolify/gateway.compose.yml config -q
+          POSTGRES_PASSWORD=ci-dummy SPROUT_PREVIEW_POSTGRES_URL=postgres://ci:ci-dummy@localhost:5432/postgres SPROUT_PG_PASSWORD=ci-dummy docker compose -f docker-compose.yml config -q
   # Acceptance stays non-blocking until compose smoke is confirmed in CI.
   acceptance:
     continue-on-error: true

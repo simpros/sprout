@@ -40,7 +40,7 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
       - name: Unit tests (docs/deploy guards)
-        run: bun test docs/site/ deploy/ scripts/ ./.github/workflows/
+        run: bun run test:guards
       - name: Assemble Pages artifact
         run: bun run docs:assemble
       - name: Link check

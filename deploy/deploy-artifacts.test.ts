@@ -123,7 +123,7 @@ describe("deploy artifacts agree", () => {
     }
   });
 
-  test("hand-written image pins track package.json version", async () => {
+  test("hand-written version pins track package.json version", async () => {
     const pkg = (await Bun.file(join(repoRoot, "package.json")).json()) as {
       version: string;
     };
@@ -132,27 +132,33 @@ describe("deploy artifacts agree", () => {
       `ghcr.io/simpros/sprout:${pkg.version}`,
     );
 
-    const readme = await Bun.file(
-      join(deployDir, "coolify", "README.md"),
-    ).text();
-    expect(readme).toContain(`ghcr.io/simpros/sprout:${pkg.version}`);
-
-    const deployGuide = await Bun.file(
-      join(repoRoot, "docs", "deploy.md"),
-    ).text();
-    const imagePins = [
-      ...deployGuide.matchAll(/ghcr\.io\/simpros\/sprout:([0-9][^\s`]*)/g),
+    // Every hand-written copy of the release pin lives in this list; assert
+    // each file carries at least one so a deleted pin fails instead of going green.
+    const pinFiles = [
+      "Dockerfile",
+      "deploy/coolify/gateway.compose.yml",
+      "deploy/coolify/README.md",
+      "docs/deploy.md",
+      "examples/adopting-repo/.github/workflows/sprout.yml",
     ];
-    expect(imagePins.length).toBeGreaterThan(0);
-    for (const match of imagePins) {
-      expect(match[1]).toBe(pkg.version);
-    }
-    const versionPins = [
-      ...deployGuide.matchAll(/SPROUT_VERSION=([0-9][^\s]*)/g),
+    const pinPatterns = [
+      /SPROUT_VERSION=v?([0-9][^\s`'")\],]*)/g,
+      /ghcr\.io\/simpros\/sprout:([0-9][^\s`'")\],]*)/g,
+      /@v([0-9][^\s`'")\],]*)/g,
+      /sprout_version:\s*v?([0-9][^\s`'")\],]*)/g,
     ];
-    expect(versionPins.length).toBeGreaterThan(0);
-    for (const match of versionPins) {
-      expect(match[1]).toBe(pkg.version);
+    for (const rel of pinFiles) {
+      const text = await Bun.file(join(repoRoot, rel)).text();
+      const pins: string[] = [];
+      for (const pattern of pinPatterns) {
+        for (const match of text.matchAll(pattern)) {
+          pins.push(match[1]);
+        }
+      }
+      expect(pins.length).toBeGreaterThan(0);
+      for (const pin of pins) {
+        expect(pin).toBe(pkg.version);
+      }
     }
   });
 });
