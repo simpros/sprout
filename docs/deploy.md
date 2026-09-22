@@ -140,6 +140,15 @@ sprout does **not** manage Traefik or call the Coolify API. It registers
 routes by setting standard [Traefik Docker labels](https://doc.traefik.io/traefik/providers/docker/)
 on preview app containers.
 
+### Coolify Docker Compose Empty (bundled Postgres)
+
+For a one-click Coolify resource with its own Postgres, paste
+[`deploy/coolify/sprout.yaml`](../deploy/coolify/sprout.yaml) and follow
+[`deploy/coolify/README.md`](../deploy/coolify/README.md) (wildcard DNS,
+preview hostname template, optional mail/forwardAuth). The rest of this
+section covers the external-overlay path (existing Postgres / dedicated
+DB network) instead.
+
 To coexist with an **externally managed Traefik** (including Coolify's), use the
 overlay instead of forking the reference file:
 
@@ -673,6 +682,7 @@ below.
 - [Public docs](site/index.html) — how it works, CLI, FAQ
 - `examples/adopting-repo/` — copy-paste adopting-repo files
 - [`deploy/traefik/README.md`](../deploy/traefik/README.md) — wildcard DNS-01 resolver fragment + one-shot bootstrap compose
+- [`deploy/coolify/README.md`](../deploy/coolify/README.md) + [`deploy/coolify/sprout.yaml`](../deploy/coolify/sprout.yaml) — one-click Coolify Docker Compose Empty stack (bundled Postgres)
 - [`deploy/postgres/ensure-preview-role.sh`](../deploy/postgres/ensure-preview-role.sh) — optional manual role helper
 - [`CONTEXT.md`](../CONTEXT.md) — domain vocabulary
 - [Spec #12](https://github.com/simpros/sprout/issues/12) — normative v0.1 specification

@@ -1,0 +1,65 @@
+# Paste-ready stack for Coolify's "Docker Compose Empty" resource.
+# Bundled Postgres + gateway on the predefined external `coolify` network —
+# the only network name known at template time that the Coolify proxy
+# (coolify-proxy) is attached to, so preview app containers the gateway
+# creates at runtime are routable and reach Postgres by hostname.
+#
+# Pinned image: bump deliberately (a Coolify resource copies this file at
+# creation time and does not follow upstream updates) — never `latest`.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - coolify
+    environment:
+      POSTGRES_USER: ${SERVICE_USER_POSTGRES}
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SERVICE_USER_POSTGRES} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  gateway:
+    image: ghcr.io/simpros/sprout:0.7.0
+    restart: unless-stopped
+    networks:
+      - coolify
+    environment:
+      - SERVICE_FQDN_GATEWAY
+      - SPROUT_PREVIEW_POSTGRES_URL=postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/postgres
+      - SPROUT_PG_HOST=postgres
+      - SPROUT_PG_PORT=5432
+      - SPROUT_PG_USER=sprout_preview
+      - SPROUT_PG_PASSWORD=${SERVICE_PASSWORD_SPROUTPREVIEW}
+      - SPROUT_ADMIN_TOKEN=${SERVICE_PASSWORD_SPROUTADMIN}
+      - SPROUT_STATE_DB_PATH=/data/sprout.db
+      - SPROUT_TRAEFIK_NETWORK=coolify
+      - SPROUT_POSTGRES_NETWORK=coolify
+      - SPROUT_TRAEFIK_ENTRYPOINTS=https
+      - SPROUT_TRAEFIK_CERTRESOLVER=letsencrypt
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - gateway-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:7331/healthz'); process.exit(r.ok?0:1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+networks:
+  coolify:
+    external: true
+
+volumes:
+  gateway-data:
+  postgres-data:
