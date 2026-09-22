@@ -14,7 +14,7 @@
     "docs:assemble": "bun run docs/site/assemble.ts",
     "docs:preview": "bun run docs/site/preview.ts",
     "test": "turbo test && bun run test:guards",
-    "test:guards": "bun test docs/site/ deploy/ scripts/ ./.github/workflows/",
+    "test:guards": "bun test docs/site/ deploy/ scripts/ templates/ ./.github/workflows/",
     "typecheck": "turbo build && bun run docs:check",
     "test:e2e": "bun run e2e/run.ts",
     "sprout": "bun run apps/cli/src/index.ts",

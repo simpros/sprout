@@ -132,8 +132,9 @@ describe("deploy artifacts agree", () => {
       `ghcr.io/simpros/sprout:${pkg.version}`,
     );
 
-    // Every hand-written copy of the release pin lives in this list; assert
-    // each file carries at least one so a deleted pin fails instead of going green.
+    // Every hand-written copy of the release pin lives in this list. Scan for
+    // any version token so a new pin shape cannot slip past the guard; the
+    // only allowed foreign tokens are named in versionExceptions below.
     const pinFiles = [
       "Dockerfile",
       "deploy/coolify/gateway.compose.yml",
@@ -144,18 +145,28 @@ describe("deploy artifacts agree", () => {
       "examples/adopting-repo/.gitlab-ci.yml",
       "templates/README.md",
     ];
-    const pinPatterns = [
-      /SPROUT_VERSION=v?([0-9][^\s`'")\],]*)/g,
-      /ghcr\.io\/simpros\/sprout:([0-9][^\s`'")\],]*)/g,
-      /(?:sprout-ci\/preview|simpros\/sprout\/\.github\/workflows\/preview\.yml)@v([0-9][^\s`'")\],]*)/g,
-      /sprout_version:\s*v?([0-9][^\s`'")\],]*)/g,
+    const versionToken = /(?<![\d.])v?(\d+\.\d+\.\d+)(?![\d.])/g;
+    // Deliberate foreign versions, not sprout release pins. Each exception
+    // names a marker sharing the token's line, so the same token elsewhere
+    // in the file still fails.
+    const versionExceptions = [
+      // Bun base image, tracks the toolchain not the release.
+      { file: "Dockerfile", version: "1.4.0", marker: "oven/bun" },
+      // Same Bun base mention in the build example.
+      { file: "docs/deploy.md", version: "1.4.0", marker: "Bun" },
+      // Illustrative older tag in the inputs table.
+      { file: "templates/README.md", version: "0.6.0", marker: "e.g." },
     ];
     for (const rel of pinFiles) {
       const text = await Bun.file(join(repoRoot, rel)).text();
       const pins: string[] = [];
-      for (const pattern of pinPatterns) {
-        for (const match of text.matchAll(pattern)) {
-          pins.push(match[1]);
+      for (const line of text.split("\n")) {
+        for (const match of line.matchAll(versionToken)) {
+          const pin = match[1];
+          const excused = versionExceptions.some(
+            (e) => e.file === rel && e.version === pin && line.includes(e.marker),
+          );
+          if (!excused) pins.push(pin);
         }
       }
       expect(pins.length).toBeGreaterThan(0);
