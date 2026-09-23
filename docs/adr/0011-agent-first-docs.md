@@ -36,3 +36,11 @@ machine-readable catalogue, no paste-into-a-harness prompt.
 - Inbound references point at the new pages; old paths never 404.
 - Published pages never carry maintainer internals; the gate enforces it on
   markdown sources and rendered HTML alike.
+
+## Amendment 2026-09-23: legacy moved-content pages removed
+
+The thin landing pages (`adoption.md` and `deploy.md`) are deleted
+along with the `legacy` manifest branch and the "Legacy entry points"
+index paragraph. There is no redirect shim: `docs/deploy.html` and
+`docs/adoption.html` now 404, and all inbound references point at
+`docs/operator-deploy.md` / `docs/adopting-a-repo.md`.

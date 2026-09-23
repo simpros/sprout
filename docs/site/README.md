@@ -8,9 +8,8 @@ Multi-page agent-first docs for sprout.
 
 Markdown is canonical under `docs/`: `getting-started`, `adopting-a-repo`,
 `ci-integration`, `operator-deploy`, `previews`, `cli-reference`,
-`troubleshooting`, `onboarding-prompt`, plus `herdr-integration`. Legacy
-`docs/adoption.md` / `docs/deploy.md` stay as thin maps so old deep links
-still land. `docs/index.html` lists every page; `llms.txt` at the site root
+`troubleshooting`, `onboarding-prompt`, plus `herdr-integration`.
+`docs/index.html` lists every page; `llms.txt` at the site root
 is the machine-readable index (onboarding prompt = entry point).
 
 ## Render
@@ -99,8 +98,8 @@ that carry it. Absolute `llms.txt` links and bare
 same-site URLs (the onboarding prompt lists them as plain text) resolve
 against the checked tree via the shared `SITE_ORIGIN`. Check roots are discovered by
 walking the artifact, so a newly published page is always gated. Green
-`docs:check` therefore means the Pages URLs resolve, including
-`docs/adoption.md`. `bun run docs/site/check.ts <dir>` checks
+`docs:check` therefore means the Pages URLs resolve.
+`bun run docs/site/check.ts <dir>` checks
 an already-assembled tree in place.
 
 Static types for this toolchain (`docs/site/*.ts` sits outside the

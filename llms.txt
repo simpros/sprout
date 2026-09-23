@@ -8,5 +8,3 @@ These docs are for agents. Start with the onboarding prompt.
 - [CLI reference](https://simpros.github.io/sprout/docs/cli-reference.md): every sprout command, debugging, tokens.
 - [Troubleshooting](https://simpros.github.io/sprout/docs/troubleshooting.md): adopter and operator error catalogue.
 - [Herdr integration](https://simpros.github.io/sprout/docs/herdr-integration.md): operator-side review automation.
-- [Adoption guide](https://simpros.github.io/sprout/docs/adoption.md): thin map to the per-topic pages (legacy path).
-- [Operator deploy guide](https://simpros.github.io/sprout/docs/deploy.md): thin map to the operator page (legacy path).
