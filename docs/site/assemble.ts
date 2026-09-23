@@ -1,15 +1,17 @@
 import { cp, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { codeBlockFigure, PROMPT_COPY_LABEL } from "./codeblock.ts";
+import { promptFigure } from "./codeblock.ts";
 import { escapeHtml } from "./html.ts";
 import {
   assembleMarketingPage,
   docsLocation,
   marketingLocation,
+  navPrefix,
   PROMPT_MARKER,
   renderShell,
   type ShellNavItem,
+  type SiteLocation,
 } from "./shell.ts";
 import {
   extractPromptText,
@@ -50,6 +52,16 @@ export const docsPages: DocsPage[] = [
   { file: "docs/deploy.md", title: "Operator deploy guide", description: "thin map to the operator page (legacy path).", legacy: true },
 ];
 
+// The marketing page in the same manifest shape as every docs page: the
+// source fragment carries no envelope, so its title and description live
+// here, next to `docsPages`.
+export const marketingPage = {
+  file: siteEntryPath,
+  title: "sprout — every pull request gets its own preview",
+  description:
+    "sprout gives every pull request an isolated database and a live preview app on shared infrastructure you host yourself.",
+};
+
 // The `.md → .html` mapping, derived once: source path, artifact path, and
 // the docs-relative href the index links with.
 export function pageHtmlFile(file: string): string {
@@ -89,15 +101,17 @@ export function renderDocsIndexHtml(): string {
     description:
       "sprout docs: adopting repos, CI wiring, previews, operator deploy, CLI, troubleshooting.",
     location: docsLocation,
-    nav: docsNav(docsLocation.navPrefix),
+    nav: docsNav(docsLocation),
     toc: [],
     bodyHtml,
   });
 }
 
 // Docs nav straight from the page manifest, so a new page appears
-// automatically. `prefix` bridges the docs/ ↔ docs/site/ depth gap.
-export function docsNav(prefix: string, current?: string): ShellNavItem[] {
+// automatically. The `docs/ ↔ docs/site/` depth gap is derived from the
+// location, never hand-set per call.
+export function docsNav(location: SiteLocation, current?: string): ShellNavItem[] {
+  const prefix = navPrefix(location);
   return docsPages.map((p) => ({
     href: `${prefix}${pageIndexHref(p)}`,
     title: p.title,
@@ -237,24 +251,25 @@ export async function assembleSite(
       join(outDir, htmlFile),
       renderMarkdownPage(page.title, markdownForMd, file, htmlPages, {
         description: page.description,
-        nav: docsNav(docsLocation.navPrefix, file),
+        nav: docsNav(docsLocation, file),
       }),
     );
     published.push(htmlFile);
   }
 
   const marketingSource = await readFile(join(repoRoot, siteEntryPath), "utf8");
-  const marketingFigure = marketingSource.includes(PROMPT_MARKER)
-    ? codeBlockFigure("text", await onboardingPrompt(), PROMPT_COPY_LABEL)
+  const marketingPromptFigure = marketingSource.includes(PROMPT_MARKER)
+    ? promptFigure(await onboardingPrompt())
     : "";
   await mkdir(dirname(join(outDir, siteEntryPath)), { recursive: true });
   await writeFile(
     join(outDir, siteEntryPath),
-    assembleMarketingPage(
-      marketingSource,
-      marketingFigure,
-      docsNav(marketingLocation.navPrefix),
-    ),
+    assembleMarketingPage(marketingSource, {
+      title: marketingPage.title,
+      description: marketingPage.description,
+      promptFigure: marketingPromptFigure,
+      nav: docsNav(marketingLocation),
+    }),
   );
   published.push(siteEntryPath);
 

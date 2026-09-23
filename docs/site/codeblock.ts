@@ -1,12 +1,12 @@
 // Copyable fenced-block component for the published docs site.
 //
 // Every fenced block on every published page renders through
-// `codeBlockFigure` — either via `codeBlockExtension` (markdown sources) or
-// via `upgradePreBlocks` (the hand-written snippet on the marketing page) —
-// so the two surfaces cannot drift. The inlined client script is the single
-// behaviour source: no dependencies, no fetch, one `<script>` per page.
+// `codeBlockFigure` via `codeBlockExtension`, so markdown surfaces cannot
+// drift; the marketing page's one static snippet is the same markup written
+// by hand. The inlined client script is the single behaviour source: no
+// dependencies, no fetch, one `<script>` per page.
 import type { MarkdownExtension } from "@tanstack/markdown";
-import { escapeHtml, decodeHtmlEntities } from "./html.ts";
+import { escapeHtml } from "./html.ts";
 
 // Meta tag on the assembled prompt fence: the onboarding prompt renders
 // through the same extension as every other fence, but keeps its
@@ -46,16 +46,10 @@ export const codeBlockExtension: MarkdownExtension = {
   },
 };
 
-// Hand-written marketing snippets go through the same builder: a
-// `<pre data-lang="…">` block becomes the component, so no bare `<pre>`
-// survives assembly on any page. Only tagged pres convert — rendered
-// figures carry a bare `<pre>`, which must never be wrapped twice.
-export function upgradePreBlocks(html: string): string {
-  return html.replace(
-    /<pre data-lang="([^"]*)">([\s\S]*?)<\/pre>/g,
-    (_whole, lang: string, inner: string) =>
-      codeBlockFigure(lang, decodeHtmlEntities(inner.trim())),
-  );
+// The one place the meta → prompt-label rule lives: assembly calls this for
+// the embedded prompt figure instead of composing it by hand.
+export function promptFigure(prompt: string): string {
+  return codeBlockFigure("text", prompt, PROMPT_COPY_LABEL);
 }
 
 // Wired once per page by the shell: click copies the sibling `<code>` text,

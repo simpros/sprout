@@ -26,34 +26,35 @@ so the `.md` fragment namespace and the `.html` id namespace are one, and
 the "On this page" TOC and the code block component read the same tree
 instead of regexing HTML. Intra-page `.md` links rewrite to their `.html`
 twins (fragments preserved); links to files with no HTML twin (examples,
-templates, env samples) stay `.md`. A per-page parity test
-(`markdown.test.ts`) holds the swap against the previous runtime renderer
-over all of `docsPages` — heading ids in order, code lang + value, table
-shape, link hrefs — with deliberate differences named in a load-bearing
-allowlist entry, never silently dropped.
+templates, env samples) stay `.md`. Targeted tests (`markdown.test.ts`)
+hold the shipped behavior: GitHub-slug heading ids with GitHub-style
+dedupe, the AST-based prompt extraction (meta-tagged fence, loud on inner
+fences), and the pinned toolchain (no `/react` import anywhere).
 
 One design: `docs/site/theme.css` is the single stylesheet (extracted from
 the marketing page) and `docs/site/shell.ts` the single chrome (header with
 brand + docs nav, `<main>`, footer) — the marketing page, the docs index,
 and every docs page inline the same theme text and the same copy script, so
 the surfaces cannot drift. `docs/site/index.html` stays the source of the
-marketing page but is rendered, never copied verbatim: it carries
-`<!-- docs-theme -->` in its `<style>` and `<!-- docs-onboarding-prompt -->`
-in the adopt section, both resolved at assembly. Docs pages get a docs nav
+marketing page but is a body fragment, never copied verbatim: it carries
+`<!-- docs-onboarding-prompt -->` in the adopt section, resolved at
+assembly, while its title and description live in the `marketingPage`
+manifest next to `docsPages`. Docs pages get a docs nav
 built from `docsPages` (a new page appears automatically) and an "On this
 page" TOC from the parsed headings. The theme and the client script stay
 inlined — no external CSS/JS fetch, no new published file.
 
 Every fenced block renders as the code block component
 (`docs/site/codeblock.ts`: `figure.codeblock` + language label + copy
-button + `pre > code`), including the marketing page's hand-written snippet
-via the same builder — no bare `<pre>` survives assembly. The single inlined
+button + `pre > code`); the marketing page's one static snippet is the
+same markup written by hand, and the embedded prompt figure comes from the
+single `promptFigure` builder — no bare `<pre>` survives assembly. The single inlined
 script copies the sibling block's text, flips the label transiently, and
 announces through a polite live region, degrading to text selection without
 a clipboard API.
 
-The onboarding prompt lives in one place — the fenced block in
-`docs/onboarding-prompt.md`. `docs/getting-started.md` and the marketing
+The onboarding prompt lives in one place — the meta-tagged fenced block in
+`docs/onboarding-prompt.md`, extracted from the AST (never a fence regex). `docs/getting-started.md` and the marketing
 page carry `<!-- docs-onboarding-prompt -->`, resolved per output: `.html`
 gets the component (with copy button), published `.md` gets the fenced
 block verbatim, so agents fetching markdown get a complete prompt and the

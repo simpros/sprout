@@ -8,6 +8,7 @@
 // dedupe (`head`, `head-1`, …).
 import { parseMarkdown } from "@tanstack/markdown";
 import type {
+  BlockNode,
   MarkdownDocument,
   MarkdownExtension,
 } from "@tanstack/markdown";
@@ -84,15 +85,39 @@ export function markdownToHtmlBody(markdown: string): string {
   return renderDocumentBody(parseMarkdownDocument(markdown));
 }
 
-// The single copy-paste block lives in `docs/onboarding-prompt.md` as one
-// ```text fence; every other surface embeds this extracted text. The fence
-// may carry the prompt meta tag, so extraction tolerates info-string suffixes.
+// The single copy-paste block lives in `docs/onboarding-prompt.md` as the
+// ```text fence carrying the prompt meta tag; every other surface embeds this
+// extracted text. Read from the AST, not a fence regex, so a second fenced
+// example inside the prompt can never silently truncate the extraction.
 export function extractPromptText(markdown: string): string {
-  const match = /```text[^\n]*\n([\s\S]*?)\n```/.exec(markdown);
-  if (!match) {
-    throw new Error("onboarding prompt source carries no ```text block");
+  const fences: { meta: string | undefined; value: string }[] = [];
+  const visit = (nodes: BlockNode[]): void => {
+    for (const node of nodes) {
+      if (node.type === "code") {
+        fences.push({ meta: node.meta, value: node.value });
+      } else if (node.type === "list") {
+        for (const item of node.items) visit(item.children);
+      } else if (node.type === "blockquote" || node.type === "callout") {
+        visit(node.children);
+      }
+    }
+  };
+  visit(parseMarkdownDocument(markdown).children);
+  const found = fences.find((fence) =>
+    fence.meta?.split(/\s+/).includes(PROMPT_FENCE_META),
+  );
+  if (!found) {
+    throw new Error("onboarding prompt source carries no ```text prompt block");
   }
-  return match[1]!.trim();
+  const text = found.value.trim();
+  // A fence line inside the prompt cannot round-trip through `promptFence`,
+  // so fail loudly instead of shipping a truncated block.
+  for (const line of text.split("\n")) {
+    if (line.startsWith("```")) {
+      throw new Error("onboarding prompt contains a fence line");
+    }
+  }
+  return text;
 }
 
 // Published `.md` stays a complete, self-contained prompt for agents. The

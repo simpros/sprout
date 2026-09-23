@@ -3,7 +3,7 @@ import {
   codeBlockExtension,
   codeBlockFigure,
   codeBlockScript,
-  upgradePreBlocks,
+  promptFigure,
 } from "./codeblock.ts";
 
 describe("codeBlockFigure", () => {
@@ -32,12 +32,10 @@ describe("codeBlockFigure", () => {
     ).toBeUndefined();
   });
 
-  test("hand-written tagged pres upgrade through the same builder", () => {
-    const html = upgradePreBlocks('<pre data-lang="yaml">k: v</pre>');
-    expect(html).toBe(codeBlockFigure("yaml", "k: v"));
-    // Rendered figures carry a bare pre and must never wrap twice.
-    const figure = codeBlockFigure("text", "x");
-    expect(upgradePreBlocks(figure)).toBe(figure);
+  test("promptFigure is the one meta → label rule", () => {
+    expect(promptFigure("You are onboarding")).toBe(
+      codeBlockFigure("text", "You are onboarding", "Copy onboarding prompt"),
+    );
   });
 });
 

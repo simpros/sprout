@@ -2,19 +2,14 @@
 //
 // The marketing page and every docs page share one stylesheet (`theme.css`,
 // inlined) and one header/footer built here, by construction: `renderShell`
-// is the only way to produce a published `.html` page. Markers keep the
-// hand-written sources honest — assembly resolves every `<!-- docs-… -->`
-// marker, and the gate asserts none survives.
+// is the only way to produce a published `.html` page. The prompt marker is
+// the one assembly-resolved marker left; the gate asserts none survives.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  codeBlockScript,
-  upgradePreBlocks,
-} from "./codeblock.ts";
-import { decodeHtmlEntities, escapeHtml } from "./html.ts";
+import { codeBlockScript } from "./codeblock.ts";
+import { escapeHtml } from "./html.ts";
 
-export const THEME_MARKER = "<!-- docs-theme -->";
 export const PROMPT_MARKER = "<!-- docs-onboarding-prompt -->";
 
 export function hasUnresolvedMarkers(text: string): boolean {
@@ -39,27 +34,29 @@ export type ShellNavItem = {
 };
 
 // One constant per artifact location: every page's depth-derived strings
-// (brand home, root/docs relatives, nav prefix) come from here, so call
-// sites cannot hand-compute a wrong `..`.
+// (brand home, root/docs relatives) come from here, so call sites cannot
+// hand-compute a wrong `..`. The docs-nav prefix restates `toDocs`
+// (`.` → `""`, `..` → `"../"`), so it is derived, never set.
 export type SiteLocation = {
   homeHref: string;
   toRoot: string;
   toDocs: string;
-  navPrefix: string;
 };
+
+export function navPrefix(location: SiteLocation): string {
+  return location.toDocs === "." ? "" : `${location.toDocs}/`;
+}
 
 export const docsLocation: SiteLocation = {
   homeHref: "site/index.html",
   toRoot: "..",
   toDocs: ".",
-  navPrefix: "",
 };
 
 export const marketingLocation: SiteLocation = {
   homeHref: "index.html",
   toRoot: "../..",
   toDocs: "..",
-  navPrefix: "../",
 };
 
 export type ShellTocEntry = {
@@ -164,35 +161,25 @@ export function renderShell(opts: ShellOptions): string {
   ].join("\n");
 }
 
-// Marketing source handling: the file stays the source of the marketing
-// page, but the artifact is rendered, never copied verbatim. Markers resolve
-// first so the source is honest on its own; the shell then supplies the
-// shared theme, header, footer, and copy script around the source body.
+// Marketing source handling: the file is a body fragment, not a document —
+// title and description travel in the manifest next to `docsPages`, and the
+// shell supplies the shared theme, header, footer, and copy script around
+// the fragment. The only substitution is the prompt marker.
 export function assembleMarketingPage(
-  source: string,
-  promptFigure: string,
-  nav: ShellNavItem[],
+  fragment: string,
+  opts: {
+    title: string;
+    description: string;
+    promptFigure: string;
+    nav: ShellNavItem[];
+  },
 ): string {
-  const resolved = source
-    .split(THEME_MARKER)
-    .join(themeCss())
-    .split(PROMPT_MARKER)
-    .join(promptFigure);
-  const title =
-    decodeHtmlEntities(
-      /<title>([\s\S]*?)<\/title>/.exec(resolved)?.[1]?.trim() ?? "",
-    ) || "sprout";
-  const description =
-    /<meta name="description" content="([^"]*)"/.exec(resolved)?.[1] ?? "";
-  const body =
-    /<body[^>]*>([\s\S]*?)<\/body>/.exec(resolved)?.[1] ?? resolved;
-  const content = upgradePreBlocks(body);
   return renderShell({
-    title,
-    description,
+    title: opts.title,
+    description: opts.description,
     location: marketingLocation,
-    nav,
+    nav: opts.nav,
     toc: [],
-    bodyHtml: content,
+    bodyHtml: fragment.split(PROMPT_MARKER).join(opts.promptFigure),
   });
 }

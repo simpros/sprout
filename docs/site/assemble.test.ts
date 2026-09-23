@@ -6,6 +6,7 @@ import {
   assembleSite,
   docsPages,
   listFilesRecursive,
+  marketingPage,
   pageHtmlFile,
   publishDirs,
   publishFiles,
@@ -355,6 +356,8 @@ describe("shared shell, code blocks, and prompt embedding", () => {
       expect(html).toContain('<nav class="docs-nav" aria-label="Docs">');
       expect(html).toContain('<footer id="docs">');
       expect(html).toContain('<div class="codeblock-status" aria-live="polite">');
+      // The shell owns `.wrap`: exactly one per page, never nested.
+      expect(html.match(/<div class="wrap">/g) ?? []).toHaveLength(1);
       for (const { title } of docsPages) {
         expect(html).toContain(`>${title}</a>`);
       }
@@ -442,8 +445,21 @@ describe("shared shell, code blocks, and prompt embedding", () => {
   test("marketing page is rendered, not copied verbatim", async () => {
     const source = await readFile(join(repoRootDir, siteEntryPath), "utf8");
     const html = await readFile(join(out, siteEntryPath), "utf8");
+    // The source is a body fragment: no envelope, no theme marker, no wrap —
+    // the shell inlines the theme and owns `.wrap` for every page.
+    expect(source).not.toContain("<!DOCTYPE html>");
+    expect(source).not.toContain("<html");
+    expect(source).not.toContain("<head>");
+    expect(source).not.toContain("<body>");
+    expect(source).not.toContain("<!-- docs-theme -->");
+    expect(source).not.toContain('<div class="wrap">');
+    expect(source).toContain("<!-- docs-onboarding-prompt -->");
+    // Title and description come from the manifest, not source regexes.
+    expect(html).toContain(`<title>${marketingPage.title}</title>`);
+    expect(html).toContain(
+      `<meta name="description" content="${marketingPage.description}" />`,
+    );
     expect(html).not.toBe(source);
-    expect(html).not.toContain("<!-- docs-theme -->");
     expect(html).not.toContain("<!-- docs-onboarding-prompt -->");
     expect(html).toContain('<figure class="codeblock"');
   });
