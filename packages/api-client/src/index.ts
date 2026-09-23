@@ -1,11 +1,11 @@
 import { treaty } from "@elysia/eden";
 import type { SproutApi } from "@sprout/server/api-type";
 
-export type { PreviewSnapshot, SproutApi } from "@sprout/server/api-type";
+export type { PreviewSnapshot } from "@sprout/server/api-type";
 
 export type ApiClient = ReturnType<typeof treaty<SproutApi>>;
 
-export type ApiClientOptions = {
+type ApiClientOptions = {
   headers?: HeadersInit;
 };
 
