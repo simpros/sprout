@@ -1,16 +1,27 @@
 import { cp, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promptFigure } from "./codeblock.ts";
+import { escapeHtml } from "./html.ts";
 import {
-  escapeHtml,
-  pageTitle,
-  renderMarkdownPage,
+  docsPrefixFor,
+  marketingSourcePath,
+  PROMPT_MARKER,
+  renderShell,
+  siteEntryPath,
+  type ShellNavItem,
+} from "./shell.ts";
+import {
+  extractPromptText,
+  promptFence,
+  renderMarkdown,
+  rewritePageLinks,
 } from "./markdown.ts";
+
+export { marketingSourcePath, siteEntryPath };
 
 const siteDir = dirname(fileURLToPath(import.meta.url));
 export const repoRootDir = resolve(siteDir, "../..");
-
-export const siteEntryPath = "docs/site/index.html";
 
 // Agent-facing origin for absolute index links; shared with the link checker
 // so generated URLs and the gate resolve against one source of truth.
@@ -40,6 +51,16 @@ export const docsPages: DocsPage[] = [
   { file: "docs/deploy.md", title: "Operator deploy guide", description: "thin map to the operator page (legacy path).", legacy: true },
 ];
 
+// The marketing page in the same manifest shape as every docs page: the
+// source fragment carries no envelope, so its title and description live
+// here, next to `docsPages`.
+export const marketingPage: DocsPage = {
+  file: siteEntryPath,
+  title: "sprout — every pull request gets its own preview",
+  description:
+    "sprout gives every pull request an isolated database and a live preview app on shared infrastructure you host yourself.",
+};
+
 // The `.md → .html` mapping, derived once: source path, artifact path, and
 // the docs-relative href the index links with.
 export function pageHtmlFile(file: string): string {
@@ -66,28 +87,35 @@ export function renderDocsIndexHtml(): string {
   const item = (p: DocsPage) =>
     `      <li><a href="${pageIndexHref(p)}">${escapeHtml(p.title)}</a> — ${escapeHtml(p.description)}</li>`;
   const entryHref = pageIndexHref(docsEntry());
-  return [
-    "<!DOCTYPE html>",
-    '<html lang="en">',
-    "<head>",
-    '  <meta charset="utf-8" />',
-    '  <meta name="viewport" content="width=device-width, initial-scale=1" />',
-    "  <title>sprout docs</title>",
-    '  <meta name="description" content="sprout docs: adopting repos, CI wiring, previews, operator deploy, CLI, troubleshooting." />',
-    "</head>",
-    "<body>",
-    "  <main>",
+  const bodyHtml = [
     "    <h1>sprout docs</h1>",
     `    <p>Markdown is canonical: every page below is served as plain <code>.md</code> (agents) and as rendered <code>.html</code> (humans) from the same source. Machine-readable index: <a href="../llms.txt">llms.txt</a>. Start with the <a href="${entryHref}">onboarding prompt</a>.</p>`,
     "    <ul>",
     ...main.map(item),
     "    </ul>",
     `    <p>Legacy entry points: ${legacy.map((p) => `<a href="${pageIndexHref(p)}">${escapeHtml(p.title)}</a>`).join(", ")} (thin maps to the pages above; old deep links still land).</p>`,
-    "  </main>",
-    "</body>",
-    "</html>",
-    "",
   ].join("\n");
+  return renderShell({
+    title: "sprout docs",
+    description:
+      "sprout docs: adopting repos, CI wiring, previews, operator deploy, CLI, troubleshooting.",
+    outputPath: "docs/index.html",
+    nav: docsNav("docs/index.html"),
+    toc: [],
+    bodyHtml,
+  });
+}
+
+// Docs nav straight from the page manifest, so a new page appears
+// automatically. The `docs/ ↔ docs/site/` depth gap is derived from the
+// artifact path being written, never hand-set per call.
+export function docsNav(outputPath: string, current?: string): ShellNavItem[] {
+  const prefix = docsPrefixFor(outputPath);
+  return docsPages.map((p) => ({
+    href: `${prefix}${pageIndexHref(p)}`,
+    title: p.title,
+    ...(current === p.file ? { current: true as const } : {}),
+  }));
 }
 
 // Machine-readable agent index; the checked-in root copy serves raw GitHub
@@ -101,14 +129,14 @@ export function renderLlmsTxt(): string {
   return ["These docs are for agents. Start with the onboarding prompt.", ...lines, ""].join("\n");
 }
 
-// Raw copies; docs pages and generated indexes join via docsPages below.
+// Raw copies; docs pages, the rendered marketing page, and generated
+// indexes join via docsPages below.
 const copyOnlyFiles = [
   "README.md",
   "CONTEXT.md",
   "LICENSE",
   "compose.env.example",
   ".env.example",
-  "docs/site/index.html",
   "e2e/README.md",
   "deploy/traefik/README.md",
   "deploy/coolify/README.md",
@@ -118,10 +146,11 @@ const copyOnlyFiles = [
   "deploy/postgres/ensure-preview-role.sh",
 ];
 
-const generatedFiles = ["docs/index.html", "llms.txt"];
+const generatedFiles = ["docs/index.html", "llms.txt", siteEntryPath];
 
 export const publishFiles = [
   ...copyOnlyFiles,
+  marketingSourcePath,
   ...docsPages.map((p) => p.file),
   ...generatedFiles,
 ];
@@ -190,21 +219,62 @@ export async function assembleSite(
   await writeFile(join(outDir, "llms.txt"), renderLlmsTxt());
   published.push("llms.txt");
 
+  // The onboarding prompt lives in one source file; pages carrying the
+  // marker embed it. It is a docsPage, read unconditionally below, so
+  // extract it eagerly here: one extraction, one substitution helper for
+  // both surfaces.
+  const prompt = extractPromptText(
+    await readFile(join(repoRoot, docsEntry().file), "utf8"),
+  );
+  const resolvePrompt = (
+    text: string,
+    render: (prompt: string) => string,
+  ): string => text.split(PROMPT_MARKER).join(render(prompt));
+
   const htmlPages = renderedHtmlPages();
-  for (const { file } of docsPages) {
+  for (const page of docsPages) {
+    const { file } = page;
+    const source = await readFile(join(repoRoot, file), "utf8");
+    // One substitution: the resolved fence feeds both the `.md` write and
+    // the HTML render, so the parser owns the figure on both surfaces.
+    // A marker-free source passes through untouched.
+    const markdownForMd = resolvePrompt(source, promptFence);
     const dest = join(outDir, file);
     await mkdir(dirname(dest), { recursive: true });
-    await copyFile(join(repoRoot, file), dest);
+    await writeFile(dest, markdownForMd);
     published.push(file);
-    const markdown = await readFile(dest, "utf8");
     const htmlFile = pageHtmlFile(file);
-    const title = pageTitle(markdown, htmlFile);
+    // Page composition lives here, with the other `renderShell` call sites:
+    // parse once, rewrite `.md` links to `.html` twins, wrap in the shell.
+    const { headings, body } = renderMarkdown(markdownForMd);
     await writeFile(
       join(outDir, htmlFile),
-      renderMarkdownPage(title, markdown, file, htmlPages),
+      renderShell({
+        title: page.title,
+        description: page.description,
+        outputPath: htmlFile,
+        nav: docsNav(htmlFile, file),
+        toc: headings,
+        bodyHtml: rewritePageLinks(body, file, htmlPages),
+      }),
     );
     published.push(htmlFile);
   }
+
+  const marketingSource = await readFile(join(repoRoot, marketingSourcePath), "utf8");
+  await mkdir(dirname(join(outDir, siteEntryPath)), { recursive: true });
+  await writeFile(
+    join(outDir, siteEntryPath),
+    renderShell({
+      title: marketingPage.title,
+      description: marketingPage.description,
+      outputPath: siteEntryPath,
+      nav: docsNav(siteEntryPath),
+      toc: [],
+      bodyHtml: resolvePrompt(marketingSource, promptFigure),
+    }),
+  );
+  published.push(siteEntryPath);
 
   await writeFile(join(outDir, "index.html"), rootRedirectHtml());
   published.push("index.html");

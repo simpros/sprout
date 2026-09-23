@@ -16,16 +16,55 @@ is the machine-readable index (onboarding prompt = entry point).
 ## Render
 
 `docs/site/assemble.ts` renders each page markdown → HTML at assemble time
-via `docs/site/markdown.ts` (the runtime's built-in GFM renderer, with
-heading `id`s retitled to the GitHub anchor dialect the in-corpus
-`#fragment`s already assume), so both `.md` (agents, plain GET) and `.html`
-(humans) ship from one source. Intra-page `.md` links rewrite to their
-`.html` twins (fragments preserved); links to files with no HTML twin
-(examples, templates, env samples) stay `.md`. Every new page joins
-`docsPages` there — the publish list, the rendered HTML, `docs/index.html`,
-and `llms.txt` are all generated from that one manifest, and tests assert
-the checked-in `llms.txt` matches the generator byte for byte
-(`docs/index.html` lives only in the assembled artifact).
+via `docs/site/markdown.ts` (TanStack Markdown `@tanstack/markdown`,
+exactly pinned in root `devDependencies` — a docs-toolchain dependency;
+published pages stay dependency-free). Markdown stays canonical: each page
+is parsed once into an AST (`parseMarkdown` with the GitHub anchor dialect
+as `headingIds`, plus GitHub-style dedupe) and rendered from that tree
+(`renderHtml` from `@tanstack/markdown/html`; no `/react` import anywhere),
+so the `.md` fragment namespace and the `.html` id namespace are one, and
+the "On this page" TOC and the code block component read the same tree
+instead of regexing HTML. Intra-page `.md` links rewrite to their `.html`
+twins (fragments preserved); links to files with no HTML twin (examples,
+templates, env samples) stay `.md`. Targeted tests (`markdown.test.ts`)
+hold the shipped behavior: GitHub-slug heading ids with GitHub-style
+dedupe, the AST-based prompt extraction (meta-tagged fence, loud on inner
+fences), and the pinned toolchain (no `/react` import anywhere).
+
+One design: `docs/site/theme.css` is the single stylesheet (extracted from
+the marketing page) and `docs/site/shell.ts` the single chrome (header with
+brand + docs nav, `<main>`, footer) — the marketing page, the docs index,
+and every docs page inline the same theme text and the same copy script, so
+the surfaces cannot drift. `docs/site/marketing.html` is the source of the
+marketing page but is a body fragment, never copied verbatim: it carries
+`<!-- docs-onboarding-prompt -->` in the adopt section, resolved at
+assembly into the published `docs/site/index.html` artifact, while its title
+and description live in the `marketingPage`
+manifest next to `docsPages`. Docs pages get a docs nav
+built from `docsPages` (a new page appears automatically) and an "On this
+page" TOC from the parsed headings. The theme and the client script stay
+inlined — no external CSS/JS fetch, no new published file.
+
+Every fenced block renders as the code block component
+(`docs/site/codeblock.ts`: `figure.codeblock` + language label + copy
+button + `pre > code`); the marketing page's one static snippet is the
+same markup written by hand, and the embedded prompt figure comes from the
+single `promptFigure` builder — no bare `<pre>` survives assembly. The single inlined
+script copies the sibling block's text, flips the label transiently, and
+announces through a polite live region, degrading to text selection without
+a clipboard API.
+
+The onboarding prompt lives in one place — the meta-tagged fenced block in
+`docs/onboarding-prompt.md`, extracted from the AST (never a fence regex). `docs/getting-started.md` and the marketing
+page carry `<!-- docs-onboarding-prompt -->`, resolved per output: `.html`
+gets the component (with copy button), published `.md` gets the fenced
+block verbatim, so agents fetching markdown get a complete prompt and the
+assembled tree never holds an unresolved marker.
+
+Every new page joins `docsPages` there — the publish list, the rendered
+HTML, `docs/index.html`, and `llms.txt` are all generated from that one
+manifest, and tests assert the checked-in `llms.txt` matches the generator
+byte for byte (`docs/index.html` lives only in the assembled artifact).
 
 ## Preview
 
@@ -54,7 +93,9 @@ and checks every HTML/markdown/text page found there with static-host semantics
 — a target must be a file (or a directory carrying its own `index.html`;
 Pages never serves generated listings), and every `#fragment` must resolve
 to a GitHub-slug heading `id` in its target (the renderer emits the same
-slugs, so the two share one namespace). Absolute `llms.txt` links and bare
+slugs, so the two share one namespace). The check runs over the assembled
+tree, so URLs inside the embedded onboarding prompt are gated on the pages
+that carry it. Absolute `llms.txt` links and bare
 same-site URLs (the onboarding prompt lists them as plain text) resolve
 against the checked tree via the shared `SITE_ORIGIN`. Check roots are discovered by
 walking the artifact, so a newly published page is always gated. Green

@@ -1,19 +1,27 @@
 // Markdown rendering for the published docs site.
 //
-// The runtime's built-in GFM renderer is the canonical parser: it handles
-// lazy list continuations, nested lists, and emphasis. Nothing hand-rolled
-// lives here on purpose — except heading ids, which follow GitHub's anchor
-// rule (the dialect every in-corpus `#fragment` already assumes), not the
-// runtime's (it collapses `→`/`/`/`—` to one hyphen where GitHub keeps two).
+// TanStack Markdown is the parser: markdown stays canonical, is parsed once
+// into an AST, and rendered from there — heading ids, the "On this page"
+// TOC, and the code block component all read the same tree instead of
+// regexing rendered HTML. Heading ids follow GitHub's anchor rule (the
+// dialect every in-corpus `#fragment` already assumes), with GitHub-style
+// dedupe (`head`, `head-1`, …).
+import { parseMarkdown } from "@tanstack/markdown";
+import type {
+  BlockNode,
+  CodeBlockNode,
+  MarkdownDocument,
+  MarkdownExtension,
+  MarkdownHeading,
+} from "@tanstack/markdown";
+import { renderHtml } from "@tanstack/markdown/html";
+import { collectMarkdownHeadings } from "@tanstack/markdown/extensions/headings";
 import { dirname, relative, resolve } from "node:path/posix";
-
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import {
+  codeBlockExtension,
+  isPromptFence,
+  PROMPT_FENCE_META,
+} from "./codeblock.ts";
 
 // GitHub's anchor rule: lowercase, drop everything but letters/numbers/marks,
 // `_`, `-`, and spaces, then spaces become hyphens. Punctuation between
@@ -26,39 +34,92 @@ export function slugHeading(text: string): string {
     .replace(/ /g, "-");
 }
 
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+// Per-document slugger closing over its own repeat table, so the `.md`
+// fragment namespace and the `.html` id namespace are literally one.
+function githubHeadingIdsFn(): (text: string) => string {
+  const seen = new Map<string, number>();
+  return (text: string) => {
+    let slug = slugHeading(text);
+    const count = seen.get(slug) ?? 0;
+    seen.set(slug, count + 1);
+    if (count > 0) slug = `${slug}-${count}`;
+    return slug;
+  };
 }
 
-// Retitle every heading id with the GitHub slug of its rendered text, so the
-// `.md` fragment namespace and the `.html` id namespace are literally one.
-// The runtime also emits a self-anchor `<a href="#id">` inside each heading;
-// that href is retitled with it. Repeat headings dedupe GitHub-style
-// (`head`, `head-1`, …).
-function githubHeadingIds(html: string): string {
-  const seen = new Map<string, number>();
-  return html.replace(
-    /<h([1-6]) id="([^"]*)">([\s\S]*?)<\/h\1>/g,
-    (whole, level: string, oldId: string, inner: string) => {
-      const text = decodeHtmlEntities(inner.replace(/<[^>]+>/g, ""));
-      let slug = slugHeading(text);
-      const count = seen.get(slug) ?? 0;
-      seen.set(slug, count + 1);
-      if (count > 0) slug = `${slug}-${count}`;
-      return whole
-        .replace(`id="${oldId}"`, `id="${slug}"`)
-        .replace(`href="#${oldId}"`, `href="#${slug}"`);
-    },
-  );
+// Stateless across documents: the code block component only renders `code`
+// nodes; headings are collected from the parsed tree with the library's own
+// collector, so no bespoke heading model shadows the parser's.
+const markdownExtensions: MarkdownExtension[] = [codeBlockExtension];
+
+function parseMarkdownDocument(markdown: string): MarkdownDocument {
+  return parseMarkdown(markdown, {
+    allowHtml: true,
+    headingIds: githubHeadingIdsFn(),
+    extensions: markdownExtensions,
+  });
+}
+
+function renderDocumentBody(document: MarkdownDocument): string {
+  return renderHtml(document, {
+    allowHtml: true,
+    headingAnchors: true,
+    extensions: markdownExtensions,
+  });
+}
+
+// One parse+render pairing, owned here: every consumer parses and renders
+// through this, so an extension added to one side cannot half-work.
+export function renderMarkdown(markdown: string): {
+  headings: MarkdownHeading[];
+  body: string;
+} {
+  const document = parseMarkdownDocument(markdown);
+  return { headings: collectMarkdownHeadings(document), body: renderDocumentBody(document) };
 }
 
 export function markdownToHtmlBody(markdown: string): string {
-  return githubHeadingIds(Bun.markdown.html(markdown, { headings: true }));
+  return renderMarkdown(markdown).body;
+}
+
+// The single copy-paste block lives in `docs/onboarding-prompt.md` as the
+// ```text fence carrying the prompt meta tag; every other surface embeds this
+// extracted text. Read from the AST, not a fence regex, so a second fenced
+// example inside the prompt can never silently truncate the extraction.
+export function extractPromptText(markdown: string): string {
+  const fences: CodeBlockNode[] = [];
+  const visit = (nodes: BlockNode[]): void => {
+    for (const node of nodes) {
+      if (node.type === "code") {
+        fences.push(node);
+      } else if (node.type === "list") {
+        for (const item of node.items) visit(item.children);
+      } else if (node.type === "blockquote" || node.type === "callout") {
+        visit(node.children);
+      }
+    }
+  };
+  visit(parseMarkdownDocument(markdown).children);
+  const found = fences.find(isPromptFence);
+  if (!found) {
+    throw new Error("onboarding prompt source carries no ```text prompt block");
+  }
+  const text = found.value.trim();
+  // A fence line inside the prompt cannot round-trip through `promptFence`,
+  // so fail loudly instead of shipping a truncated block.
+  for (const line of text.split("\n")) {
+    if (line.startsWith("```")) {
+      throw new Error("onboarding prompt contains a fence line");
+    }
+  }
+  return text;
+}
+
+// Published `.md` stays a complete, self-contained prompt for agents. The
+// meta tag survives into the HTML view, where the code-block extension
+// reads it back as the onboarding copy label.
+export function promptFence(prompt: string): string {
+  return [`\`\`\`text ${PROMPT_FENCE_META}`, prompt, "```"].join("\n");
 }
 
 export function extractHtmlIds(html: string): string[] {
@@ -105,9 +166,8 @@ export function isExternalHref(href: string): boolean {
 // Rewrite intra-corpus `.md` links to their rendered `.html` twins (fragments
 // preserved) so the human artifact never drops readers into raw source.
 // Links to files with no HTML twin (examples, templates, env samples) pass
-// through untouched. Regex over rendered HTML on purpose: the runtime's
-// `render` callback API hands handlers plain text without inline markup, so
-// rewriting there would have to re-render emphasis and code spans by hand.
+// through untouched. Regex over rendered HTML on purpose: the AST link nodes
+// carry bare hrefs without the twin mapping, which only assembly knows.
 export function rewritePageLinks(
   html: string,
   sourceFile: string,
@@ -125,37 +185,4 @@ export function rewritePageLinks(
     if (!renderedHtmlPages.has(rel)) return whole;
     return `href="${path.slice(0, -3)}.html${suffix}"`;
   });
-}
-
-export function renderMarkdownPage(
-  title: string,
-  markdown: string,
-  sourceFile: string,
-  renderedHtmlPages: Set<string>,
-): string {
-  const body = rewritePageLinks(
-    markdownToHtmlBody(markdown),
-    sourceFile,
-    renderedHtmlPages,
-  );
-  return [
-    "<!DOCTYPE html>",
-    '<html lang="en">',
-    "<head>",
-    '<meta charset="utf-8" />',
-    `<title>${escapeHtml(title)}</title>`,
-    "</head>",
-    "<body>",
-    "<main>",
-    body,
-    "</main>",
-    "</body>",
-    "</html>",
-    "",
-  ].join("\n");
-}
-
-export function pageTitle(markdown: string, fallback: string): string {
-  const match = /^#\s+(.*)$/m.exec(markdown);
-  return match ? match[1]!.trim() : fallback;
 }

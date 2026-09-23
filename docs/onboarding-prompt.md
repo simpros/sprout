@@ -7,7 +7,7 @@ config + CI wiring.
 
 ---
 
-```text
+```text prompt
 You are onboarding this repository to sprout (every pull request gets its own
 preview database plus an optional preview app).
 

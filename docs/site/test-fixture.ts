@@ -10,10 +10,16 @@ const dirSamples: Record<string, string> = {
 };
 
 const overlays: Record<string, string> = {
-  "docs/site/index.html":
-    `<html><body><a href="../deploy.md">deploy</a><a href="../adoption.md">adopt</a></body></html>\n`,
+  // Body fragment like the production source: no envelope, no theme marker,
+  // no `.wrap` — the shell supplies those.
+  "docs/site/marketing.html":
+    `<a href="../deploy.md">deploy</a><a href="../adoption.md">adopt</a>\n`,
   "docs/index.html":
     `<html><body><a href="adoption.md">adopt</a><a href="getting-started.md">start</a></body></html>\n`,
+  // Real meta-tagged fence like the production source: assembly extracts the
+  // prompt from this file on every run.
+  "docs/onboarding-prompt.md":
+    "# docs/onboarding-prompt.md\n\n```text prompt\nfixture prompt\n```\n",
   "README.md": "# r\n[adopt](docs/adoption.md)\n",
   "docs/deploy.md":
     "See [adoption](adoption.md), [e2e](../e2e/README.md), " +

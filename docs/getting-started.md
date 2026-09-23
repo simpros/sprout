@@ -3,11 +3,14 @@
 First preview in one sitting: one `.sprout.yaml`, two CI variables, one CI
 include. Five minutes on a repo that already has a `Dockerfile`.
 
-- New adopter? Read this page only, then follow the single copy-paste block in
-  [Onboarding prompt](onboarding-prompt.md) inside your coding harness.
+- New adopter? Read this page only, then run the onboarding prompt in your
+  coding harness — the same block as
+  [Onboarding prompt](onboarding-prompt.md).
 - Need an exact key? See [Adopting a repo](adopting-a-repo.md).
 - Need CI details for your forge? See [CI integration](ci-integration.md).
 - Running the gateway itself? See [Operator deploy](operator-deploy.md).
+
+<!-- docs-onboarding-prompt -->
 
 ## Prerequisites
 

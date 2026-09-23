@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import {
+  extractPromptText,
   isExternalHref,
   markdownToHtmlBody,
   slugHeading,
   splitHref,
 } from "./markdown.ts";
+import { repoRootDir } from "./assemble.ts";
 
 describe("slugHeading (GitHub anchor dialect)", () => {
   test("keeps double hyphens where punctuation sat between spaces", () => {
@@ -88,5 +92,46 @@ describe("shared href helpers", () => {
     expect(isExternalHref("mailto:a@b.c")).toBe(true);
     expect(isExternalHref("#cli")).toBe(false);
     expect(isExternalHref("other.md#hi")).toBe(false);
+  });
+});
+
+describe("docs toolchain pins", () => {
+  test("TanStack Markdown is exactly pinned, never the React entry", async () => {
+    const pkg = JSON.parse(
+      await readFile(join(repoRootDir, "package.json"), "utf8"),
+    ) as { devDependencies: Record<string, string> };
+    expect(pkg.devDependencies["@tanstack/markdown"]).toBe("0.0.13");
+    for (const entry of await readdir(import.meta.dir)) {
+      if (!entry.endsWith(".ts")) continue;
+      const text = await readFile(join(import.meta.dir, entry), "utf8");
+      // Joined so this assertion cannot match its own source.
+      expect(text).not.toContain(
+        ["@tanstack/markdown", "react"].join("/"),
+      );
+    }
+  });
+});
+
+describe("extractPromptText", () => {
+  test("reads the meta-tagged fence from the AST", async () => {
+    const source = await readFile(
+      join(repoRootDir, "docs/onboarding-prompt.md"),
+      "utf8",
+    );
+    const prompt = extractPromptText(source);
+    expect(prompt.startsWith("You are onboarding this repository")).toBe(true);
+    expect(prompt).not.toContain("```");
+  });
+
+  test("ignores untagged fences and fails loudly on inner fences", () => {
+    expect(
+      extractPromptText(
+        '```yaml\nk: v\n```\n\n```text prompt\n abilities\n```\n',
+      ),
+    ).toBe("abilities");
+    expect(() => extractPromptText("# no fence here\n")).toThrow();
+    expect(() =>
+      extractPromptText("```text prompt\na\n```inner\nb\n```\n"),
+    ).toThrow();
   });
 });
