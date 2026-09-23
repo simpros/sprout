@@ -65,15 +65,11 @@ export const ENV_KEY_HOME: Record<CanonicalEnvKey, DbProvider> = {
   DATABASE_URL: "sqlite",
 };
 
-export function isMailEnvKey(key: string): key is MailEnvKey {
+function isMailEnvKey(key: string): key is MailEnvKey {
   return (MAIL_ENV_KEYS as readonly string[]).includes(key);
 }
 
-export function isCanonicalEnvKey(key: string): key is CanonicalEnvKey {
-  return (CANONICAL_ENV_KEYS as readonly string[]).includes(key);
-}
-
-export function isPreviewEnvKey(key: string): key is PreviewEnvKey {
+function isPreviewEnvKey(key: string): key is PreviewEnvKey {
   return (PREVIEW_ENV_KEYS as readonly string[]).includes(key);
 }
 
@@ -180,7 +176,6 @@ export {
   validateHostname,
   validateHostnameValue,
   type HostnameIssue,
-  type HostnameMode,
 } from "./hostname.ts";
 
 export {
@@ -192,10 +187,6 @@ export {
 } from "./health.ts";
 
 export {
-  DEFAULT_DB_FILE,
-  DEFAULT_DB_PATH,
-  DEFAULT_DB_PROVIDER,
-  DB_PROVIDERS,
   dbSpecIssueMessage,
   defaultDbSpec,
   isDbProvider,
@@ -206,7 +197,6 @@ export {
   sqliteDatabaseUrl,
   type DbProvider,
   type DbSpec,
-  type DbSpecIssue,
 } from "./db.ts";
 
 export {
@@ -215,10 +205,8 @@ export {
 } from "./naming.ts";
 
 export {
-  LABEL_KEY_RE,
   labelIssueMessage,
   parseLabelMap,
-  type LabelMapIssue,
   type PreviewLabels,
 } from "./labels.ts";
 
@@ -226,28 +214,17 @@ export {
   copyServiceExtras,
   isServicePort,
   parseServiceEnvMap,
-  SERVICE_PORT_MAX,
-  SERVICE_PORT_MIN,
   type PreviewServiceSpec,
-  type ServiceEnvIssue,
   type ServiceFields,
 } from "./services.ts";
 
 export {
-  MAIL_MODES,
   DEFAULT_MAIL_FROM_DOMAIN,
-  deriveMailFrom,
   deriveMailFromName,
-  isMailMode,
   mailIntent,
   mailSpecIssueMessage,
   parseMailSpec,
   resolveMailIdentity,
-  validateMailFromTemplate,
   type MailIdentity,
-  type MailIntent,
-  type MailMode,
   type MailSpec,
-  type MailSpecIssue,
-  type ResolvedMailIdentity,
 } from "./mail.ts";
