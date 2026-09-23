@@ -182,7 +182,7 @@ async function collectAdrLeaks(
   return adrLeaks;
 }
 
-export async function assertNoAdrLeaks(
+async function assertNoAdrLeaks(
   paths: CheckPaths,
   pages: LoadedPage[],
 ): Promise<void> {
@@ -197,7 +197,7 @@ export async function assertNoAdrLeaks(
 // The exact assembly marker, not a prefix: a future unrelated comment can
 // never false-positive, and every published page is already in hand here,
 // so the gate holds for every assembled tree, not just fixtures.
-export async function assertNoUnresolvedMarkers(
+async function assertNoUnresolvedMarkers(
   pages: LoadedPage[],
 ): Promise<void> {
   const unresolved = pages

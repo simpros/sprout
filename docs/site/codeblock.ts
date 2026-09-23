@@ -14,6 +14,10 @@ import { escapeHtml } from "./html.ts";
 export const PROMPT_FENCE_META = "prompt";
 export const PROMPT_COPY_LABEL = "Copy onboarding prompt";
 
+export function isPromptFence(node: { meta?: string }): boolean {
+  return node.meta?.split(/\s+/).includes(PROMPT_FENCE_META) ?? false;
+}
+
 // One markup shape, used everywhere: language label plus a copy button over
 // the escaped block text. Untagged fences read as `text`.
 export function codeBlockFigure(
@@ -37,9 +41,7 @@ export const codeBlockExtension: MarkdownExtension = {
   name: "codeblock",
   renderHtml(node) {
     if (node.type === "code") {
-      const copyLabel = node.meta?.split(/\s+/).includes(PROMPT_FENCE_META)
-        ? PROMPT_COPY_LABEL
-        : undefined;
+      const copyLabel = isPromptFence(node) ? PROMPT_COPY_LABEL : undefined;
       return codeBlockFigure(node.lang, node.value, copyLabel);
     }
     return undefined;

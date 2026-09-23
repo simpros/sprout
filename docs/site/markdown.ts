@@ -9,6 +9,7 @@
 import { parseMarkdown } from "@tanstack/markdown";
 import type {
   BlockNode,
+  CodeBlockNode,
   MarkdownDocument,
   MarkdownExtension,
 } from "@tanstack/markdown";
@@ -17,14 +18,10 @@ import { headingCollectionExtension } from "@tanstack/markdown/extensions/headin
 import { dirname, relative, resolve } from "node:path/posix";
 import {
   codeBlockExtension,
+  isPromptFence,
   PROMPT_FENCE_META,
 } from "./codeblock.ts";
-import {
-  docsLocation,
-  renderShell,
-  type ShellNavItem,
-  type ShellTocEntry,
-} from "./shell.ts";
+import type { ShellTocEntry } from "./shell.ts";
 
 // GitHub's anchor rule: lowercase, drop everything but letters/numbers/marks,
 // `_`, `-`, and spaces, then spaces become hyphens. Punctuation between
@@ -57,7 +54,7 @@ const markdownExtensions: MarkdownExtension[] = [
   codeBlockExtension,
 ];
 
-export function parseMarkdownDocument(markdown: string): MarkdownDocument {
+function parseMarkdownDocument(markdown: string): MarkdownDocument {
   return parseMarkdown(markdown, {
     allowHtml: true,
     headingIds: githubHeadingIdsFn(),
@@ -100,11 +97,11 @@ export function markdownToHtmlBody(markdown: string): string {
 // extracted text. Read from the AST, not a fence regex, so a second fenced
 // example inside the prompt can never silently truncate the extraction.
 export function extractPromptText(markdown: string): string {
-  const fences: { meta: string | undefined; value: string }[] = [];
+  const fences: CodeBlockNode[] = [];
   const visit = (nodes: BlockNode[]): void => {
     for (const node of nodes) {
       if (node.type === "code") {
-        fences.push({ meta: node.meta, value: node.value });
+        fences.push(node);
       } else if (node.type === "list") {
         for (const item of node.items) visit(item.children);
       } else if (node.type === "blockquote" || node.type === "callout") {
@@ -113,9 +110,7 @@ export function extractPromptText(markdown: string): string {
     }
   };
   visit(parseMarkdownDocument(markdown).children);
-  const found = fences.find((fence) =>
-    fence.meta?.split(/\s+/).includes(PROMPT_FENCE_META),
-  );
+  const found = fences.find(isPromptFence);
   if (!found) {
     throw new Error("onboarding prompt source carries no ```text prompt block");
   }
@@ -205,28 +200,3 @@ export function rewritePageLinks(
 // Assembly resolves the prompt marker to a fence before parsing, so the
 // code-block extension renders the figure straight from the AST —
 // including blank lines, which survive inside fenced blocks.
-export type RenderMarkdownPageOptions = {
-  title: string;
-  markdown: string;
-  sourceFile: string;
-  renderedHtmlPages: Set<string>;
-  description: string;
-  nav: ShellNavItem[];
-};
-
-export function renderMarkdownPage(opts: RenderMarkdownPageOptions): string {
-  const { document, body } = renderMarkdown(opts.markdown);
-  const rewritten = rewritePageLinks(
-    body,
-    opts.sourceFile,
-    opts.renderedHtmlPages,
-  );
-  return renderShell({
-    title: opts.title,
-    description: opts.description,
-    location: docsLocation,
-    nav: opts.nav,
-    toc: documentToc(document),
-    bodyHtml: rewritten,
-  });
-}

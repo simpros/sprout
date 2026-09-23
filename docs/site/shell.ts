@@ -7,16 +7,21 @@
 // survives.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { dirname as posixDirname, relative as posixRelative } from "node:path/posix";
 import { fileURLToPath } from "node:url";
 import { codeBlockScript } from "./codeblock.ts";
 import { escapeHtml } from "./html.ts";
 
 export const PROMPT_MARKER = "<!-- docs-onboarding-prompt -->";
 
+// Artifact path of the marketing entry, relative to the repo root. Assembly
+// re-exports this so the manifest and the chrome agree on one string.
+export const siteEntryPath = "docs/site/index.html";
+
 let cachedTheme: string | null = null;
 
 // The theme file is the only copy: every page inlines this same text.
-export function themeCss(): string {
+function themeCss(): string {
   if (cachedTheme === null) {
     const dir = dirname(fileURLToPath(import.meta.url));
     cachedTheme = readFileSync(join(dir, "theme.css"), "utf8");
@@ -30,31 +35,26 @@ export type ShellNavItem = {
   current?: boolean;
 };
 
-// One constant per artifact location: every page's depth-derived strings
-// (brand home, root/docs relatives) come from here, so call sites cannot
-// hand-compute a wrong `..`. The docs-nav prefix restates `toDocs`
-// (`.` → `""`, `..` → `"../"`), so it is derived, never set.
-export type SiteLocation = {
+// Depth-derived strings come from the artifact path being written, so a new
+// depth is correct by construction instead of needing a hand-set constant.
+function locationFor(outputPath: string): {
   homeHref: string;
   toRoot: string;
   toDocs: string;
-};
-
-export function navPrefix(location: SiteLocation): string {
-  return location.toDocs === "." ? "" : `${location.toDocs}/`;
+} {
+  const dir = posixDirname(outputPath);
+  const toRoot = posixRelative(dir, ".") || ".";
+  const toDocs = posixRelative(dir, "docs") || ".";
+  return {
+    homeHref: posixRelative(dir, siteEntryPath),
+    toRoot,
+    toDocs,
+  };
 }
 
-export const docsLocation: SiteLocation = {
-  homeHref: "site/index.html",
-  toRoot: "..",
-  toDocs: ".",
-};
-
-export const marketingLocation: SiteLocation = {
-  homeHref: "index.html",
-  toRoot: "../..",
-  toDocs: "..",
-};
+export function navPrefixFor(outputPath: string): string {  const toDocs = posixRelative(posixDirname(outputPath), "docs") || ".";
+  return toDocs === "." ? "" : `${toDocs}/`;
+}
 
 export type ShellTocEntry = {
   id: string;
@@ -62,7 +62,7 @@ export type ShellTocEntry = {
   level: number;
 };
 
-export function siteHeader(homeHref: string, nav: ShellNavItem[]): string {
+function siteHeader(homeHref: string, nav: ShellNavItem[]): string {
   const links = nav
     .map(
       (item) =>
@@ -79,7 +79,7 @@ export function siteHeader(homeHref: string, nav: ShellNavItem[]): string {
   ].join("\n");
 }
 
-export function siteFooter(toRoot: string, toDocs: string): string {
+function siteFooter(toRoot: string, toDocs: string): string {
   return [
     `<footer id="docs">`,
     `  <p>`,
@@ -97,7 +97,7 @@ export function siteFooter(toRoot: string, toDocs: string): string {
 
 // The "On this page" index, straight from the parsed document headings —
 // hrefs live in the same `headingIds` namespace as the rendered headings.
-export function renderToc(headings: ShellTocEntry[]): string {
+function renderToc(headings: ShellTocEntry[]): string {
   const entries = headings.filter((h) => h.level > 1);
   if (entries.length === 0) return "";
   const items = entries
@@ -119,7 +119,7 @@ export function renderToc(headings: ShellTocEntry[]): string {
 export type ShellOptions = {
   title: string;
   description: string;
-  location: SiteLocation;
+  outputPath: string;
   nav: ShellNavItem[];
   toc: ShellTocEntry[];
   bodyHtml: string;
@@ -127,6 +127,7 @@ export type ShellOptions = {
 
 export function renderShell(opts: ShellOptions): string {
   const toc = renderToc(opts.toc);
+  const location = locationFor(opts.outputPath);
   return [
     "<!DOCTYPE html>",
     '<html lang="en">',
@@ -141,12 +142,12 @@ export function renderShell(opts: ShellOptions): string {
     "</head>",
     "<body>",
     '<div class="wrap">',
-    siteHeader(opts.location.homeHref, opts.nav),
+    siteHeader(location.homeHref, opts.nav),
     "<main>",
     ...(toc === "" ? [] : [toc]),
     opts.bodyHtml,
     "</main>",
-    siteFooter(opts.location.toRoot, opts.location.toDocs),
+    siteFooter(location.toRoot, location.toDocs),
     '<div class="codeblock-status" aria-live="polite"></div>',
     "</div>",
     "<script>",

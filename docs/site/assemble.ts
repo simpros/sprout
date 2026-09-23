@@ -4,24 +4,24 @@ import { fileURLToPath } from "node:url";
 import { promptFigure } from "./codeblock.ts";
 import { escapeHtml } from "./html.ts";
 import {
-  docsLocation,
-  marketingLocation,
-  navPrefix,
+  navPrefixFor,
   PROMPT_MARKER,
   renderShell,
+  siteEntryPath,
   type ShellNavItem,
-  type SiteLocation,
 } from "./shell.ts";
 import {
+  documentToc,
   extractPromptText,
   promptFence,
-  renderMarkdownPage,
+  renderMarkdown,
+  rewritePageLinks,
 } from "./markdown.ts";
+
+export { siteEntryPath };
 
 const siteDir = dirname(fileURLToPath(import.meta.url));
 export const repoRootDir = resolve(siteDir, "../..");
-
-export const siteEntryPath = "docs/site/index.html";
 
 // Agent-facing origin for absolute index links; shared with the link checker
 // so generated URLs and the gate resolve against one source of truth.
@@ -54,7 +54,7 @@ export const docsPages: DocsPage[] = [
 // The marketing page in the same manifest shape as every docs page: the
 // source fragment carries no envelope, so its title and description live
 // here, next to `docsPages`.
-export const marketingPage = {
+export const marketingPage: DocsPage = {
   file: siteEntryPath,
   title: "sprout — every pull request gets its own preview",
   description:
@@ -99,8 +99,8 @@ export function renderDocsIndexHtml(): string {
     title: "sprout docs",
     description:
       "sprout docs: adopting repos, CI wiring, previews, operator deploy, CLI, troubleshooting.",
-    location: docsLocation,
-    nav: docsNav(docsLocation),
+    outputPath: "docs/index.html",
+    nav: docsNav("docs/index.html"),
     toc: [],
     bodyHtml,
   });
@@ -108,9 +108,9 @@ export function renderDocsIndexHtml(): string {
 
 // Docs nav straight from the page manifest, so a new page appears
 // automatically. The `docs/ ↔ docs/site/` depth gap is derived from the
-// location, never hand-set per call.
-export function docsNav(location: SiteLocation, current?: string): ShellNavItem[] {
-  const prefix = navPrefix(location);
+// artifact path being written, never hand-set per call.
+export function docsNav(outputPath: string, current?: string): ShellNavItem[] {
+  const prefix = navPrefixFor(outputPath);
   return docsPages.map((p) => ({
     href: `${prefix}${pageIndexHref(p)}`,
     title: p.title,
@@ -220,8 +220,9 @@ export async function assembleSite(
   published.push("llms.txt");
 
   // The onboarding prompt lives in one source file; pages carrying the
-  // marker embed it. It is a docsPage, read unconditionally below, so read
-  // it eagerly here: one read, one substitution helper for both surfaces.
+  // marker embed it. It is a docsPage, read unconditionally below, so
+  // extract it eagerly here: one extraction, one substitution helper for
+  // both surfaces.
   const prompt = extractPromptText(
     await readFile(join(repoRoot, "docs/onboarding-prompt.md"), "utf8"),
   );
@@ -243,15 +244,18 @@ export async function assembleSite(
     await writeFile(dest, markdownForMd);
     published.push(file);
     const htmlFile = pageHtmlFile(file);
+    // Page composition lives here, with the other `renderShell` call sites:
+    // parse once, rewrite `.md` links to `.html` twins, wrap in the shell.
+    const { document, body } = renderMarkdown(markdownForMd);
     await writeFile(
       join(outDir, htmlFile),
-      renderMarkdownPage({
+      renderShell({
         title: page.title,
-        markdown: markdownForMd,
-        sourceFile: file,
-        renderedHtmlPages: htmlPages,
         description: page.description,
-        nav: docsNav(docsLocation, file),
+        outputPath: htmlFile,
+        nav: docsNav(htmlFile, file),
+        toc: documentToc(document),
+        bodyHtml: rewritePageLinks(body, file, htmlPages),
       }),
     );
     published.push(htmlFile);
@@ -264,8 +268,8 @@ export async function assembleSite(
     renderShell({
       title: marketingPage.title,
       description: marketingPage.description,
-      location: marketingLocation,
-      nav: docsNav(marketingLocation),
+      outputPath: siteEntryPath,
+      nav: docsNav(siteEntryPath),
       toc: [],
       bodyHtml: resolvePrompt(marketingSource, promptFigure),
     }),

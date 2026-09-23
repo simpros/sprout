@@ -19,10 +19,13 @@ import {
 import { check, checkPublishedSite, defaultCheckPaths } from "./check.ts";
 import {
   markdownToHtmlBody,
+  documentToc,
   extractPromptText,
   promptFence,
-  renderMarkdownPage,
+  renderMarkdown,
+  rewritePageLinks,
 } from "./markdown.ts";
+import { renderShell } from "./shell.ts";
 import { isAdrPath } from "./adr-policy.ts";
 import { writeCorpusFixture } from "./test-fixture.ts";
 
@@ -143,14 +146,17 @@ describe("assembleSite", () => {
     expect(markdownToHtmlBody("# Hi\n")).toContain('id="hi"');
 
     const pages = new Set(["docs/other.html"]);
-    const rendered = renderMarkdownPage({
+    const sourceFile = "docs/adopting-a-repo.md";
+    const { document, body } = renderMarkdown(
+      "# Hi\n\nSee [other](other.md) and [frag](other.md#hi).\n\nKeep [raw](../templates/README.md).\n",
+    );
+    const rendered = renderShell({
       title: "Hi",
-      markdown:
-        "# Hi\n\nSee [other](other.md) and [frag](other.md#hi).\n\nKeep [raw](../templates/README.md).\n",
-      sourceFile: "docs/adopting-a-repo.md",
-      renderedHtmlPages: pages,
       description: "Hi",
+      outputPath: "docs/adopting-a-repo.html",
       nav: [],
+      toc: documentToc(document),
+      bodyHtml: rewritePageLinks(body, sourceFile, pages),
     });
     expect(rendered).toContain('<a href="other.html">other</a>');
     expect(rendered).toContain('<a href="other.html#hi">frag</a>');
@@ -359,6 +365,8 @@ describe("shared shell, code blocks, and prompt embedding", () => {
       expect(html).toContain('<div class="codeblock-status" aria-live="polite">');
       // The shell owns `.wrap`: exactly one per page, never nested.
       expect(html.match(/<div class="wrap">/g) ?? []).toHaveLength(1);
+      // The shell owns the brand mark: exactly one per page.
+      expect(html.match(/class="brand"/g) ?? []).toHaveLength(1);
       for (const { title } of docsPages) {
         expect(html).toContain(`>${title}</a>`);
       }
