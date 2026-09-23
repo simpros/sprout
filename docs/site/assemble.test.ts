@@ -16,11 +16,8 @@ import {
 } from "./assemble.ts";
 import { check, checkPublishedSite, defaultCheckPaths } from "./check.ts";
 import {
-  isExternalHref,
   markdownToHtmlBody,
   renderMarkdownPage,
-  slugHeading,
-  splitHref,
 } from "./markdown.ts";
 import { isAdrPath } from "./adr-policy.ts";
 import { writeCorpusFixture } from "./test-fixture.ts";

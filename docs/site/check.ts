@@ -198,7 +198,10 @@ export async function check(paths: CheckPaths): Promise<void> {
   const pages = await loadPages(paths);
   await assertNoAdrLeaks(paths, pages);
 
-  const ctx: HrefContext = { rootDir: paths.rootDir, texts: new Map() };
+  const ctx: HrefContext = {
+    rootDir: paths.rootDir,
+    texts: new Map(pages.map((p) => [p.file, p.text])),
+  };
   const results = await Promise.allSettled(
     pages.flatMap(({ file, hrefs }) =>
       hrefs.map((href) => assertHref(href, file, ctx)),

@@ -42,6 +42,8 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Unit tests (docs/deploy guards)
         run: bun run test:guards
+      - name: Static check (docs site)
+        run: bun run docs:typecheck
       - name: Assemble Pages artifact
         run: bun run docs:assemble
       - name: Link check

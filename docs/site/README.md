@@ -62,6 +62,12 @@ walking the artifact, so a newly published page is always gated. Green
 `docs/adoption.md`. `bun run docs/site/check.ts <dir>` checks
 an already-assembled tree in place.
 
+Static types for this toolchain (`docs/site/*.ts` sits outside the
+workspace builds) are checked with `bun run docs:typecheck`
+(`tsc --noEmit -p docs/site/tsconfig.json`, also in `bun run typecheck`
+and the docs workflow), so unused imports and type errors fail CI, not
+just the tests that happen to execute them.
+
 ## ADRs never ship
 
 ADRs are maintainer internals, not consumer docs: `docs/adr` stays out of

@@ -5,7 +5,9 @@
     "": {
       "name": "sprout",
       "devDependencies": {
+        "@types/bun": "1.4.0",
         "turbo": "^2.5.4",
+        "typescript": "^5.9.3",
       },
     },
     "apps/cli": {

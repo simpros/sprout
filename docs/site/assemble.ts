@@ -56,7 +56,7 @@ function docsEntry(): DocsPage {
   return entry;
 }
 
-export function renderedHtmlPages(): Set<string> {
+function renderedHtmlPages(): Set<string> {
   return new Set(docsPages.map((p) => pageHtmlFile(p.file)));
 }
 
@@ -65,6 +65,7 @@ export function renderDocsIndexHtml(): string {
   const legacy = docsPages.filter((p) => p.legacy);
   const item = (p: DocsPage) =>
     `      <li><a href="${pageIndexHref(p)}">${escapeHtml(p.title)}</a> — ${escapeHtml(p.description)}</li>`;
+  const entryHref = pageIndexHref(docsEntry());
   return [
     "<!DOCTYPE html>",
     '<html lang="en">',
@@ -77,7 +78,7 @@ export function renderDocsIndexHtml(): string {
     "<body>",
     "  <main>",
     "    <h1>sprout docs</h1>",
-    '    <p>Markdown is canonical: every page below is served as plain <code>.md</code> (agents) and as rendered <code>.html</code> (humans) from the same source. Machine-readable index: <a href="../llms.txt">llms.txt</a>. Start with the <a href="onboarding-prompt.html">onboarding prompt</a>.</p>',
+    `    <p>Markdown is canonical: every page below is served as plain <code>.md</code> (agents) and as rendered <code>.html</code> (humans) from the same source. Machine-readable index: <a href="../llms.txt">llms.txt</a>. Start with the <a href="${entryHref}">onboarding prompt</a>.</p>`,
     "    <ul>",
     ...main.map(item),
     "    </ul>",

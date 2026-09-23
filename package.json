@@ -11,11 +11,12 @@
     "dev": "turbo dev --filter=@sprout/server",
     "build": "turbo build && bun run docs:check",
     "docs:check": "bun run docs/site/check.ts",
+    "docs:typecheck": "tsc --noEmit -p docs/site/tsconfig.json",
     "docs:assemble": "bun run docs/site/assemble.ts",
     "docs:preview": "bun run docs/site/preview.ts",
     "test": "turbo test && bun run test:guards",
     "test:guards": "bun test docs/site/ deploy/ scripts/ templates/ ./.github/workflows/",
-    "typecheck": "turbo build && bun run docs:check",
+    "typecheck": "turbo build && bun run docs:check && bun run docs:typecheck",
     "test:e2e": "bun run e2e/run.ts",
     "sprout": "bun run apps/cli/src/index.ts",
     "db:generate": "bun run --cwd apps/server db:generate",
@@ -23,7 +24,9 @@
     "db:studio": "bun run --cwd apps/server db:studio"
   },
   "devDependencies": {
-    "turbo": "^2.5.4"
+    "turbo": "^2.5.4",
+    "typescript": "^5.9.3",
+    "@types/bun": "1.4.0"
   },
   "packageManager": "bun@1.4.0"
 }
