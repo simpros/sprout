@@ -1,5 +1,5 @@
 # Operator helpers for a single Let's Encrypt wildcard on the preview domain.
-# See docs/deploy.md § "Wildcard preview certificate (DNS-01)".
+# See docs/operator-deploy.md § "Wildcard preview certificate (DNS-01)".
 #
 # Files:
 #   certificates-resolver.dns.yml   — dnsChallenge body (default: convert in

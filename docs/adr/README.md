@@ -16,3 +16,4 @@ only.
 | [0008](0008-preview-db-providers.md) | Preview database providers: Postgres + SQLite behind one port (accepted, implemented) |
 | [0009](0009-preview-db-provider-none.md) | Previews without a database: `db.provider: none` (accepted, implemented) |
 | [0010](0010-preview-label-ownership.md) | Preview label ownership: gateway Traefik set vs adopter `preview.labels`, fail-fast collision (accepted, implemented) |
+| [0011](0011-agent-first-docs.md) | Agent-first multi-page docs + onboarding prompt (accepted, implemented) |

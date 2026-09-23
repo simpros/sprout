@@ -21,7 +21,7 @@ everything down when the PR closes.
 
 ## Quickstart
 
-**Operator** — deploy the gateway once ([full guide](docs/deploy.md)):
+**Operator** — deploy the gateway once ([full guide](docs/operator-deploy.md)):
 
 ```bash
 cp compose.env.example compose.env   # set passwords / DSNs
@@ -29,7 +29,7 @@ docker compose --env-file compose.env up -d --build
 curl -sf http://127.0.0.1:7331/healthz
 ```
 
-**Adopter** — add config + a CI step ([full guide](docs/adoption.md)):
+**Adopter** — add config + a CI step ([getting started](docs/getting-started.md), [onboarding prompt](docs/onboarding-prompt.md)):
 
 ```yaml
 # .sprout.yaml
@@ -46,7 +46,7 @@ preview:
 ```
 
 Copy-paste files: [`examples/adopting-repo/README.md`](examples/adopting-repo/README.md).
-GitLab: published `preview` component — see [adoption guide](docs/adoption.md)
+GitLab: published `preview` component — see [CI integration](docs/ci-integration.md)
 (issue [#127](https://github.com/simpros/sprout/issues/127)).
 
 ## Features
@@ -85,8 +85,14 @@ sprout teardown
 
 - **[Public docs](https://simpros.github.io/sprout/)** — how it works, CLI reference, config, FAQ  
   ([source](docs/site/index.html) · local preview: `bun run docs:preview`)
-- [Adoption guide](docs/adoption.md) — `.sprout.yaml`, CI, entrypoints
-- [Operator deploy](docs/deploy.md) — compose stack, env, Traefik
+- [Getting started](docs/getting-started.md) — first preview
+- [Adopting a repo](docs/adopting-a-repo.md) — `.sprout.yaml`, manifest reference
+- [CI integration](docs/ci-integration.md) — GitHub / GitLab wiring, reset
+- [Previews](docs/previews.md) — databases, seeding, services, mail
+- [Operator deploy](docs/operator-deploy.md) — compose stack, env, Traefik
+- [CLI reference](docs/cli-reference.md) — every command
+- [Troubleshooting](docs/troubleshooting.md) — error catalogue
+- [Onboarding prompt](docs/onboarding-prompt.md) — paste into a coding harness
 - [`examples/adopting-repo/README.md`](examples/adopting-repo/README.md) — copy-paste starter
 - [`CONTEXT.md`](CONTEXT.md) — domain vocabulary
 - [`e2e/README.md`](e2e/README.md) — acceptance harness (`bun run test:e2e`)

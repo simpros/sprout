@@ -1,0 +1,12 @@
+These docs are for agents. Start with the onboarding prompt.
+- [Onboarding prompt](https://simpros.github.io/sprout/docs/onboarding-prompt.md): copy-paste agent block (entry point for agents).
+- [Getting started](https://simpros.github.io/sprout/docs/getting-started.md): first preview in one sitting.
+- [Adopting a repo](https://simpros.github.io/sprout/docs/adopting-a-repo.md): sprout.yaml manifest reference and app entrypoints.
+- [CI integration](https://simpros.github.io/sprout/docs/ci-integration.md): GitLab component, GitHub reusable workflow, variables, reset, notes.
+- [Previews](https://simpros.github.io/sprout/docs/previews.md): lifecycle: database providers, seeding, services, mail.
+- [Operator deploy](https://simpros.github.io/sprout/docs/operator-deploy.md): gateway compose stack, Traefik, env reference, admin token.
+- [CLI reference](https://simpros.github.io/sprout/docs/cli-reference.md): every sprout command, debugging, tokens.
+- [Troubleshooting](https://simpros.github.io/sprout/docs/troubleshooting.md): adopter and operator error catalogue.
+- [Herdr integration](https://simpros.github.io/sprout/docs/herdr-integration.md): operator-side review automation.
+- [Adoption guide](https://simpros.github.io/sprout/docs/adoption.md): thin map to the per-topic pages (legacy path).
+- [Operator deploy guide](https://simpros.github.io/sprout/docs/deploy.md): thin map to the operator page (legacy path).

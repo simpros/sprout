@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { publishFiles } from "./assemble.ts";
+import { publishFiles, renderLlmsTxt } from "./assemble.ts";
 
 const dirSamples: Record<string, string> = {
   "templates/README.md": "# templates\n",
@@ -12,6 +12,8 @@ const dirSamples: Record<string, string> = {
 const overlays: Record<string, string> = {
   "docs/site/index.html":
     `<html><body><a href="../deploy.md">deploy</a><a href="../adoption.md">adopt</a></body></html>\n`,
+  "docs/index.html":
+    `<html><body><a href="adoption.md">adopt</a><a href="getting-started.md">start</a></body></html>\n`,
   "README.md": "# r\n[adopt](docs/adoption.md)\n",
   "docs/deploy.md":
     "See [adoption](adoption.md), [e2e](../e2e/README.md), " +
@@ -27,6 +29,8 @@ export async function writeCorpusFixture(root: string): Promise<void> {
   const files: Record<string, string> = {};
   for (const file of publishFiles) files[file] = `# ${file}\n`;
   Object.assign(files, dirSamples, overlays);
+  // The agent index is generated from the page manifest, never hand-copied.
+  files["llms.txt"] = renderLlmsTxt();
   for (const [rel, text] of Object.entries(files)) {
     const abs = join(root, rel);
     await mkdir(dirname(abs), { recursive: true });

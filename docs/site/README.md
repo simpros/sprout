@@ -1,8 +1,31 @@
 # Public docs site
 
-Single-page static docs for sprout.
+Multi-page agent-first docs for sprout.
 
 **Live:** https://simpros.github.io/sprout/
+
+## Pages
+
+Markdown is canonical under `docs/`: `getting-started`, `adopting-a-repo`,
+`ci-integration`, `operator-deploy`, `previews`, `cli-reference`,
+`troubleshooting`, `onboarding-prompt`, plus `herdr-integration`. Legacy
+`docs/adoption.md` / `docs/deploy.md` stay as thin maps so old deep links
+still land. `docs/index.html` lists every page; `llms.txt` at the site root
+is the machine-readable index (onboarding prompt = entry point).
+
+## Render
+
+`docs/site/assemble.ts` renders each page markdown → HTML at assemble time
+via `docs/site/markdown.ts` (the runtime's built-in GFM renderer, with
+heading `id`s retitled to the GitHub anchor dialect the in-corpus
+`#fragment`s already assume), so both `.md` (agents, plain GET) and `.html`
+(humans) ship from one source. Intra-page `.md` links rewrite to their
+`.html` twins (fragments preserved); links to files with no HTML twin
+(examples, templates, env samples) stay `.md`. Every new page joins
+`docsPages` there — the publish list, the rendered HTML, `docs/index.html`,
+and `llms.txt` are all generated from that one manifest, and tests assert
+the checked-in `llms.txt` matches the generator byte for byte
+(`docs/index.html` lives only in the assembled artifact).
 
 ## Preview
 
@@ -26,14 +49,24 @@ bun run docs:check
 ```
 
 `docs:check` assembles the publish set (single manifest —
-`publishFiles` + `publishDirs` in `docs/site/assemble.ts`) into a temp dir
-and checks every HTML/markdown page found there with static-host semantics
+`docsPages` + `publishDirs` in `docs/site/assemble.ts`) into a temp dir
+and checks every HTML/markdown/text page found there with static-host semantics
 — a target must be a file (or a directory carrying its own `index.html`;
-Pages never serves generated listings). Check roots are discovered by
+Pages never serves generated listings), and every `#fragment` must resolve
+to a GitHub-slug heading `id` in its target (the renderer emits the same
+slugs, so the two share one namespace). Absolute `llms.txt` links and bare
+same-site URLs (the onboarding prompt lists them as plain text) resolve
+against the checked tree via the shared `SITE_ORIGIN`. Check roots are discovered by
 walking the artifact, so a newly published page is always gated. Green
 `docs:check` therefore means the Pages URLs resolve, including
 `docs/adoption.md`. `bun run docs/site/check.ts <dir>` checks
 an already-assembled tree in place.
+
+Static types for this toolchain (`docs/site/*.ts` sits outside the
+workspace builds) are checked with `bun run docs:typecheck`
+(`tsc --noEmit -p docs/site/tsconfig.json`, also in `bun run typecheck`
+and the docs workflow), so unused imports and type errors fail CI, not
+just the tests that happen to execute them.
 
 ## ADRs never ship
 

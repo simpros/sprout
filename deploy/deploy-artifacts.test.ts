@@ -5,6 +5,9 @@ import {
   POSTGRES_REQUIRED_ENV,
   REQUIRED_ENV,
 } from "../apps/server/src/config.ts";
+// Derived, not listed: docs pages move between files, so a hand list of
+// docs paths would shed this guard on the next content move.
+import { docsPages } from "../docs/site/assemble.ts";
 
 const deployDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(deployDir, "..");
@@ -132,19 +135,22 @@ describe("deploy artifacts agree", () => {
       `ghcr.io/simpros/sprout:${pkg.version}`,
     );
 
-    // Every hand-written copy of the release pin lives in this list. Scan for
-    // any version token so a new pin shape cannot slip past the guard; the
-    // only allowed foreign tokens are named in versionExceptions below.
+    // Every hand-written copy of the release pin lives in this list, plus
+    // every published docs page (derived from the manifest so a content
+    // move cannot shed the guard). Scan for any version token so a new pin
+    // shape cannot slip past the guard; the only allowed foreign tokens
+    // are named in versionExceptions below.
     const pinFiles = [
       "Dockerfile",
       "deploy/coolify/gateway.compose.yml",
       "deploy/coolify/README.md",
-      "docs/adoption.md",
-      "docs/deploy.md",
       "examples/adopting-repo/.github/workflows/sprout.yml",
       "examples/adopting-repo/.gitlab-ci.yml",
       "templates/README.md",
     ];
+    // Docs pages carry pins too, but most pages carry none — so they are
+    // scanned for stray pins without requiring each page to have one.
+    const docsFiles = docsPages.map((p) => p.file);
     const versionToken = /(?<![\d.])v?(\d+\.\d+\.\d+)(?![\d.])/g;
     // Deliberate foreign versions, not sprout release pins. Each exception
     // names a marker sharing the token's line, so the same token elsewhere
@@ -153,11 +159,11 @@ describe("deploy artifacts agree", () => {
       // Bun base image, tracks the toolchain not the release.
       { file: "Dockerfile", version: "1.4.0", marker: "oven/bun" },
       // Same Bun base mention in the build example.
-      { file: "docs/deploy.md", version: "1.4.0", marker: "Bun" },
+      { file: "docs/operator-deploy.md", version: "1.4.0", marker: "Bun" },
       // Illustrative older tag in the inputs table.
       { file: "templates/README.md", version: "0.6.0", marker: "e.g." },
     ];
-    for (const rel of pinFiles) {
+    async function unexcusedPins(rel: string): Promise<string[]> {
       const text = await Bun.file(join(repoRoot, rel)).text();
       const pins: string[] = [];
       for (const line of text.split("\n")) {
@@ -169,9 +175,18 @@ describe("deploy artifacts agree", () => {
           if (!excused) pins.push(pin);
         }
       }
+      return pins;
+    }
+    for (const rel of pinFiles) {
+      const pins = await unexcusedPins(rel);
       expect(pins.length).toBeGreaterThan(0);
       for (const pin of pins) {
         expect(pin).toBe(pkg.version);
+      }
+    }
+    for (const rel of docsFiles) {
+      for (const pin of await unexcusedPins(rel)) {
+        expect(`${rel}: ${pin}`).toBe(`${rel}: ${pkg.version}`);
       }
     }
   });
