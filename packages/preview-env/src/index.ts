@@ -130,6 +130,8 @@ export function parsePreviewEnvForProvider(
   return parsed;
 }
 
+// Home modules are the intra-package contract: they may export seams (notably
+// for direct-path tests) that the barrel below deliberately does not re-export.
 export {
   resolveHostnameValue,
   validateHostname,
