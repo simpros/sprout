@@ -19,12 +19,12 @@ shell scripts:
 ```yaml
 # .gitlab-ci.yml
 include:
-  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.7.0
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.8.0
     inputs: { stage: deploy }
 ```
 
 Replace `<group>/sprout-ci` with the component project path on your GitLab
-instance and `v0.7.0` with the sprout release you adopt. Where the component
+instance and `v0.8.0` with the sprout release you adopt. Where the component
 project is unavailable on your instance, use the `include: remote` fallback
 documented in [`templates/README.md`](../templates/README.md)
 (remote includes must set `sprout_version` explicitly to the tag in the URL).
@@ -129,9 +129,9 @@ permissions:
   packages: write
 jobs:
   preview:
-    uses: simpros/sprout/.github/workflows/preview.yml@v0.7.0
+    uses: simpros/sprout/.github/workflows/preview.yml@v0.8.0
     with:
-      sprout_version: v0.7.0
+      sprout_version: v0.8.0
     secrets:
       SPROUT_URL: ${{ secrets.SPROUT_URL }}
       SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
@@ -200,7 +200,7 @@ Pick the asset that matches the host libc (names are honest):
 | `sprout-linux-x64-musl` | musl | Alpine runners; install `libstdc++` |
 
 ```bash
-TAG=v0.7.0   # pin ≥ the release that ships glibc `sprout-linux-x64`
+TAG=v0.8.0   # pin ≥ the release that ships glibc `sprout-linux-x64`
 
 # glibc hosts
 curl -fsSL -o /usr/local/bin/sprout \
