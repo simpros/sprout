@@ -155,17 +155,19 @@ function resolveSpec(
 
 type Graph = {
   declHome: Map<string, string>;
+  decls: Decl[];
   forwards: Forward[];
   stars: StarForward[];
 };
 
 function homes(graph: Graph, target: string | null, name: string): Set<string> {
-  // Every file whose surface provides `name` along the resolution chain —
-  // both the declaring home and each barrel that forwards it. A decl at
-  // `home` is live iff some outside import site reaches `home`; a barrel
-  // forward at `file` is live iff some outside import site resolves through
-  // `file`. Name-only matching is not enough: a same-named export in another
-  // package must not certify this one as live.
+  // Every `file::name` pair whose surface provides `name` along the
+  // resolution chain — both the declaring home and each barrel that forwards
+  // it. Callers seed the walk with the *import site's* name, so a rename
+  // anywhere along the chain (`export { X as Y }`) is followed by the BFS
+  // instead of discarded by a name gate. Pair-keying keeps it exact: a decl
+  // at `home` is live iff some outside import site reaches `home::name`, so
+  // a sibling name declared in the same home is never credited.
   const out = new Set<string>();
   const seen = new Set<string>();
   const stack: [string | null, string][] = [[target, name]];
@@ -174,16 +176,18 @@ function homes(graph: Graph, target: string | null, name: string): Set<string> {
     if (file === null || seen.has(`${file}::${want}`)) continue;
     seen.add(`${file}::${want}`);
     const home = graph.declHome.get(`${file}::${want}`);
-    if (home !== undefined) out.add(home);
+    if (home !== undefined) out.add(`${home}::${want}`);
     for (const f of graph.forwards) {
       if (f.file === file && f.exported === want) {
-        out.add(file);
-        stack.push([f.target, f.source]);
+        out.add(`${file}::${want}`);
+        // A namespace re-export (`export * as ns`) carries source "*" and
+        // passes the wanted name through to its target.
+        stack.push([f.target, f.source === "*" ? want : f.source]);
       }
     }
     for (const s of graph.stars) {
       if (s.file === file) {
-        out.add(file);
+        out.add(`${file}::${want}`);
         stack.push([s.target, want]);
       }
     }
@@ -193,8 +197,8 @@ function homes(graph: Graph, target: string | null, name: string): Set<string> {
 
 // AST walk: every static export and import shape the compiler accepts is
 // understood, so an unfamiliar shape can never green-light rot or red-light
-// an unrelated PR. Namespace imports, namespace re-exports, and dynamic
-// import()/require() act as wildcards.
+// an unrelated PR. Namespace imports, bare export-star re-exports, and
+// dynamic import()/require() act as wildcards.
 function collectFile(
   rel: string,
   source: ts.SourceFile,
@@ -238,7 +242,11 @@ function collectFile(
         continue;
       }
       if (ts.isNamespaceExport(clause)) {
-        if (spec != null && ts.isStringLiteral(spec)) stars.push(spec.text);
+        // export * as ns from "…" — a named surface entry, checked like an
+        // explicit forward below; the "*" source passes the wanted name
+        // through in homes(). Bare export * stays a wildcard star.
+        if (spec != null && ts.isStringLiteral(spec))
+          forwards.push({ exported: clause.name.text, source: "*", spec: spec.text });
         continue;
       }
       for (const el of clause.elements) {
@@ -307,15 +315,18 @@ function collectDead(): { dead: string[]; total: number } {
   const inScope = (f: string): boolean =>
     !f.endsWith(".test.ts") && dirs.some((d) => f === d || f.startsWith(`${d}/`));
 
-  const graph: Graph = { declHome: new Map(), forwards: [], stars: [] };
+  const graph: Graph = { declHome: new Map(), decls: [], forwards: [], stars: [] };
   const imports: ImportSite[] = [];
   // The graph spans every tracked file so re-export chains through
   // out-of-scope surfaces (notably @sprout/server/api-type) resolve;
   // only scoped homes are reported dead below.
-  const scopedDeclKeys: string[] = [];
-  const scopedForwards: Forward[] = [];
   for (const rel of files) {
-    const text = readFileSync(join(repoRoot, rel), "utf8");
+    let text: string;
+    try {
+      text = readFileSync(join(repoRoot, rel), "utf8");
+    } catch {
+      throw new Error(`dead-exports guard: tracked file missing from working tree: ${rel}`);
+    }
     const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
     const decls: Decl[] = [];
     const fileImports: { name: string; spec: string }[] = [];
@@ -326,6 +337,7 @@ function collectDead(): { dead: string[]; total: number } {
       imports.push({ file: rel, name: s.name, target: resolveSpec(s.spec, rel, tracked, pkgs) });
     }
     for (const d of decls) graph.declHome.set(`${rel}::${d.name}`, rel);
+    graph.decls.push(...decls);
     for (const f of fileForwards) {
       graph.forwards.push({
         file: rel,
@@ -337,39 +349,29 @@ function collectDead(): { dead: string[]; total: number } {
     for (const spec of fileStars) {
       graph.stars.push({ file: rel, target: resolveSpec(spec, rel, tracked, pkgs) });
     }
-    if (!inScope(rel)) continue;
-    for (const d of decls) scopedDeclKeys.push(`${rel}::${d.name}`);
-    for (const f of fileForwards) {
-      scopedForwards.push({
-        file: rel,
-        exported: f.exported,
-        source: f.source,
-        target: resolveSpec(f.spec, rel, tracked, pkgs),
-      });
-    }
   }
+  // One resolution per forward: the scoped sets filter the graph instead of
+  // re-resolving specifiers into string-encoded duplicates.
+  const scopedDecls = graph.decls.filter((d) => inScope(d.home));
+  const scopedForwards = graph.forwards.filter((f) => inScope(f.file));
 
   const dead: string[] = [];
+  const seed = (s: ImportSite, want: string): string => (s.name === "*" ? want : s.name);
   const importerOf = (name: string, home: string): boolean =>
     imports.some(
-      (s) =>
-        s.file !== home &&
-        (s.name === name || s.name === "*") &&
-        homes(graph, s.target, name).has(home),
+      (s) => s.file !== home && homes(graph, s.target, seed(s, name)).has(`${home}::${name}`),
     );
-  for (const key of scopedDeclKeys) {
-    const home = graph.declHome.get(key)!;
-    const name = key.slice(home.length + 2);
-    if (!importerOf(name, home)) dead.push(`${home}: ${name} has no importer outside its home module`);
+  for (const d of scopedDecls) {
+    if (!importerOf(d.name, d.home))
+      dead.push(`${d.home}: ${d.name} has no importer outside its home module`);
   }
-  const total = scopedDeclKeys.length + scopedForwards.length;
+  const total = scopedDecls.length + scopedForwards.length;
   for (const f of scopedForwards) {
     if (
       !imports.some(
         (s) =>
           s.file !== f.file &&
-          (s.name === f.exported || s.name === "*") &&
-          homes(graph, s.target, f.exported).has(f.file),
+          homes(graph, s.target, seed(s, f.exported)).has(`${f.file}::${f.exported}`),
       )
     ) {
       dead.push(`${f.file}: re-export '${f.exported}' has no importer`);
