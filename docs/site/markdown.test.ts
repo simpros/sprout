@@ -14,7 +14,7 @@ import {
   slugHeading,
   splitHref,
 } from "./markdown.ts";
-import { decodeHtmlEntities } from "./codeblock.ts";
+import { decodeHtmlEntities } from "./html.ts";
 import { docsPages, repoRootDir } from "./assemble.ts";
 
 describe("slugHeading (GitHub anchor dialect)", () => {

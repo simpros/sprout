@@ -6,24 +6,13 @@
 // so the two surfaces cannot drift. The inlined client script is the single
 // behaviour source: no dependencies, no fetch, one `<script>` per page.
 import type { MarkdownExtension } from "@tanstack/markdown";
+import { escapeHtml, decodeHtmlEntities } from "./html.ts";
 
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-export function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&#96;/g, "`")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-}
+// Meta tag on the assembled prompt fence: the onboarding prompt renders
+// through the same extension as every other fence, but keeps its
+// distinctive copy label.
+export const PROMPT_FENCE_META = "prompt";
+export const PROMPT_COPY_LABEL = "Copy onboarding prompt";
 
 // One markup shape, used everywhere: language label plus a copy button over
 // the escaped block text. Untagged fences read as `text`.
@@ -48,7 +37,10 @@ export const codeBlockExtension: MarkdownExtension = {
   name: "codeblock",
   renderHtml(node) {
     if (node.type === "code") {
-      return codeBlockFigure(node.lang, node.value);
+      const copyLabel = node.meta?.split(/\s+/).includes(PROMPT_FENCE_META)
+        ? PROMPT_COPY_LABEL
+        : undefined;
+      return codeBlockFigure(node.lang, node.value, copyLabel);
     }
     return undefined;
   },

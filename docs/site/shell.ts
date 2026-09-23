@@ -10,10 +10,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   codeBlockScript,
-  decodeHtmlEntities,
-  escapeHtml,
   upgradePreBlocks,
 } from "./codeblock.ts";
+import { decodeHtmlEntities, escapeHtml } from "./html.ts";
 
 export const THEME_MARKER = "<!-- docs-theme -->";
 export const PROMPT_MARKER = "<!-- docs-onboarding-prompt -->";
@@ -37,6 +36,30 @@ export type ShellNavItem = {
   href: string;
   title: string;
   current?: boolean;
+};
+
+// One constant per artifact location: every page's depth-derived strings
+// (brand home, root/docs relatives, nav prefix) come from here, so call
+// sites cannot hand-compute a wrong `..`.
+export type SiteLocation = {
+  homeHref: string;
+  toRoot: string;
+  toDocs: string;
+  navPrefix: string;
+};
+
+export const docsLocation: SiteLocation = {
+  homeHref: "site/index.html",
+  toRoot: "..",
+  toDocs: ".",
+  navPrefix: "",
+};
+
+export const marketingLocation: SiteLocation = {
+  homeHref: "index.html",
+  toRoot: "../..",
+  toDocs: "..",
+  navPrefix: "../",
 };
 
 export type ShellTocEntry = {
@@ -102,9 +125,7 @@ export function renderToc(headings: ShellTocEntry[]): string {
 export type ShellOptions = {
   title: string;
   description: string;
-  homeHref: string;
-  toRoot: string;
-  toDocs: string;
+  location: SiteLocation;
   nav: ShellNavItem[];
   toc: ShellTocEntry[];
   bodyHtml: string;
@@ -126,12 +147,12 @@ export function renderShell(opts: ShellOptions): string {
     "</head>",
     "<body>",
     '<div class="wrap">',
-    siteHeader(opts.homeHref, opts.nav),
+    siteHeader(opts.location.homeHref, opts.nav),
     "<main>",
     ...(toc === "" ? [] : [toc]),
     opts.bodyHtml,
     "</main>",
-    siteFooter(opts.toRoot, opts.toDocs),
+    siteFooter(opts.location.toRoot, opts.location.toDocs),
     '<div class="codeblock-status" aria-live="polite"></div>',
     "</div>",
     "<script>",
@@ -165,17 +186,11 @@ export function assembleMarketingPage(
     /<meta name="description" content="([^"]*)"/.exec(resolved)?.[1] ?? "";
   const body =
     /<body[^>]*>([\s\S]*?)<\/body>/.exec(resolved)?.[1] ?? resolved;
-  const withoutFooter = body.replace(
-    /<footer id="docs">[\s\S]*?<\/footer>/,
-    "",
-  );
-  const content = upgradePreBlocks(withoutFooter);
+  const content = upgradePreBlocks(body);
   return renderShell({
     title,
     description,
-    homeHref: "index.html",
-    toRoot: "../..",
-    toDocs: "..",
+    location: marketingLocation,
     nav,
     toc: [],
     bodyHtml: content,

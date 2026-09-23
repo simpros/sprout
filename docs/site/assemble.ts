@@ -1,17 +1,18 @@
 import { cp, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { codeBlockFigure } from "./codeblock.ts";
+import { codeBlockFigure, PROMPT_COPY_LABEL } from "./codeblock.ts";
+import { escapeHtml } from "./html.ts";
 import {
   assembleMarketingPage,
+  docsLocation,
+  marketingLocation,
   PROMPT_MARKER,
   renderShell,
   type ShellNavItem,
 } from "./shell.ts";
 import {
-  escapeHtml,
   extractPromptText,
-  pageTitle,
   promptFence,
   renderMarkdownPage,
 } from "./markdown.ts";
@@ -87,10 +88,8 @@ export function renderDocsIndexHtml(): string {
     title: "sprout docs",
     description:
       "sprout docs: adopting repos, CI wiring, previews, operator deploy, CLI, troubleshooting.",
-    homeHref: "site/index.html",
-    toRoot: "..",
-    toDocs: ".",
-    nav: docsNav(null, ""),
+    location: docsLocation,
+    nav: docsNav(docsLocation.navPrefix),
     toc: [],
     bodyHtml,
   });
@@ -98,14 +97,11 @@ export function renderDocsIndexHtml(): string {
 
 // Docs nav straight from the page manifest, so a new page appears
 // automatically. `prefix` bridges the docs/ ↔ docs/site/ depth gap.
-export function docsNav(
-  currentFile: string | null,
-  prefix: string,
-): ShellNavItem[] {
+export function docsNav(prefix: string, current?: string): ShellNavItem[] {
   return docsPages.map((p) => ({
     href: `${prefix}${pageIndexHref(p)}`,
     title: p.title,
-    ...(p.file === currentFile ? { current: true as const } : {}),
+    ...(current === p.file ? { current: true as const } : {}),
   }));
 }
 
@@ -211,20 +207,14 @@ export async function assembleSite(
   published.push("llms.txt");
 
   // The onboarding prompt lives in one source file; pages carrying the
-  // marker embed it. Lazily extracted: fixture trees without a marker never
-  // touch the source.
-  const onboardingSource = await readFile(
-    join(repoRoot, "docs/onboarding-prompt.md"),
-    "utf8",
-  );
-  let cachedPrompt: { text: string; figure: string } | null = null;
-  function onboardingPrompt(): { text: string; figure: string } {
-    if (!cachedPrompt) {
-      const text = extractPromptText(onboardingSource);
-      cachedPrompt = {
-        text,
-        figure: codeBlockFigure("text", text, "Copy onboarding prompt"),
-      };
+  // marker embed it. Read lazily: trees without a marker never touch the
+  // source, so marker-free fixtures assemble without the file present.
+  let cachedPrompt: string | null = null;
+  async function onboardingPrompt(): Promise<string> {
+    if (cachedPrompt === null) {
+      cachedPrompt = extractPromptText(
+        await readFile(join(repoRoot, "docs/onboarding-prompt.md"), "utf8"),
+      );
     }
     return cachedPrompt;
   }
@@ -233,25 +223,21 @@ export async function assembleSite(
   for (const page of docsPages) {
     const { file } = page;
     const source = await readFile(join(repoRoot, file), "utf8");
-    let markdownForMd = source;
-    let promptFigure: string | undefined;
-    if (source.includes(PROMPT_MARKER)) {
-      const prompt = onboardingPrompt();
-      markdownForMd = source.split(PROMPT_MARKER).join(promptFence(prompt.text));
-      promptFigure = prompt.figure;
-    }
+    // One substitution: the resolved fence feeds both the `.md` write and
+    // the HTML render, so the parser owns the figure on both surfaces.
+    const markdownForMd = source.includes(PROMPT_MARKER)
+      ? source.split(PROMPT_MARKER).join(promptFence(await onboardingPrompt()))
+      : source;
     const dest = join(outDir, file);
     await mkdir(dirname(dest), { recursive: true });
     await writeFile(dest, markdownForMd);
     published.push(file);
     const htmlFile = pageHtmlFile(file);
-    const title = pageTitle(source, htmlFile);
     await writeFile(
       join(outDir, htmlFile),
-      renderMarkdownPage(title, source, file, htmlPages, {
+      renderMarkdownPage(page.title, markdownForMd, file, htmlPages, {
         description: page.description,
-        nav: docsNav(file, ""),
-        promptFigure,
+        nav: docsNav(docsLocation.navPrefix, file),
       }),
     );
     published.push(htmlFile);
@@ -259,12 +245,16 @@ export async function assembleSite(
 
   const marketingSource = await readFile(join(repoRoot, siteEntryPath), "utf8");
   const marketingFigure = marketingSource.includes(PROMPT_MARKER)
-    ? onboardingPrompt().figure
+    ? codeBlockFigure("text", await onboardingPrompt(), PROMPT_COPY_LABEL)
     : "";
   await mkdir(dirname(join(outDir, siteEntryPath)), { recursive: true });
   await writeFile(
     join(outDir, siteEntryPath),
-    assembleMarketingPage(marketingSource, marketingFigure, docsNav(null, "../")),
+    assembleMarketingPage(
+      marketingSource,
+      marketingFigure,
+      docsNav(marketingLocation.navPrefix),
+    ),
   );
   published.push(siteEntryPath);
 

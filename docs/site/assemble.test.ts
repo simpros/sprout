@@ -19,6 +19,7 @@ import { check, checkPublishedSite, defaultCheckPaths } from "./check.ts";
 import {
   markdownToHtmlBody,
   extractPromptText,
+  promptFence,
   renderMarkdownPage,
 } from "./markdown.ts";
 import { hasUnresolvedMarkers } from "./shell.ts";
@@ -147,6 +148,7 @@ describe("assembleSite", () => {
       "# Hi\n\nSee [other](other.md) and [frag](other.md#hi).\n\nKeep [raw](../templates/README.md).\n",
       "docs/adopting-a-repo.md",
       pages,
+      { description: "Hi", nav: [] },
     );
     expect(rendered).toContain('<a href="other.html">other</a>');
     expect(rendered).toContain('<a href="other.html#hi">frag</a>');
@@ -422,7 +424,12 @@ describe("shared shell, code blocks, and prompt embedding", () => {
       join(out, "docs/getting-started.md"),
       "utf8",
     );
-    expect(assembledMd).toContain(`\`\`\`text\n${prompt}\n\`\`\``);
+    expect(assembledMd).toContain(promptFence(prompt));
+    // The fence meta round-trips the onboarding copy label, so the embedded
+    // prompt and its canonical page share one accessible name.
+    for (const html of [gettingStarted, marketing, promptPage]) {
+      expect(html).toContain('aria-label="Copy onboarding prompt"');
+    }
   });
 
   test("the assembled tree contains no unresolved marker", async () => {

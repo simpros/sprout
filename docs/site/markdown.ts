@@ -16,16 +16,14 @@ import { headingCollectionExtension } from "@tanstack/markdown/extensions/headin
 import { dirname, relative, resolve } from "node:path/posix";
 import {
   codeBlockExtension,
-  escapeHtml,
+  PROMPT_FENCE_META,
 } from "./codeblock.ts";
 import {
+  docsLocation,
   renderShell,
-  PROMPT_MARKER,
   type ShellNavItem,
   type ShellTocEntry,
 } from "./shell.ts";
-
-export { escapeHtml };
 
 // GitHub's anchor rule: lowercase, drop everything but letters/numbers/marks,
 // `_`, `-`, and spaces, then spaces become hyphens. Punctuation between
@@ -87,18 +85,21 @@ export function markdownToHtmlBody(markdown: string): string {
 }
 
 // The single copy-paste block lives in `docs/onboarding-prompt.md` as one
-// ```text fence; every other surface embeds this extracted text.
+// ```text fence; every other surface embeds this extracted text. The fence
+// may carry the prompt meta tag, so extraction tolerates info-string suffixes.
 export function extractPromptText(markdown: string): string {
-  const match = /```text\n([\s\S]*?)\n```/.exec(markdown);
+  const match = /```text[^\n]*\n([\s\S]*?)\n```/.exec(markdown);
   if (!match) {
     throw new Error("onboarding prompt source carries no ```text block");
   }
   return match[1]!.trim();
 }
 
-// Published `.md` stays a complete, self-contained prompt for agents.
+// Published `.md` stays a complete, self-contained prompt for agents. The
+// meta tag survives into the HTML view, where the code-block extension
+// reads it back as the onboarding copy label.
 export function promptFence(prompt: string): string {
-  return ["```text", prompt, "```"].join("\n");
+  return [`\`\`\`text ${PROMPT_FENCE_META}`, prompt, "```"].join("\n");
 }
 
 export function extractHtmlIds(html: string): string[] {
@@ -166,12 +167,12 @@ export function rewritePageLinks(
   });
 }
 
+// Assembly resolves the prompt marker to a fence before parsing, so the
+// code-block extension renders the figure straight from the AST —
+// including blank lines, which survive inside fenced blocks.
 export type MarkdownPageOptions = {
-  description?: string;
-  nav?: ShellNavItem[];
-  // Substituted after rendering: the figure carries blank lines, which
-  // cannot survive a trip through the markdown parser as an HTML block.
-  promptFigure?: string;
+  description: string;
+  nav: ShellNavItem[];
 };
 
 export function renderMarkdownPage(
@@ -179,31 +180,20 @@ export function renderMarkdownPage(
   markdown: string,
   sourceFile: string,
   renderedHtmlPages: Set<string>,
-  opts: MarkdownPageOptions = {},
+  opts: MarkdownPageOptions,
 ): string {
   const document = parseMarkdownDocument(markdown);
-  const rendered = rewritePageLinks(
+  const body = rewritePageLinks(
     renderDocumentBody(document),
     sourceFile,
     renderedHtmlPages,
   );
-  const body =
-    opts.promptFigure === undefined
-      ? rendered
-      : rendered.split(PROMPT_MARKER).join(opts.promptFigure);
   return renderShell({
     title,
-    description: opts.description ?? title,
-    homeHref: "site/index.html",
-    toRoot: "..",
-    toDocs: ".",
-    nav: opts.nav ?? [],
+    description: opts.description,
+    location: docsLocation,
+    nav: opts.nav,
     toc: documentToc(document),
     bodyHtml: body,
   });
-}
-
-export function pageTitle(markdown: string, fallback: string): string {
-  const match = /^#\s+(.*)$/m.exec(markdown);
-  return match ? match[1]!.trim() : fallback;
 }
