@@ -1,9 +1,18 @@
 import { cp, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { codeBlockFigure } from "./codeblock.ts";
+import {
+  assembleMarketingPage,
+  PROMPT_MARKER,
+  renderShell,
+  type ShellNavItem,
+} from "./shell.ts";
 import {
   escapeHtml,
+  extractPromptText,
   pageTitle,
+  promptFence,
   renderMarkdownPage,
 } from "./markdown.ts";
 
@@ -66,28 +75,38 @@ export function renderDocsIndexHtml(): string {
   const item = (p: DocsPage) =>
     `      <li><a href="${pageIndexHref(p)}">${escapeHtml(p.title)}</a> — ${escapeHtml(p.description)}</li>`;
   const entryHref = pageIndexHref(docsEntry());
-  return [
-    "<!DOCTYPE html>",
-    '<html lang="en">',
-    "<head>",
-    '  <meta charset="utf-8" />',
-    '  <meta name="viewport" content="width=device-width, initial-scale=1" />',
-    "  <title>sprout docs</title>",
-    '  <meta name="description" content="sprout docs: adopting repos, CI wiring, previews, operator deploy, CLI, troubleshooting." />',
-    "</head>",
-    "<body>",
-    "  <main>",
+  const bodyHtml = [
     "    <h1>sprout docs</h1>",
     `    <p>Markdown is canonical: every page below is served as plain <code>.md</code> (agents) and as rendered <code>.html</code> (humans) from the same source. Machine-readable index: <a href="../llms.txt">llms.txt</a>. Start with the <a href="${entryHref}">onboarding prompt</a>.</p>`,
     "    <ul>",
     ...main.map(item),
     "    </ul>",
     `    <p>Legacy entry points: ${legacy.map((p) => `<a href="${pageIndexHref(p)}">${escapeHtml(p.title)}</a>`).join(", ")} (thin maps to the pages above; old deep links still land).</p>`,
-    "  </main>",
-    "</body>",
-    "</html>",
-    "",
   ].join("\n");
+  return renderShell({
+    title: "sprout docs",
+    description:
+      "sprout docs: adopting repos, CI wiring, previews, operator deploy, CLI, troubleshooting.",
+    homeHref: "site/index.html",
+    toRoot: "..",
+    toDocs: ".",
+    nav: docsNav(null, ""),
+    toc: [],
+    bodyHtml,
+  });
+}
+
+// Docs nav straight from the page manifest, so a new page appears
+// automatically. `prefix` bridges the docs/ ↔ docs/site/ depth gap.
+export function docsNav(
+  currentFile: string | null,
+  prefix: string,
+): ShellNavItem[] {
+  return docsPages.map((p) => ({
+    href: `${prefix}${pageIndexHref(p)}`,
+    title: p.title,
+    ...(p.file === currentFile ? { current: true as const } : {}),
+  }));
 }
 
 // Machine-readable agent index; the checked-in root copy serves raw GitHub
@@ -101,14 +120,14 @@ export function renderLlmsTxt(): string {
   return ["These docs are for agents. Start with the onboarding prompt.", ...lines, ""].join("\n");
 }
 
-// Raw copies; docs pages and generated indexes join via docsPages below.
+// Raw copies; docs pages, the rendered marketing page, and generated
+// indexes join via docsPages below.
 const copyOnlyFiles = [
   "README.md",
   "CONTEXT.md",
   "LICENSE",
   "compose.env.example",
   ".env.example",
-  "docs/site/index.html",
   "e2e/README.md",
   "deploy/traefik/README.md",
   "deploy/coolify/README.md",
@@ -122,6 +141,7 @@ const generatedFiles = ["docs/index.html", "llms.txt"];
 
 export const publishFiles = [
   ...copyOnlyFiles,
+  siteEntryPath,
   ...docsPages.map((p) => p.file),
   ...generatedFiles,
 ];
@@ -190,21 +210,63 @@ export async function assembleSite(
   await writeFile(join(outDir, "llms.txt"), renderLlmsTxt());
   published.push("llms.txt");
 
+  // The onboarding prompt lives in one source file; pages carrying the
+  // marker embed it. Lazily extracted: fixture trees without a marker never
+  // touch the source.
+  const onboardingSource = await readFile(
+    join(repoRoot, "docs/onboarding-prompt.md"),
+    "utf8",
+  );
+  let cachedPrompt: { text: string; figure: string } | null = null;
+  function onboardingPrompt(): { text: string; figure: string } {
+    if (!cachedPrompt) {
+      const text = extractPromptText(onboardingSource);
+      cachedPrompt = {
+        text,
+        figure: codeBlockFigure("text", text, "Copy onboarding prompt"),
+      };
+    }
+    return cachedPrompt;
+  }
+
   const htmlPages = renderedHtmlPages();
-  for (const { file } of docsPages) {
+  for (const page of docsPages) {
+    const { file } = page;
+    const source = await readFile(join(repoRoot, file), "utf8");
+    let markdownForMd = source;
+    let promptFigure: string | undefined;
+    if (source.includes(PROMPT_MARKER)) {
+      const prompt = onboardingPrompt();
+      markdownForMd = source.split(PROMPT_MARKER).join(promptFence(prompt.text));
+      promptFigure = prompt.figure;
+    }
     const dest = join(outDir, file);
     await mkdir(dirname(dest), { recursive: true });
-    await copyFile(join(repoRoot, file), dest);
+    await writeFile(dest, markdownForMd);
     published.push(file);
-    const markdown = await readFile(dest, "utf8");
     const htmlFile = pageHtmlFile(file);
-    const title = pageTitle(markdown, htmlFile);
+    const title = pageTitle(source, htmlFile);
     await writeFile(
       join(outDir, htmlFile),
-      renderMarkdownPage(title, markdown, file, htmlPages),
+      renderMarkdownPage(title, source, file, htmlPages, {
+        description: page.description,
+        nav: docsNav(file, ""),
+        promptFigure,
+      }),
     );
     published.push(htmlFile);
   }
+
+  const marketingSource = await readFile(join(repoRoot, siteEntryPath), "utf8");
+  const marketingFigure = marketingSource.includes(PROMPT_MARKER)
+    ? onboardingPrompt().figure
+    : "";
+  await mkdir(dirname(join(outDir, siteEntryPath)), { recursive: true });
+  await writeFile(
+    join(outDir, siteEntryPath),
+    assembleMarketingPage(marketingSource, marketingFigure, docsNav(null, "../")),
+  );
+  published.push(siteEntryPath);
 
   await writeFile(join(outDir, "index.html"), rootRedirectHtml());
   published.push("index.html");

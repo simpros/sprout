@@ -1,19 +1,31 @@
 // Markdown rendering for the published docs site.
 //
-// The runtime's built-in GFM renderer is the canonical parser: it handles
-// lazy list continuations, nested lists, and emphasis. Nothing hand-rolled
-// lives here on purpose — except heading ids, which follow GitHub's anchor
-// rule (the dialect every in-corpus `#fragment` already assumes), not the
-// runtime's (it collapses `→`/`/`/`—` to one hyphen where GitHub keeps two).
+// TanStack Markdown is the parser: markdown stays canonical, is parsed once
+// into an AST, and rendered from there — heading ids, the "On this page"
+// TOC, and the code block component all read the same tree instead of
+// regexing rendered HTML. Heading ids follow GitHub's anchor rule (the
+// dialect every in-corpus `#fragment` already assumes), with GitHub-style
+// dedupe (`head`, `head-1`, …).
+import { parseMarkdown } from "@tanstack/markdown";
+import type {
+  MarkdownDocument,
+  MarkdownExtension,
+} from "@tanstack/markdown";
+import { renderHtml } from "@tanstack/markdown/html";
+import { headingCollectionExtension } from "@tanstack/markdown/extensions/headings";
 import { dirname, relative, resolve } from "node:path/posix";
+import {
+  codeBlockExtension,
+  escapeHtml,
+} from "./codeblock.ts";
+import {
+  renderShell,
+  PROMPT_MARKER,
+  type ShellNavItem,
+  type ShellTocEntry,
+} from "./shell.ts";
 
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+export { escapeHtml };
 
 // GitHub's anchor rule: lowercase, drop everything but letters/numbers/marks,
 // `_`, `-`, and spaces, then spaces become hyphens. Punctuation between
@@ -26,39 +38,67 @@ export function slugHeading(text: string): string {
     .replace(/ /g, "-");
 }
 
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+// Per-document slugger closing over its own repeat table, so the `.md`
+// fragment namespace and the `.html` id namespace are literally one.
+function githubHeadingIdsFn(): (text: string) => string {
+  const seen = new Map<string, number>();
+  return (text: string) => {
+    let slug = slugHeading(text);
+    const count = seen.get(slug) ?? 0;
+    seen.set(slug, count + 1);
+    if (count > 0) slug = `${slug}-${count}`;
+    return slug;
+  };
 }
 
-// Retitle every heading id with the GitHub slug of its rendered text, so the
-// `.md` fragment namespace and the `.html` id namespace are literally one.
-// The runtime also emits a self-anchor `<a href="#id">` inside each heading;
-// that href is retitled with it. Repeat headings dedupe GitHub-style
-// (`head`, `head-1`, …).
-function githubHeadingIds(html: string): string {
-  const seen = new Map<string, number>();
-  return html.replace(
-    /<h([1-6]) id="([^"]*)">([\s\S]*?)<\/h\1>/g,
-    (whole, level: string, oldId: string, inner: string) => {
-      const text = decodeHtmlEntities(inner.replace(/<[^>]+>/g, ""));
-      let slug = slugHeading(text);
-      const count = seen.get(slug) ?? 0;
-      seen.set(slug, count + 1);
-      if (count > 0) slug = `${slug}-${count}`;
-      return whole
-        .replace(`id="${oldId}"`, `id="${slug}"`)
-        .replace(`href="#${oldId}"`, `href="#${slug}"`);
-    },
-  );
+// Stateless across documents: the heading collector only derives
+// `document.headings`, and the code block component only renders `code` nodes.
+const markdownExtensions: MarkdownExtension[] = [
+  headingCollectionExtension(),
+  codeBlockExtension,
+];
+
+export function parseMarkdownDocument(markdown: string): MarkdownDocument {
+  return parseMarkdown(markdown, {
+    allowHtml: true,
+    headingIds: githubHeadingIdsFn(),
+    extensions: markdownExtensions,
+  });
+}
+
+function renderDocumentBody(document: MarkdownDocument): string {
+  return renderHtml(document, {
+    allowHtml: true,
+    headingAnchors: true,
+    extensions: markdownExtensions,
+  });
+}
+
+export function documentToc(document: MarkdownDocument): ShellTocEntry[] {
+  return (document.headings ?? []).map((heading) => ({
+    id: heading.id,
+    text: heading.text,
+    level: heading.level,
+  }));
 }
 
 export function markdownToHtmlBody(markdown: string): string {
-  return githubHeadingIds(Bun.markdown.html(markdown, { headings: true }));
+  return renderDocumentBody(parseMarkdownDocument(markdown));
+}
+
+// The single copy-paste block lives in `docs/onboarding-prompt.md` as one
+// ```text fence; every other surface embeds this extracted text.
+export function extractPromptText(markdown: string): string {
+  const match = /```text\n([\s\S]*?)\n```/.exec(markdown);
+  if (!match) {
+    throw new Error("onboarding prompt source carries no ```text block");
+  }
+  return match[1]!.trim();
+}
+
+// Published `.md` stays a complete, self-contained prompt for agents.
+export function promptFence(prompt: string): string {
+  return ["```text", prompt, "```"].join("\n");
 }
 
 export function extractHtmlIds(html: string): string[] {
@@ -105,9 +145,8 @@ export function isExternalHref(href: string): boolean {
 // Rewrite intra-corpus `.md` links to their rendered `.html` twins (fragments
 // preserved) so the human artifact never drops readers into raw source.
 // Links to files with no HTML twin (examples, templates, env samples) pass
-// through untouched. Regex over rendered HTML on purpose: the runtime's
-// `render` callback API hands handlers plain text without inline markup, so
-// rewriting there would have to re-render emphasis and code spans by hand.
+// through untouched. Regex over rendered HTML on purpose: the AST link nodes
+// carry bare hrefs without the twin mapping, which only assembly knows.
 export function rewritePageLinks(
   html: string,
   sourceFile: string,
@@ -127,32 +166,41 @@ export function rewritePageLinks(
   });
 }
 
+export type MarkdownPageOptions = {
+  description?: string;
+  nav?: ShellNavItem[];
+  // Substituted after rendering: the figure carries blank lines, which
+  // cannot survive a trip through the markdown parser as an HTML block.
+  promptFigure?: string;
+};
+
 export function renderMarkdownPage(
   title: string,
   markdown: string,
   sourceFile: string,
   renderedHtmlPages: Set<string>,
+  opts: MarkdownPageOptions = {},
 ): string {
-  const body = rewritePageLinks(
-    markdownToHtmlBody(markdown),
+  const document = parseMarkdownDocument(markdown);
+  const rendered = rewritePageLinks(
+    renderDocumentBody(document),
     sourceFile,
     renderedHtmlPages,
   );
-  return [
-    "<!DOCTYPE html>",
-    '<html lang="en">',
-    "<head>",
-    '<meta charset="utf-8" />',
-    `<title>${escapeHtml(title)}</title>`,
-    "</head>",
-    "<body>",
-    "<main>",
-    body,
-    "</main>",
-    "</body>",
-    "</html>",
-    "",
-  ].join("\n");
+  const body =
+    opts.promptFigure === undefined
+      ? rendered
+      : rendered.split(PROMPT_MARKER).join(opts.promptFigure);
+  return renderShell({
+    title,
+    description: opts.description ?? title,
+    homeHref: "site/index.html",
+    toRoot: "..",
+    toDocs: ".",
+    nav: opts.nav ?? [],
+    toc: documentToc(document),
+    bodyHtml: body,
+  });
 }
 
 export function pageTitle(markdown: string, fallback: string): string {

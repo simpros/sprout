@@ -6,181 +6,7 @@
   <title>sprout — every pull request gets its own preview</title>
   <meta name="description" content="sprout gives every pull request an isolated database and a live preview app on shared infrastructure you host yourself." />
   <style>
-    :root {
-      --bg: #0f1419;
-      --bg-elev: #1a222c;
-      --bg-code: #121820;
-      --border: #2a3542;
-      --text: #e7ecf1;
-      --muted: #9aa8b6;
-      --accent: #3dcf8e;
-      --accent-dim: #2a9a68;
-      --link: #6ec8ff;
-      --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Consolas", monospace;
-      --sans: system-ui, "Segoe UI", sans-serif;
-      --max: 52rem;
-    }
-
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body {
-      margin: 0;
-      font-family: var(--sans);
-      background:
-        radial-gradient(1200px 600px at 10% -10%, #1a3d2e 0%, transparent 55%),
-        radial-gradient(900px 500px at 100% 0%, #1a2a3d 0%, transparent 50%),
-        var(--bg);
-      color: var(--text);
-      line-height: 1.55;
-      font-size: 1.05rem;
-    }
-
-    a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 0.15em; }
-    a:hover { color: #9ad8ff; }
-
-    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 1.25rem 4rem; }
-
-    header.hero {
-      padding: 3.5rem 0 2.5rem;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 2.5rem;
-    }
-    .brand {
-      font-family: var(--mono);
-      font-size: 0.85rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin: 0 0 1rem;
-    }
-    h1 {
-      font-size: clamp(1.85rem, 4vw, 2.6rem);
-      line-height: 1.15;
-      font-weight: 650;
-      margin: 0 0 0.85rem;
-      letter-spacing: -0.02em;
-    }
-    .lede {
-      font-size: 1.15rem;
-      color: var(--muted);
-      max-width: 40rem;
-      margin: 0 0 1.5rem;
-    }
-    .cta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-    }
-    .cta a {
-      display: inline-block;
-      padding: 0.55rem 1rem;
-      border-radius: 6px;
-      font-weight: 560;
-      text-decoration: none;
-      border: 1px solid var(--border);
-      background: var(--bg-elev);
-      color: var(--text);
-    }
-    .cta a.primary {
-      background: var(--accent);
-      border-color: var(--accent-dim);
-      color: #062014;
-    }
-    .cta a:hover { filter: brightness(1.08); }
-
-    nav.toc {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem 1.1rem;
-      padding: 0.85rem 0 0;
-      font-size: 0.92rem;
-    }
-    nav.toc a { color: var(--muted); text-decoration: none; }
-    nav.toc a:hover { color: var(--text); }
-
-    section { margin: 2.75rem 0; }
-    h2 {
-      font-size: 1.45rem;
-      margin: 0 0 0.85rem;
-      letter-spacing: -0.015em;
-      border-top: 1px solid var(--border);
-      padding-top: 1.75rem;
-    }
-    section:first-of-type h2 { border-top: 0; padding-top: 0; }
-    h3 {
-      font-size: 1.08rem;
-      margin: 1.5rem 0 0.5rem;
-      color: var(--text);
-    }
-    p { margin: 0.65rem 0; color: var(--muted); }
-    p strong, li strong { color: var(--text); }
-    ul, ol { color: var(--muted); padding-left: 1.25rem; }
-    li { margin: 0.35rem 0; }
-    code, .mono {
-      font-family: var(--mono);
-      font-size: 0.9em;
-    }
-    :not(pre) > code {
-      background: var(--bg-code);
-      border: 1px solid var(--border);
-      padding: 0.1em 0.35em;
-      border-radius: 4px;
-      color: #d5e4f0;
-    }
-
-    pre {
-      background: var(--bg-code);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.95rem 1.05rem;
-      overflow-x: auto;
-      font-family: var(--mono);
-      font-size: 0.84rem;
-      line-height: 1.5;
-      color: #d7e2ec;
-      margin: 0.85rem 0;
-    }
-
-    .diagram {
-      background: var(--bg-elev);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem 1.1rem;
-      font-family: var(--mono);
-      font-size: 0.78rem;
-      line-height: 1.45;
-      white-space: pre;
-      overflow-x: auto;
-      color: #c5d3e0;
-      margin: 1rem 0;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-      gap: 0.85rem;
-      margin: 1rem 0;
-    }
-    .card {
-      background: var(--bg-elev);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.95rem 1rem;
-    }
-    .card h3 { margin: 0 0 0.35rem; font-size: 1rem; }
-    .card p { margin: 0; font-size: 0.92rem; }
-
-    footer {
-      margin-top: 3rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 0.9rem;
-    }
-
-    @media (max-width: 560px) {
-      header.hero { padding-top: 2.25rem; }
-    }
+    <!-- docs-theme -->
   </style>
 </head>
 <body>
@@ -297,16 +123,20 @@
         plus two CI variables your operator hands you. The smallest config
         is two keys:
       </p>
-      <pre>slug: myapp
+      <pre data-lang="yaml">slug: myapp
 preview:
   hostname: "pr-{pr_id}.myapp.preview.example.com"</pre>
       <p>
+        Agents skip the reading list: paste the onboarding prompt below into
+        your coding harness and it wires the three files for you — the same
+        single copy-paste block as the
+        <a href="../onboarding-prompt.html">onboarding prompt</a> page.
+      </p>
+<!-- docs-onboarding-prompt -->
+      <p>
         Humans start at <a href="../getting-started.html">getting started</a>,
         then <a href="../adopting-a-repo.html">adopting a repo</a> and
-        <a href="../ci-integration.html">CI integration</a>. Agents skip the
-        reading list: paste the
-        <a href="../onboarding-prompt.html">onboarding prompt</a> into your
-        coding harness and it wires the three files for you.
+        <a href="../ci-integration.html">CI integration</a>.
       </p>
     </section>
 
