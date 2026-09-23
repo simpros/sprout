@@ -1,4 +1,4 @@
-export const RESET_MARKER_MAX_LENGTH = 256;
+const RESET_MARKER_MAX_LENGTH = 256;
 
 const RESET_MARKER_FORBIDDEN_RE = /[<>\r\n]/;
 

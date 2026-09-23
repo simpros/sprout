@@ -12,7 +12,7 @@ export async function dockerAvailable(): Promise<boolean> {
   }
 }
 
-export type TempPostgres = {
+type TempPostgres = {
   adminUrl: string;
   hostPort: number;
   stop: () => Promise<void>;

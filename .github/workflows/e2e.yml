@@ -19,6 +19,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Guard suite
         run: bun run test:guards
+      - name: Guard typecheck
+        run: bun run scripts:typecheck
       - name: Compose files validate under Compose
         run: |
           docker compose -f deploy/coolify/gateway.compose.yml config -q
