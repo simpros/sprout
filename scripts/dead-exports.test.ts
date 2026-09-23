@@ -2,13 +2,37 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-// Scope: the library packages whose barrel surface the cleanup trimmed to its
-// importers. Apps are deployable binaries, not importable surfaces, so the
-// invariant is enforced where cross-package imports can rot, not repo-wide.
-// The guard lands in the same commit as the trim it certifies.
-const SCOPED_DIRS = ["packages/preview-env/src", "packages/preview-db/src"];
+// Scope: library packages published through a package exports map. Derived
+// from manifests so adding a library widens the invariant instead of hiding
+// behind a literal; apps stay out because they are deployable binaries.
+function scopedDirs(): string[] {
+  const out = git(["ls-files", "--", "packages/*/package.json"])
+    .split("\n")
+    .map((f) => f.trim())
+    .filter((f) => f !== "");
+  const dirs: string[] = [];
+  for (const rel of out) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(repoRoot, rel), "utf8")) as {
+        exports?: unknown;
+      };
+      if (pkg.exports == null) continue;
+      const m = rel.match(/^(packages\/[^/]+)\/package\.json$/);
+      if (m) dirs.push(`${m[1]}/src`);
+    } catch {
+      // Unparseable manifest contributes no scope.
+    }
+  }
+  // Fail closed: a scope that silently collapses to nothing would make the
+  // dead-export check vacuously green.
+  if (dirs.length === 0) {
+    throw new Error("dead-exports guard: no exported packages found");
+  }
+  return dirs.sort();
+}
 
 // Policy the guard encodes. The barrel is the cross-package surface; home
 // modules may additionally export intra-package seams (notably for direct-path
@@ -44,126 +68,52 @@ function trackedTsFiles(): string[] {
   return files;
 }
 
-function stripComments(text: string): string {
-  return text
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .split("\n")
-    .map((line) => {
-      const hash = line.indexOf("//");
-      return hash === -1 ? line : line.slice(0, hash);
-    })
-    .join("\n");
-}
-
 type Decl = { name: string; home: string };
 type Forward = { file: string; exported: string; source: string; target: string };
 type StarForward = { file: string; target: string };
 type ImportSite = { file: string; name: string; target: string | null };
 
-function parseBraceList(clause: string): { source: string; exported: string }[] {
-  const out: { source: string; exported: string }[] = [];
-  for (const part of clause.split(",")) {
-    const m = part.trim().match(/^(?:type\s+)?([A-Za-z0-9_]+)(?:\s+as\s+([A-Za-z0-9_]+))?$/);
-    if (!m) continue;
-    out.push({ source: m[1], exported: m[2] ?? m[1] });
+function exportTarget(pkgDir: string, entry: unknown): string | null {
+  if (typeof entry === "string") return entry;
+  if (entry != null && typeof entry === "object") {
+    const conds = entry as Record<string, unknown>;
+    for (const key of ["default", "types", "import", "require"]) {
+      const v = exportTarget(pkgDir, conds[key]);
+      if (v) return v;
+    }
+    for (const v of Object.values(conds)) {
+      const r = exportTarget(pkgDir, v);
+      if (r) return r;
+    }
   }
-  return out;
+  return null;
 }
 
-// Import and re-export sites name the symbol; prose, test titles, and the
-// barrel's own forwarding lines never count as consumers.
-function parseSites(rel: string, text: string): {
-  imports: { name: string; spec: string }[];
-  forwards: { exported: string; source: string; spec: string }[];
-  stars: string[];
-} {
-  const imports: { name: string; spec: string }[] = [];
-  const forwards: { exported: string; source: string; spec: string }[] = [];
-  const stars: string[] = [];
-  for (const m of text.matchAll(/\bimport\s+(?:type\s+)?([^;]*?)\s+from\s*(["'])([^"']+)\2/g)) {
-    const clause = m[1].trim();
-    const spec = m[3];
-    const braced = clause.match(/^(?:([A-Za-z0-9_]+)\s*,\s*)?\{([\s\S]*)\}$/);
-    if (clause.startsWith("*")) {
-      imports.push({ name: "*", spec });
-    } else if (braced) {
-      if (braced[1]) imports.push({ name: "default", spec });
-      for (const e of parseBraceList(braced[2])) imports.push({ name: e.source, spec });
-    } else if (/^[A-Za-z0-9_]+$/.test(clause)) {
-      imports.push({ name: "default", spec });
-    }
-    // Anything else cannot name a scoped export, so it cannot hide rot.
-  }
-  for (const m of text.matchAll(/\bexport\s+([^;]*?)\s+from\s*(["'])([^"']+)\2/g)) {
-    const clause = m[1].trim().replace(/^type\s+/, "");
-    const spec = m[3];
-    if (clause === "*") {
-      stars.push(spec);
-    } else if (clause.startsWith("{")) {
-      const inner = clause.match(/^\{([\s\S]*)\}$/);
-      if (!inner) throw new Error(`${rel}: unsupported export shape: ${m[0]}`);
-      for (const e of parseBraceList(inner[1])) {
-        forwards.push({ exported: e.exported, source: e.source, spec });
-      }
-    } else {
-      throw new Error(`${rel}: unsupported export shape: ${m[0]}`);
-    }
-  }
-  return { imports, forwards, stars };
-}
-
-// Declarations are parsed only for files in scope, so an unknown shape fails
-// the PR that introduces it — with a pointer — instead of rotting silently.
-function parseDecls(rel: string, text: string): string[] {
-  const names: string[] = [];
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const decl =
-      line.match(
-        /^export\s+(?:async\s+)?(?:const|let|var|function|class|interface|enum|type)\s+([A-Za-z0-9_]+)/,
-      ) ?? line.match(/^export\s+default\s+(?:abstract\s+)?(?:async\s+)?(?:function|class)\s+([A-Za-z0-9_]+)/);
-    if (decl) {
-      names.push(decl[1]);
-      continue;
-    }
-    if (/^export\s/.test(line)) {
-      let stmt = line;
-      while (
-        stmt.includes("{") &&
-        !/from\s*["'][^"']+["']/.test(stmt) &&
-        i + 1 < lines.length
-      ) {
-        stmt += "\n" + lines[++i];
-      }
-      if (/from\s*["'][^"']+["']/.test(stmt)) continue; // re-export, owned by its home module
-      const bare = stmt.match(/^export\s+(?:type\s+)?\{([\s\S]*)\}/);
-      if (bare) {
-        for (const e of parseBraceList(bare[1])) names.push(e.exported);
-        continue;
-      }
-      throw new Error(
-        `${rel}: unsupported export shape: ${line.trim()} (extend parseDecls alongside it)`,
-      );
-    }
-  }
-  return names;
-}
-
-function packageDirs(): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const rel of git(["ls-files", "--", "packages/*/package.json"])
+function packageTable(): Map<string, { dir: string; exportsMap: Map<string, string> }> {
+  const map = new Map<string, { dir: string; exportsMap: Map<string, string> }>();
+  for (const rel of git(["ls-files", "--", "apps/*/package.json", "packages/*/package.json"])
     .split("\n")
     .map((f) => f.trim())
     .filter((f) => f !== "")) {
-    const m = rel.match(/^(packages\/[^/]+)\/package\.json$/);
+    const m = rel.match(/^((?:apps|packages)\/[^/]+)\/package\.json$/);
     if (!m) continue;
     try {
       const pkg = JSON.parse(readFileSync(join(repoRoot, rel), "utf8")) as {
         name?: string;
-        exports?: Record<string, string>;
+        exports?: unknown;
       };
-      if (typeof pkg.name === "string") map.set(pkg.name, m[1]);
+      if (typeof pkg.name !== "string") continue;
+      const exportsMap = new Map<string, string>();
+      const raw = pkg.exports;
+      if (typeof raw === "string") {
+        exportsMap.set(".", raw);
+      } else if (raw != null && typeof raw === "object") {
+        for (const [subpath, entry] of Object.entries(raw as Record<string, unknown>)) {
+          const target = exportTarget(m[1], entry);
+          if (target) exportsMap.set(subpath, target);
+        }
+      }
+      map.set(pkg.name, { dir: m[1], exportsMap });
     } catch {
       // Unparseable manifest: bare specifiers to it simply resolve nowhere.
     }
@@ -175,7 +125,7 @@ function resolveSpec(
   spec: string,
   fromFile: string,
   tracked: Set<string>,
-  pkgs: Map<string, string>,
+  pkgs: Map<string, { dir: string; exportsMap: Map<string, string> }>,
 ): string | null {
   const candidates = (base: string): string[] => {
     if (base.endsWith(".ts")) return [base];
@@ -187,13 +137,21 @@ function resolveSpec(
   }
   const m = spec.match(/^(@[^/]+\/[^/]+)(\/.*)?$/);
   if (!m) return null;
-  const dir = pkgs.get(m[1]);
-  if (!dir) return null;
-  if (!m[2]) {
-    return candidates(`${dir}/src/index.ts`).find((c) => tracked.has(c)) ?? null;
+  const pkg = pkgs.get(m[1]);
+  if (!pkg) return null;
+  const subpath = m[2] == null ? "." : `.${m[2]}`;
+  const mapped = pkg.exportsMap.get(subpath);
+  if (mapped) {
+    const base = normalize(join(pkg.dir, mapped)).replace(/\\/g, "/");
+    const hit = candidates(base).find((c) => tracked.has(c));
+    if (hit) return hit;
   }
-  const base = `${dir}/src${m[2]}`;
-  return candidates(base).find((c) => tracked.has(c)) ?? null;
+  // Convention fallback for subpaths without an exports entry.
+  if (subpath !== ".") {
+    const base = `${pkg.dir}/src${subpath}`;
+    return candidates(base).find((c) => tracked.has(c)) ?? null;
+  }
+  return candidates(`${pkg.dir}/src/index.ts`).find((c) => tracked.has(c)) ?? null;
 }
 
 type Graph = {
@@ -220,24 +178,125 @@ function provides(graph: Graph, target: string | null, name: string): boolean {
   return false;
 }
 
+// AST walk: every export and import shape the compiler accepts is understood,
+// so an unfamiliar shape can never green-light rot or red-light an unrelated
+// PR. Namespace imports and namespace re-exports act as wildcards.
+function collectFile(
+  rel: string,
+  source: ts.SourceFile,
+  inScope: boolean,
+  decls: Decl[],
+  imports: { name: string; spec: string }[],
+  forwards: { exported: string; source: string; spec: string }[],
+  stars: string[],
+): void {
+  const hasExport = (node: ts.Node): boolean =>
+    (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some(
+      (mod) => mod.kind === ts.SyntaxKind.ExportKeyword,
+    ) ?? false;
+  for (const stmt of source.statements) {
+    if (ts.isImportDeclaration(stmt)) {
+      const spec = stmt.moduleSpecifier;
+      if (!ts.isStringLiteral(spec)) continue;
+      const clause = stmt.importClause;
+      if (!clause) continue;
+      if (clause.name) imports.push({ name: "default", spec: spec.text });
+      const bindings = clause.namedBindings;
+      if (!bindings) continue;
+      if (ts.isNamespaceImport(bindings)) {
+        imports.push({ name: "*", spec: spec.text });
+      } else {
+        for (const el of bindings.elements) {
+          imports.push({
+            name: (el.propertyName ?? el.name).text,
+            spec: spec.text,
+          });
+        }
+      }
+      continue;
+    }
+    if (ts.isExportDeclaration(stmt)) {
+      const spec = stmt.moduleSpecifier;
+      if (spec != null && !ts.isStringLiteral(spec)) continue;
+      const clause = stmt.exportClause;
+      if (clause == null) {
+        // export * from "…" — namespace re-exports land here too.
+        if (spec != null && ts.isStringLiteral(spec)) stars.push(spec.text);
+        continue;
+      }
+      if (ts.isNamespaceExport(clause)) {
+        if (spec != null && ts.isStringLiteral(spec)) stars.push(spec.text);
+        continue;
+      }
+      for (const el of clause.elements) {
+        const exported = el.name.text;
+        const sourceName = (el.propertyName ?? el.name).text;
+        if (spec != null && ts.isStringLiteral(spec)) {
+          forwards.push({ exported, source: sourceName, spec: spec.text });
+        } else if (inScope) {
+          decls.push({ name: exported, home: rel });
+        }
+      }
+      continue;
+    }
+    if (ts.isExportAssignment(stmt)) {
+      if (inScope) decls.push({ name: "default", home: rel });
+      continue;
+    }
+    if (!inScope) continue;
+    if (!hasExport(stmt)) continue;
+    if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations) {
+        if (ts.isIdentifier(d.name)) decls.push({ name: d.name.text, home: rel });
+      }
+    } else if (
+      ts.isFunctionDeclaration(stmt) ||
+      ts.isClassDeclaration(stmt) ||
+      ts.isInterfaceDeclaration(stmt) ||
+      ts.isTypeAliasDeclaration(stmt) ||
+      ts.isEnumDeclaration(stmt) ||
+      ts.isModuleDeclaration(stmt)
+    ) {
+      const name = stmt.name?.text;
+      if (name) decls.push({ name, home: rel });
+      if (
+        (ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt)) &&
+        stmt.modifiers?.some((mod) => mod.kind === ts.SyntaxKind.DefaultKeyword)
+      ) {
+        decls.push({ name: "default", home: rel });
+      }
+    }
+  }
+}
+
 function collectDead(): { dead: string[]; total: number } {
   const files = trackedTsFiles();
   const tracked = new Set(files);
-  const pkgs = packageDirs();
+  const pkgs = packageTable();
+  const dirs = scopedDirs();
   const inScope = (f: string): boolean =>
-    !f.endsWith(".test.ts") && SCOPED_DIRS.some((d) => f === d || f.startsWith(`${d}/`));
+    !f.endsWith(".test.ts") && dirs.some((d) => f === d || f.startsWith(`${d}/`));
 
   const graph: Graph = { declHome: new Map(), forwards: [], stars: [] };
   const imports: ImportSite[] = [];
+  // The graph spans every tracked file so re-export chains through
+  // out-of-scope surfaces (notably @sprout/server/api-type) resolve;
+  // only scoped homes are reported dead below.
+  const scopedDeclKeys: string[] = [];
+  const scopedForwards: Forward[] = [];
   for (const rel of files) {
-    const text = stripComments(readFileSync(join(repoRoot, rel), "utf8"));
-    const sites = parseSites(rel, text);
-    for (const s of sites.imports) {
+    const text = readFileSync(join(repoRoot, rel), "utf8");
+    const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
+    const decls: Decl[] = [];
+    const fileImports: { name: string; spec: string }[] = [];
+    const fileForwards: { exported: string; source: string; spec: string }[] = [];
+    const fileStars: string[] = [];
+    collectFile(rel, source, true, decls, fileImports, fileForwards, fileStars);
+    for (const s of fileImports) {
       imports.push({ file: rel, name: s.name, target: resolveSpec(s.spec, rel, tracked, pkgs) });
     }
-    if (!inScope(rel)) continue;
-    for (const d of parseDecls(rel, text)) graph.declHome.set(`${rel}::${d}`, rel);
-    for (const f of sites.forwards) {
+    for (const d of decls) graph.declHome.set(`${rel}::${d.name}`, rel);
+    for (const f of fileForwards) {
       graph.forwards.push({
         file: rel,
         exported: f.exported,
@@ -245,8 +304,18 @@ function collectDead(): { dead: string[]; total: number } {
         target: resolveSpec(f.spec, rel, tracked, pkgs),
       });
     }
-    for (const spec of sites.stars) {
+    for (const spec of fileStars) {
       graph.stars.push({ file: rel, target: resolveSpec(spec, rel, tracked, pkgs) });
+    }
+    if (!inScope(rel)) continue;
+    for (const d of decls) scopedDeclKeys.push(`${rel}::${d.name}`);
+    for (const f of fileForwards) {
+      scopedForwards.push({
+        file: rel,
+        exported: f.exported,
+        source: f.source,
+        target: resolveSpec(f.spec, rel, tracked, pkgs),
+      });
     }
   }
 
@@ -258,12 +327,13 @@ function collectDead(): { dead: string[]; total: number } {
         (s.name === name || s.name === "*") &&
         provides(graph, s.target, name),
     );
-  for (const [key, home] of graph.declHome) {
+  for (const key of scopedDeclKeys) {
+    const home = graph.declHome.get(key)!;
     const name = key.slice(home.length + 2);
     if (!importerOf(name, home)) dead.push(`${home}: ${name} has no importer outside its home module`);
   }
-  const total = graph.declHome.size + graph.forwards.length;
-  for (const f of graph.forwards) {
+  const total = scopedDeclKeys.length + scopedForwards.length;
+  for (const f of scopedForwards) {
     if (
       !imports.some(
         (s) => s.file !== f.file && (s.name === f.exported || s.name === "*") && provides(graph, s.target, f.exported),
@@ -281,8 +351,8 @@ describe("dead exports", () => {
   });
 
   test("guard understands every export shape in scope", () => {
-    // parseDecls throws on unrecognized shapes, so reaching here with a
-    // non-empty export set proves the scan above actually inspected exports.
+    // Reaching here with a non-empty export set proves the scan above
+    // actually inspected exports.
     expect(collectDead().total).toBeGreaterThan(0);
   });
 });
