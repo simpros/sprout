@@ -1,9 +1,9 @@
 # sprout
 
-Per-PR **preview databases** and optional preview apps for self-hosted
-deployments. CI calls the `sprout` CLI; the gateway provisions an isolated
-logical DB, starts your app behind Traefik, optionally seeds data, and tears
-everything down when the PR closes.
+Every pull request gets its own preview: an isolated database on one shared
+instance plus an optional live app, for teams that review running code instead
+of diffs. Self-hosted, no platform lock-in — everything is torn down when the
+PR closes.
 
 ```text
   PR opened / push          PR closed
@@ -16,77 +16,24 @@ everything down when the PR closes.
        └─ optional seed image
               │
               ▼
-     https://pr-{id}.your.app
+     preview URL for this PR
 ```
 
-## Quickstart
+## Adopt in three files
 
-**Operator** — deploy the gateway once ([full guide](docs/operator-deploy.md)):
-
-```bash
-cp compose.env.example compose.env   # set passwords / DSNs
-docker compose --env-file compose.env up -d --build
-curl -sf http://127.0.0.1:7331/healthz
-```
-
-**Adopter** — add config + a CI step ([getting started](docs/getting-started.md), [onboarding prompt](docs/onboarding-prompt.md)):
-
-```yaml
-# .sprout.yaml
-slug: myapp
-preview:
-  hostname: "pr-{pr_id}.myapp.preview.example.com"
-```
-
-```yaml
-# GitHub Actions (secrets: SPROUT_URL, SPROUT_TOKEN)
-- run: sprout deploy -i "$APP_IMAGE"   # + optional -s "$SEED_IMAGE"
-# on PR close:
-- run: sprout teardown
-```
-
-Copy-paste files: [`examples/adopting-repo/README.md`](examples/adopting-repo/README.md).
-GitLab: published `preview` component — see [CI integration](docs/ci-integration.md)
-(issue [#127](https://github.com/simpros/sprout/issues/127)).
-
-## Features
-
-| | |
-|---|---|
-| **Per-PR isolated DB** | Logical database `sprout_<slug>_pr<id>` on one shared Postgres |
-| **App + Traefik** | Preview containers with Host routing; works beside Coolify Traefik |
-| **Seed images** | Optional one-shot seed after the app is healthy |
-| **Sweep / reconcile** | Gateway corrects drift when CI teardown is missed |
-| **Deploy + admin tokens** | CI deploy tokens scoped by repo; admin tokens for operators |
-
-## Example
-
-```yaml
-# .sprout.yaml
-slug: myapp
-preview:
-  hostname: "pr-{pr_id}.myapp.preview.example.com"
-health:
-  path: /health
-  interval: 2s
-  timeout: 120s
-  expect: 200
-```
-
-```bash
-export SPROUT_URL=https://sprout.example.com
-export SPROUT_TOKEN=<deploy-token>
-sprout deploy -i registry.example.com/myapp:$SHA -s registry.example.com/myapp:$SHA-seed
-# …later…
-sprout teardown
-```
+`.sprout.yaml`, a CI include, and the `Dockerfile` your app already ships —
+plus two CI variables from your operator. Humans:
+[Getting started](docs/getting-started.md). Agents: paste the
+[Onboarding prompt](docs/onboarding-prompt.md) into your coding harness and it
+wires the repo for you. Live pitch:
+[the marketing page](https://simpros.github.io/sprout/).
 
 ## Docs
 
-- **[Public docs](https://simpros.github.io/sprout/)** — how it works, CLI reference, config, FAQ  
-  ([source](docs/site/index.html) · local preview: `bun run docs:preview`)
+- **[Public docs](https://simpros.github.io/sprout/docs/index.html)** — concept, guides, reference
+  ([source](docs/site/index.html) · [llms.txt](llms.txt))
 - [Getting started](docs/getting-started.md) — first preview
-- [Adopting a repo](docs/adopting-a-repo.md) — `.sprout.yaml`, manifest reference
+- [Adopting a repo](docs/adopting-a-repo.md) — `.sprout.yaml` manifest reference
 - [CI integration](docs/ci-integration.md) — GitHub / GitLab wiring, reset
 - [Previews](docs/previews.md) — databases, seeding, services, mail
 - [Operator deploy](docs/operator-deploy.md) — compose stack, env, Traefik
@@ -101,9 +48,8 @@ sprout teardown
 
 ```bash
 bun install
-bun run dev          # gateway watch
 bun test
-bun run build        # typecheck + docs links
+bun run typecheck   # turbo build + docs links
 ```
 
 ## License
