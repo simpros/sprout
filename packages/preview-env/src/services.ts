@@ -27,7 +27,7 @@ export function isServicePort(value: unknown): value is number {
   );
 }
 
-export type ServiceEnvIssue =
+type ServiceEnvIssue =
   | { code: "not_a_mapping" }
   | { code: "empty_key" }
   | { code: "invalid_key"; key: string }

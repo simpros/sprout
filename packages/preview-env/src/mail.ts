@@ -1,6 +1,6 @@
-export const MAIL_MODES = ["enabled", "none"] as const;
+const MAIL_MODES = ["enabled", "none"] as const;
 
-export type MailMode = (typeof MAIL_MODES)[number];
+type MailMode = (typeof MAIL_MODES)[number];
 
 export type MailSpec = {
   mode: MailMode;
@@ -10,11 +10,11 @@ export type MailSpec = {
 
 export const DEFAULT_MAIL_FROM_DOMAIN = "preview.invalid";
 
-export function isMailMode(value: string): value is MailMode {
+function isMailMode(value: string): value is MailMode {
   return (MAIL_MODES as readonly string[]).includes(value);
 }
 
-export type MailSpecIssue =
+type MailSpecIssue =
   | { code: "invalid_mail_block"; detail?: string }
   | { code: "unknown_mail_key"; key: string }
   | { code: "invalid_mail_mode"; mode: string }
@@ -125,7 +125,7 @@ export function mailSpecIssueMessage(issue: MailSpecIssue): string {
 }
 
 /** Explicit mail intent: omitted is opportunistic, enabled is required, none is off. */
-export type MailIntent = "omitted" | "required" | "off";
+type MailIntent = "omitted" | "required" | "off";
 
 export function mailIntent(spec: MailSpec | undefined): MailIntent {
   if (spec === undefined) return "omitted";
@@ -140,7 +140,7 @@ export type MailIdentity = {
 };
 
 /** Single resolve for a preview From identity; env and plan share it. */
-export type ResolvedMailIdentity = { address: string; name: string };
+type ResolvedMailIdentity = { address: string; name: string };
 
 /**
  * Sole substitution site for the From identity. The deploy/yaml boundary

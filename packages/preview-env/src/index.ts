@@ -34,13 +34,13 @@ export const CANONICAL_ENV_KEYS = [
 export const PREVIEW_ENV_KEYS = [...CANONICAL_ENV_KEYS, ...MAIL_ENV_KEYS] as const;
 
 export type OwnerEnvKey = (typeof OWNER_ENV_KEYS)[number];
-export type CompanionEnvKey = (typeof COMPANION_ENV_KEYS)[number];
-export type SqliteEnvKey = (typeof SQLITE_ENV_KEYS)[number];
+type CompanionEnvKey = (typeof COMPANION_ENV_KEYS)[number];
+type SqliteEnvKey = (typeof SQLITE_ENV_KEYS)[number];
 export type MailEnvKey = (typeof MAIL_ENV_KEYS)[number];
 export type CanonicalEnvKey = (typeof CANONICAL_ENV_KEYS)[number];
 export type PreviewEnvKey = CanonicalEnvKey | MailEnvKey;
 
-export type PostgresEnvKey = OwnerEnvKey | CompanionEnvKey;
+type PostgresEnvKey = OwnerEnvKey | CompanionEnvKey;
 
 export const POSTGRES_ENV_KEYS: readonly PostgresEnvKey[] = [
   ...OWNER_ENV_KEYS,
@@ -94,7 +94,7 @@ export function envProviderMismatch(
   return null;
 }
 
-export type PreviewEnvIssue =
+type PreviewEnvIssue =
   | { code: "unknown_env_key"; key: string }
   | { code: "empty_env_target"; key: string }
   | { code: "invalid_env_target"; key: string }
@@ -105,7 +105,7 @@ export type PreviewEnvIssue =
       priorKey: string;
     };
 
-export type EnvProviderIssue = {
+type EnvProviderIssue = {
   code: "env_requires_provider";
   key: CanonicalEnvKey;
   home: DbProvider;

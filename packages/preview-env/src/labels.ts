@@ -1,9 +1,9 @@
 export type PreviewLabels = Record<string, string>;
 
 /** Fail malformed keys at parse: Docker applies labels verbatim, so a typo'd key would silently do nothing. */
-export const LABEL_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+const LABEL_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
-export type LabelMapIssue =
+type LabelMapIssue =
   | { code: "not_a_mapping" }
   | { code: "empty_key" }
   | { code: "invalid_key"; key: string }
