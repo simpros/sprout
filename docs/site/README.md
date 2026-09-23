@@ -35,10 +35,11 @@ One design: `docs/site/theme.css` is the single stylesheet (extracted from
 the marketing page) and `docs/site/shell.ts` the single chrome (header with
 brand + docs nav, `<main>`, footer) — the marketing page, the docs index,
 and every docs page inline the same theme text and the same copy script, so
-the surfaces cannot drift. `docs/site/index.html` stays the source of the
+the surfaces cannot drift. `docs/site/marketing.html` is the source of the
 marketing page but is a body fragment, never copied verbatim: it carries
 `<!-- docs-onboarding-prompt -->` in the adopt section, resolved at
-assembly, while its title and description live in the `marketingPage`
+assembly into the published `docs/site/index.html` artifact, while its title
+and description live in the `marketingPage`
 manifest next to `docsPages`. Docs pages get a docs nav
 built from `docsPages` (a new page appears automatically) and an "On this
 page" TOC from the parsed headings. The theme and the client script stay

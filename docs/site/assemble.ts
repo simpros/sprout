@@ -4,21 +4,21 @@ import { fileURLToPath } from "node:url";
 import { promptFigure } from "./codeblock.ts";
 import { escapeHtml } from "./html.ts";
 import {
-  navPrefixFor,
+  docsPrefixFor,
+  marketingSourcePath,
   PROMPT_MARKER,
   renderShell,
   siteEntryPath,
   type ShellNavItem,
 } from "./shell.ts";
 import {
-  documentToc,
   extractPromptText,
   promptFence,
   renderMarkdown,
   rewritePageLinks,
 } from "./markdown.ts";
 
-export { siteEntryPath };
+export { marketingSourcePath, siteEntryPath };
 
 const siteDir = dirname(fileURLToPath(import.meta.url));
 export const repoRootDir = resolve(siteDir, "../..");
@@ -110,7 +110,7 @@ export function renderDocsIndexHtml(): string {
 // automatically. The `docs/ ↔ docs/site/` depth gap is derived from the
 // artifact path being written, never hand-set per call.
 export function docsNav(outputPath: string, current?: string): ShellNavItem[] {
-  const prefix = navPrefixFor(outputPath);
+  const prefix = docsPrefixFor(outputPath);
   return docsPages.map((p) => ({
     href: `${prefix}${pageIndexHref(p)}`,
     title: p.title,
@@ -146,11 +146,11 @@ const copyOnlyFiles = [
   "deploy/postgres/ensure-preview-role.sh",
 ];
 
-const generatedFiles = ["docs/index.html", "llms.txt"];
+const generatedFiles = ["docs/index.html", "llms.txt", siteEntryPath];
 
 export const publishFiles = [
   ...copyOnlyFiles,
-  siteEntryPath,
+  marketingSourcePath,
   ...docsPages.map((p) => p.file),
   ...generatedFiles,
 ];
@@ -224,7 +224,7 @@ export async function assembleSite(
   // extract it eagerly here: one extraction, one substitution helper for
   // both surfaces.
   const prompt = extractPromptText(
-    await readFile(join(repoRoot, "docs/onboarding-prompt.md"), "utf8"),
+    await readFile(join(repoRoot, docsEntry().file), "utf8"),
   );
   const resolvePrompt = (
     text: string,
@@ -246,7 +246,7 @@ export async function assembleSite(
     const htmlFile = pageHtmlFile(file);
     // Page composition lives here, with the other `renderShell` call sites:
     // parse once, rewrite `.md` links to `.html` twins, wrap in the shell.
-    const { document, body } = renderMarkdown(markdownForMd);
+    const { headings, body } = renderMarkdown(markdownForMd);
     await writeFile(
       join(outDir, htmlFile),
       renderShell({
@@ -254,14 +254,14 @@ export async function assembleSite(
         description: page.description,
         outputPath: htmlFile,
         nav: docsNav(htmlFile, file),
-        toc: documentToc(document),
+        toc: headings,
         bodyHtml: rewritePageLinks(body, file, htmlPages),
       }),
     );
     published.push(htmlFile);
   }
 
-  const marketingSource = await readFile(join(repoRoot, siteEntryPath), "utf8");
+  const marketingSource = await readFile(join(repoRoot, marketingSourcePath), "utf8");
   await mkdir(dirname(join(outDir, siteEntryPath)), { recursive: true });
   await writeFile(
     join(outDir, siteEntryPath),

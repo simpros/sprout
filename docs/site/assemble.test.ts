@@ -7,6 +7,7 @@ import {
   docsPages,
   listFilesRecursive,
   marketingPage,
+  marketingSourcePath,
   pageHtmlFile,
   publishDirs,
   publishFiles,
@@ -19,7 +20,6 @@ import {
 import { check, checkPublishedSite, defaultCheckPaths } from "./check.ts";
 import {
   markdownToHtmlBody,
-  documentToc,
   extractPromptText,
   promptFence,
   renderMarkdown,
@@ -147,7 +147,7 @@ describe("assembleSite", () => {
 
     const pages = new Set(["docs/other.html"]);
     const sourceFile = "docs/adopting-a-repo.md";
-    const { document, body } = renderMarkdown(
+    const { headings, body } = renderMarkdown(
       "# Hi\n\nSee [other](other.md) and [frag](other.md#hi).\n\nKeep [raw](../templates/README.md).\n",
     );
     const rendered = renderShell({
@@ -155,7 +155,7 @@ describe("assembleSite", () => {
       description: "Hi",
       outputPath: "docs/adopting-a-repo.html",
       nav: [],
-      toc: documentToc(document),
+      toc: headings,
       bodyHtml: rewritePageLinks(body, sourceFile, pages),
     });
     expect(rendered).toContain('<a href="other.html">other</a>');
@@ -409,7 +409,7 @@ describe("shared shell, code blocks, and prompt embedding", () => {
       await readFile(join(repoRootDir, "docs/onboarding-prompt.md"), "utf8"),
     );
     // Sources carry the marker, never the prompt text itself.
-    for (const source of ["docs/getting-started.md", "docs/site/index.html"]) {
+    for (const source of ["docs/getting-started.md", marketingSourcePath]) {
       const text = await readFile(join(repoRootDir, source), "utf8");
       expect(text).toContain("<!-- docs-onboarding-prompt -->");
       expect(text).not.toContain("You are onboarding this repository");
@@ -464,7 +464,7 @@ describe("shared shell, code blocks, and prompt embedding", () => {
   });
 
   test("marketing page is rendered, not copied verbatim", async () => {
-    const source = await readFile(join(repoRootDir, siteEntryPath), "utf8");
+    const source = await readFile(join(repoRootDir, marketingSourcePath), "utf8");
     const html = await readFile(join(out, siteEntryPath), "utf8");
     // The source is a body fragment: no envelope, no wrap —
     // the shell inlines the theme and owns `.wrap` for every page.

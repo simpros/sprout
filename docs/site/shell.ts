@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dirname as posixDirname, relative as posixRelative } from "node:path/posix";
 import { fileURLToPath } from "node:url";
+import type { MarkdownHeading } from "@tanstack/markdown";
 import { codeBlockScript } from "./codeblock.ts";
 import { escapeHtml } from "./html.ts";
 
@@ -17,6 +18,10 @@ export const PROMPT_MARKER = "<!-- docs-onboarding-prompt -->";
 // Artifact path of the marketing entry, relative to the repo root. Assembly
 // re-exports this so the manifest and the chrome agree on one string.
 export const siteEntryPath = "docs/site/index.html";
+
+// Checked-in marketing source fragment, relative to the repo root. The
+// artifact above is generated from this file, never read as a page.
+export const marketingSourcePath = "docs/site/marketing.html";
 
 let cachedTheme: string | null = null;
 
@@ -52,15 +57,12 @@ function locationFor(outputPath: string): {
   };
 }
 
-export function navPrefixFor(outputPath: string): string {  const toDocs = posixRelative(posixDirname(outputPath), "docs") || ".";
+// The docs-nav prefix is the same depth `locationFor` already derives,
+// read from the one derivation so the nav and the footer cannot disagree.
+export function docsPrefixFor(outputPath: string): string {
+  const { toDocs } = locationFor(outputPath);
   return toDocs === "." ? "" : `${toDocs}/`;
 }
-
-export type ShellTocEntry = {
-  id: string;
-  text: string;
-  level: number;
-};
 
 function siteHeader(homeHref: string, nav: ShellNavItem[]): string {
   const links = nav
@@ -95,9 +97,9 @@ function siteFooter(toRoot: string, toDocs: string): string {
   ].join("\n");
 }
 
-// The "On this page" index, straight from the parsed document headings —
+// The "On this page" index, straight from the parser's own heading model —
 // hrefs live in the same `headingIds` namespace as the rendered headings.
-function renderToc(headings: ShellTocEntry[]): string {
+function renderToc(headings: MarkdownHeading[]): string {
   const entries = headings.filter((h) => h.level > 1);
   if (entries.length === 0) return "";
   const items = entries
@@ -121,7 +123,7 @@ export type ShellOptions = {
   description: string;
   outputPath: string;
   nav: ShellNavItem[];
-  toc: ShellTocEntry[];
+  toc: MarkdownHeading[];
   bodyHtml: string;
 };
 

@@ -12,16 +12,16 @@ import type {
   CodeBlockNode,
   MarkdownDocument,
   MarkdownExtension,
+  MarkdownHeading,
 } from "@tanstack/markdown";
 import { renderHtml } from "@tanstack/markdown/html";
-import { headingCollectionExtension } from "@tanstack/markdown/extensions/headings";
+import { collectMarkdownHeadings } from "@tanstack/markdown/extensions/headings";
 import { dirname, relative, resolve } from "node:path/posix";
 import {
   codeBlockExtension,
   isPromptFence,
   PROMPT_FENCE_META,
 } from "./codeblock.ts";
-import type { ShellTocEntry } from "./shell.ts";
 
 // GitHub's anchor rule: lowercase, drop everything but letters/numbers/marks,
 // `_`, `-`, and spaces, then spaces become hyphens. Punctuation between
@@ -47,12 +47,10 @@ function githubHeadingIdsFn(): (text: string) => string {
   };
 }
 
-// Stateless across documents: the heading collector only derives
-// `document.headings`, and the code block component only renders `code` nodes.
-const markdownExtensions: MarkdownExtension[] = [
-  headingCollectionExtension(),
-  codeBlockExtension,
-];
+// Stateless across documents: the code block component only renders `code`
+// nodes; headings are collected from the parsed tree with the library's own
+// collector, so no bespoke heading model shadows the parser's.
+const markdownExtensions: MarkdownExtension[] = [codeBlockExtension];
 
 function parseMarkdownDocument(markdown: string): MarkdownDocument {
   return parseMarkdown(markdown, {
@@ -70,22 +68,14 @@ function renderDocumentBody(document: MarkdownDocument): string {
   });
 }
 
-export function documentToc(document: MarkdownDocument): ShellTocEntry[] {
-  return (document.headings ?? []).map((heading) => ({
-    id: heading.id,
-    text: heading.text,
-    level: heading.level,
-  }));
-}
-
 // One parse+render pairing, owned here: every consumer parses and renders
 // through this, so an extension added to one side cannot half-work.
 export function renderMarkdown(markdown: string): {
-  document: MarkdownDocument;
+  headings: MarkdownHeading[];
   body: string;
 } {
   const document = parseMarkdownDocument(markdown);
-  return { document, body: renderDocumentBody(document) };
+  return { headings: collectMarkdownHeadings(document), body: renderDocumentBody(document) };
 }
 
 export function markdownToHtmlBody(markdown: string): string {
@@ -196,7 +186,3 @@ export function rewritePageLinks(
     return `href="${path.slice(0, -3)}.html${suffix}"`;
   });
 }
-
-// Assembly resolves the prompt marker to a fence before parsing, so the
-// code-block extension renders the figure straight from the AST —
-// including blank lines, which survive inside fenced blocks.
