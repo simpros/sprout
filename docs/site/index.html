@@ -16,7 +16,6 @@
       --accent: #3dcf8e;
       --accent-dim: #2a9a68;
       --link: #6ec8ff;
-      --warn: #e8b84a;
       --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Consolas", monospace;
       --sans: system-ui, "Segoe UI", sans-serif;
       --max: 52rem;
@@ -104,7 +103,6 @@
       font-size: 1.45rem;
       margin: 0 0 0.85rem;
       letter-spacing: -0.015em;
-      padding-top: 0.5rem;
       border-top: 1px solid var(--border);
       padding-top: 1.75rem;
     }
@@ -294,8 +292,10 @@
     <section id="adopt">
       <h2>Adopt in three files</h2>
       <p>
-        Adoption is one config file, one CI include, and CI variables your
-        operator hands you. The smallest config is two keys:
+        Adoption is one config file (<code>.sprout.yaml</code>), one CI
+        include, and the <code>Dockerfile</code> your app already ships —
+        plus two CI variables your operator hands you. The smallest config
+        is two keys:
       </p>
       <pre>slug: myapp
 preview:

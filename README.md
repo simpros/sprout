@@ -21,7 +21,8 @@ PR closes.
 
 ## Adopt in three files
 
-One config file, one CI include, CI variables from your operator. Humans:
+`.sprout.yaml`, a CI include, and the `Dockerfile` your app already ships —
+plus two CI variables from your operator. Humans:
 [Getting started](docs/getting-started.md). Agents: paste the
 [Onboarding prompt](docs/onboarding-prompt.md) into your coding harness and it
 wires the repo for you. Live pitch:
@@ -29,8 +30,8 @@ wires the repo for you. Live pitch:
 
 ## Docs
 
-- **[Public docs](https://simpros.github.io/sprout/)** — concept, guides, reference
-  ([source](docs/site/index.html) · [index](docs/index.html) · [llms.txt](llms.txt))
+- **[Public docs](https://simpros.github.io/sprout/docs/index.html)** — concept, guides, reference
+  ([source](docs/site/index.html) · [llms.txt](llms.txt))
 - [Getting started](docs/getting-started.md) — first preview
 - [Adopting a repo](docs/adopting-a-repo.md) — `.sprout.yaml` manifest reference
 - [CI integration](docs/ci-integration.md) — GitHub / GitLab wiring, reset
