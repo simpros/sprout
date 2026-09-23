@@ -23,7 +23,6 @@ import {
   promptFence,
   renderMarkdownPage,
 } from "./markdown.ts";
-import { hasUnresolvedMarkers } from "./shell.ts";
 import { isAdrPath } from "./adr-policy.ts";
 import { writeCorpusFixture } from "./test-fixture.ts";
 
@@ -144,13 +143,15 @@ describe("assembleSite", () => {
     expect(markdownToHtmlBody("# Hi\n")).toContain('id="hi"');
 
     const pages = new Set(["docs/other.html"]);
-    const rendered = renderMarkdownPage(
-      "Hi",
-      "# Hi\n\nSee [other](other.md) and [frag](other.md#hi).\n\nKeep [raw](../templates/README.md).\n",
-      "docs/adopting-a-repo.md",
-      pages,
-      { description: "Hi", nav: [] },
-    );
+    const rendered = renderMarkdownPage({
+      title: "Hi",
+      markdown:
+        "# Hi\n\nSee [other](other.md) and [frag](other.md#hi).\n\nKeep [raw](../templates/README.md).\n",
+      sourceFile: "docs/adopting-a-repo.md",
+      renderedHtmlPages: pages,
+      description: "Hi",
+      nav: [],
+    });
     expect(rendered).toContain('<a href="other.html">other</a>');
     expect(rendered).toContain('<a href="other.html#hi">frag</a>');
     expect(rendered).toContain('<a href="../templates/README.md">raw</a>');
@@ -435,23 +436,34 @@ describe("shared shell, code blocks, and prompt embedding", () => {
     }
   });
 
-  test("the assembled tree contains no unresolved marker", async () => {
-    for (const file of await listFilesRecursive(out)) {
-      const text = await readFile(file, "utf8");
-      expect(hasUnresolvedMarkers(text)).toBe(false);
+  test("the link gate fails an unresolved prompt marker", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "sprout-docs-marker-"));
+    try {
+      const repo = join(tmp, "repo");
+      const site = join(tmp, "site");
+      await writeCorpusFixture(repo);
+      await assembleSite(repo, site);
+
+      const victim = join(site, "docs/getting-started.md");
+      const text = await readFile(victim, "utf8");
+      await writeFile(victim, `${text}<!-- docs-onboarding-prompt -->\n`);
+      await expect(check(await defaultCheckPaths(site))).rejects.toThrow(
+        "unresolved prompt marker",
+      );
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
     }
   });
 
   test("marketing page is rendered, not copied verbatim", async () => {
     const source = await readFile(join(repoRootDir, siteEntryPath), "utf8");
     const html = await readFile(join(out, siteEntryPath), "utf8");
-    // The source is a body fragment: no envelope, no theme marker, no wrap —
+    // The source is a body fragment: no envelope, no wrap —
     // the shell inlines the theme and owns `.wrap` for every page.
     expect(source).not.toContain("<!DOCTYPE html>");
     expect(source).not.toContain("<html");
     expect(source).not.toContain("<head>");
     expect(source).not.toContain("<body>");
-    expect(source).not.toContain("<!-- docs-theme -->");
     expect(source).not.toContain('<div class="wrap">');
     expect(source).toContain("<!-- docs-onboarding-prompt -->");
     // Title and description come from the manifest, not source regexes.

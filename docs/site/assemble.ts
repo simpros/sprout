@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import { promptFigure } from "./codeblock.ts";
 import { escapeHtml } from "./html.ts";
 import {
-  assembleMarketingPage,
   docsLocation,
   marketingLocation,
   navPrefix,
@@ -221,17 +220,15 @@ export async function assembleSite(
   published.push("llms.txt");
 
   // The onboarding prompt lives in one source file; pages carrying the
-  // marker embed it. Read lazily: trees without a marker never touch the
-  // source, so marker-free fixtures assemble without the file present.
-  let cachedPrompt: string | null = null;
-  async function onboardingPrompt(): Promise<string> {
-    if (cachedPrompt === null) {
-      cachedPrompt = extractPromptText(
-        await readFile(join(repoRoot, "docs/onboarding-prompt.md"), "utf8"),
-      );
-    }
-    return cachedPrompt;
-  }
+  // marker embed it. It is a docsPage, read unconditionally below, so read
+  // it eagerly here: one read, one substitution helper for both surfaces.
+  const prompt = extractPromptText(
+    await readFile(join(repoRoot, "docs/onboarding-prompt.md"), "utf8"),
+  );
+  const resolvePrompt = (
+    text: string,
+    render: (prompt: string) => string,
+  ): string => text.split(PROMPT_MARKER).join(render(prompt));
 
   const htmlPages = renderedHtmlPages();
   for (const page of docsPages) {
@@ -239,9 +236,8 @@ export async function assembleSite(
     const source = await readFile(join(repoRoot, file), "utf8");
     // One substitution: the resolved fence feeds both the `.md` write and
     // the HTML render, so the parser owns the figure on both surfaces.
-    const markdownForMd = source.includes(PROMPT_MARKER)
-      ? source.split(PROMPT_MARKER).join(promptFence(await onboardingPrompt()))
-      : source;
+    // A marker-free source passes through untouched.
+    const markdownForMd = resolvePrompt(source, promptFence);
     const dest = join(outDir, file);
     await mkdir(dirname(dest), { recursive: true });
     await writeFile(dest, markdownForMd);
@@ -249,7 +245,11 @@ export async function assembleSite(
     const htmlFile = pageHtmlFile(file);
     await writeFile(
       join(outDir, htmlFile),
-      renderMarkdownPage(page.title, markdownForMd, file, htmlPages, {
+      renderMarkdownPage({
+        title: page.title,
+        markdown: markdownForMd,
+        sourceFile: file,
+        renderedHtmlPages: htmlPages,
         description: page.description,
         nav: docsNav(docsLocation, file),
       }),
@@ -258,17 +258,16 @@ export async function assembleSite(
   }
 
   const marketingSource = await readFile(join(repoRoot, siteEntryPath), "utf8");
-  const marketingPromptFigure = marketingSource.includes(PROMPT_MARKER)
-    ? promptFigure(await onboardingPrompt())
-    : "";
   await mkdir(dirname(join(outDir, siteEntryPath)), { recursive: true });
   await writeFile(
     join(outDir, siteEntryPath),
-    assembleMarketingPage(marketingSource, {
+    renderShell({
       title: marketingPage.title,
       description: marketingPage.description,
-      promptFigure: marketingPromptFigure,
+      location: marketingLocation,
       nav: docsNav(marketingLocation),
+      toc: [],
+      bodyHtml: resolvePrompt(marketingSource, promptFigure),
     }),
   );
   published.push(siteEntryPath);

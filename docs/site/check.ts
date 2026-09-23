@@ -9,6 +9,7 @@ import {
   splitHref,
 } from "./markdown.ts";
 import { findAdrMention, isAdrHref, isAdrPath } from "./adr-policy.ts";
+import { PROMPT_MARKER } from "./shell.ts";
 
 export type CheckedFileKind = "html" | "markdown" | "text";
 export type CheckedFile = { path: string; kind: CheckedFileKind };
@@ -193,10 +194,27 @@ export async function assertNoAdrLeaks(
   }
 }
 
+// The exact assembly marker, not a prefix: a future unrelated comment can
+// never false-positive, and every published page is already in hand here,
+// so the gate holds for every assembled tree, not just fixtures.
+export async function assertNoUnresolvedMarkers(
+  pages: LoadedPage[],
+): Promise<void> {
+  const unresolved = pages
+    .filter(({ text }) => text.includes(PROMPT_MARKER))
+    .map(({ file }) => file);
+  if (unresolved.length > 0) {
+    throw new Error(
+      `unresolved prompt marker in:\n${unresolved.join("\n")}`,
+    );
+  }
+}
+
 export async function check(paths: CheckPaths): Promise<void> {
   // Load every page before asserting so Bun never reports an unhandled rejection.
   const pages = await loadPages(paths);
   await assertNoAdrLeaks(paths, pages);
+  await assertNoUnresolvedMarkers(pages);
 
   const ctx: HrefContext = {
     rootDir: paths.rootDir,

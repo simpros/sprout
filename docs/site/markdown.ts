@@ -81,8 +81,18 @@ export function documentToc(document: MarkdownDocument): ShellTocEntry[] {
   }));
 }
 
+// One parse+render pairing, owned here: every consumer parses and renders
+// through this, so an extension added to one side cannot half-work.
+export function renderMarkdown(markdown: string): {
+  document: MarkdownDocument;
+  body: string;
+} {
+  const document = parseMarkdownDocument(markdown);
+  return { document, body: renderDocumentBody(document) };
+}
+
 export function markdownToHtmlBody(markdown: string): string {
-  return renderDocumentBody(parseMarkdownDocument(markdown));
+  return renderMarkdown(markdown).body;
 }
 
 // The single copy-paste block lives in `docs/onboarding-prompt.md` as the
@@ -195,30 +205,28 @@ export function rewritePageLinks(
 // Assembly resolves the prompt marker to a fence before parsing, so the
 // code-block extension renders the figure straight from the AST —
 // including blank lines, which survive inside fenced blocks.
-export type MarkdownPageOptions = {
+export type RenderMarkdownPageOptions = {
+  title: string;
+  markdown: string;
+  sourceFile: string;
+  renderedHtmlPages: Set<string>;
   description: string;
   nav: ShellNavItem[];
 };
 
-export function renderMarkdownPage(
-  title: string,
-  markdown: string,
-  sourceFile: string,
-  renderedHtmlPages: Set<string>,
-  opts: MarkdownPageOptions,
-): string {
-  const document = parseMarkdownDocument(markdown);
-  const body = rewritePageLinks(
-    renderDocumentBody(document),
-    sourceFile,
-    renderedHtmlPages,
+export function renderMarkdownPage(opts: RenderMarkdownPageOptions): string {
+  const { document, body } = renderMarkdown(opts.markdown);
+  const rewritten = rewritePageLinks(
+    body,
+    opts.sourceFile,
+    opts.renderedHtmlPages,
   );
   return renderShell({
-    title,
+    title: opts.title,
     description: opts.description,
     location: docsLocation,
     nav: opts.nav,
     toc: documentToc(document),
-    bodyHtml: body,
+    bodyHtml: rewritten,
   });
 }

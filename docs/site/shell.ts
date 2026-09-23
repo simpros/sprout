@@ -3,7 +3,8 @@
 // The marketing page and every docs page share one stylesheet (`theme.css`,
 // inlined) and one header/footer built here, by construction: `renderShell`
 // is the only way to produce a published `.html` page. The prompt marker is
-// the one assembly-resolved marker left; the gate asserts none survives.
+// the one assembly-resolved marker left; the link-check gate asserts none
+// survives.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,10 +12,6 @@ import { codeBlockScript } from "./codeblock.ts";
 import { escapeHtml } from "./html.ts";
 
 export const PROMPT_MARKER = "<!-- docs-onboarding-prompt -->";
-
-export function hasUnresolvedMarkers(text: string): boolean {
-  return text.includes("<!-- docs-");
-}
 
 let cachedTheme: string | null = null;
 
@@ -159,27 +156,4 @@ export function renderShell(opts: ShellOptions): string {
     "</html>",
     "",
   ].join("\n");
-}
-
-// Marketing source handling: the file is a body fragment, not a document —
-// title and description travel in the manifest next to `docsPages`, and the
-// shell supplies the shared theme, header, footer, and copy script around
-// the fragment. The only substitution is the prompt marker.
-export function assembleMarketingPage(
-  fragment: string,
-  opts: {
-    title: string;
-    description: string;
-    promptFigure: string;
-    nav: ShellNavItem[];
-  },
-): string {
-  return renderShell({
-    title: opts.title,
-    description: opts.description,
-    location: marketingLocation,
-    nav: opts.nav,
-    toc: [],
-    bodyHtml: fragment.split(PROMPT_MARKER).join(opts.promptFigure),
-  });
 }
