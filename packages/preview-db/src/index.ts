@@ -17,12 +17,8 @@ export {
   isWorktreeInputError,
 } from "./errors.ts";
 export {
-  RESET_MARKER_MAX_LENGTH,
   parseResetMarkerToken,
 } from "./reset-marker.ts";
-export {
-  assertWorktreeObjectName,
-} from "./worktree-names.ts";
 export {
   dropWorktreeDb,
   provisionWorktreeDb,

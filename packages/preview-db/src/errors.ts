@@ -1,8 +1,8 @@
-export type WorktreeInputErrorCode =
+type WorktreeInputErrorCode =
   | "invalid_admin_url"
   | "invalid_worktree_key";
 
-export class WorktreeInputError extends Error {
+class WorktreeInputError extends Error {
   readonly code: WorktreeInputErrorCode;
   readonly value: string;
 

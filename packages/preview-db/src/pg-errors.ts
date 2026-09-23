@@ -1,4 +1,4 @@
-export function pgErrorMatches(
+function pgErrorMatches(
   err: unknown,
   opts: { codes: string[]; messageRe?: RegExp },
 ): boolean {

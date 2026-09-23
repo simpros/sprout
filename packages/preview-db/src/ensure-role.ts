@@ -2,7 +2,7 @@ import type { SQL } from "bun";
 import { isDuplicateRole, isInsufficientPrivilege } from "./pg-errors.ts";
 
 /** Unquoted Postgres identifiers fold to lowercase — require lowercase roles. */
-export const SAFE_ROLE = /^[a-z_][a-z0-9_]*$/;
+const SAFE_ROLE = /^[a-z_][a-z0-9_]*$/;
 
 export function assertSafeRole(role: string): void {
   if (!SAFE_ROLE.test(role)) {

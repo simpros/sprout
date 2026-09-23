@@ -1,4 +1,4 @@
-export const WORKTREE_OBJECT_PREFIX = "sprout_wt_";
+const WORKTREE_OBJECT_PREFIX = "sprout_wt_";
 
 const MAX_KEY_LEN = 40;
 

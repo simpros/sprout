@@ -9,7 +9,7 @@ export type HostnameIssue =
   | { code: "hostname_template_invalid"; detail: string }
   | { code: "invalid_hostname"; detail: string };
 
-export type HostnameMode = "required_template" | "static_or_template";
+type HostnameMode = "required_template" | "static_or_template";
 
 function isHostnameTemplate(raw: string, mode: HostnameMode): boolean {
   if (mode === "required_template") return true;

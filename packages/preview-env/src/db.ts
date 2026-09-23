@@ -1,4 +1,4 @@
-export const DB_PROVIDERS = ["postgres", "sqlite", "none"] as const;
+const DB_PROVIDERS = ["postgres", "sqlite", "none"] as const;
 
 export type DbProvider = (typeof DB_PROVIDERS)[number];
 
@@ -8,9 +8,9 @@ export type DbSpec = {
   file: string;
 };
 
-export const DEFAULT_DB_PROVIDER: DbProvider = "postgres";
-export const DEFAULT_DB_PATH = "/data";
-export const DEFAULT_DB_FILE = "preview.db";
+const DEFAULT_DB_PROVIDER: DbProvider = "postgres";
+const DEFAULT_DB_PATH = "/data";
+const DEFAULT_DB_FILE = "preview.db";
 
 export function defaultDbSpec(): DbSpec {
   return {
@@ -24,7 +24,7 @@ export function isDbProvider(value: string): value is DbProvider {
   return (DB_PROVIDERS as readonly string[]).includes(value);
 }
 
-export type DbSpecIssue =
+type DbSpecIssue =
   | { code: "invalid_db_block"; detail?: string }
   | { code: "unknown_db_key"; key: string }
   | { code: "invalid_db_provider"; provider: string }

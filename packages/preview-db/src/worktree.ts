@@ -64,7 +64,7 @@ export type WorktreeConnection = {
   databaseUrl: string;
 };
 
-export type ProvisionWorktreeDbOptions = {
+type ProvisionWorktreeDbOptions = {
   adminUrl: string;
   worktreeKey: string;
   password?: string;
@@ -97,7 +97,7 @@ export async function provisionWorktreeDb(
   }
 }
 
-export type DropWorktreeDbOptions = {
+type DropWorktreeDbOptions = {
   adminUrl: string;
   worktreeKey: string;
 };
