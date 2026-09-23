@@ -56,7 +56,7 @@ describe("defaultCheckPaths", () => {
     expect(rel("html")).toContain(join(root, "docs/index.html"));
     expect(rel("text")).toContain(join(root, "llms.txt"));
     for (const relPath of [
-      "docs/adoption.md",
+      "docs/herdr-integration.md",
       "docs/getting-started.md",
       "docs/adopting-a-repo.md",
       "docs/ci-integration.md",
@@ -145,6 +145,7 @@ describe("fragment resolution", () => {
   test("rejects a markdown fragment whose heading is missing", async () => {
     root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
     await writeCorpusFixture(root);
+    await writeFile(join(root, "docs", "deploy.md"), "# Deploy\n");
     await writeFile(
       join(root, "docs", "adoption.md"),
       "See [deploy](deploy.md#no-such-heading).\n",
@@ -177,7 +178,7 @@ describe("fragment resolution", () => {
     await writeCorpusFixture(root);
     await writeFile(
       join(root, "docs", "index.html"),
-      `<html><body><a href="adoption.md">adopt</a><a href="#no-such-id">x</a></body></html>\n`,
+      `<html><body><a href="getting-started.md">start</a><a href="#no-such-id">x</a></body></html>\n`,
     );
     await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
       /dead fragment/,
@@ -282,7 +283,7 @@ describe("ADR exclusion (standing rule: never consumer docs)", () => {
     await writeCorpusFixture(root);
     await writeFile(
       join(root, "README.md"),
-      "# r\n[adopt](docs/adoption.md) [decisions](docs/adr/README.md)\n",
+      "# r\n[start](docs/getting-started.md) [decisions](docs/adr/README.md)\n",
     );
     await expect(check(await defaultCheckPaths(root))).rejects.toThrow(/ADR leak/);
   });
@@ -292,7 +293,7 @@ describe("ADR exclusion (standing rule: never consumer docs)", () => {
     await writeCorpusFixture(root);
     await writeFile(
       join(root, "docs", "site", "index.html"),
-      `<html><body><a href="../adoption.md">adopt</a><p>see ADR 0007</p></body></html>\n`,
+      `<html><body><a href="../getting-started.md">start</a><p>see ADR 0007</p></body></html>\n`,
     );
     await expect(check(await defaultCheckPaths(root))).rejects.toThrow(/ADR leak/);
   });

@@ -31,7 +31,6 @@ export type DocsPage = {
   file: string;
   title: string;
   description: string;
-  legacy?: boolean;
   entry?: boolean;
 };
 
@@ -47,8 +46,6 @@ export const docsPages: DocsPage[] = [
   { file: "docs/troubleshooting.md", title: "Troubleshooting", description: "adopter and operator error catalogue." },
   { file: "docs/onboarding-prompt.md", title: "Onboarding prompt", description: "copy-paste agent block (entry point for agents).", entry: true },
   { file: "docs/herdr-integration.md", title: "Herdr integration", description: "operator-side review automation." },
-  { file: "docs/adoption.md", title: "Adoption guide", description: "thin map to the per-topic pages (legacy path).", legacy: true },
-  { file: "docs/deploy.md", title: "Operator deploy guide", description: "thin map to the operator page (legacy path).", legacy: true },
 ];
 
 // The marketing page in the same manifest shape as every docs page: the
@@ -82,8 +79,6 @@ function renderedHtmlPages(): Set<string> {
 }
 
 export function renderDocsIndexHtml(): string {
-  const main = docsPages.filter((p) => !p.legacy);
-  const legacy = docsPages.filter((p) => p.legacy);
   const item = (p: DocsPage) =>
     `      <li><a href="${pageIndexHref(p)}">${escapeHtml(p.title)}</a> — ${escapeHtml(p.description)}</li>`;
   const entryHref = pageIndexHref(docsEntry());
@@ -91,9 +86,8 @@ export function renderDocsIndexHtml(): string {
     "    <h1>sprout docs</h1>",
     `    <p>Markdown is canonical: every page below is served as plain <code>.md</code> (agents) and as rendered <code>.html</code> (humans) from the same source. Machine-readable index: <a href="../llms.txt">llms.txt</a>. Start with the <a href="${entryHref}">onboarding prompt</a>.</p>`,
     "    <ul>",
-    ...main.map(item),
+    ...docsPages.map(item),
     "    </ul>",
-    `    <p>Legacy entry points: ${legacy.map((p) => `<a href="${pageIndexHref(p)}">${escapeHtml(p.title)}</a>`).join(", ")} (thin maps to the pages above; old deep links still land).</p>`,
   ].join("\n");
   return renderShell({
     title: "sprout docs",

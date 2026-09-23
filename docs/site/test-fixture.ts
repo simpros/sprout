@@ -13,22 +13,22 @@ const overlays: Record<string, string> = {
   // Body fragment like the production source: no envelope, no theme marker,
   // no `.wrap` — the shell supplies those.
   "docs/site/marketing.html":
-    `<a href="../deploy.md">deploy</a><a href="../adoption.md">adopt</a>\n`,
+    `<a href="../operator-deploy.md">deploy</a><a href="../getting-started.md">start</a>\n`,
   "docs/index.html":
-    `<html><body><a href="adoption.md">adopt</a><a href="getting-started.md">start</a></body></html>\n`,
+    `<html><body><a href="operator-deploy.md">deploy</a><a href="getting-started.md">start</a></body></html>\n`,
   // Real meta-tagged fence like the production source: assembly extracts the
   // prompt from this file on every run.
   "docs/onboarding-prompt.md":
     "# docs/onboarding-prompt.md\n\n```text prompt\nfixture prompt\n```\n",
-  "README.md": "# r\n[adopt](docs/adoption.md)\n",
-  "docs/deploy.md":
-    "See [adoption](adoption.md), [e2e](../e2e/README.md), " +
+  "README.md": "# r\n[start](docs/getting-started.md)\n",
+  "docs/operator-deploy.md":
+    "See [getting-started](getting-started.md), [e2e](../e2e/README.md), " +
     "[traefik](../deploy/traefik/README.md), and " +
     "[resolver](../deploy/traefik/certificates-resolver.dns.yml).\n",
-  "docs/adoption.md":
-    "See [deploy](deploy.md), [templates](../templates/README.md), and " +
+  "docs/getting-started.md":
+    "See [deploy](operator-deploy.md), [templates](../templates/README.md), and " +
     "[entrypoint](../examples/adopting-repo/docker-entrypoint.sh).\n",
-  "examples/adopting-repo/README.md": "# ex\n[adopt](../../docs/adoption.md)\n",
+  "examples/adopting-repo/README.md": "# ex\n[start](../../docs/getting-started.md)\n",
 };
 
 export async function writeCorpusFixture(root: string): Promise<void> {

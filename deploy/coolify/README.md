@@ -19,11 +19,11 @@ preview routes via Traefik Docker labels only.
    `https://<generated-domain>/healthz` answers through the Coolify proxy.
 2. Then follow the canonical guides in order — this README owns only the
    Coolify delta above, not the procedures below:
-   1. [Wildcard preview certificate (DNS-01)](../../docs/deploy.md#wildcard-preview-certificate-dns-01) — point the preview wildcard at the Coolify server (single shared wildcard past a handful of PRs).
-   2. [Adoption guide](../../docs/adoption.md) — set `preview.hostname` to a bare host under that wildcard containing `{pr_id}`.
-   3. [Bootstrap admin token](../../docs/deploy.md#bootstrap-admin-token) — `sprout` against `SPROUT_URL=https://<generated-domain>` with the `SPROUT_ADMIN_TOKEN` value from Coolify's Environment Variables UI.
-   4. [Preview mail](../../docs/deploy.md#preview-mail-mailpit) (optional) — add the shared Mailpit entries to the gateway environment.
-   5. [Production-shaped deploy](../../docs/deploy.md#production-shaped-deploy-external--coolify-traefik) (optional) — set `SPROUT_TRAEFIK_MIDDLEWARES` plus `SPROUT_FORWARDAUTH_ADDRESS` together (or leave both empty) to front previews with Traefik forwardAuth.
+   1. [Wildcard preview certificate (DNS-01)](../../docs/operator-deploy.md#wildcard-preview-certificate-dns-01) — point the preview wildcard at the Coolify server (single shared wildcard past a handful of PRs).
+   2. [Adopting a repo](../../docs/adopting-a-repo.md) — set `preview.hostname` to a bare host under that wildcard containing `{pr_id}`.
+   3. [Bootstrap admin token](../../docs/operator-deploy.md#bootstrap-admin-token) — `sprout` against `SPROUT_URL=https://<generated-domain>` with the `SPROUT_ADMIN_TOKEN` value from Coolify's Environment Variables UI.
+   4. [Preview mail](../../docs/operator-deploy.md#preview-mail-mailpit) (optional) — add the shared Mailpit entries to the gateway environment.
+   5. [Production-shaped deploy](../../docs/operator-deploy.md#production-shaped-deploy-external--coolify-traefik) (optional) — set `SPROUT_TRAEFIK_MIDDLEWARES` plus `SPROUT_FORWARDAUTH_ADDRESS` together (or leave both empty) to front previews with Traefik forwardAuth.
 
 ## Caveats
 
@@ -37,7 +37,7 @@ preview routes via Traefik Docker labels only.
   values together. Cost: the bundled Postgres is reachable from every
   container on `coolify`. Operators wanting a dedicated DB network keep
   using the external-overlay path in
-  [`docs/deploy.md`](../../docs/deploy.md#production-shaped-deploy-external--coolify-traefik).
+  [`docs/operator-deploy.md`](../../docs/operator-deploy.md#production-shaped-deploy-external--coolify-traefik).
 - **Pinned image.** The tag (`ghcr.io/simpros/sprout:0.7.0`) is pinned on
   purpose and a Coolify resource copies this file at creation time — it
   does not follow upstream updates. Bump the pin deliberately.

@@ -38,8 +38,8 @@ function pathCovers(pattern: string, file: string): boolean {
 }
 
 describe("publish manifest", () => {
-  test("includes adoption.md and the deep-link trees", () => {
-    expect(publishFiles).toContain("docs/adoption.md");
+  test("includes getting-started.md and the deep-link trees", () => {
+    expect(publishFiles).toContain("docs/getting-started.md");
     expect(publishFiles).toContain("docs/herdr-integration.md");
     expect(publishDirs).toContain("templates");
     expect(publishDirs).toContain("examples/adopting-repo");
@@ -66,9 +66,7 @@ describe("publish manifest", () => {
       expect(indexText).toContain(page.title);
       expect(llms).toContain(page.title);
       expect(llms).toContain(page.description);
-      if (!page.legacy) {
-        expect(indexText).toContain(page.description);
-      }
+      expect(indexText).toContain(page.description);
     }
   });
 
@@ -122,7 +120,7 @@ describe("assembleSite", () => {
     expect(new Set(published).size).toBe(published.length);
 
     for (const rel of [
-      "docs/adoption.md",
+      "docs/getting-started.md",
       "templates/README.md",
       "templates/preview.yml",
       "examples/adopting-repo/docker-entrypoint.sh",
@@ -188,7 +186,7 @@ describe("assembleSite", () => {
     );
     expect(indexBody).not.toMatch(/href="[^"]*\.md"/);
     expect(await readFile(join(out, "llms.txt"), "utf8")).toBe(renderLlmsTxt());
-    const renderedPage = await readFile(join(out, "docs/adoption.html"), "utf8");
+    const renderedPage = await readFile(join(out, "docs/getting-started.html"), "utf8");
     expect(renderedPage).toContain("<main>");
     await check(await defaultCheckPaths(out));
   });
