@@ -5,31 +5,30 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-// Scope: library packages published through a package exports map. Derived
-// from manifests so adding a library widens the invariant instead of hiding
-// behind a literal; apps stay out because they are deployable binaries.
-function scopedDirs(): string[] {
-  const out = git(["ls-files", "--", "packages/*/package.json"])
-    .split("\n")
-    .map((f) => f.trim())
-    .filter((f) => f !== "");
-  const dirs: string[] = [];
-  for (const rel of out) {
-    try {
-      const pkg = JSON.parse(readFileSync(join(repoRoot, rel), "utf8")) as {
-        exports?: unknown;
-      };
-      if (pkg.exports == null) continue;
-      const m = rel.match(/^(packages\/[^/]+)\/package\.json$/);
-      if (m) dirs.push(`${m[1]}/src`);
-    } catch {
-      // Unparseable manifest contributes no scope.
-    }
-  }
+// Scope: every library package with a barrel (packages/*/src/index.ts).
+// Derived from the workspace manifests plus barrel presence so adding a
+// library widens the invariant and dropping a manifest field cannot
+// silently descope a package; apps stay out because they are deployable
+// binaries.
+function scopedDirs(
+  pkgs: Map<string, { dir: string; exportsMap: Map<string, string> }>,
+  tracked: Set<string>,
+): string[] {
+  const dirs = [...pkgs.values()]
+    .map((p) => `${p.dir}/src`)
+    .filter((dir) => dir.startsWith("packages/") && tracked.has(`${dir}/index.ts`));
   // Fail closed: a scope that silently collapses to nothing would make the
   // dead-export check vacuously green.
   if (dirs.length === 0) {
     throw new Error("dead-exports guard: no exported packages found");
+  }
+  // Fail closed per package: a barrel with no manifest entry (missing or
+  // unparseable package.json) must shout, not silently leave scope.
+  for (const f of tracked) {
+    const m = f.match(/^(packages\/[^/]+\/src)\/index\.ts$/);
+    if (m && !dirs.includes(m[1])) {
+      throw new Error(`dead-exports guard: barrel without scope: ${f}`);
+    }
   }
   return dirs.sort();
 }
@@ -69,20 +68,20 @@ function trackedTsFiles(): string[] {
 }
 
 type Decl = { name: string; home: string };
-type Forward = { file: string; exported: string; source: string; target: string };
-type StarForward = { file: string; target: string };
+type Forward = { file: string; exported: string; source: string; target: string | null };
+type StarForward = { file: string; target: string | null };
 type ImportSite = { file: string; name: string; target: string | null };
 
-function exportTarget(pkgDir: string, entry: unknown): string | null {
+function exportTarget(entry: unknown): string | null {
   if (typeof entry === "string") return entry;
   if (entry != null && typeof entry === "object") {
     const conds = entry as Record<string, unknown>;
     for (const key of ["default", "types", "import", "require"]) {
-      const v = exportTarget(pkgDir, conds[key]);
+      const v = exportTarget(conds[key]);
       if (v) return v;
     }
     for (const v of Object.values(conds)) {
-      const r = exportTarget(pkgDir, v);
+      const r = exportTarget(v);
       if (r) return r;
     }
   }
@@ -109,7 +108,7 @@ function packageTable(): Map<string, { dir: string; exportsMap: Map<string, stri
         exportsMap.set(".", raw);
       } else if (raw != null && typeof raw === "object") {
         for (const [subpath, entry] of Object.entries(raw as Record<string, unknown>)) {
-          const target = exportTarget(m[1], entry);
+          const target = exportTarget(entry);
           if (target) exportsMap.set(subpath, target);
         }
       }
@@ -160,31 +159,45 @@ type Graph = {
   stars: StarForward[];
 };
 
-function provides(graph: Graph, target: string | null, name: string): boolean {
+function homes(graph: Graph, target: string | null, name: string): Set<string> {
+  // Every file whose surface provides `name` along the resolution chain —
+  // both the declaring home and each barrel that forwards it. A decl at
+  // `home` is live iff some outside import site reaches `home`; a barrel
+  // forward at `file` is live iff some outside import site resolves through
+  // `file`. Name-only matching is not enough: a same-named export in another
+  // package must not certify this one as live.
+  const out = new Set<string>();
   const seen = new Set<string>();
   const stack: [string | null, string][] = [[target, name]];
   while (stack.length > 0) {
     const [file, want] = stack.pop()!;
     if (file === null || seen.has(`${file}::${want}`)) continue;
     seen.add(`${file}::${want}`);
-    if (graph.declHome.get(`${file}::${want}`) === file) return true;
+    const home = graph.declHome.get(`${file}::${want}`);
+    if (home !== undefined) out.add(home);
     for (const f of graph.forwards) {
-      if (f.file === file && f.exported === want) stack.push([f.target, f.source]);
+      if (f.file === file && f.exported === want) {
+        out.add(file);
+        stack.push([f.target, f.source]);
+      }
     }
     for (const s of graph.stars) {
-      if (s.file === file) stack.push([s.target, want]);
+      if (s.file === file) {
+        out.add(file);
+        stack.push([s.target, want]);
+      }
     }
   }
-  return false;
+  return out;
 }
 
-// AST walk: every export and import shape the compiler accepts is understood,
-// so an unfamiliar shape can never green-light rot or red-light an unrelated
-// PR. Namespace imports and namespace re-exports act as wildcards.
+// AST walk: every static export and import shape the compiler accepts is
+// understood, so an unfamiliar shape can never green-light rot or red-light
+// an unrelated PR. Namespace imports, namespace re-exports, and dynamic
+// import()/require() act as wildcards.
 function collectFile(
   rel: string,
   source: ts.SourceFile,
-  inScope: boolean,
   decls: Decl[],
   imports: { name: string; spec: string }[],
   forwards: { exported: string; source: string; spec: string }[],
@@ -233,17 +246,16 @@ function collectFile(
         const sourceName = (el.propertyName ?? el.name).text;
         if (spec != null && ts.isStringLiteral(spec)) {
           forwards.push({ exported, source: sourceName, spec: spec.text });
-        } else if (inScope) {
+        } else {
           decls.push({ name: exported, home: rel });
         }
       }
       continue;
     }
     if (ts.isExportAssignment(stmt)) {
-      if (inScope) decls.push({ name: "default", home: rel });
+      decls.push({ name: "default", home: rel });
       continue;
     }
-    if (!inScope) continue;
     if (!hasExport(stmt)) continue;
     if (ts.isVariableStatement(stmt)) {
       for (const d of stmt.declarationList.declarations) {
@@ -267,13 +279,31 @@ function collectFile(
       }
     }
   }
+  // Dynamic consumers live at arbitrary nesting depth, so they need a full
+  // subtree walk rather than the top-level statement scan above. A dynamic
+  // specifier resolves to a module, not a name, hence the wildcard.
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const arg = node.arguments.length === 1 ? node.arguments[0] : undefined;
+      if (arg !== undefined && ts.isStringLiteral(arg)) {
+        if (callee.kind === ts.SyntaxKind.ImportKeyword) {
+          imports.push({ name: "*", spec: arg.text });
+        } else if (ts.isIdentifier(callee) && callee.text === "require") {
+          imports.push({ name: "*", spec: arg.text });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(source, visit);
 }
 
 function collectDead(): { dead: string[]; total: number } {
   const files = trackedTsFiles();
   const tracked = new Set(files);
   const pkgs = packageTable();
-  const dirs = scopedDirs();
+  const dirs = scopedDirs(pkgs, tracked);
   const inScope = (f: string): boolean =>
     !f.endsWith(".test.ts") && dirs.some((d) => f === d || f.startsWith(`${d}/`));
 
@@ -291,7 +321,7 @@ function collectDead(): { dead: string[]; total: number } {
     const fileImports: { name: string; spec: string }[] = [];
     const fileForwards: { exported: string; source: string; spec: string }[] = [];
     const fileStars: string[] = [];
-    collectFile(rel, source, true, decls, fileImports, fileForwards, fileStars);
+    collectFile(rel, source, decls, fileImports, fileForwards, fileStars);
     for (const s of fileImports) {
       imports.push({ file: rel, name: s.name, target: resolveSpec(s.spec, rel, tracked, pkgs) });
     }
@@ -320,12 +350,12 @@ function collectDead(): { dead: string[]; total: number } {
   }
 
   const dead: string[] = [];
-  const importerOf = (name: string, file: string): boolean =>
+  const importerOf = (name: string, home: string): boolean =>
     imports.some(
       (s) =>
-        s.file !== file &&
+        s.file !== home &&
         (s.name === name || s.name === "*") &&
-        provides(graph, s.target, name),
+        homes(graph, s.target, name).has(home),
     );
   for (const key of scopedDeclKeys) {
     const home = graph.declHome.get(key)!;
@@ -336,7 +366,10 @@ function collectDead(): { dead: string[]; total: number } {
   for (const f of scopedForwards) {
     if (
       !imports.some(
-        (s) => s.file !== f.file && (s.name === f.exported || s.name === "*") && provides(graph, s.target, f.exported),
+        (s) =>
+          s.file !== f.file &&
+          (s.name === f.exported || s.name === "*") &&
+          homes(graph, s.target, f.exported).has(f.file),
       )
     ) {
       dead.push(`${f.file}: re-export '${f.exported}' has no importer`);
@@ -346,7 +379,7 @@ function collectDead(): { dead: string[]; total: number } {
 }
 
 describe("dead exports", () => {
-  test("every export in the preview packages has an importer outside its home module", () => {
+  test("every export in the library packages has an importer outside its home module", () => {
     expect(collectDead().dead).toEqual([]);
   });
 
