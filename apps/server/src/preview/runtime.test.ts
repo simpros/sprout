@@ -83,7 +83,7 @@ describe("resolvePreviewPlan", () => {
   test("explicit dual with companion remap keeps dual", () => {
     const derived = plan(
       { provider: "postgres", path: "/data", file: "preview.db", roles: "dual" },
-      { connectionEnv: { PGAPPUSER: "APP_DATABASE_USER" } },
+      { roles: "dual", connectionEnv: { PGAPPUSER: "APP_DATABASE_USER" } },
     );
     expect(derived.roles).toBe("dual");
     expect(derived.gatewayEnv).toContain(

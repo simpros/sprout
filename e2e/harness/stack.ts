@@ -64,9 +64,14 @@ export async function waitForPreviewRunning(
         pr_id: String(prId),
       },
     });
-    if (polled.error != null || polled.status !== 200) {
+    if (polled.error != null) {
       throw new Error(
-        `preview poll for pr=${prId} failed: status ${polled.status} error ${JSON.stringify(polled.error)}`,
+        `preview poll for pr=${prId} failed: ${JSON.stringify(polled.error)}`,
+      );
+    }
+    if (polled.status !== 200) {
+      throw new Error(
+        `preview poll for pr=${prId} failed: status ${polled.status}`,
       );
     }
     if (polled.data?.status === "running") return;
