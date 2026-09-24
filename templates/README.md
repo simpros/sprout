@@ -15,7 +15,7 @@ variables (plus optional `GITLAB_TOKEN` for MR notes), and one include. No adopt
 ```yaml
 # .gitlab-ci.yml
 include:
-  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.8.0
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.8.1
     inputs: { stage: deploy }
 ```
 
@@ -146,9 +146,9 @@ content, no shell):
 
 ```yaml
 include:
-  - remote: "https://raw.githubusercontent.com/simpros/sprout/v0.8.0/templates/preview.yml"
+  - remote: "https://raw.githubusercontent.com/simpros/sprout/v0.8.1/templates/preview.yml"
     inputs:
-      sprout_version: v0.8.0
+      sprout_version: v0.8.1
       stage: deploy
 ```
 

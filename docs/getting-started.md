@@ -75,7 +75,7 @@ GitLab (`.gitlab-ci.yml` — one include, no scripts):
 
 ```yaml
 include:
-  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.8.0
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.8.1
     inputs: { stage: deploy }
 ```
 
@@ -85,9 +85,9 @@ GitHub (caller workflow — the canonical caller is
 ```yaml
 jobs:
   preview:
-    uses: simpros/sprout/.github/workflows/preview.yml@v0.8.0
+    uses: simpros/sprout/.github/workflows/preview.yml@v0.8.1
     with:
-      sprout_version: v0.8.0
+      sprout_version: v0.8.1
     secrets:
       SPROUT_URL: ${{ secrets.SPROUT_URL }}
       SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}

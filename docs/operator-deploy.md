@@ -54,16 +54,16 @@ registry push or external orchestrators:
 
 ```bash
 # From the repo root (reproducible with Bun 1.4.0 base + frozen lockfile)
-docker build -t ghcr.io/simpros/sprout:0.8.0 \
-  --build-arg SPROUT_VERSION=0.8.0 \
+docker build -t ghcr.io/simpros/sprout:0.8.1 \
+  --build-arg SPROUT_VERSION=0.8.1 \
   .
 # Optional: push after docker login to GHCR (or your registry)
-# docker push ghcr.io/simpros/sprout:0.8.0
+# docker push ghcr.io/simpros/sprout:0.8.1
 ```
 
 Image label `org.opencontainers.image.version` mirrors `SPROUT_VERSION`
 (Dockerfile default tracks the monorepo pin; prefer a published release tag such
-as `v0.8.0` / image `:0.8.0` in production). Pin operators and CI to a release
+as `v0.8.1` / image `:0.8.1` in production). Pin operators and CI to a release
 tag or GHCR digest — not an untagged local build — when publishing previews.
 
 ## Architecture
