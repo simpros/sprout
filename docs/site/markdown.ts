@@ -153,14 +153,11 @@ export function splitHref(href: string): {
 }
 
 // Protocol links leave the artifact; same-page `#anchors` do not — they
-// resolve against their own file in both the renderer and the gate.
+// resolve against their own file in both the renderer and the gate. Any
+// `scheme:` qualifies, so the inline `data:` payloads gated `src` targets
+// can carry never resolve as relative paths.
 export function isExternalHref(href: string): boolean {
-  return (
-    href.startsWith("//") ||
-    href.startsWith("http://") ||
-    href.startsWith("https://") ||
-    href.startsWith("mailto:")
-  );
+  return href.startsWith("//") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href);
 }
 
 // Rewrite intra-corpus `.md` links to their rendered `.html` twins (fragments

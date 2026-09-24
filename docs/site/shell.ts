@@ -64,7 +64,9 @@ export function docsPrefixFor(outputPath: string): string {
   return toDocs === "." ? "" : `${toDocs}/`;
 }
 
-function siteHeader(homeHref: string, nav: ShellNavItem[]): string {
+// The mark rides inside the header wordmark link: one brand affordance per
+// page, decorative (`alt=""`) so it never double-announces the link text.
+function siteHeader(homeHref: string, markSrc: string, nav: ShellNavItem[]): string {
   const links = nav
     .map(
       (item) =>
@@ -73,7 +75,7 @@ function siteHeader(homeHref: string, nav: ShellNavItem[]): string {
     .join("\n");
   return [
     `<header class="site">`,
-    `  <p class="brand"><a href="${escapeHtml(homeHref)}">sprout</a></p>`,
+    `  <p class="brand"><a href="${escapeHtml(homeHref)}"><img src="${escapeHtml(markSrc)}" alt="" width="20" height="20" />sprout</a></p>`,
     `  <nav class="docs-nav" aria-label="Docs">`,
     links,
     `  </nav>`,
@@ -149,9 +151,12 @@ export function renderShell(opts: ShellOptions): string {
     "</head>",
     "<body>",
     '<div class="wrap">',
-    siteHeader(location.homeHref, opts.nav),
+    siteHeader(
+      location.homeHref,
+      `${location.toRoot}/assets/sprout-mark.png`,
+      opts.nav,
+    ),
     "<main>",
-    `<img class="brand-mark" src="${location.toRoot}/assets/sprout-mark.png" alt="sprout" width="44" height="44" />`,
     ...(toc === "" ? [] : [toc]),
     opts.bodyHtml,
     "</main>",

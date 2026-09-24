@@ -363,10 +363,14 @@ describe("shared shell, code blocks, and prompt embedding", () => {
       expect(html).toContain('<div class="codeblock-status" aria-live="polite">');
       // The shell owns `.wrap`: exactly one per page, never nested.
       expect(html.match(/<div class="wrap">/g) ?? []).toHaveLength(1);
-      // The shell owns the brand mark: exactly one per page.
+      // One brand: the mark rides inside the header wordmark link, never
+      // as a second affordance above the page body.
       expect(html.match(/class="brand"/g) ?? []).toHaveLength(1);
-      // The shell owns the brand image chrome: one mark, one favicon set.
-      expect(html.match(/class="brand-mark"/g) ?? []).toHaveLength(1);
+      expect(html).not.toContain("brand-mark");
+      expect(html).toContain('<p class="brand"><a href="');
+      expect(html).toContain('assets/sprout-mark.png" alt=""');
+      expect(html.match(/assets\/sprout-mark\.png/g) ?? []).toHaveLength(1);
+      // The shell owns the favicon set: one mark, one favicon set.
       expect(html).toContain('<link rel="icon" type="image/png" sizes="32x32"');
       for (const { title } of docsPages) {
         expect(html).toContain(`>${title}</a>`);

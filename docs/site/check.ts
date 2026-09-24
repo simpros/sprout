@@ -138,7 +138,13 @@ export function extractBareSiteUrls(text: string): string[] {
 
 export function extractHrefs(text: string, kind: CheckedFileKind): string[] {
   if (kind === "html") return extractHtmlTargets(text);
-  return [...extractMarkdownDestinations(text), ...extractBareSiteUrls(text)];
+  // Markdown sources carry raw HTML too (the README brand image), so their
+  // embedded href/src targets join the gate alongside link destinations.
+  return [
+    ...extractMarkdownDestinations(text),
+    ...extractHtmlTargets(text),
+    ...extractBareSiteUrls(text),
+  ];
 }
 
 export type LoadedPage = { file: string; text: string; hrefs: string[] };

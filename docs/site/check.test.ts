@@ -10,9 +10,11 @@ import {
   check,
   defaultCheckPaths,
   extractBareSiteUrls,
+  extractHrefs,
   extractHtmlTargets,
   extractMarkdownDestinations,
 } from "./check.ts";
+import { isExternalHref } from "./markdown.ts";
 import { findAdrMention, isAdrHref, isAdrPath } from "./adr-policy.ts";
 import { writeCorpusFixture } from "./test-fixture.ts";
 
@@ -33,12 +35,26 @@ describe("docs link extraction", () => {
   });
 
   test("extracts html targets from href and src", () => {
-    const html = `<a href="../deploy.md">deploy</a><a href="#cli">CLI</a><img src="../assets/sprout-mark.png" alt="sprout" />`;
+    const html = `<a href="../deploy.md">deploy</a><a href="#cli">CLI</a><img src="../assets/sprout-mark.png" alt="" />`;
     expect(extractHtmlTargets(html)).toEqual([
       "../deploy.md",
       "#cli",
       "../assets/sprout-mark.png",
     ]);
+  });
+
+  test("inline data payloads are external; relative targets are not", () => {
+    expect(isExternalHref("data:image/svg+xml,%3Csvg/%3E")).toBe(true);
+    expect(isExternalHref("https://example.com/x.png")).toBe(true);
+    expect(isExternalHref("mailto:someone@example.com")).toBe(true);
+    expect(isExternalHref("../assets/sprout-mark.png")).toBe(false);
+    expect(isExternalHref("assets/sprout-mark.png")).toBe(false);
+    expect(isExternalHref("#cli")).toBe(false);
+  });
+
+  test("extracts embedded html targets from markdown sources", () => {
+    const md = `<p align="center">\n  <img src="assets/sprout-mark.png" width="132" alt="sprout">\n</p>\n`;
+    expect(extractHrefs(md, "markdown")).toContain("assets/sprout-mark.png");
   });
 });
 
@@ -96,11 +112,33 @@ describe("defaultCheckPaths", () => {
     await writeCorpusFixture(root);
     await writeFile(
       join(root, "docs", "index.html"),
-      `<html><body><img src="../assets/no-such-mark.png" alt="sprout" /></body></html>\n`,
+      `<html><body><img src="../assets/no-such-mark.png" alt="" /></body></html>\n`,
     );
     await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
       /dead link/,
     );
+  });
+
+  test("fails on a dead image src embedded in markdown", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(
+      join(root, "README.md"),
+      `# r\n<img src="assets/no-such-mark.png" width="132" alt="sprout">\n`,
+    );
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
+      /dead link/,
+    );
+  });
+
+  test("passes an inline data-uri image src", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(
+      join(root, "docs", "index.html"),
+      `<html><body><img src="data:image/svg+xml,%3Csvg/%3E" alt="" /></body></html>\n`,
+    );
+    await check(await defaultCheckPaths(root));
   });
 
   test("fails on a dead link in adoption.md", async () => {
