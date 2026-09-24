@@ -362,6 +362,57 @@ describe("sprout ci reset reset-request bookkeeping", () => {
       "/v1/deploy",
     ]);
   });
+
+  test("manual reset with a truncated ticked box but no marker deploys then fails", async () => {
+    const gw = startStatefulGateway();
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["ci", "reset"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: gw.baseUrl,
+          SPROUT_TOKEN: "t",
+          ...GITLAB_MR_ENV,
+          CI_MERGE_REQUEST_DESCRIPTION: "- [x] Sprout: reset preview",
+          CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED: "true",
+        },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(1);
+    expect(captured.map((c) => c.path)).toEqual([
+      "/v1/teardown",
+      "/v1/deploy",
+    ]);
+    expect(stderr.join("\n")).toContain("truncated");
+    expect(stderr.join("\n")).toContain("2700");
+  });
+
+  test("manual reset with a truncated description and no reset box warns and exits 0", async () => {
+    const gw = startStatefulGateway();
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["ci", "reset"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: gw.baseUrl,
+          SPROUT_TOKEN: "t",
+          ...GITLAB_MR_ENV,
+          CI_MERGE_REQUEST_DESCRIPTION: "Just a long description with no reset snippet.",
+          CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED: "true",
+        },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured.map((c) => c.path)).toEqual([
+      "/v1/teardown",
+      "/v1/deploy",
+    ]);
+    expect(stderr.join("\n")).toContain("truncated");
+  });
 });
 
 describe("GitHub un-tick rewrite", () => {

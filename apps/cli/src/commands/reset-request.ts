@@ -100,17 +100,6 @@ function scanResetRequest(
   return { marker, ticked };
 }
 
-/**
- * Parse an MR/PR body. Returns the reset token when a ticked box and a
- * non-empty marker are both present outside fenced code blocks.
- */
-export function parseResetRequest(
-  body: string | null | undefined,
-): string | null {
-  const scanned = scanResetRequest(body);
-  return scanned.marker && scanned.ticked ? scanned.marker : null;
-}
-
 /** Flip ticked reset boxes back to unticked, preserving the marker. */
 export function untickResetBox(body: string): string | null {
   return rewriteVisibleLines(body, (line) => {
@@ -158,6 +147,17 @@ export function truncatedDescriptionError(): string {
     "'<!-- sprout-reset: <token> -->' marker into the first 2700 characters " +
     "so the reset request is visible"
   );
+}
+
+/** Kind-to-severity mapping for truncated bodies; the rest of the policy. */
+export function truncationNotice(
+  outcome: ResetOutcome,
+): { level: "warning" | "error"; message: string } | null {
+  if (outcome.kind === "truncated-none")
+    return { level: "warning", message: truncatedResetWarning() };
+  if (outcome.kind === "truncated-unreadable")
+    return { level: "error", message: truncatedDescriptionError() };
+  return null;
 }
 
 function readGithubBody(eventPayload: unknown): string | null {

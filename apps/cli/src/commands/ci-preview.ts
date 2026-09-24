@@ -9,8 +9,7 @@ import {
   fetchHandledMarker,
   markResetRequestHandled,
   readResetRequestBody,
-  truncatedDescriptionError,
-  truncatedResetWarning,
+  truncationNotice,
 } from "./reset-request.ts";
 import { ensureSeedImage } from "./seed-image.ts";
 import { teardownPreview } from "./teardown.ts";
@@ -70,11 +69,10 @@ export async function runCiPreview(
     return 0;
   }
 
-  if (outcome.kind === "truncated-none")
-    ctx.deps.io.stderr(`warning: ${truncatedResetWarning()}`);
+  const notice = truncationNotice(outcome);
+  if (notice?.level === "warning") ctx.deps.io.stderr(`warning: ${notice.message}`);
   const code = await runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
   if (code !== 0) return code;
-  if (outcome.kind === "truncated-unreadable")
-    return fail(ctx.deps.io, truncatedDescriptionError());
+  if (notice?.level === "error") return fail(ctx.deps.io, notice.message);
   return 0;
 }

@@ -7,8 +7,7 @@ import {
   classifyResetRequest,
   markResetRequestHandled,
   readResetRequestBody,
-  truncatedDescriptionError,
-  truncatedResetWarning,
+  truncationNotice,
 } from "./reset-request.ts";
 import { resolveSeedTarget } from "./seed-image.ts";
 import { teardownPreview } from "./teardown.ts";
@@ -57,9 +56,8 @@ export async function runCiReset(
     if (!marked.ok) return fail(ctx.deps.io, marked.error);
     return 0;
   }
-  if (outcome.kind === "truncated-unreadable")
-    return fail(ctx.deps.io, truncatedDescriptionError());
-  if (outcome.kind === "truncated-none")
-    ctx.deps.io.stderr(`warning: ${truncatedResetWarning()}`);
+  const notice = truncationNotice(outcome);
+  if (notice?.level === "error") return fail(ctx.deps.io, notice.message);
+  if (notice?.level === "warning") ctx.deps.io.stderr(`warning: ${notice.message}`);
   return 0;
 }
