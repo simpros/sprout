@@ -205,8 +205,8 @@ describe("POST /v1/deploy seed image", () => {
       "PGUSER=sprout_preview",
       "PGPASSWORD=preview-secret",
       "PGDATABASE=sprout_myapp_pr42",
-      ...companion,
     ]);
+    expect(fakePreviewDb!.restrictedEnsured).toEqual([]);
     expect(seedCreate.labels).toEqual({});
     expect(
       Object.prototype.hasOwnProperty.call(seedCreate, "entrypoint"),
@@ -252,13 +252,35 @@ describe("POST /v1/deploy seed image", () => {
       "DATABASE_USER=sprout_preview",
       "DATABASE_PASSWORD=preview-secret",
       "DATABASE_NAME=sprout_myapp_pr42",
-      ...companion,
     ];
     expect(fakeDocker!.creates[0]!.env).toEqual(expectedConnection);
     expect(fakeDocker!.creates[1]!.env).toEqual([
       "FIXTURE_SET=demo",
       ...expectedConnection,
     ]);
+  });
+
+  test("dual seed receives the companion PGAPP* keys like the app", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        db: { provider: "postgres", roles: "dual" },
+        seed_image: SEED_IMAGE,
+        health: healthBlock(),
+      }),
+    );
+    expect(res.settleStatus).toBe(200);
+    expect(fakeDocker!.creates).toHaveLength(2);
+    expect(fakeDocker!.creates[1]!.env).toEqual([
+      "PGHOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=sprout_preview",
+      "PGPASSWORD=preview-secret",
+      "PGDATABASE=sprout_myapp_pr42",
+      ...companion,
+    ]);
+    expect(fakePreviewDb!.restrictedEnsured).toContain(DB);
   });
 
   test("skips seed on synchronize when the seed image matches the last successful one", async () => {

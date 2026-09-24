@@ -21,7 +21,7 @@ const appUser = restrictedRoleName(dbName);
 const appPassword = deriveRestrictedPassword(pg.password, dbName);
 
 describe("pgConnectionEnv", () => {
-  test("absent remap emits owner PG* plus companion PGAPP*", () => {
+  test("absent remap emits owner PG* plus companion PGAPP* (dual default)", () => {
     expect(pgConnectionEnv(pg, dbName)).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
@@ -30,6 +30,52 @@ describe("pgConnectionEnv", () => {
       "PGDATABASE=prev_myapp_pr42",
       `PGAPPUSER=${appUser}`,
       `PGAPPPASSWORD=${appPassword}`,
+    ]);
+  });
+
+  test("single omits PGAPP* with or without an owner remap", () => {
+    expect(pgConnectionEnv(pg, dbName, undefined, "single")).toEqual([
+      "PGHOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=pb_preview",
+      "PGPASSWORD=sekrit",
+      "PGDATABASE=prev_myapp_pr42",
+    ]);
+    expect(
+      pgConnectionEnv(
+        pg,
+        dbName,
+        { PGHOST: "DATABASE_HOST", PGUSER: "DATABASE_USER" },
+        "single",
+      ),
+    ).toEqual([
+      "DATABASE_HOST=postgres",
+      "PGPORT=5432",
+      "DATABASE_USER=pb_preview",
+      "PGPASSWORD=sekrit",
+      "PGDATABASE=prev_myapp_pr42",
+    ]);
+  });
+
+  test("explicit dual keeps companion keys under a companion remap", () => {
+    expect(
+      pgConnectionEnv(
+        pg,
+        dbName,
+        {
+          PGAPPUSER: "APP_DATABASE_USER",
+          PGAPPPASSWORD: "APP_DATABASE_PASSWORD",
+        },
+        "dual",
+      ),
+    ).toEqual([
+      "PGHOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=pb_preview",
+      "PGPASSWORD=sekrit",
+      "PGDATABASE=prev_myapp_pr42",
+      `APP_DATABASE_USER=${appUser}`,
+      `APP_DATABASE_PASSWORD=${appPassword}`,
     ]);
   });
 

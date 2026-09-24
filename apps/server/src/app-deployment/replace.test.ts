@@ -45,6 +45,7 @@ function postgresPlan(
     slug: "myapp",
     prId: 42,
     connectionEnv,
+    roles: "dual",
   });
 }
 

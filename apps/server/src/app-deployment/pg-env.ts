@@ -1,6 +1,7 @@
 import {
   PREVIEW_ENV_KEYS,
   type CanonicalEnvKey,
+  type DbRolesMode,
   type PreviewEnvMap,
 } from "@sprout/preview-env";
 import {
@@ -20,18 +21,21 @@ export function pgConnectionEnv(
   pg: AppDeployPg,
   dbName: string,
   connectionEnv?: PreviewEnvMap,
+  roles: DbRolesMode = "dual",
 ): string[] {
-  const restrictedUser = restrictedRoleName(dbName);
-  const restrictedPassword = deriveRestrictedPassword(pg.password, dbName);
   const fields: [CanonicalEnvKey, string][] = [
     ["PGHOST", pg.host],
     ["PGPORT", String(pg.port)],
     ["PGUSER", pg.user],
     ["PGPASSWORD", pg.password],
     ["PGDATABASE", dbName],
-    ["PGAPPUSER", restrictedUser],
-    ["PGAPPPASSWORD", restrictedPassword],
   ];
+  if (roles === "dual") {
+    const restrictedUser = restrictedRoleName(dbName);
+    const restrictedPassword = deriveRestrictedPassword(pg.password, dbName);
+    fields.push(["PGAPPUSER", restrictedUser]);
+    fields.push(["PGAPPPASSWORD", restrictedPassword]);
+  }
   return applyEnvRemap(fields, connectionEnv);
 }
 

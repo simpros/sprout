@@ -40,6 +40,7 @@ function postgresPlan(dbName: string): PreviewDbPlan {
     dbName,
     slug: "myapp",
     prId: 42,
+    roles: "dual",
   });
 }
 

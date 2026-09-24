@@ -59,15 +59,18 @@ export {
 } from "./health.ts";
 
 export {
+  dbRolesIssueMessage,
   dbSpecIssueMessage,
   defaultDbSpec,
   isDbProvider,
   normalizeDbSpec,
   parseDbSpec,
   requiresDatabase,
+  resolveDbRoles,
   seedRequiresDatabaseMessage,
   sqliteDatabaseUrl,
   type DbProvider,
+  type DbRolesMode,
   type DbSpec,
 } from "./db.ts";
 

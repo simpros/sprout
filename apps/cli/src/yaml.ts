@@ -1,4 +1,5 @@
 import {
+  dbRolesIssueMessage,
   dbSpecIssueMessage,
   isServicePort,
   labelIssueMessage,
@@ -10,6 +11,7 @@ import {
   parsePreviewEnvForProvider,
   parseServiceEnvMap,
   requiresDatabase,
+  resolveDbRoles,
   resolveHealthSpec,
   seedRequiresDatabaseMessage,
   validateHostnameValue,
@@ -499,6 +501,11 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
     normalizeDbSpec(db.value).provider,
   );
   if (!env.ok) return env;
+
+  const roles = resolveDbRoles(db.value, env.value);
+  if (!roles.ok) {
+    return { ok: false, error: dbRolesIssueMessage(roles.issue) };
+  }
 
   const appEnv = parseAppEnv(parsed.preview.app_env, "preview.app_env");
   if (!appEnv.ok) return appEnv;

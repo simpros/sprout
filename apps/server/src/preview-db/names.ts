@@ -1,10 +1,14 @@
 import { PG_IDENT_MAX } from "@sprout/preview-db";
+import type { DbRolesMode } from "@sprout/preview-env";
 
 const SLUG_RE = /^[a-z][a-z0-9]*$/;
 const PREVIEW_DB_NAME_RE = /^sprout_([a-z][a-z0-9]*)_pr([1-9][0-9]*)$/;
 
-/** Max dbName length so <dbName>_app fits Postgres NAMEDATALEN. */
+/** Max dbName length so <dbName>_app fits Postgres NAMEDATALEN (dual mode). */
 export const PREVIEW_DB_NAME_MAX = PG_IDENT_MAX - "_app".length;
+
+/** Single mode has no _app suffix, so the full identifier budget applies. */
+export const PREVIEW_DB_NAME_MAX_SINGLE = PG_IDENT_MAX;
 
 export type IdentifierError =
   | "invalid_slug"
@@ -29,12 +33,15 @@ export function validatePrId(prId: number): IdentifierError | null {
 export function validatePreviewIdentity(
   slug: string,
   prId: number,
+  roles: DbRolesMode = "dual",
 ): IdentifierError | null {
   const slugErr = validateSlug(slug);
   if (slugErr) return slugErr;
   const prErr = validatePrId(prId);
   if (prErr) return prErr;
-  if (previewDbName(slug, prId).length > PREVIEW_DB_NAME_MAX) {
+  const max =
+    roles === "single" ? PREVIEW_DB_NAME_MAX_SINGLE : PREVIEW_DB_NAME_MAX;
+  if (previewDbName(slug, prId).length > max) {
     return "invalid_slug";
   }
   return null;
@@ -46,7 +53,8 @@ export function previewDbName(slug: string, prId: number): string {
 
 export function isPreviewDbName(dbName: string): boolean {
   return (
-    PREVIEW_DB_NAME_RE.test(dbName) && dbName.length <= PREVIEW_DB_NAME_MAX
+    PREVIEW_DB_NAME_RE.test(dbName) &&
+    dbName.length <= PREVIEW_DB_NAME_MAX_SINGLE
   );
 }
 
@@ -61,6 +69,6 @@ export function parsePreviewDatabaseName(
 ): { slug: string; prId: number } | null {
   const match = PREVIEW_DB_NAME_RE.exec(datname);
   if (!match) return null;
-  if (datname.length > PREVIEW_DB_NAME_MAX) return null;
+  if (datname.length > PREVIEW_DB_NAME_MAX_SINGLE) return null;
   return { slug: match[1]!, prId: Number(match[2]) };
 }

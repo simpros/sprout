@@ -53,7 +53,8 @@ export async function dropRestrictedRole(
   dbName: string,
 ): Promise<void> {
   assertSafeRole(dbName);
-  const role = restrictedRoleName(dbName);
+  const role = `${dbName}_app`;
+  if (role.length > PG_IDENT_MAX) return;
   assertSafeRole(role);
   await sql.unsafe(`DROP ROLE IF EXISTS ${role}`);
 }

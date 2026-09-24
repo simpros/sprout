@@ -19,13 +19,15 @@ export function createFakePreviewDb(): FakePreviewDb & PreviewDbRouter {
     created,
     dropped,
     restrictedEnsured,
-    async createDatabase(dbName) {
+    async createDatabase(dbName, options) {
       const live = new Set(created);
       for (const name of dropped) live.delete(name);
       if (!live.has(dbName)) {
         created.push(dbName);
       }
-      restrictedEnsured.push(dbName);
+      if ((options?.roles ?? "dual") === "dual") {
+        restrictedEnsured.push(dbName);
+      }
     },
     async dropDatabase(dbName) {
       dropped.push(dbName);

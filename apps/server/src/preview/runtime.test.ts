@@ -45,8 +45,19 @@ function plan(
 }
 
 describe("resolvePreviewPlan", () => {
-  test("postgres connection env matches the legacy PG* layout", () => {
+  test("postgres defaults to single with no companion PGAPP* keys", () => {
     expect(plan().gatewayEnv).toEqual([
+      "PGHOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=sprout_preview",
+      "PGPASSWORD=sekrit",
+      "PGDATABASE=sprout_myapp_pr42",
+    ]);
+    expect(plan().roles).toBe("single");
+  });
+
+  test("postgres explicit dual matches the legacy PG* layout", () => {
+    expect(plan(defaultDbSpec(), { roles: "dual" }).gatewayEnv).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
       "PGUSER=sprout_preview",
@@ -55,6 +66,27 @@ describe("resolvePreviewPlan", () => {
       `PGAPPUSER=${restrictedRoleName("sprout_myapp_pr42")}`,
       `PGAPPPASSWORD=${deriveRestrictedPassword("sekrit", "sprout_myapp_pr42")}`,
     ]);
+  });
+
+  test("companion remap derives dual without an explicit flag", () => {
+    const derived = plan(defaultDbSpec(), {
+      connectionEnv: { PGAPPUSER: "APP_DATABASE_USER" },
+    });
+    expect(derived.roles).toBe("dual");
+    expect(derived.gatewayEnv).toContain(
+      `APP_DATABASE_USER=${restrictedRoleName("sprout_myapp_pr42")}`,
+    );
+  });
+
+  test("explicit dual with companion remap keeps dual", () => {
+    const derived = plan(
+      { provider: "postgres", path: "/data", file: "preview.db", roles: "dual" },
+      { connectionEnv: { PGAPPUSER: "APP_DATABASE_USER" } },
+    );
+    expect(derived.roles).toBe("dual");
+    expect(derived.gatewayEnv).toContain(
+      `APP_DATABASE_USER=${restrictedRoleName("sprout_myapp_pr42")}`,
+    );
   });
 
   test("postgres remap still replaces names", () => {
@@ -115,6 +147,7 @@ describe("resolvePreviewPlan", () => {
     ).toEqual({
       provider: "sqlite",
       dbName: "sprout_myapp_pr42",
+      roles: "single",
       gatewayEnv: ["DATABASE_URL=file:/data/preview.db"],
       volumes: ["sprout-myapp-pr-42-sqlite:/data"],
       appNetworks: ["sprout-traefik"],
@@ -147,6 +180,7 @@ describe("resolvePreviewPlan", () => {
     ).toEqual({
       provider: "none",
       dbName: null,
+      roles: "single",
       gatewayEnv: [],
       volumes: [],
       appNetworks: ["sprout-traefik"],

@@ -22,3 +22,13 @@ through `preview.env` with the same replace-not-alias rule. `MAILFROM` /
 `MAILREPLYTO` carry the per-preview send-from identity
 (`<slug>-pr<pr_id>@<SPROUT_MAIL_FROM_DOMAIN>`), `MAILFROMNAME` its display
 label; a `mail.from` `{pr_id}` template overrides the address.
+
+## Amendment 2026-09-24: companion keys are dual-only (ADR-0012)
+
+The companion `PGAPPUSER` / `PGAPPPASSWORD` keys above are canonical
+only for `dual` previews. Since ADR-0012 the restricted companion role
+is opt-in via `db.roles` (`single` | `dual`, Postgres only; default
+`dual` when `preview.env` remaps a companion key, else `single`):
+`single` previews inject no `PGAPP*` names anywhere, and an explicit
+`db.roles: single` plus a companion remap fails fast at manifest parse
+and at the deploy route.

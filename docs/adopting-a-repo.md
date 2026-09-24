@@ -28,7 +28,7 @@ pointers live in [CLI reference](cli-reference.md#test-coverage-maintainers).
 |---|---|---|---|
 | `slug` | yes | — | Short name used in database names (`sprout_<slug>_pr<id>`) and container names. Alphanumeric. |
 | `preview.hostname` | yes | — | Per-PR host template. Must contain `{pr_id}`; no scheme, port, path, or other placeholders. The CLI owns substitution and prints `preview_url=` — CI never reconstructs it. |
-| `preview.env` | no | canonical `PG*` / `PGAPP*` (`postgres`) or `DATABASE_URL` (`sqlite`); rejected on `none` | Rename injected connection env (see Connection env). |
+| `preview.env` | no | canonical `PG*` (+ `PGAPP*` in `dual`) (`postgres`) or `DATABASE_URL` (`sqlite`); rejected on `none` | Rename injected connection env (see Connection env). |
 | `preview.app_env` | no | — | Extra app env (see Value grammar, Merge order, Connection env reservation). |
 | `preview.services` | no | leave companions | Companion routing entries (see [Previews](previews.md#service-images-merge-leave-clear-lifecycle)). |
 | `preview.services[].name` | per entry | — | Service name (validated, unique). |
@@ -40,6 +40,7 @@ pointers live in [CLI reference](cli-reference.md#test-coverage-maintainers).
 | `preview.labels` | no | — | Adopter container labels applied to the app container and every service container (see [Preview labels](previews.md#preview-labels-adopter-supplied-container-labels)). |
 | `preview.services[].labels` | no | — | Adopter container labels for that service container only; same key at both levels resolves to the per-service value (see [Preview labels](previews.md#preview-labels-adopter-supplied-container-labels)). |
 | `db.provider` | no | `postgres` | Preview database provider: `postgres` (shared instance), `sqlite` (named volume), or `none` (no database). See [Previews](previews.md#sqlite-previews) and [Previews](previews.md#no-database-previews). |
+| `db.roles` | no | derived: `dual` when `preview.env` remaps `PGAPPUSER` / `PGAPPPASSWORD`, else `single` | Postgres credential axis: `single` (owner only) or `dual` (owner + restricted companion). Rejected on `sqlite` / `none`. Explicit `single` plus a companion remap fails fast. |
 | `mail` | no | opportunistic (follows the gateway) | `enabled` (require mail) or `none` (opt out). See [Previews](previews.md#email-from-a-preview). |
 | `mail.from` | no | `<slug>-pr<pr_id>@<from-domain>` | Send-from override; must be an address template containing `{pr_id}` (only that placeholder). Rejected with `mail: none`. See [Previews](previews.md#email-from-a-preview). |
 | `db.path` | no | `/data` | Container directory the SQLite volume mounts at (`sqlite` only). |
@@ -63,8 +64,20 @@ Postgres (`db.provider: postgres`, the default):
 
 ```
 PGHOST  PGPORT  PGUSER  PGPASSWORD  PGDATABASE
-PGAPPUSER  PGAPPPASSWORD
+PGAPPUSER  PGAPPPASSWORD   (dual only — see db.roles below)
 ```
+
+`db.roles` selects the Postgres credential axis (`single` | `dual`,
+Postgres only; rejected on `sqlite` / `none`). `dual` provisions the
+restricted companion role and injects `PGAPPUSER` / `PGAPPPASSWORD`
+exactly as before; `single` provisions no companion and injects neither
+name anywhere. The default is derived: `dual` when `preview.env`
+remaps `PGAPPUSER` or `PGAPPPASSWORD`, otherwise `single` — an adopter
+who never mentions the companion never gets one, and existing remap
+users keep working with zero config change. An explicit `db.roles`
+wins over the derivation, and explicit `db.roles: single` plus a
+companion remap fails fast at manifest parse and at the deploy route
+(`preview.env.<KEY> conflicts with db.roles single`).
 
 SQLite (`db.provider: sqlite`):
 
@@ -86,12 +99,13 @@ See [Previews](previews.md#sqlite-previews) for the volume behaviour.
 
 - **Owner** (`PGUSER` / `PGPASSWORD`): the static preview login
   (`SPROUT_PG_USER`). Owns each preview database — use this for migrations.
-- **Restricted companion** (`PGAPPUSER` / `PGAPPPASSWORD`): a per-preview
-  LOGIN named `<dbName>_app` with `CONNECT` and schema `USAGE` only.
-  Password is derived by the gateway (stable for the life of the preview).
-  Use this for RLS-constrained runtime queries. Do not `CREATE ROLE` — the
-  gateway already provisioned it; `GRANT` table privileges to this role
-  instead.
+- **Restricted companion** (`PGAPPUSER` / `PGAPPPASSWORD`, `dual` only):
+  a per-preview LOGIN named `<dbName>_app` with `CONNECT` and schema
+  `USAGE` only. Password is derived by the gateway (stable for the life
+  of the preview). Use this for RLS-constrained runtime queries. Do not
+  `CREATE ROLE` — the gateway already provisioned it; `GRANT` table
+  privileges to this role instead. `single` previews have no such role
+  and inject neither name.
 
 `preview.env` renames the gateway-injected connection names. Unmapped keys
 stay canonical; a remap replaces the name (no dual alias). The entrypoint
@@ -106,7 +120,8 @@ gateway's connection, not yours.
 Port: the gateway routes to the service `port` override when set,
 else the first `EXPOSE`d port in the app image,
 else `SPROUT_PREVIEW_PORT_DEFAULT`. Teardown drops the database and then
-the companion role.
+the companion role when one was provisioned (`dual`; a `dual`-era role
+is still dropped after the repo flips to `single`).
 
 Mail is cross-provider: on a gateway with mail configured, every preview
 (app, companions, seed) also receives the canonical `MAIL*` set, on any
@@ -147,7 +162,8 @@ alone enables seeding with the conventional `Dockerfile.seed`.
 
 Contract above is normative; this section is entrypoint examples only.
 Connection names, owner/companion roles, and the port rule live in
-Connection env — snippets below assume the default `PG*` / `PGAPP*` map.
+Connection env — snippets below assume the default `PG*` map (`dual`
+adds `PGAPP*`; `single` omits them).
 
 Your app image must:
 
@@ -163,8 +179,10 @@ that fits your stack.
 
 ### Dual-role (RLS) previews
 
-Product databases that use a privileged owner + restricted RLS role work on
-previews without cluster `CREATEROLE` on the preview login:
+Set `db.roles: dual` for product databases that use a privileged owner
++ restricted RLS role — previews then work without cluster `CREATEROLE`
+on the preview login (without the flag there is no companion role and
+no `PGAPP*` names to read):
 
 1. Migrate with `PGUSER` / `PGPASSWORD` (owner).
 2. `GRANT` the needed table/sequence privileges to the role in `PGAPPUSER`

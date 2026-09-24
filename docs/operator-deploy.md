@@ -553,10 +553,11 @@ An optional manual helper remains at
 the gateway.
 
 The gateway preview-db module grants that role ownership when it creates each
-`sprout_<slug>_pr<id>` database, and also creates a per-DB restricted companion
+`sprout_<slug>_pr<id>` database, and — for `dual` previews (`db.roles`,
+see [Adopting a repo](adopting-a-repo.md)) — also creates a per-DB restricted companion
 LOGIN (`<dbName>_app`) with `CONNECT` + schema `USAGE`. Containers receive
-owner credentials as `PGUSER`/`PGPASSWORD` and companion credentials as
-`PGAPPUSER`/`PGAPPPASSWORD` (remappable via `preview.env` — see [Adopting a repo](adopting-a-repo.md)). Teardown drops the database then the companion role.
+owner credentials as `PGUSER`/`PGPASSWORD` and, in `dual` only, companion credentials as
+`PGAPPUSER`/`PGAPPPASSWORD` (remappable via `preview.env` — see [Adopting a repo](adopting-a-repo.md)). Teardown drops the database then the companion role when one was provisioned.
 
 ## Bootstrap admin token
 
