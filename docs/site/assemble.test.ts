@@ -41,6 +41,7 @@ describe("publish manifest", () => {
   test("includes getting-started.md and the deep-link trees", () => {
     expect(publishFiles).toContain("docs/getting-started.md");
     expect(publishFiles).toContain("docs/herdr-integration.md");
+    expect(publishDirs).toContain("assets");
     expect(publishDirs).toContain("templates");
     expect(publishDirs).toContain("examples/adopting-repo");
   });

@@ -11,6 +11,7 @@ on:
       - "LICENSE"
       - "llms.txt"
       - "e2e/README.md"
+      - "assets/**"
       - "examples/adopting-repo/**"
       - "deploy/traefik/**"
       - "deploy/coolify/**"

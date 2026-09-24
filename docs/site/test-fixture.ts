@@ -3,6 +3,10 @@ import { dirname, join } from "node:path";
 import { publishFiles, renderLlmsTxt } from "./assemble.ts";
 
 const dirSamples: Record<string, string> = {
+  "assets/sprout-mark.png": "mark\n",
+  "assets/favicon-32.png": "f32\n",
+  "assets/favicon-192.png": "f192\n",
+  "assets/apple-touch-icon.png": "apple\n",
   "templates/README.md": "# templates\n",
   "templates/preview.yml": "# yml\n",
   "examples/adopting-repo/docker-entrypoint.sh": "#!/bin/sh\n",
