@@ -5,7 +5,7 @@ name: sprout preview (reusable)
 # `sprout ci teardown`. All preview behaviour (image build and push, seed
 # image, deploy, PR comment, dotenv emission, log dump on failure) lives in
 # the CLI. The reset-request contract (ticked box + marker token, fences
-# ignored) is owned by `parseResetRequest` in apps/cli — the workflow keeps
+# ignored) is owned by `classifyResetRequest` in apps/cli — the workflow keeps
 # only a cheap `edited` pre-filter that over-triggers by design and lets the
 # CLI decide. The `setup` job computes the single `run_heavy` gate, so the
 # skip path is checkout-free and never downloads the binary.
@@ -126,7 +126,7 @@ jobs:
           # Cheap pre-filter only: over-triggers by design (no fence or
           # token validation — a fenced example rebuilds once and the CLI
           # deploys normally). The reset contract itself is owned by
-          # parseResetRequest in apps/cli; never re-implement it here.
+          # classifyResetRequest in apps/cli; never re-implement it here.
           BODY="${PR_BODY:-}"
           if printf '%s' "$BODY" | grep -qiE '^[[:space:]]*[-*][[:space:]]*\[[xX]\][[:space:]]*Sprout:[[:space:]]*reset[[:space:]][[:space:]]*preview' \
             && printf '%s' "$BODY" | grep -q 'sprout-reset'; then

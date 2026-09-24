@@ -190,7 +190,7 @@ describe("reusable preview workflow contract", () => {
     const check = stepById("setup", "reset_check").run ?? "";
     expect(check).toContain("sprout-reset");
     expect(check).toContain("reset_requested=");
-    expect(check).toContain("parseResetRequest");
+    expect(check).toContain("classifyResetRequest");
     for (const gone of ["python3", "in_fence", "finditer", "len(token)", "256"]) {
       expect(check).not.toContain(gone);
     }

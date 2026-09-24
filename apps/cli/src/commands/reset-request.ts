@@ -81,28 +81,23 @@ export function stripFencedCodeBlocks(body: string): string {
   return visibleLines(body).join("\n");
 }
 
-/**
- * Parse an MR/PR body. Returns the reset token when a ticked box and a
- * non-empty marker are both present outside fenced code blocks.
- */
-export function parseResetRequest(
+/** One fence-aware pass over visible lines; the only place the ticked-box regex lives. */
+function scanResetRequest(
   body: string | null | undefined,
-): string | null {
-  if (!body) return null;
-  const visible = visibleLines(body);
+): { marker: string | null; ticked: boolean } {
+  if (!body) return { marker: null, ticked: false };
   let marker: string | null = null;
+  let ticked = false;
   const markerRe = new RegExp(MARKER_PATTERN, "g");
-  for (const line of visible) {
+  walkLines(body, (line, visible) => {
+    if (!visible) return;
     for (const match of line.matchAll(markerRe)) {
       const token = parseResetMarkerToken(match[1] ?? "");
       if (token) marker = token;
     }
-  }
-  if (!marker) return null;
-  for (const line of visible) {
-    if (TICKED_BOX_RE.test(line)) return marker;
-  }
-  return null;
+    if (TICKED_BOX_RE.test(line)) ticked = true;
+  });
+  return { marker, ticked };
 }
 
 /** Flip ticked reset boxes back to unticked, preserving the marker. */
@@ -116,9 +111,32 @@ export function untickResetBox(body: string): string | null {
   });
 }
 
-function isTruncated(env: NodeJS.ProcessEnv): boolean {
+function isTruncatedDescription(env: NodeJS.ProcessEnv): boolean {
   const raw = env.CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED?.trim().toLowerCase();
   return raw === "true" || raw === "1" || raw === "yes";
+}
+
+/** Truncation triage; the single owner of the ticked-box-without-marker rule. */
+export type ResetOutcome =
+  | { kind: "reset"; marker: string }
+  | { kind: "truncated-unreadable" }
+  | { kind: "truncated-none" }
+  | { kind: "none" };
+
+export function classifyResetRequest(raw: ResetRequestBody): ResetOutcome {
+  const scanned = scanResetRequest(raw.body);
+  if (scanned.marker && scanned.ticked)
+    return { kind: "reset", marker: scanned.marker };
+  if (!raw.truncated) return { kind: "none" };
+  return scanned.ticked
+    ? { kind: "truncated-unreadable" }
+    : { kind: "truncated-none" };
+}
+
+export function truncatedResetWarning(): string {
+  return (
+    "GitLab MR description is truncated — reset request not readable, skipping"
+  );
 }
 
 export function truncatedDescriptionError(): string {
@@ -129,6 +147,17 @@ export function truncatedDescriptionError(): string {
     "'<!-- sprout-reset: <token> -->' marker into the first 2700 characters " +
     "so the reset request is visible"
   );
+}
+
+/** Kind-to-severity mapping for truncated bodies; the rest of the policy. */
+export function truncationNotice(
+  outcome: ResetOutcome,
+): { level: "warning" | "error"; message: string } | null {
+  if (outcome.kind === "truncated-none")
+    return { level: "warning", message: truncatedResetWarning() };
+  if (outcome.kind === "truncated-unreadable")
+    return { level: "error", message: truncatedDescriptionError() };
+  return null;
 }
 
 function readGithubBody(eventPayload: unknown): string | null {
@@ -142,20 +171,28 @@ function readGithubBody(eventPayload: unknown): string | null {
   return null;
 }
 
-/** Raw MR/PR body text from CI env; GitLab truncation is a hard error. */
+/** Raw MR/PR body text from CI env, plus whether the GitLab prefix was truncated. */
+export type ResetRequestBody = {
+  body: string | null;
+  truncated: boolean;
+};
+
 export async function readResetRequestBody(
   deps: CliDeps,
   forge: "gitlab" | "github",
-): Promise<Result<string | null>> {
+): Promise<Result<ResetRequestBody>> {
   if (forge === "gitlab") {
-    if (isTruncated(deps.env)) {
-      return { ok: false, error: truncatedDescriptionError() };
-    }
-    return { ok: true, value: deps.env.CI_MERGE_REQUEST_DESCRIPTION ?? null };
+    return {
+      ok: true,
+      value: {
+        body: deps.env.CI_MERGE_REQUEST_DESCRIPTION ?? null,
+        truncated: isTruncatedDescription(deps.env),
+      },
+    };
   }
   const event = await loadEventPayload(deps);
   if (!event.ok) return event;
-  return { ok: true, value: readGithubBody(event.value) };
+  return { ok: true, value: { body: readGithubBody(event.value), truncated: false } };
 }
 
 type PreviewMarkerFields = {

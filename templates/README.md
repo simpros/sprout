@@ -55,7 +55,9 @@ of the MR description:
 
 To request a reset, tick the box **and** change the token to something new.
 Paste the snippet at the top of the description (GitLab
-exposes only that prefix to CI; truncation fails the job loudly instead of
+exposes only that prefix to CI; a truncated description still deploys — with
+a warning when no reset box is visible, and with a named error after the
+deploy when a ticked box is visible but its marker was cut off — instead of
 ignoring the tick). A handled marker never fires twice — re-runs and retries
 deploy normally; `sprout ci reset` consumes a pending request too.
 
@@ -131,7 +133,8 @@ shell guards or argv appenders.
 | Symptom | Error (stderr) | Fix |
 |---|---|---|
 | File-type CI variable passed via `app_env_file` / `seed_env_file` input (e.g. `inputs: { app_env_file: $MY_ENV_FILE }`) | `preview.app_env.<KEY>: required value missing` (nothing points at the input) — had the flag been passed with a bad path, the CLI would say `cannot read --app-env-file: <path>` instead; the required-missing error means the flag never reached the CLI | Never pass file-type variables via `inputs:` — they expand to empty at pipeline-config time and the component's `[ -n "$APP_ENV_FILE" ]` guard skips `--app-env-file` silently. Map the blob at job runtime instead, which the CLI reads automatically: `sprout-preview: { variables: { SPROUT_APP_ENV: $MY_ENV_FILE } }` (seed: `SPROUT_SEED_ENV: $MY_SEED_FILE`). `variables:` merges safely under `extends`; never use job-level `before_script:` here — it replaces the component's CLI install. `app_env_file` / `seed_env_file` are only for repo-relative dotenv paths. |
-| Truncated MR description with a reset box | `GitLab MR description is truncated (CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED=true); move the '- [ ] Sprout: reset preview' checkbox and the '<!-- sprout-reset: <token> -->' marker into the first 2700 characters so the reset request is visible` | Paste the snippet at the top of the MR description and retry the job. The tick is never silently ignored. |
+| Truncated MR description, no reset box visible | no error; stderr carries `warning: GitLab MR description is truncated — reset request not readable, skipping` | Paste the snippet at the top of the MR description and retry the job. The preview still deploys. |
+| Truncated MR description with a ticked reset box but no marker | deploy runs first, then the job fails with `GitLab MR description is truncated (CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED=true); move the '- [ ] Sprout: reset preview' checkbox and the '<!-- sprout-reset: <token> -->' marker into the first 2700 characters so the reset request is visible` | Paste the snippet at the top of the MR description and retry the job. The tick is never silently ignored. |
 | Ticked box does not reset a second time | no error; the run deploys normally | The marker was already handled. Tick the box **and** rotate the token for another reset. |
 | Reset while another deploy is in flight | `409 preview_deploy_in_progress` (or `preview_teardown_in_progress`) | Wait for the current run to settle and retry; full rows in [Troubleshooting](../docs/troubleshooting.md). |
 

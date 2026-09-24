@@ -154,7 +154,7 @@ bootstrapper over `sprout ci preview` / `sprout ci teardown`):
   `edited` runs a cheap body pre-filter first and skips the preview job
   before checkout when no reset is requested — a title edit never redeploys.
   The pre-filter over-triggers by design (no fence or token validation); the
-  reset contract itself is owned by `parseResetRequest` in the CLI, which
+  reset contract itself is owned by `classifyResetRequest` in the CLI, which
   decides reset vs normal deploy on the runs that proceed. A ticked box +
   rotated marker redeploys from scratch on that run. After the reset the job
   rewrites the box back to `- [ ]` while keeping the marker, so the
@@ -274,7 +274,7 @@ title edit never rebuilds or redeploys. A ticked box plus a rotated marker
 token redeploys from scratch on that run. After the reset the job rewrites
 the box back to `- [ ]`, keeping the marker, so the `edited` event that
 rewrite causes is a no-op. Title edits are deliberately ignored: the reset
-contract is owned by `parseResetRequest` in the CLI, not by the event type.
+contract is owned by `classifyResetRequest` in the CLI, not by the event type.
 
 ### Reset request checkbox
 
@@ -294,7 +294,14 @@ normally. An unticked box, a missing marker, or a tick/marker inside a fenced
 code block does nothing. GitHub runs untick the box after the reset (marker
 kept); GitLab keeps the tick, guarded by the stored token. Paste the snippet
 at the top of the MR/PR description — GitLab exposes only the first 2700
-characters to CI, so truncation fails the job with a named error instead of ignoring the tick.
+characters to CI, so a truncated description deploys normally with a warning
+when no reset box is visible, and deploys first and then fails the job with a
+named error when a ticked box is visible but its marker was cut off — the tick
+is never silently ignored. The same truncation rule applies to `sprout ci
+reset`: a truncated description with no reset box warns and exits 0 after the
+teardown + deploy, while a visible ticked box with its marker cut off fails the
+job after the teardown + deploy so the pending tick is not silently dropped
+(the marker cannot be recorded as handled).
 
 ## Migration from a hand-rolled script
 

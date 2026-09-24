@@ -24,7 +24,9 @@ Rules:
   the `edited` event that rewrite triggers is a no-op.
 - GitLab: keep the snippet inside the first 2700 characters of the
   description. GitLab exposes only that prefix to CI
-  (`CI_MERGE_REQUEST_DESCRIPTION`); when it is truncated the preview job
-  fails with a named error instead of silently ignoring the tick.
+  (`CI_MERGE_REQUEST_DESCRIPTION`); when it is truncated the preview still
+  deploys — with a warning when no reset box is visible, and with a named
+  error after the deploy when a ticked box is visible but its marker was cut
+  off — instead of silently ignoring the tick.
 - `sprout ci reset` consumes a pending request too: a hand-run reset marks
   the current token handled so the next push does not wipe again.
