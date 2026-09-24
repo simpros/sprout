@@ -115,7 +115,8 @@ the publish manifest, and no published page may link to or mention ADRs.
 `docs/site/check.ts` enforces this structurally via `assertNoAdrLeaks`
 (policy in `docs/site/adr-policy.ts`): any file under an `adr` path segment
 (any extension, not just HTML/markdown pages), any standalone `ADR`/`ADRs`
-word in a published page, or any artifact-relative href pointing at an
+word in a published page, or any artifact-relative link target (`href` or
+`src`) pointing at an
 `adr` path in the assembled tree fails the docs build.
 
 ## GitHub Pages

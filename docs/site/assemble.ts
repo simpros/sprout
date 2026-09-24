@@ -150,6 +150,7 @@ export const publishFiles = [
 ];
 
 export const publishDirs = [
+  "assets",
   "templates",
   "examples/adopting-repo",
 ];

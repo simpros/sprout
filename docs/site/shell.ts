@@ -64,7 +64,9 @@ export function docsPrefixFor(outputPath: string): string {
   return toDocs === "." ? "" : `${toDocs}/`;
 }
 
-function siteHeader(homeHref: string, nav: ShellNavItem[]): string {
+// The mark rides inside the header wordmark link: one brand affordance per
+// page, decorative (`alt=""`) so it never double-announces the link text.
+function siteHeader(homeHref: string, markSrc: string, nav: ShellNavItem[]): string {
   const links = nav
     .map(
       (item) =>
@@ -73,7 +75,7 @@ function siteHeader(homeHref: string, nav: ShellNavItem[]): string {
     .join("\n");
   return [
     `<header class="site">`,
-    `  <p class="brand"><a href="${escapeHtml(homeHref)}">sprout</a></p>`,
+    `  <p class="brand"><a href="${escapeHtml(homeHref)}"><img src="${escapeHtml(markSrc)}" alt="" width="20" height="20" />sprout</a></p>`,
     `  <nav class="docs-nav" aria-label="Docs">`,
     links,
     `  </nav>`,
@@ -138,13 +140,22 @@ export function renderShell(opts: ShellOptions): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1" />',
     `<title>${escapeHtml(opts.title)}</title>`,
     `<meta name="description" content="${escapeHtml(opts.description)}" />`,
+    // Brand chrome lives here once: asset hrefs derive from the page depth
+    // like the nav and footer, so no call site hand-sets a relative path.
+    `<link rel="icon" type="image/png" sizes="32x32" href="${location.toRoot}/assets/favicon-32.png" />`,
+    `<link rel="icon" type="image/png" sizes="192x192" href="${location.toRoot}/assets/favicon-192.png" />`,
+    `<link rel="apple-touch-icon" href="${location.toRoot}/assets/apple-touch-icon.png" />`,
     "<style>",
     themeCss(),
     "</style>",
     "</head>",
     "<body>",
     '<div class="wrap">',
-    siteHeader(location.homeHref, opts.nav),
+    siteHeader(
+      location.homeHref,
+      `${location.toRoot}/assets/sprout-mark.png`,
+      opts.nav,
+    ),
     "<main>",
     ...(toc === "" ? [] : [toc]),
     opts.bodyHtml,

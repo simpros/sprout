@@ -100,9 +100,9 @@ async function assertHref(
   }
 }
 
-export function extractHtmlHrefs(html: string): string[] {
+export function extractHtmlTargets(html: string): string[] {
   const targets: string[] = [];
-  const re = /href="([^"]+)"/g;
+  const re = /(?:href|src)="([^"]+)"/g;
   let match: RegExpExecArray | null;
   while ((match = re.exec(html)) !== null) {
     targets.push(match[1]!);
@@ -137,8 +137,14 @@ export function extractBareSiteUrls(text: string): string[] {
 }
 
 export function extractHrefs(text: string, kind: CheckedFileKind): string[] {
-  if (kind === "html") return extractHtmlHrefs(text);
-  return [...extractMarkdownDestinations(text), ...extractBareSiteUrls(text)];
+  if (kind === "html") return extractHtmlTargets(text);
+  // Markdown sources carry raw HTML too (the README brand image), so their
+  // embedded href/src targets join the gate alongside link destinations.
+  return [
+    ...extractMarkdownDestinations(text),
+    ...extractHtmlTargets(text),
+    ...extractBareSiteUrls(text),
+  ];
 }
 
 export type LoadedPage = { file: string; text: string; hrefs: string[] };

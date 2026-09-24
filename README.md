@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/sprout-mark.png" width="132" alt="sprout">
+</p>
+
 # sprout
 
 Every pull request gets its own preview: an isolated database on one shared

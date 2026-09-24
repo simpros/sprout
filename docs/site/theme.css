@@ -186,6 +186,13 @@
     }
     header.site .brand { margin: 0; }
     header.site .brand a { color: var(--accent); text-decoration: none; }
+    /* Mark rides inside the header wordmark link: one brand, one class. */
+    header.site .brand img {
+      width: 1.15em;
+      height: 1.15em;
+      vertical-align: -0.2em;
+      margin-right: 0.45em;
+    }
     nav.docs-nav {
       display: flex;
       flex-wrap: wrap;
