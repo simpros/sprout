@@ -12,8 +12,12 @@ describe("routing preview database", () => {
       postgres,
       sqlite: createSqlitePreviewDb(docker),
     });
-    await db.forCreate("postgres").createDatabase("sprout_myapp_pr42");
-    await db.forCreate("sqlite").createDatabase("sprout_other_pr7");
+    await db.forCreate("postgres").createDatabase("sprout_myapp_pr42", {
+      roles: "dual",
+    });
+    await db.forCreate("sqlite").createDatabase("sprout_other_pr7", {
+      roles: "single",
+    });
     expect(postgres.created).toEqual(["sprout_myapp_pr42"]);
     expect(docker.volumesCreated).toEqual(["sprout-other-pr-7-sqlite"]);
   });
@@ -25,7 +29,9 @@ describe("routing preview database", () => {
       postgres,
       sqlite: createSqlitePreviewDb(docker),
     });
-    await db.forCreate("sqlite").createDatabase("sprout_myapp_pr42");
+    await db.forCreate("sqlite").createDatabase("sprout_myapp_pr42", {
+      roles: "single",
+    });
     await db.forDrop("sqlite").dropDatabase("sprout_myapp_pr42");
     expect(postgres.dropped).toEqual([]);
     expect(docker.volumesRemoved).toEqual(["sprout-myapp-pr-42-sqlite"]);
@@ -61,8 +67,8 @@ describe("routing preview database", () => {
     const docker = createFakeDockerClient();
     docker.volumes.add("sprout-sqliteapp-pr-3-sqlite");
     const postgres = createFakePreviewDb();
-    await postgres.createDatabase("sprout_pgapp_pr9");
-    await postgres.createDatabase("sprout_sqliteapp_pr3");
+    await postgres.createDatabase("sprout_pgapp_pr9", { roles: "dual" });
+    await postgres.createDatabase("sprout_sqliteapp_pr3", { roles: "dual" });
     const db = createRoutingPreviewDb({
       postgres,
       sqlite: createSqlitePreviewDb(docker),

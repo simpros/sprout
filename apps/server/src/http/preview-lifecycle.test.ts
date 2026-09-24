@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import {
-  deriveRestrictedPassword,
-  restrictedRoleName,
-} from "@sprout/preview-db";
-import {
   createFakeDockerClient,
   type FakeDockerClient,
 } from "../docker/fake.ts";

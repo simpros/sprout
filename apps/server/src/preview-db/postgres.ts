@@ -50,7 +50,7 @@ export function createPostgresPreviewDb(
       assertPreviewDbName(dbName);
       await ensurePreviewRole();
       await ensureDatabase(sql, { name: dbName, owner: previewRole });
-      if ((options?.roles ?? "dual") === "dual") {
+      if (options.roles === "dual") {
         await ensureRestrictedRole(sql, {
           dbName,
           ownerPassword: previewPassword,

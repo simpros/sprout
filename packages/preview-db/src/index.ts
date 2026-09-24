@@ -7,11 +7,12 @@ export {
   ensureLoginRole,
 } from "./ensure-role.ts";
 export {
+  COMPANION_ROLE_SUFFIX,
+  companionRoleName,
   deriveRestrictedPassword,
   dropRestrictedRole,
   ensureRestrictedRole,
   PG_IDENT_MAX,
-  restrictedRoleName,
 } from "./restricted-role.ts";
 export {
   isWorktreeInputError,

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import {
   deriveRestrictedPassword,
-  restrictedRoleName,
+  companionRoleName,
 } from "@sprout/preview-db";
 import {
   createFakeDockerClient,
@@ -26,7 +26,7 @@ import {
 
 const DB = "sprout_myapp_pr42";
 const companion = [
-  `PGAPPUSER=${restrictedRoleName(DB)}`,
+  `PGAPPUSER=${companionRoleName(DB)!}`,
   `PGAPPPASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
 ];
 
@@ -181,7 +181,7 @@ describe("POST /v1/deploy app_env", () => {
       "PGUSER=sprout_preview",
       "PGPASSWORD=preview-secret",
       "PGDATABASE=sprout_myapp_pr42",
-      `APP_DATABASE_USER=${restrictedRoleName(DB)}`,
+      `APP_DATABASE_USER=${companionRoleName(DB)!}`,
       `APP_DATABASE_PASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
     ]);
     expect(fakePreviewDb!.restrictedEnsured).toContain(DB);
@@ -377,7 +377,7 @@ describe("POST /v1/deploy db.roles", () => {
     const dualSvc = fakeDocker!.creates.find((c) =>
       c.name.endsWith("-svc-api"),
     )!;
-    expect(dualSvc.env).toContain(`PGAPPUSER=${restrictedRoleName(DB)}`);
+    expect(dualSvc.env).toContain(`PGAPPUSER=${companionRoleName(DB)!}`);
     expect(dualSvc.env).toContain(
       `PGAPPPASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
     );
@@ -395,7 +395,7 @@ describe("POST /v1/deploy db.roles", () => {
     );
     expect(res.settleStatus).toBe(200);
     const svc = fakeDocker!.creates.find((c) => c.name.endsWith("-svc-api"))!;
-    expect(svc.env).not.toContain(`PGAPPUSER=${restrictedRoleName(DB)}`);
+    expect(svc.env).not.toContain(`PGAPPUSER=${companionRoleName(DB)!}`);
     expect(svc.env.some((e) => e.startsWith("PGAPPUSER="))).toBe(false);
     expect(svc.env.some((e) => e.startsWith("PGAPPPASSWORD="))).toBe(false);
   });

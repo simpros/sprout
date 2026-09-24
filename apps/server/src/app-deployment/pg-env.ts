@@ -6,7 +6,9 @@ import {
 } from "@sprout/preview-env";
 import {
   deriveRestrictedPassword,
-  restrictedRoleName,
+  companionRoleName,
+  COMPANION_ROLE_SUFFIX,
+  PG_IDENT_MAX,
 } from "@sprout/preview-db";
 import { applyEnvRemap } from "./env-remap.ts";
 
@@ -20,8 +22,8 @@ export type AppDeployPg = {
 export function pgConnectionEnv(
   pg: AppDeployPg,
   dbName: string,
-  connectionEnv?: PreviewEnvMap,
-  roles: DbRolesMode = "dual",
+  connectionEnv: PreviewEnvMap | undefined,
+  roles: DbRolesMode,
 ): string[] {
   const fields: [CanonicalEnvKey, string][] = [
     ["PGHOST", pg.host],
@@ -31,7 +33,12 @@ export function pgConnectionEnv(
     ["PGDATABASE", dbName],
   ];
   if (roles === "dual") {
-    const restrictedUser = restrictedRoleName(dbName);
+    const restrictedUser = companionRoleName(dbName);
+    if (restrictedUser === null) {
+      throw new Error(
+        `companion role name exceeds Postgres identifier limit (${PG_IDENT_MAX}): ${dbName}${COMPANION_ROLE_SUFFIX}`,
+      );
+    }
     const restrictedPassword = deriveRestrictedPassword(pg.password, dbName);
     fields.push(["PGAPPUSER", restrictedUser]);
     fields.push(["PGAPPPASSWORD", restrictedPassword]);

@@ -1,3 +1,5 @@
+import { COMPANION_ENV_KEYS } from "./env-keys.ts";
+
 const DB_PROVIDERS = ["postgres", "sqlite", "none"] as const;
 
 export type DbProvider = (typeof DB_PROVIDERS)[number];
@@ -105,21 +107,24 @@ export function parseDbSpec(
   }
   let roles: DbRolesMode | undefined;
   if (raw.roles !== undefined) {
-    if (typeof raw.roles !== "string" || !isDbRolesMode(raw.roles.trim())) {
+    const trimmed = typeof raw.roles === "string" ? raw.roles.trim() : "";
+    if (!isDbRolesMode(trimmed)) {
       return {
         ok: false,
-        issue: {
-          code: "invalid_db_roles",
-          roles: typeof raw.roles === "string" ? raw.roles : "",
-        },
+        issue: { code: "invalid_db_roles", roles: trimmed },
       };
     }
-    roles = raw.roles.trim() as DbRolesMode;
+    roles = trimmed;
   }
   if (Object.keys(raw).length === 0) return { ok: true, value: undefined };
   return {
     ok: true,
-    value: roles === undefined ? { provider, path, file } : { provider, path, file, roles },
+    value: {
+      provider,
+      path,
+      file,
+      ...(roles !== undefined ? { roles } : {}),
+    },
   };
 }
 
@@ -145,13 +150,11 @@ export function normalizeDbSpec(spec: DbSpec | undefined): DbSpec {
 }
 
 /** Companion credential keys that opt a postgres preview into dual roles. */
-const COMPANION_REMAP_KEYS = ["PGAPPUSER", "PGAPPPASSWORD"] as const;
-
 function companionRemapKey(
   env: Record<string, string> | undefined,
 ): string | null {
   if (!env) return null;
-  for (const key of COMPANION_REMAP_KEYS) {
+  for (const key of COMPANION_ENV_KEYS) {
     if (Object.hasOwn(env, key)) return key;
   }
   return null;

@@ -4,25 +4,37 @@ import { ensureDatabase } from "./catalog.ts";
 import { assertSafeRole, ensureLoginRole } from "./ensure-role.ts";
 import { dockerAvailable, startTempPostgres } from "./postgres-it.ts";
 import {
+  companionRoleName,
+  COMPANION_ROLE_SUFFIX,
   deriveRestrictedPassword,
   dropRestrictedRole,
   ensureRestrictedRole,
   PG_IDENT_MAX,
-  restrictedRoleName,
 } from "./restricted-role.ts";
 
 const hasDocker = await dockerAvailable();
 
-describe("restrictedRoleName / deriveRestrictedPassword", () => {
+describe("companionRoleName / deriveRestrictedPassword", () => {
   test("names the companion as <dbName>_app", () => {
-    expect(restrictedRoleName("sprout_myapp_pr42")).toBe(
+    expect(companionRoleName("sprout_myapp_pr42")).toBe(
       "sprout_myapp_pr42_app",
     );
   });
 
-  test("refuses companion names longer than Postgres NAMEDATALEN", () => {
-    const tooLongDb = "a".repeat(PG_IDENT_MAX - "_app".length + 1);
-    expect(() => restrictedRoleName(tooLongDb)).toThrow(/identifier limit/);
+  test("returns null for companion names longer than Postgres NAMEDATALEN", () => {
+    const tooLongDb = "a".repeat(PG_IDENT_MAX - COMPANION_ROLE_SUFFIX.length + 1);
+    expect(companionRoleName(tooLongDb)).toBeNull();
+  });
+
+  test("ensure rejects over-long companion names before DDL", async () => {
+    const tooLongDb = "a".repeat(PG_IDENT_MAX - COMPANION_ROLE_SUFFIX.length + 1);
+    await expect(
+      ensureRestrictedRole({} as SQL, {
+        dbName: tooLongDb,
+        ownerPassword: "sekrit",
+        adminUrl: "postgres://localhost/postgres",
+      }),
+    ).rejects.toThrow(/identifier limit/);
   });
 
   test("password is deterministic for the same owner secret + db", () => {
@@ -72,7 +84,7 @@ describe.skipIf(!hasDocker)("ensureRestrictedRole (postgres)", () => {
       ownerPassword,
       adminUrl,
     });
-    const role = restrictedRoleName(dbName);
+    const role = companionRoleName(dbName)!;
     const password = deriveRestrictedPassword(ownerPassword, dbName);
     expect(role).toBe("sprout_rr_pr1_app");
 
@@ -104,7 +116,7 @@ describe.skipIf(!hasDocker)("ensureRestrictedRole (postgres)", () => {
       adminUrl,
     });
 
-    const role = restrictedRoleName(dbName);
+    const role = companionRoleName(dbName)!;
     const password = deriveRestrictedPassword(ownerPassword, dbName);
     const restricted = new SQL(
       `postgres://${role}:${encodeURIComponent(password)}@127.0.0.1:${hostPort}/${dbName}`,
@@ -119,7 +131,7 @@ describe.skipIf(!hasDocker)("ensureRestrictedRole (postgres)", () => {
       ownerPassword,
       adminUrl,
     });
-    const role = restrictedRoleName(dbName);
+    const role = companionRoleName(dbName)!;
     await admin.unsafe(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
     await dropRestrictedRole(admin, dbName);
 

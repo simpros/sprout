@@ -63,9 +63,9 @@ describe("previewDbName / parsePreviewDatabaseName", () => {
   });
 
   test("validatePreviewIdentity accepts names that fit companion budget", () => {
-    expect(validatePreviewIdentity("widgets", 42)).toBeNull();
+    expect(validatePreviewIdentity("widgets", 42, "dual")).toBeNull();
     const maxSlug = "a".repeat(PREVIEW_DB_NAME_MAX - "sprout_".length - "_pr1".length);
-    expect(validatePreviewIdentity(maxSlug, 1)).toBeNull();
+    expect(validatePreviewIdentity(maxSlug, 1, "dual")).toBeNull();
     expect(previewDbName(maxSlug, 1).length).toBe(PREVIEW_DB_NAME_MAX);
   });
 });

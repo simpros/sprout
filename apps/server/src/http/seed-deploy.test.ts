@@ -2,7 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import {
   deriveRestrictedPassword,
-  restrictedRoleName,
+  companionRoleName,
 } from "@sprout/preview-db";
 import {
   createFakeDockerClient,
@@ -28,7 +28,7 @@ import {
 const SEED_IMAGE = "ghcr.io/org/myapp-seed:sha-abc";
 const DB = "sprout_myapp_pr42";
 const companion = [
-  `PGAPPUSER=${restrictedRoleName(DB)}`,
+  `PGAPPUSER=${companionRoleName(DB)!}`,
   `PGAPPPASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
 ];
 

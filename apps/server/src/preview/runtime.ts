@@ -1,8 +1,6 @@
 import {
-  dbRolesIssueMessage,
   mailIntent,
   requiresDatabase,
-  resolveDbRoles,
   sqliteDatabaseUrl,
   type DbProvider,
   type DbRolesMode,
@@ -99,8 +97,8 @@ export function resolvePreviewPlan(
     mail?: MailSpec;
     /** Test override; deploy omits it so identity resolves in one place. */
     dbName?: string | null;
-    /** Deploy passes the resolved mode; tests omit it to exercise derivation. */
-    roles?: DbRolesMode;
+    /** Resolved by the deploy boundary via resolveDbRoles; required here. */
+    roles: DbRolesMode;
   },
 ): PreviewDbPlan {
   const dbName =
@@ -109,14 +107,7 @@ export function resolvePreviewPlan(
       : requiresDatabase(input.spec.provider)
         ? previewDbName(input.slug, input.prId)
         : null;
-  const resolvedRoles =
-    input.roles !== undefined
-      ? { ok: true as const, value: input.roles }
-      : resolveDbRoles(input.spec, input.connectionEnv);
-  if (!resolvedRoles.ok) {
-    throw new Error(dbRolesIssueMessage(resolvedRoles.issue));
-  }
-  const roles = resolvedRoles.value;
+  const roles = input.roles;
   const mail = resolveMailPart(ctx, input);
   // Provider branches below build the mail-free base plan; the single
   // overlay after them appends mail env, joins the mail network, and sets

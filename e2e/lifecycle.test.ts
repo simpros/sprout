@@ -11,7 +11,7 @@ import {
   envMap,
   previewAppContainerName,
 } from "./harness/docker.ts";
-import { composeExec } from "./harness/stack.ts";
+import { companionRoleExists, waitForPreviewRunning } from "./harness/stack.ts";
 
 const enabled = process.env.SPROUT_E2E_MANAGED === "1";
 
@@ -22,6 +22,36 @@ const REMAP = {
   PGUSER: "DATABASE_USER",
   PGPASSWORD: "DATABASE_PASSWORD",
 } as const;
+
+type PreviewApiClient = ReturnType<typeof createApiClient>;
+
+async function deployPreview(
+  client: PreviewApiClient,
+  opts: {
+    prId: number;
+    hostname: string;
+    db: { provider: "postgres"; roles: "dual" | "single" };
+    env?: Record<string, string>;
+  },
+): Promise<void> {
+  const deployed = await client.v1.deploy.post({
+    canonical_repo_id: e2eConfig.canonicalRepoId,
+    pr_id: opts.prId,
+    slug: e2eConfig.slug,
+    hostname: opts.hostname,
+    app_image: APP_IMAGE,
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
+    db: opts.db,
+    health: {
+      path: "/",
+      interval: "2s",
+      timeout: "90s",
+      expect: 200,
+    },
+  });
+  expect(deployed.error).toBeNull();
+  expect(deployed.status).toBe(202);
+}
 
 describe.skipIf(!enabled)("preview lifecycle", () => {
   test("dual deploy with preview.env remap exposes adopter names on the app container", async () => {
@@ -47,40 +77,13 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
     const prId = 55;
     const hostname = `pr-${prId}.e2e-remap.preview.example.com`;
 
-    const deployed = await client.v1.deploy.post({
-      canonical_repo_id: e2eConfig.canonicalRepoId,
-      pr_id: prId,
-      slug: e2eConfig.slug,
+    await deployPreview(client, {
+      prId,
       hostname,
-      app_image: APP_IMAGE,
       env: { ...REMAP },
       db: { provider: "postgres", roles: "dual" },
-      health: {
-        path: "/",
-        interval: "2s",
-        timeout: "90s",
-        expect: 200,
-      },
     });
-    expect(deployed.error).toBeNull();
-    expect(deployed.status).toBe(202);
-
-    const deadline = Date.now() + 90_000;
-    let status = deployed.data?.status;
-    while (status !== "running") {
-      expect(Date.now() < deadline).toBe(true);
-      await Bun.sleep(2_000);
-      const polled = await client.v1.preview.get({
-        query: {
-          canonical_repo_id: e2eConfig.canonicalRepoId,
-          pr_id: String(prId),
-        },
-      });
-      expect(polled.error).toBeNull();
-      expect(polled.status).toBe(200);
-      status = polled.data?.status;
-    }
-    expect(status).toBe("running");
+    await waitForPreviewRunning(client, e2eConfig.canonicalRepoId, prId);
 
     try {
       const name = previewAppContainerName(e2eConfig.slug, prId);
@@ -101,17 +104,7 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
       expect(env.has("PGPASSWORD")).toBe(false);
 
       const dbName = `sprout_${e2eConfig.slug}_pr${prId}`;
-      const role = `${dbName}_app`;
-      const found = await composeExec("postgres", [
-        "psql",
-        "-U",
-        "sprout_admin",
-        "-d",
-        "postgres",
-        "-tAc",
-        `SELECT 1 FROM pg_roles WHERE rolname='${role}'`,
-      ]);
-      expect(found.stdout.trim()).toBe("1");
+      expect(await companionRoleExists(dbName)).toBe(true);
     } finally {
       const torn = await client.v1.teardown.post({
         canonical_repo_id: e2eConfig.canonicalRepoId,
@@ -138,39 +131,12 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
     const prId = 56;
     const hostname = `pr-${prId}.e2e-single.preview.example.com`;
 
-    const deployed = await client.v1.deploy.post({
-      canonical_repo_id: e2eConfig.canonicalRepoId,
-      pr_id: prId,
-      slug: e2eConfig.slug,
+    await deployPreview(client, {
+      prId,
       hostname,
-      app_image: APP_IMAGE,
       db: { provider: "postgres", roles: "single" },
-      health: {
-        path: "/",
-        interval: "2s",
-        timeout: "90s",
-        expect: 200,
-      },
     });
-    expect(deployed.error).toBeNull();
-    expect(deployed.status).toBe(202);
-
-    const deadline = Date.now() + 90_000;
-    let status = deployed.data?.status;
-    while (status !== "running") {
-      expect(Date.now() < deadline).toBe(true);
-      await Bun.sleep(2_000);
-      const polled = await client.v1.preview.get({
-        query: {
-          canonical_repo_id: e2eConfig.canonicalRepoId,
-          pr_id: String(prId),
-        },
-      });
-      expect(polled.error).toBeNull();
-      expect(polled.status).toBe(200);
-      status = polled.data?.status;
-    }
-    expect(status).toBe("running");
+    await waitForPreviewRunning(client, e2eConfig.canonicalRepoId, prId);
 
     try {
       const name = previewAppContainerName(e2eConfig.slug, prId);
@@ -181,17 +147,7 @@ describe.skipIf(!enabled)("preview lifecycle", () => {
       expect(env.has("PGAPPPASSWORD")).toBe(false);
 
       const dbName = `sprout_${e2eConfig.slug}_pr${prId}`;
-      const role = `${dbName}_app`;
-      const found = await composeExec("postgres", [
-        "psql",
-        "-U",
-        "sprout_admin",
-        "-d",
-        "postgres",
-        "-tAc",
-        `SELECT 1 FROM pg_roles WHERE rolname='${role}'`,
-      ]);
-      expect(found.stdout.trim()).toBe("");
+      expect(await companionRoleExists(dbName)).toBe(false);
     } finally {
       const torn = await client.v1.teardown.post({
         canonical_repo_id: e2eConfig.canonicalRepoId,

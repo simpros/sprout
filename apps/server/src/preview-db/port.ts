@@ -7,11 +7,11 @@ export type CatalogDatabase = {
 };
 
 export type CreateDatabaseOptions = {
-  roles?: DbRolesMode;
+  roles: DbRolesMode;
 };
 
 export type PreviewDb = {
-  createDatabase(dbName: string, options?: CreateDatabaseOptions): Promise<void>;
+  createDatabase(dbName: string, options: CreateDatabaseOptions): Promise<void>;
   dropDatabase(dbName: string): Promise<void>;
   listPreviewDatabases(): Promise<CatalogDatabase[]>;
   ensurePreviewRole(): Promise<void>;

@@ -25,7 +25,7 @@ export function createFakePreviewDb(): FakePreviewDb & PreviewDbRouter {
       if (!live.has(dbName)) {
         created.push(dbName);
       }
-      if ((options?.roles ?? "dual") === "dual") {
+      if (options.roles === "dual") {
         restrictedEnsured.push(dbName);
       }
     },
