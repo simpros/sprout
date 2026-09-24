@@ -116,9 +116,21 @@ export function untickResetBox(body: string): string | null {
   });
 }
 
-function isTruncated(env: NodeJS.ProcessEnv): boolean {
+export function isTruncatedDescription(env: NodeJS.ProcessEnv): boolean {
   const raw = env.CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED?.trim().toLowerCase();
   return raw === "true" || raw === "1" || raw === "yes";
+}
+
+/** Visible ticked reset box, regardless of whether the marker survived truncation. */
+export function hasTickedResetBox(body: string | null | undefined): boolean {
+  if (!body) return false;
+  return visibleLines(body).some((line) => TICKED_BOX_RE.test(line));
+}
+
+export function truncatedResetWarning(): string {
+  return (
+    "GitLab MR description is truncated — reset request not readable, skipping"
+  );
 }
 
 export function truncatedDescriptionError(): string {
@@ -142,20 +154,28 @@ function readGithubBody(eventPayload: unknown): string | null {
   return null;
 }
 
-/** Raw MR/PR body text from CI env; GitLab truncation is a hard error. */
+/** Raw MR/PR body text from CI env, plus whether the GitLab prefix was truncated. */
+export type ResetRequestBody = {
+  body: string | null;
+  truncated: boolean;
+};
+
 export async function readResetRequestBody(
   deps: CliDeps,
   forge: "gitlab" | "github",
-): Promise<Result<string | null>> {
+): Promise<Result<ResetRequestBody>> {
   if (forge === "gitlab") {
-    if (isTruncated(deps.env)) {
-      return { ok: false, error: truncatedDescriptionError() };
-    }
-    return { ok: true, value: deps.env.CI_MERGE_REQUEST_DESCRIPTION ?? null };
+    return {
+      ok: true,
+      value: {
+        body: deps.env.CI_MERGE_REQUEST_DESCRIPTION ?? null,
+        truncated: isTruncatedDescription(deps.env),
+      },
+    };
   }
   const event = await loadEventPayload(deps);
   if (!event.ok) return event;
-  return { ok: true, value: readGithubBody(event.value) };
+  return { ok: true, value: { body: readGithubBody(event.value), truncated: false } };
 }
 
 type PreviewMarkerFields = {

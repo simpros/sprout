@@ -246,7 +246,53 @@ describe("sprout ci preview reset request", () => {
     expect(captured.map((c) => c.path)).toEqual(["/v1/deploy"]);
   });
 
-  test("truncated GitLab description is a named hard error", async () => {
+  test("truncated GitLab description without a reset snippet deploys with a warning", async () => {
+    const gw = startStatefulGateway();
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["ci", "preview"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: gw.baseUrl,
+          SPROUT_TOKEN: "t",
+          ...GITLAB_MR_ENV,
+          CI_MERGE_REQUEST_DESCRIPTION: "Just a long description with no reset snippet.",
+          CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED: "true",
+        },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured.map((c) => c.path)).toEqual(["/v1/deploy"]);
+    expect(stderr).toHaveLength(1);
+    expect(stderr[0]).toContain("truncated");
+  });
+
+  test("truncated GitLab description with a ticked box but no marker deploys then fails the reset path", async () => {
+    const gw = startStatefulGateway();
+    const cwd = await withWorkspace(MINIMAL_YAML);
+    const code = await runCli(
+      ["ci", "preview"],
+      deps({
+        cwd,
+        env: {
+          SPROUT_URL: gw.baseUrl,
+          SPROUT_TOKEN: "t",
+          ...GITLAB_MR_ENV,
+          CI_MERGE_REQUEST_DESCRIPTION: "- [x] Sprout: reset preview",
+          CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED: "true",
+        },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(1);
+    expect(captured.map((c) => c.path)).toEqual(["/v1/deploy"]);
+    expect(stderr.join("\n")).toContain("truncated");
+    expect(stderr.join("\n")).toContain("2700");
+  });
+
+  test("truncated GitLab description with a fully visible request still resets", async () => {
     const gw = startStatefulGateway();
     const cwd = await withWorkspace(MINIMAL_YAML);
     const code = await runCli(
@@ -263,11 +309,13 @@ describe("sprout ci preview reset request", () => {
         readTextFile: readRealFile,
       }),
     );
-    expect(code).toBe(1);
-    expect(stderr.join("\n")).toContain("truncated");
-    expect(stderr.join("\n")).toContain("2700");
-    expect(captured).toEqual([]);
-    expect(dockerCalls).toEqual([]);
+    expect(code).toBe(0);
+    expect(captured.map((c) => c.path)).toEqual([
+      "/v1/teardown",
+      "/v1/deploy",
+      "/v1/reset-marker",
+    ]);
+    expect(gw.getStoredMarker()).toBe("ada-1");
   });
 });
 

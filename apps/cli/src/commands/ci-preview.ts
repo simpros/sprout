@@ -6,9 +6,12 @@ import { publishPreviewNote } from "./forge-note.ts";
 import { buildAndPush } from "./image-build.ts";
 import {
   fetchHandledMarker,
+  hasTickedResetBox,
   markResetRequestHandled,
   parseResetRequest,
   readResetRequestBody,
+  truncatedDescriptionError,
+  truncatedResetWarning,
 } from "./reset-request.ts";
 import { ensureSeedImage } from "./seed-image.ts";
 import { teardownPreview } from "./teardown.ts";
@@ -38,34 +41,43 @@ export async function runCiPreview(
 ): Promise<number> {
   const raw = await readResetRequestBody(ctx.deps, identity.forge);
   if (!raw.ok) return fail(ctx.deps.io, raw.error);
-  const marker = parseResetRequest(raw.value);
-  if (!marker) {
-    return runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
+  const { body, truncated } = raw.value;
+  const marker = parseResetRequest(body);
+  if (marker) {
+    const handled = await fetchHandledMarker(ctx.client, identity);
+    if (!handled.ok) return fail(ctx.deps.io, handled.error);
+    if (handled.value === marker) {
+      return runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
+    }
+
+    // One marker write after a successful deploy: a failed deploy leaves the
+    // token unhandled so the retry resets again instead of deploying over a
+    // half-torn state.
+    const policy: CiDeployPolicy = {
+      ...previewDeployPolicy,
+      beforeDeploy: (client, id) => teardownPreview(client, id),
+    };
+    const code = await runCiDeploy(identity, tokens, ctx, policy);
+    if (code !== 0) return code;
+
+    const marked = await markResetRequestHandled(
+      ctx.deps,
+      ctx.client,
+      identity,
+      body,
+      marker,
+    );
+    if (!marked.ok) return fail(ctx.deps.io, marked.error);
+    return 0;
   }
 
-  const handled = await fetchHandledMarker(ctx.client, identity);
-  if (!handled.ok) return fail(ctx.deps.io, handled.error);
-  if (handled.value === marker) {
-    return runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
+  if (truncated) {
+    if (hasTickedResetBox(body)) {
+      const code = await runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
+      if (code !== 0) return code;
+      return fail(ctx.deps.io, truncatedDescriptionError());
+    }
+    ctx.deps.io.stderr(`warning: ${truncatedResetWarning()}`);
   }
-
-  // One marker write after a successful deploy: a failed deploy leaves the
-  // token unhandled so the retry resets again instead of deploying over a
-  // half-torn state.
-  const policy: CiDeployPolicy = {
-    ...previewDeployPolicy,
-    beforeDeploy: (client, id) => teardownPreview(client, id),
-  };
-  const code = await runCiDeploy(identity, tokens, ctx, policy);
-  if (code !== 0) return code;
-
-  const marked = await markResetRequestHandled(
-    ctx.deps,
-    ctx.client,
-    identity,
-    raw.value,
-    marker,
-  );
-  if (!marked.ok) return fail(ctx.deps.io, marked.error);
-  return 0;
+  return runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
 }
