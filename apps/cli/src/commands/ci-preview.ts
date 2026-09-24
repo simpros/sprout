@@ -5,10 +5,9 @@ import { runCiDeploy, type CiDeployPolicy } from "./ci-deploy.ts";
 import { publishPreviewNote } from "./forge-note.ts";
 import { buildAndPush } from "./image-build.ts";
 import {
+  classifyResetRequest,
   fetchHandledMarker,
-  hasTickedResetBox,
   markResetRequestHandled,
-  parseResetRequest,
   readResetRequestBody,
   truncatedDescriptionError,
   truncatedResetWarning,
@@ -41,9 +40,9 @@ export async function runCiPreview(
 ): Promise<number> {
   const raw = await readResetRequestBody(ctx.deps, identity.forge);
   if (!raw.ok) return fail(ctx.deps.io, raw.error);
-  const { body, truncated } = raw.value;
-  const marker = parseResetRequest(body);
-  if (marker) {
+  const outcome = classifyResetRequest(raw.value);
+  if (outcome.kind === "reset") {
+    const marker = outcome.marker;
     const handled = await fetchHandledMarker(ctx.client, identity);
     if (!handled.ok) return fail(ctx.deps.io, handled.error);
     if (handled.value === marker) {
@@ -64,20 +63,18 @@ export async function runCiPreview(
       ctx.deps,
       ctx.client,
       identity,
-      body,
+      raw.value.body,
       marker,
     );
     if (!marked.ok) return fail(ctx.deps.io, marked.error);
     return 0;
   }
 
-  if (truncated) {
-    if (hasTickedResetBox(body)) {
-      const code = await runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
-      if (code !== 0) return code;
-      return fail(ctx.deps.io, truncatedDescriptionError());
-    }
+  if (outcome.kind === "truncated-none")
     ctx.deps.io.stderr(`warning: ${truncatedResetWarning()}`);
-  }
-  return runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
+  const code = await runCiDeploy(identity, tokens, ctx, previewDeployPolicy);
+  if (code !== 0) return code;
+  if (outcome.kind === "truncated-unreadable")
+    return fail(ctx.deps.io, truncatedDescriptionError());
+  return 0;
 }

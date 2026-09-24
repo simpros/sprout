@@ -4,9 +4,8 @@ import type { CiPreviewIdentity } from "./ci-identity.ts";
 import { runCiDeploy, type CiDeployPolicy } from "./ci-deploy.ts";
 import { publishPreviewNote } from "./forge-note.ts";
 import {
-  hasTickedResetBox,
+  classifyResetRequest,
   markResetRequestHandled,
-  parseResetRequest,
   readResetRequestBody,
   truncatedDescriptionError,
   truncatedResetWarning,
@@ -45,22 +44,22 @@ export async function runCiReset(
     ctx.deps.io.stderr(`warning: ${raw.error}`);
     return 0;
   }
-  const { body, truncated } = raw.value;
-  const requested = parseResetRequest(body);
-  if (requested) {
+  const { body } = raw.value;
+  const outcome = classifyResetRequest(raw.value);
+  if (outcome.kind === "reset") {
     const marked = await markResetRequestHandled(
       ctx.deps,
       ctx.client,
       identity,
       body,
-      requested,
+      outcome.marker,
     );
     if (!marked.ok) return fail(ctx.deps.io, marked.error);
     return 0;
   }
-  if (truncated) {
-    if (hasTickedResetBox(body)) return fail(ctx.deps.io, truncatedDescriptionError());
+  if (outcome.kind === "truncated-unreadable")
+    return fail(ctx.deps.io, truncatedDescriptionError());
+  if (outcome.kind === "truncated-none")
     ctx.deps.io.stderr(`warning: ${truncatedResetWarning()}`);
-  }
   return 0;
 }

@@ -294,7 +294,10 @@ normally. An unticked box, a missing marker, or a tick/marker inside a fenced
 code block does nothing. GitHub runs untick the box after the reset (marker
 kept); GitLab keeps the tick, guarded by the stored token. Paste the snippet
 at the top of the MR/PR description — GitLab exposes only the first 2700
-characters to CI, so truncation fails the job with a named error instead of ignoring the tick.
+characters to CI, so a truncated description deploys normally with a warning
+when no reset box is visible, and deploys first and then fails the job with a
+named error when a ticked box is visible but its marker was cut off — the tick
+is never silently ignored.
 
 ## Migration from a hand-rolled script
 

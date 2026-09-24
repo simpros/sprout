@@ -81,6 +81,25 @@ export function stripFencedCodeBlocks(body: string): string {
   return visibleLines(body).join("\n");
 }
 
+/** One fence-aware pass over visible lines; the only place the ticked-box regex lives. */
+function scanResetRequest(
+  body: string | null | undefined,
+): { marker: string | null; ticked: boolean } {
+  if (!body) return { marker: null, ticked: false };
+  let marker: string | null = null;
+  let ticked = false;
+  const markerRe = new RegExp(MARKER_PATTERN, "g");
+  walkLines(body, (line, visible) => {
+    if (!visible) return;
+    for (const match of line.matchAll(markerRe)) {
+      const token = parseResetMarkerToken(match[1] ?? "");
+      if (token) marker = token;
+    }
+    if (TICKED_BOX_RE.test(line)) ticked = true;
+  });
+  return { marker, ticked };
+}
+
 /**
  * Parse an MR/PR body. Returns the reset token when a ticked box and a
  * non-empty marker are both present outside fenced code blocks.
@@ -88,21 +107,8 @@ export function stripFencedCodeBlocks(body: string): string {
 export function parseResetRequest(
   body: string | null | undefined,
 ): string | null {
-  if (!body) return null;
-  const visible = visibleLines(body);
-  let marker: string | null = null;
-  const markerRe = new RegExp(MARKER_PATTERN, "g");
-  for (const line of visible) {
-    for (const match of line.matchAll(markerRe)) {
-      const token = parseResetMarkerToken(match[1] ?? "");
-      if (token) marker = token;
-    }
-  }
-  if (!marker) return null;
-  for (const line of visible) {
-    if (TICKED_BOX_RE.test(line)) return marker;
-  }
-  return null;
+  const scanned = scanResetRequest(body);
+  return scanned.marker && scanned.ticked ? scanned.marker : null;
 }
 
 /** Flip ticked reset boxes back to unticked, preserving the marker. */
@@ -116,15 +122,26 @@ export function untickResetBox(body: string): string | null {
   });
 }
 
-export function isTruncatedDescription(env: NodeJS.ProcessEnv): boolean {
+function isTruncatedDescription(env: NodeJS.ProcessEnv): boolean {
   const raw = env.CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED?.trim().toLowerCase();
   return raw === "true" || raw === "1" || raw === "yes";
 }
 
-/** Visible ticked reset box, regardless of whether the marker survived truncation. */
-export function hasTickedResetBox(body: string | null | undefined): boolean {
-  if (!body) return false;
-  return visibleLines(body).some((line) => TICKED_BOX_RE.test(line));
+/** Truncation triage; the single owner of the ticked-box-without-marker rule. */
+export type ResetOutcome =
+  | { kind: "reset"; marker: string }
+  | { kind: "truncated-unreadable" }
+  | { kind: "truncated-none" }
+  | { kind: "none" };
+
+export function classifyResetRequest(raw: ResetRequestBody): ResetOutcome {
+  const scanned = scanResetRequest(raw.body);
+  if (scanned.marker && scanned.ticked)
+    return { kind: "reset", marker: scanned.marker };
+  if (!raw.truncated) return { kind: "none" };
+  return scanned.ticked
+    ? { kind: "truncated-unreadable" }
+    : { kind: "truncated-none" };
 }
 
 export function truncatedResetWarning(): string {
