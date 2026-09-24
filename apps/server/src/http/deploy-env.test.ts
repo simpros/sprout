@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import {
   deriveRestrictedPassword,
-  restrictedRoleName,
+  companionRoleName,
 } from "@sprout/preview-db";
 import {
   createFakeDockerClient,
@@ -26,7 +26,7 @@ import {
 
 const DB = "sprout_myapp_pr42";
 const companion = [
-  `PGAPPUSER=${restrictedRoleName(DB)}`,
+  `PGAPPUSER=${companionRoleName(DB)!}`,
   `PGAPPPASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
 ];
 
@@ -62,7 +62,7 @@ async function postDeploy(token: string, body: Record<string, unknown>) {
 }
 
 describe("POST /v1/deploy connection env remap", () => {
-  test("remaps connection env names on app container create", async () => {
+  test("remaps connection env names on app container create (single omits PGAPP*)", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(
       deployToken,
@@ -83,8 +83,8 @@ describe("POST /v1/deploy connection env remap", () => {
       "DATABASE_USER=sprout_preview",
       "DATABASE_PASSWORD=preview-secret",
       "DATABASE_NAME=sprout_myapp_pr42",
-      ...companion,
     ]);
+    expect(fakePreviewDb!.restrictedEnsured).toEqual([]);
     const [row] = await testApp!.db
       .select()
       .from(previews)
@@ -181,13 +181,13 @@ describe("POST /v1/deploy app_env", () => {
       "PGUSER=sprout_preview",
       "PGPASSWORD=preview-secret",
       "PGDATABASE=sprout_myapp_pr42",
-      `APP_DATABASE_USER=${restrictedRoleName(DB)}`,
+      `APP_DATABASE_USER=${companionRoleName(DB)!}`,
       `APP_DATABASE_PASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
     ]);
     expect(fakePreviewDb!.restrictedEnsured).toContain(DB);
   });
 
-  test("injects app_env with colliding connection keys stripped", async () => {
+  test("injects app_env with colliding connection keys stripped (single)", async () => {
     const { deployToken } = await setup();
     const res = await postDeploy(
       deployToken,
@@ -208,8 +208,8 @@ describe("POST /v1/deploy app_env", () => {
       "PGUSER=sprout_preview",
       "PGPASSWORD=preview-secret",
       "PGDATABASE=sprout_myapp_pr42",
-      ...companion,
     ]);
+    expect(fakePreviewDb!.restrictedEnsured).toEqual([]);
     const [row] = await testApp!.db
       .select()
       .from(previews)
@@ -240,5 +240,163 @@ describe("POST /v1/deploy app_env", () => {
 
     expect(fakePreviewDb!.created).toEqual([]);
     expect(fakeDocker!.creates).toEqual([]);
+  });
+});
+
+describe("POST /v1/deploy db.roles", () => {
+  test("explicit dual without remap injects canonical PGAPP*", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({ db: { provider: "postgres", roles: "dual" } }),
+    );
+    expect(res.settleStatus).toBe(200);
+    expect(fakeDocker!.creates[0]!.env).toEqual([
+      "PGHOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=sprout_preview",
+      "PGPASSWORD=preview-secret",
+      "PGDATABASE=sprout_myapp_pr42",
+      ...companion,
+    ]);
+    expect(fakePreviewDb!.restrictedEnsured).toContain(DB);
+  });
+
+  test("explicit single omits PGAPP* and skips the companion role", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({ db: { provider: "postgres", roles: "single" } }),
+    );
+    expect(res.settleStatus).toBe(200);
+    expect(fakeDocker!.creates[0]!.env).toEqual([
+      "PGHOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=sprout_preview",
+      "PGPASSWORD=preview-secret",
+      "PGDATABASE=sprout_myapp_pr42",
+    ]);
+    expect(fakePreviewDb!.restrictedEnsured).toEqual([]);
+  });
+
+  test("explicit single plus a companion remap fails naming both sides", async () => {
+    const { deployToken } = await setup();
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        db: { provider: "postgres", roles: "single" },
+        env: { PGAPPUSER: "APP_DATABASE_USER" },
+      }),
+    );
+    expect(res.settleStatus).toBe(422);
+    expect(res.body).toEqual({
+      error: "invalid_db_roles",
+      detail:
+        "preview.env.PGAPPUSER conflicts with db.roles single (remove the remap or use db.roles dual)",
+    });
+    expect(fakePreviewDb!.created).toEqual([]);
+    expect(fakeDocker!.creates).toEqual([]);
+  });
+
+  test("db.roles on sqlite and none is rejected like an out-of-scope env key", async () => {
+    const { deployToken } = await setup();
+    const sqlite = await postDeploy(
+      deployToken,
+      deployBody({ db: { provider: "sqlite", roles: "dual" } }),
+    );
+    expect(sqlite.settleStatus).toBe(422);
+    expect(sqlite.body).toEqual({
+      error: "invalid_db",
+      detail: 'db.roles requires db.provider postgres (got "sqlite")',
+    });
+
+    const none = await postDeploy(
+      deployToken,
+      deployBody({ db: { provider: "none", roles: "single" } }),
+    );
+    expect(none.settleStatus).toBe(422);
+    expect(none.body).toEqual({
+      error: "invalid_db",
+      detail: 'db.roles requires db.provider postgres (got "none")',
+    });
+
+    const invalid = await postDeploy(
+      deployToken,
+      deployBody({ db: { roles: "triple" } }),
+    );
+    expect(invalid.settleStatus).toBe(422);
+    expect(invalid.body).toEqual({
+      error: "invalid_db",
+      detail: 'db.roles must be single or dual (got "triple")',
+    });
+    expect(fakePreviewDb!.created).toEqual([]);
+  });
+
+  test("single allows a longer slug up to PG_IDENT_MAX", async () => {
+    const { deployToken } = await setup();
+    const longSlug = `a${"b".repeat(48)}`;
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        slug: longSlug,
+        hostname: "pr-42.myapp.preview.example.com",
+        db: { provider: "postgres", roles: "single" },
+      }),
+    );
+    expect(res.settleStatus).toBe(200);
+    expect(res.body).toMatchObject({ status: "running" });
+  });
+
+  test("dual still rejects the same long slug on the companion budget", async () => {
+    const { deployToken } = await setup();
+    const longSlug = `a${"b".repeat(48)}`;
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        slug: longSlug,
+        hostname: "pr-42.myapp.preview.example.com",
+        db: { provider: "postgres", roles: "dual" },
+      }),
+    );
+    expect(res.settleStatus).toBe(422);
+    expect(res.body).toEqual({ error: "invalid_slug" });
+  });
+
+  test("companion service shares the resolved mode with the app", async () => {
+    const SVC = "ghcr.io/org/api:sha";
+    const { deployToken } = await setup();
+    fakeDocker!.exposedPorts.set(SVC, 4000);
+    const dual = await postDeploy(
+      deployToken,
+      deployBody({
+        db: { provider: "postgres", roles: "dual" },
+        services: [{ name: "api", image: SVC }],
+      }),
+    );
+    expect(dual.settleStatus).toBe(200);
+    const dualSvc = fakeDocker!.creates.find((c) =>
+      c.name.endsWith("-svc-api"),
+    )!;
+    expect(dualSvc.env).toContain(`PGAPPUSER=${companionRoleName(DB)!}`);
+    expect(dualSvc.env).toContain(
+      `PGAPPPASSWORD=${deriveRestrictedPassword("preview-secret", DB)}`,
+    );
+  });
+
+  test("single companion service omits PGAPP* like the app", async () => {
+    const SVC = "ghcr.io/org/api:sha";
+    const { deployToken } = await setup();
+    fakeDocker!.exposedPorts.set(SVC, 4000);
+    const res = await postDeploy(
+      deployToken,
+      deployBody({
+        services: [{ name: "api", image: SVC }],
+      }),
+    );
+    expect(res.settleStatus).toBe(200);
+    const svc = fakeDocker!.creates.find((c) => c.name.endsWith("-svc-api"))!;
+    expect(svc.env).not.toContain(`PGAPPUSER=${companionRoleName(DB)!}`);
+    expect(svc.env.some((e) => e.startsWith("PGAPPUSER="))).toBe(false);
+    expect(svc.env.some((e) => e.startsWith("PGAPPPASSWORD="))).toBe(false);
   });
 });

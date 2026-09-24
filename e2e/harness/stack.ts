@@ -47,6 +47,57 @@ export async function composeExec(
   return { stdout, stderr };
 }
 
+type PreviewApiClient = ReturnType<typeof createApiClient>;
+
+/** Poll GET /v1/preview until the deploy reaches running (throws on timeout). */
+export async function waitForPreviewRunning(
+  client: PreviewApiClient,
+  canonicalRepoId: string,
+  prId: number,
+  timeoutMs = 90_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const polled = await client.v1.preview.get({
+      query: {
+        canonical_repo_id: canonicalRepoId,
+        pr_id: String(prId),
+      },
+    });
+    if (polled.error != null) {
+      throw new Error(
+        `preview poll for pr=${prId} failed: ${JSON.stringify(polled.error)}`,
+      );
+    }
+    if (polled.status !== 200) {
+      throw new Error(
+        `preview poll for pr=${prId} failed: status ${polled.status}`,
+      );
+    }
+    if (polled.data?.status === "running") return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `preview for pr=${prId} not running within ${timeoutMs}ms (last status ${JSON.stringify(polled.data?.status)})`,
+      );
+    }
+    await Bun.sleep(2_000);
+  }
+}
+
+/** Probe pg_roles for the per-database restricted companion role. */
+export async function companionRoleExists(dbName: string): Promise<boolean> {
+  const found = await composeExec("postgres", [
+    "psql",
+    "-U",
+    "sprout_admin",
+    "-d",
+    "postgres",
+    "-tAc",
+    `SELECT 1 FROM pg_roles WHERE rolname='${dbName}_app'`,
+  ]);
+  return found.stdout.trim() === "1";
+}
+
 export async function waitForGateway(
   timeoutMs = 120_000,
   intervalMs = 1_000,

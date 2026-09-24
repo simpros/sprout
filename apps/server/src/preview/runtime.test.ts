@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   deriveRestrictedPassword,
-  restrictedRoleName,
+  companionRoleName,
 } from "@sprout/preview-db";
 import { defaultDbSpec, type DbSpec } from "@sprout/preview-env";
 import {
@@ -40,21 +40,55 @@ function plan(
     dbName: "sprout_myapp_pr42",
     slug: "myapp",
     prId: 42,
+    roles: "single",
     ...extra,
   });
 }
 
 describe("resolvePreviewPlan", () => {
-  test("postgres connection env matches the legacy PG* layout", () => {
+  test("postgres defaults to single with no companion PGAPP* keys", () => {
     expect(plan().gatewayEnv).toEqual([
       "PGHOST=postgres",
       "PGPORT=5432",
       "PGUSER=sprout_preview",
       "PGPASSWORD=sekrit",
       "PGDATABASE=sprout_myapp_pr42",
-      `PGAPPUSER=${restrictedRoleName("sprout_myapp_pr42")}`,
+    ]);
+    expect(plan().roles).toBe("single");
+  });
+
+  test("postgres explicit dual matches the legacy PG* layout", () => {
+    expect(plan(defaultDbSpec(), { roles: "dual" }).gatewayEnv).toEqual([
+      "PGHOST=postgres",
+      "PGPORT=5432",
+      "PGUSER=sprout_preview",
+      "PGPASSWORD=sekrit",
+      "PGDATABASE=sprout_myapp_pr42",
+      `PGAPPUSER=${companionRoleName("sprout_myapp_pr42")!}`,
       `PGAPPPASSWORD=${deriveRestrictedPassword("sekrit", "sprout_myapp_pr42")}`,
     ]);
+  });
+
+  test("dual with a companion remap applies the remap to companion names", () => {
+    const derived = plan(defaultDbSpec(), {
+      roles: "dual",
+      connectionEnv: { PGAPPUSER: "APP_DATABASE_USER" },
+    });
+    expect(derived.roles).toBe("dual");
+    expect(derived.gatewayEnv).toContain(
+      `APP_DATABASE_USER=${companionRoleName("sprout_myapp_pr42")!}`,
+    );
+  });
+
+  test("explicit dual with companion remap keeps dual", () => {
+    const derived = plan(
+      { provider: "postgres", path: "/data", file: "preview.db", roles: "dual" },
+      { roles: "dual", connectionEnv: { PGAPPUSER: "APP_DATABASE_USER" } },
+    );
+    expect(derived.roles).toBe("dual");
+    expect(derived.gatewayEnv).toContain(
+      `APP_DATABASE_USER=${companionRoleName("sprout_myapp_pr42")!}`,
+    );
   });
 
   test("postgres remap still replaces names", () => {
@@ -110,11 +144,13 @@ describe("resolvePreviewPlan", () => {
           dbName: "sprout_myapp_pr42",
           slug: "myapp",
           prId: 42,
+          roles: "single",
         },
       ),
     ).toEqual({
       provider: "sqlite",
       dbName: "sprout_myapp_pr42",
+      roles: "single",
       gatewayEnv: ["DATABASE_URL=file:/data/preview.db"],
       volumes: ["sprout-myapp-pr-42-sqlite:/data"],
       appNetworks: ["sprout-traefik"],
@@ -131,6 +167,7 @@ describe("resolvePreviewPlan", () => {
           dbName: "sprout_myapp_pr42",
           slug: "myapp",
           prId: 42,
+          roles: "single",
         },
       ),
     ).toThrow("without postgres config");
@@ -143,10 +180,12 @@ describe("resolvePreviewPlan", () => {
         dbName: null,
         slug: "myapp",
         prId: 42,
+        roles: "single",
       }),
     ).toEqual({
       provider: "none",
       dbName: null,
+      roles: "single",
       gatewayEnv: [],
       volumes: [],
       appNetworks: ["sprout-traefik"],
@@ -163,6 +202,7 @@ describe("resolvePreviewPlan", () => {
           dbName: null,
           slug: "myapp",
           prId: 42,
+          roles: "single",
           connectionEnv: undefined,
         },
       ).provider,
@@ -171,11 +211,11 @@ describe("resolvePreviewPlan", () => {
 
   test("dbName resolves from slug/prId when omitted", () => {
     expect(
-      resolvePreviewPlan(ctx(), { spec: defaultDbSpec(), slug: "myapp", prId: 42 })
+      resolvePreviewPlan(ctx(), { spec: defaultDbSpec(), slug: "myapp", prId: 42, roles: "single" })
         .dbName,
     ).toBe("sprout_myapp_pr42");
     expect(
-      resolvePreviewPlan(ctx(), { spec: SQLITE_DB, slug: "myapp", prId: 42 })
+      resolvePreviewPlan(ctx(), { spec: SQLITE_DB, slug: "myapp", prId: 42, roles: "single" })
         .dbName,
     ).toBe("sprout_myapp_pr42");
     expect(
@@ -183,6 +223,7 @@ describe("resolvePreviewPlan", () => {
         spec: { provider: "none", path: "/data", file: "preview.db" },
         slug: "myapp",
         prId: 42,
+        roles: "single",
       }).dbName,
     ).toBeNull();
   });

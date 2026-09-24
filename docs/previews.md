@@ -23,6 +23,17 @@ This page owns the lifecycle: database providers, seeding, services, mail.
 
 Synchronize re-deploys keep the same database; only a reset wipes it.
 
+## Preview database roles (`db.roles`)
+
+Postgres previews run with one (`single`) or two (`dual`) database
+LOGINS. `single` is the owner only; `dual` adds the per-database
+restricted companion (`<dbName>_app`, injected as `PGAPPUSER` /
+`PGAPPPASSWORD`, remappable via `preview.env`). The default is
+derived — `dual` when `preview.env` remaps a companion key, else
+`single` — and an explicit `db.roles` wins. Manifest keys, the
+contradiction guard, and the RLS recipe live in
+[Adopting a repo](adopting-a-repo.md#connection-env-names-roles-reservation-port).
+
 ## Service images: merge, leave, clear, lifecycle
 
 Static `image` in yaml pins the image; `--service name=image` overlays it
@@ -266,7 +277,8 @@ SQLite one): point the app at the injected `DATABASE_URL` instead of the
 password); run file-level migrations at container startup as before (the
 file persists on the volume across replaces); keep companion `PGAPP*`
 assumptions out of the SQLite path (there is no restricted role — the
-file is the database). There is no gateway tooling that copies a
+file is the database; likewise a `single` Postgres preview injects no
+`PGAPP*`). There is no gateway tooling that copies a
 Postgres preview into a SQLite volume in this release.
 
 Operators: a gateway that only serves SQLite previews needs no Postgres

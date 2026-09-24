@@ -55,6 +55,7 @@ describe("resolvePreviewPlan mail", () => {
       dbName: "sprout_myapp_pr42",
       slug: "myapp",
       prId: 42,
+      roles: "single",
     });
     expect(plan.gatewayEnv).toEqual(
       expect.arrayContaining([
@@ -72,6 +73,7 @@ describe("resolvePreviewPlan mail", () => {
       dbName: "sprout_myapp_pr42",
       slug: "myapp",
       prId: 42,
+      roles: "single",
       connectionEnv: { MAILHOST: "SMTP_HOST", MAILPORT: "SMTP_PORT" },
     });
     expect(plan.gatewayEnv).toContain("SMTP_HOST=mailpit");
@@ -85,6 +87,7 @@ describe("resolvePreviewPlan mail", () => {
       dbName: "sprout_myapp_pr42",
       slug: "myapp",
       prId: 42,
+      roles: "single",
     });
     expect(sqlite.gatewayEnv).toContain("MAILHOST=mailpit");
 
@@ -93,6 +96,7 @@ describe("resolvePreviewPlan mail", () => {
       dbName: null,
       slug: "myapp",
       prId: 42,
+      roles: "single",
     });
     expect(none.gatewayEnv).toContain("MAILHOST=mailpit");
   });
@@ -103,6 +107,7 @@ describe("resolvePreviewPlan mail", () => {
       dbName: "sprout_myapp_pr42",
       slug: "myapp",
       prId: 42,
+      roles: "single",
       mail: { mode: "none" },
     });
     expect(plan.gatewayEnv).not.toContain("MAILHOST=mailpit");
@@ -123,6 +128,7 @@ describe("resolvePreviewPlan mail", () => {
         dbName: "sprout_myapp_pr42",
         slug: "myapp",
         prId: 42,
+        roles: "single",
         mail: { mode: "enabled" },
       },
     );
@@ -138,6 +144,7 @@ describe("resolvePreviewPlan mail", () => {
         dbName: "sprout_myapp_pr42",
         slug: "myapp",
         prId: 42,
+        roles: "single",
       },
     );
     expect(omitted.gatewayEnv).not.toContain("MAILHOST=mailpit");
@@ -156,6 +163,7 @@ describe("resolvePreviewPlan mail", () => {
         dbName: "sprout_myapp_pr42",
         slug: "myapp",
         prId: 42,
+        roles: "single",
       },
     );
     expect(withNet.appNetworks).toEqual([
@@ -174,6 +182,7 @@ describe("resolvePreviewPlan mail", () => {
       dbName: "sprout_myapp_pr42",
       slug: "myapp",
       prId: 42,
+      roles: "single",
     });
     expect(withoutNet.appNetworks).toEqual([
       "sprout-traefik",
@@ -187,6 +196,7 @@ describe("resolvePreviewPlan mail", () => {
       dbName: "sprout_myapp_pr42",
       slug: "myapp",
       prId: 42,
+      roles: "single",
     });
     expect(plan.gatewayEnv).toContain("MAILFROM=myapp-pr42@preview.invalid");
     expect(plan.gatewayEnv).toContain("MAILFROMNAME=myapp PR 42");
@@ -198,6 +208,7 @@ describe("resolvePreviewPlan mail", () => {
       dbName: "sprout_myapp_pr42",
       slug: "myapp",
       prId: 42,
+      roles: "single",
       connectionEnv: { MAILFROM: "SMTP_FROM" },
     });
     expect(remapped.gatewayEnv).toContain("SMTP_FROM=myapp-pr42@preview.invalid");
@@ -210,6 +221,7 @@ describe("resolvePreviewPlan mail", () => {
       dbName: "sprout_myapp_pr42",
       slug: "myapp",
       prId: 42,
+      roles: "single",
       mail: { mode: "enabled", from: "noreply+{pr_id}@preview.invalid" },
     });
     expect(plan.gatewayEnv).toContain("MAILFROM=noreply+42@preview.invalid");

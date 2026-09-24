@@ -1,4 +1,5 @@
 import {
+  dbRolesIssueMessage,
   dbSpecIssueMessage,
   isServicePort,
   labelIssueMessage,
@@ -11,9 +12,11 @@ import {
   parsePreviewEnvForProvider,
   parseServiceEnvMap,
   requiresDatabase,
+  resolveDbRoles,
   resolveHealthSpec,
   seedRequiresDatabaseMessage,
   validateHostname,
+  type DbRolesMode,
   type DbSpec,
   type HealthRequest,
   type MailSpec,
@@ -77,6 +80,7 @@ const dbBody = t.Object({
   provider: t.Optional(t.String()),
   path: t.Optional(t.String()),
   file: t.Optional(t.String()),
+  roles: t.Optional(t.String()),
 });
 
 const mailBody = t.Union([
@@ -129,7 +133,7 @@ export type DeployBody = {
   hostname: string;
   app_image: string;
   env?: Record<string, string>;
-  db?: { provider?: string; path?: string; file?: string };
+  db?: { provider?: string; path?: string; file?: string; roles?: string };
   mail?: string | { mode?: string; from?: string };
   health?: HealthRequest;
   seed_image?: string;
@@ -145,6 +149,7 @@ export type DeploySpecs = {
   spec: DbSpec;
   connectionEnv?: PreviewEnvMap;
   mail?: MailSpec;
+  roles: DbRolesMode;
 };
 
 /**
@@ -218,7 +223,32 @@ export function resolveDeploySpecs(
     }
     return { ok: false, status: 422, error: connectionEnv.issue.code };
   }
-  return { ok: true, value: { spec, connectionEnv: connectionEnv.value, mail } };
+  const roles = resolveDbRoles(spec, connectionEnv.value);
+  if (!roles.ok) {
+    if (roles.issue.code === "db_roles_requires_provider") {
+      return {
+        ok: false,
+        status: 422,
+        error: "invalid_db",
+        detail: dbRolesIssueMessage(roles.issue),
+      };
+    }
+    return {
+      ok: false,
+      status: 422,
+      error: "invalid_db_roles",
+      detail: dbRolesIssueMessage(roles.issue),
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      spec,
+      connectionEnv: connectionEnv.value,
+      mail,
+      roles: roles.value,
+    },
+  };
 }
 
 function validateKvEnvEntries(
@@ -439,7 +469,18 @@ export function deploy(
       body.pr_id,
     );
     if (!target.ok) return mapResult(target, set);
-    const identityErr = validatePreviewIdentity(body.slug, target.value.prId);
+    const deploySpecs = resolveDeploySpecs(body, deps.materialization, target.value.repo);
+    if (!deploySpecs.ok) {
+      set.status = deploySpecs.status;
+      return deploySpecs.detail
+        ? { error: deploySpecs.error, detail: deploySpecs.detail }
+        : { error: deploySpecs.error };
+    }
+    const identityErr = validatePreviewIdentity(
+      body.slug,
+      target.value.prId,
+      deploySpecs.value.roles,
+    );
     if (identityErr) {
       set.status = 422;
       return { error: identityErr };
@@ -449,19 +490,13 @@ export function deploy(
       set.status = 422;
       return { error: "invalid_hostname" };
     }
-    const deploySpecs = resolveDeploySpecs(body, deps.materialization, target.value.repo);
-    if (!deploySpecs.ok) {
-      set.status = deploySpecs.status;
-      return deploySpecs.detail
-        ? { error: deploySpecs.error, detail: deploySpecs.detail }
-        : { error: deploySpecs.error };
-    }
     const plan = resolvePreviewPlan(deps.materialization, {
       spec: deploySpecs.value.spec,
       slug: body.slug,
       prId: target.value.prId,
       connectionEnv: deploySpecs.value.connectionEnv,
       mail: deploySpecs.value.mail,
+      roles: deploySpecs.value.roles,
     });
     const seed = resolveSeedRequest(body, deploySpecs.value.spec.provider);
     if (!seed.ok) {

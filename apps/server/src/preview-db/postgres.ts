@@ -46,15 +46,17 @@ export function createPostgresPreviewDb(
   }
 
   return {
-    async createDatabase(dbName) {
+    async createDatabase(dbName, options) {
       assertPreviewDbName(dbName);
       await ensurePreviewRole();
       await ensureDatabase(sql, { name: dbName, owner: previewRole });
-      await ensureRestrictedRole(sql, {
-        dbName,
-        ownerPassword: previewPassword,
-        adminUrl,
-      });
+      if (options.roles === "dual") {
+        await ensureRestrictedRole(sql, {
+          dbName,
+          ownerPassword: previewPassword,
+          adminUrl,
+        });
+      }
     },
 
     async dropDatabase(dbName) {

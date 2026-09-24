@@ -5,13 +5,12 @@ import { assertSafeRole, ensureLoginRole } from "./ensure-role.ts";
 /** Postgres truncates unquoted identifiers past 63 chars, risking collisions. */
 export const PG_IDENT_MAX = 63;
 
-export function restrictedRoleName(dbName: string): string {
-  const role = `${dbName}_app`;
-  if (role.length > PG_IDENT_MAX) {
-    throw new Error(
-      `companion role name exceeds Postgres identifier limit (${PG_IDENT_MAX}): ${role}`,
-    );
-  }
+/** Suffix that derives the per-database restricted companion role name. */
+export const COMPANION_ROLE_SUFFIX = "_app";
+
+export function companionRoleName(dbName: string): string | null {
+  const role = `${dbName}${COMPANION_ROLE_SUFFIX}`;
+  if (role.length > PG_IDENT_MAX) return null;
   return role;
 }
 
@@ -29,7 +28,12 @@ export async function ensureRestrictedRole(
   opts: { dbName: string; ownerPassword: string; adminUrl: string },
 ): Promise<void> {
   assertSafeRole(opts.dbName);
-  const role = restrictedRoleName(opts.dbName);
+  const role = companionRoleName(opts.dbName);
+  if (role === null) {
+    throw new Error(
+      `companion role name exceeds Postgres identifier limit (${PG_IDENT_MAX}): ${opts.dbName}${COMPANION_ROLE_SUFFIX}`,
+    );
+  }
   assertSafeRole(role);
   const password = deriveRestrictedPassword(opts.ownerPassword, opts.dbName);
 
@@ -53,7 +57,8 @@ export async function dropRestrictedRole(
   dbName: string,
 ): Promise<void> {
   assertSafeRole(dbName);
-  const role = restrictedRoleName(dbName);
+  const role = companionRoleName(dbName);
+  if (role === null) return;
   assertSafeRole(role);
   await sql.unsafe(`DROP ROLE IF EXISTS ${role}`);
 }

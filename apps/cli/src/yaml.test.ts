@@ -288,6 +288,98 @@ db:
     ).toEqual({ ok: false, error: "unknown key: db.engine" });
   });
 
+  test("parses explicit db.roles single and dual", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  roles: single
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+        db: { provider: "postgres", path: "/data", file: "preview.db", roles: "single" },
+      },
+    });
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGAPPUSER: APP_USER
+db:
+  roles: dual
+`),
+    ).toMatchObject({ ok: true });
+  });
+
+  test("rejects invalid db.roles values", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  roles: triple
+`),
+    ).toEqual({
+      ok: false,
+      error: 'db.roles must be single or dual (got "triple")',
+    });
+  });
+
+  test("rejects db.roles on sqlite and none providers", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  provider: sqlite
+  roles: dual
+`),
+    ).toEqual({
+      ok: false,
+      error: 'db.roles requires db.provider postgres (got "sqlite")',
+    });
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+db:
+  provider: none
+  roles: single
+`),
+    ).toEqual({
+      ok: false,
+      error: 'db.roles requires db.provider postgres (got "none")',
+    });
+  });
+
+  test("rejects explicit single with a companion remap naming both sides", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  env:
+    PGAPPUSER: APP_USER
+db:
+  roles: single
+`),
+    ).toEqual({
+      ok: false,
+      error:
+        "preview.env.PGAPPUSER conflicts with db.roles single (remove the remap or use db.roles dual)",
+    });
+  });
+
   test("rejects empty or invalid preview.env targets", () => {
     expect(
       parseSproutYaml(`

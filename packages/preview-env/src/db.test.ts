@@ -1,12 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import {
+  dbRolesIssueMessage,
   dbSpecIssueMessage,
   defaultDbSpec,
   normalizeDbSpec,
   parseDbSpec,
   requiresDatabase,
+  resolveDbRoles,
   sqliteDatabaseUrl,
+  type DbRolesIssue,
 } from "./db.ts";
+
+const _rolesIssueShape: DbRolesIssue = {
+  code: "db_roles_requires_provider",
+  provider: "sqlite",
+};
+void _rolesIssueShape;
 
 describe("parseDbSpec", () => {
   test("absent block means no override", () => {
@@ -91,6 +100,120 @@ describe("parseDbSpec", () => {
       ok: false,
       issue: { code: "invalid_db_block" },
     });
+  });
+
+  test("parses explicit db.roles single and dual", () => {
+    expect(parseDbSpec({ roles: "single" })).toEqual({
+      ok: true,
+      value: { provider: "postgres", path: "/data", file: "preview.db", roles: "single" },
+    });
+    expect(parseDbSpec({ provider: "postgres", roles: "dual" })).toEqual({
+      ok: true,
+      value: { provider: "postgres", path: "/data", file: "preview.db", roles: "dual" },
+    });
+  });
+
+  test("trims roles and rejects unknown modes", () => {
+    expect(parseDbSpec({ roles: " dual " })).toEqual({
+      ok: true,
+      value: { provider: "postgres", path: "/data", file: "preview.db", roles: "dual" },
+    });
+    expect(parseDbSpec({ roles: "triple" })).toEqual({
+      ok: false,
+      issue: { code: "invalid_db_roles", roles: "triple" },
+    });
+    expect(
+      dbSpecIssueMessage({ code: "invalid_db_roles", roles: "triple" }),
+    ).toBe('db.roles must be single or dual (got "triple")');
+  });
+});
+
+describe("resolveDbRoles", () => {
+  test("absent roles with no remap defaults to single", () => {
+    expect(resolveDbRoles(undefined, undefined)).toEqual({
+      ok: true,
+      value: "single",
+    });
+    expect(
+      resolveDbRoles(
+        { provider: "postgres", path: "/data", file: "preview.db" },
+        { PGHOST: "H" },
+      ),
+    ).toEqual({ ok: true, value: "single" });
+  });
+
+  test("absent roles with a companion remap derives dual", () => {
+    expect(
+      resolveDbRoles(undefined, { PGAPPUSER: "APP_USER" }),
+    ).toEqual({ ok: true, value: "dual" });
+    expect(
+      resolveDbRoles(undefined, { PGAPPPASSWORD: "APP_PASS" }),
+    ).toEqual({ ok: true, value: "dual" });
+  });
+
+  test("explicit dual wins with or without a remap", () => {
+    expect(
+      resolveDbRoles(
+        { provider: "postgres", path: "/data", file: "preview.db", roles: "dual" },
+        undefined,
+      ),
+    ).toEqual({ ok: true, value: "dual" });
+    expect(
+      resolveDbRoles(
+        { provider: "postgres", path: "/data", file: "preview.db", roles: "dual" },
+        { PGAPPUSER: "APP_USER" },
+      ),
+    ).toEqual({ ok: true, value: "dual" });
+  });
+
+  test("explicit single plus a companion remap is a hard error naming both sides", () => {
+    expect(
+      resolveDbRoles(
+        { provider: "postgres", path: "/data", file: "preview.db", roles: "single" },
+        { PGAPPUSER: "APP_USER" },
+      ),
+    ).toEqual({
+      ok: false,
+      issue: { code: "db_roles_conflict", key: "PGAPPUSER" },
+    });
+    expect(
+      dbRolesIssueMessage({ code: "db_roles_conflict", key: "PGAPPUSER" }),
+    ).toBe(
+      "preview.env.PGAPPUSER conflicts with db.roles single (remove the remap or use db.roles dual)",
+    );
+  });
+
+  test("explicit roles on sqlite or none is rejected like an out-of-scope env key", () => {
+    expect(
+      resolveDbRoles(
+        { provider: "sqlite", path: "/data", file: "preview.db", roles: "dual" },
+        undefined,
+      ),
+    ).toEqual({
+      ok: false,
+      issue: { code: "db_roles_requires_provider", provider: "sqlite" },
+    });
+    expect(
+      resolveDbRoles(
+        { provider: "none", path: "/data", file: "preview.db", roles: "single" },
+        undefined,
+      ),
+    ).toEqual({
+      ok: false,
+      issue: { code: "db_roles_requires_provider", provider: "none" },
+    });
+    expect(
+      dbRolesIssueMessage({ code: "db_roles_requires_provider", provider: "sqlite" }),
+    ).toBe('db.roles requires db.provider postgres (got "sqlite")');
+  });
+
+  test("no explicit roles on sqlite or none resolves single", () => {
+    expect(
+      resolveDbRoles(
+        { provider: "sqlite", path: "/data", file: "preview.db" },
+        undefined,
+      ),
+    ).toEqual({ ok: true, value: "single" });
   });
 });
 

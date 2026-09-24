@@ -3,6 +3,7 @@ import {
   requiresDatabase,
   sqliteDatabaseUrl,
   type DbProvider,
+  type DbRolesMode,
   type DbSpec,
   type MailSpec,
   type PreviewEnvMap,
@@ -43,6 +44,7 @@ export type PreviewMaterializationCtx = {
 export type PreviewDbPlan = {
   provider: DbProvider;
   dbName: string | null;
+  roles: DbRolesMode;
   gatewayEnv: string[];
   volumes: string[];
   appNetworks: string[];
@@ -95,6 +97,8 @@ export function resolvePreviewPlan(
     mail?: MailSpec;
     /** Test override; deploy omits it so identity resolves in one place. */
     dbName?: string | null;
+    /** Resolved by the deploy boundary via resolveDbRoles; required here. */
+    roles: DbRolesMode;
   },
 ): PreviewDbPlan {
   const dbName =
@@ -103,6 +107,7 @@ export function resolvePreviewPlan(
       : requiresDatabase(input.spec.provider)
         ? previewDbName(input.slug, input.prId)
         : null;
+  const roles = input.roles;
   const mail = resolveMailPart(ctx, input);
   // Provider branches below build the mail-free base plan; the single
   // overlay after them appends mail env, joins the mail network, and sets
@@ -125,6 +130,7 @@ export function resolvePreviewPlan(
     return withMail({
       provider: "none",
       dbName,
+      roles,
       gatewayEnv: [],
       volumes: [],
       appNetworks: [ctx.traefikNetwork],
@@ -136,6 +142,7 @@ export function resolvePreviewPlan(
     return withMail({
       provider: "sqlite",
       dbName,
+      roles,
       gatewayEnv: [
         `${target}=${sqliteDatabaseUrl(input.spec.path, input.spec.file)}`,
       ],
@@ -157,8 +164,9 @@ export function resolvePreviewPlan(
   return withMail({
     provider: "postgres",
     dbName,
+    roles,
     gatewayEnv: [
-      ...pgConnectionEnv(postgres.pg, dbName, input.connectionEnv),
+      ...pgConnectionEnv(postgres.pg, dbName, input.connectionEnv, roles),
     ],
     volumes: [],
     appNetworks: [ctx.traefikNetwork, postgres.network],

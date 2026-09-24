@@ -29,6 +29,7 @@ function input(overrides: Partial<SeedImageInput> = {}): SeedImageInput {
       dbName: "db",
       slug: "app",
       prId: 1,
+      roles: "single",
     }),
     ...overrides,
   };

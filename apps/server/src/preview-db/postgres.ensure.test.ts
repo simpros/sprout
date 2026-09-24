@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
 import {
   deriveRestrictedPassword,
-  restrictedRoleName,
+  companionRoleName,
 } from "@sprout/preview-db";
 import { dockerAvailable, startTempPostgres } from "@sprout/preview-db/testing";
 import { createPostgresPreviewDb } from "./postgres.ts";
@@ -79,7 +79,7 @@ describe.skipIf(!hasDocker)("ensurePreviewRole (postgres)", () => {
       previewRole: "sprout_owner_it",
       previewPassword: password,
     });
-    await db.createDatabase(dbName);
+    await db.createDatabase(dbName, { roles: "dual" });
 
     const preview = new SQL(
       `postgres://sprout_owner_it:${encodeURIComponent(password)}@127.0.0.1:${hostPort}/${dbName}`,
@@ -87,7 +87,7 @@ describe.skipIf(!hasDocker)("ensurePreviewRole (postgres)", () => {
     await preview`SELECT 1`;
     await preview.close();
 
-    const role = restrictedRoleName(dbName);
+    const role = companionRoleName(dbName)!;
     const appPassword = deriveRestrictedPassword(password, dbName);
     expect(role).toBe("sprout_ensure_pr1_app");
     const restricted = new SQL(
@@ -106,6 +106,57 @@ describe.skipIf(!hasDocker)("ensurePreviewRole (postgres)", () => {
     await admin.close();
   });
 
+  test("createDatabase with single skips the companion role", async () => {
+    const dbName = "sprout_ensuresingle_pr1";
+    const password = "owner-password";
+    const db = createPostgresPreviewDb({
+      url: adminUrl,
+      previewRole: "sprout_owner_single_it",
+      previewPassword: password,
+    });
+    await db.createDatabase(dbName, { roles: "single" });
+
+    const preview = new SQL(
+      `postgres://sprout_owner_single_it:${encodeURIComponent(password)}@127.0.0.1:${hostPort}/${dbName}`,
+    );
+    await preview`SELECT 1`;
+    await preview.close();
+
+    const admin = new SQL(adminUrl);
+    const roles = await admin`
+      SELECT 1 AS ok FROM pg_catalog.pg_roles WHERE rolname = ${companionRoleName(dbName)!}
+    `;
+    expect(roles).toHaveLength(0);
+    await admin.close();
+    await db.dropDatabase(dbName);
+  });
+
+  test("dropDatabase after single still drops a dual-era companion role", async () => {
+    const dbName = "sprout_ensureflip_pr1";
+    const password = "owner-password";
+    const db = createPostgresPreviewDb({
+      url: adminUrl,
+      previewRole: "sprout_owner_flip_it",
+      previewPassword: password,
+    });
+    await db.createDatabase(dbName, { roles: "dual" });
+    const role = companionRoleName(dbName)!;
+    const before = new SQL(adminUrl);
+    const present = await before`
+      SELECT 1 AS ok FROM pg_catalog.pg_roles WHERE rolname = ${role}
+    `;
+    expect(present).toHaveLength(1);
+    await before.close();
+
+    await db.dropDatabase(dbName);
+    const after = new SQL(adminUrl);
+    const gone = await after`
+      SELECT 1 AS ok FROM pg_catalog.pg_roles WHERE rolname = ${role}
+    `;
+    expect(gone).toHaveLength(0);
+    await after.close();
+  });
+
   test("memoized ensure does not re-ALTER on subsequent calls", async () => {
     const password = "memo-password";
     const db = createPostgresPreviewDb({
@@ -122,7 +173,7 @@ describe.skipIf(!hasDocker)("ensurePreviewRole (postgres)", () => {
     expect(before[0]?.rolpassword).toBeDefined();
 
     await db.ensurePreviewRole();
-    await db.createDatabase("sprout_memo_pr1");
+    await db.createDatabase("sprout_memo_pr1", { roles: "dual" });
 
     const after = await admin<{ rolpassword: string }[]>`
       SELECT rolpassword FROM pg_authid WHERE rolname = 'sprout_memo_it'

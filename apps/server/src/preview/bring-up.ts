@@ -90,7 +90,9 @@ async function ensureDatabase(
       if (staleName != null) {
         await dropStaleDatabase(deps, stored, staleName);
       }
-      await deps.previewDb.forCreate(provider).createDatabase(desiredDbName);
+      await deps.previewDb.forCreate(provider).createDatabase(desiredDbName, {
+        roles: input.plan.roles,
+      });
       if (remint) {
         await updatePreviewRow(
           deps.db,

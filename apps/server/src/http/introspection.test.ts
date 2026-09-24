@@ -127,7 +127,7 @@ describe("GET /v1/doctor", () => {
 
   test("returns API error shape when orphans exist", async () => {
     await setup();
-    await fakePreviewDb!.createDatabase("sprout_myapp_pr99");
+    await fakePreviewDb!.createDatabase("sprout_myapp_pr99", { roles: "dual" });
     seedOrphanContainer("myapp", 99, "c-99");
 
     const res = await testApp!.app.handle(

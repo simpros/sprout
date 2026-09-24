@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   deriveRestrictedPassword,
-  restrictedRoleName,
+  companionRoleName,
 } from "@sprout/preview-db";
 import { defaultDbSpec, type PreviewEnvMap } from "@sprout/preview-env";
 import { createFakeDockerClient } from "../docker/fake.ts";
@@ -45,12 +45,13 @@ function postgresPlan(
     slug: "myapp",
     prId: 42,
     connectionEnv,
+    roles: "dual",
   });
 }
 
 function companionEnv(dbName: string) {
   return [
-    `PGAPPUSER=${restrictedRoleName(dbName)}`,
+    `PGAPPUSER=${companionRoleName(dbName)!}`,
     `PGAPPPASSWORD=${deriveRestrictedPassword(PG_PASSWORD, dbName)}`,
   ];
 }
