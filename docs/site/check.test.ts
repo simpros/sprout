@@ -10,7 +10,7 @@ import {
   check,
   defaultCheckPaths,
   extractBareSiteUrls,
-  extractHtmlHrefs,
+  extractHtmlTargets,
   extractMarkdownDestinations,
 } from "./check.ts";
 import { findAdrMention, isAdrHref, isAdrPath } from "./adr-policy.ts";
@@ -32,9 +32,13 @@ describe("docs link extraction", () => {
     ]);
   });
 
-  test("extracts html hrefs", () => {
-    const html = `<a href="../deploy.md">deploy</a><a href="#cli">CLI</a>`;
-    expect(extractHtmlHrefs(html)).toEqual(["../deploy.md", "#cli"]);
+  test("extracts html targets from href and src", () => {
+    const html = `<a href="../deploy.md">deploy</a><a href="#cli">CLI</a><img src="../assets/sprout-mark.png" alt="sprout" />`;
+    expect(extractHtmlTargets(html)).toEqual([
+      "../deploy.md",
+      "#cli",
+      "../assets/sprout-mark.png",
+    ]);
   });
 });
 
@@ -82,6 +86,18 @@ describe("defaultCheckPaths", () => {
     root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
     await writeCorpusFixture(root);
     await writeFile(join(root, "index.html"), `<a href="docs/site/nope.html">x</a>`);
+    await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
+      /dead link/,
+    );
+  });
+
+  test("fails on a dead image src", async () => {
+    root = await mkdtemp(join(tmpdir(), "sprout-docs-check-"));
+    await writeCorpusFixture(root);
+    await writeFile(
+      join(root, "docs", "index.html"),
+      `<html><body><img src="../assets/no-such-mark.png" alt="sprout" /></body></html>\n`,
+    );
     await expect(check(await defaultCheckPaths(root))).rejects.toThrow(
       /dead link/,
     );

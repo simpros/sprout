@@ -186,6 +186,11 @@
     }
     header.site .brand { margin: 0; }
     header.site .brand a { color: var(--accent); text-decoration: none; }
+    /* Brand mark opening every page body; the shell owns the only copy. */
+    .brand-mark {
+      display: block;
+      margin: 0 0 0.75rem;
+    }
     nav.docs-nav {
       display: flex;
       flex-wrap: wrap;

@@ -41,7 +41,6 @@ describe("publish manifest", () => {
   test("includes getting-started.md and the deep-link trees", () => {
     expect(publishFiles).toContain("docs/getting-started.md");
     expect(publishFiles).toContain("docs/herdr-integration.md");
-    expect(publishDirs).toContain("assets");
     expect(publishDirs).toContain("templates");
     expect(publishDirs).toContain("examples/adopting-repo");
   });
@@ -366,12 +365,24 @@ describe("shared shell, code blocks, and prompt embedding", () => {
       expect(html.match(/<div class="wrap">/g) ?? []).toHaveLength(1);
       // The shell owns the brand mark: exactly one per page.
       expect(html.match(/class="brand"/g) ?? []).toHaveLength(1);
+      // The shell owns the brand image chrome: one mark, one favicon set.
+      expect(html.match(/class="brand-mark"/g) ?? []).toHaveLength(1);
+      expect(html).toContain('<link rel="icon" type="image/png" sizes="32x32"');
       for (const { title } of docsPages) {
         expect(html).toContain(`>${title}</a>`);
       }
     }
     const marketing = await readFile(join(out, siteEntryPath), "utf8");
     expect(marketing).toContain('<header class="hero">');
+    // Asset hrefs derive from the page depth, never hand-set per call.
+    expect(marketing).toContain('src="../../assets/sprout-mark.png"');
+    expect(marketing).toContain('href="../../assets/favicon-32.png"');
+    const gettingStarted = await readFile(
+      join(out, "docs/getting-started.html"),
+      "utf8",
+    );
+    expect(gettingStarted).toContain('src="../assets/sprout-mark.png"');
+    expect(gettingStarted).toContain('href="../assets/favicon-32.png"');
   });
 
   test("every fenced block renders as the component; no bare pre remains", async () => {
