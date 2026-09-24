@@ -38,7 +38,7 @@ preview routes via Traefik Docker labels only.
   container on `coolify`. Operators wanting a dedicated DB network keep
   using the external-overlay path in
   [`docs/operator-deploy.md`](../../docs/operator-deploy.md#production-shaped-deploy-external--coolify-traefik).
-- **Pinned image.** The tag (`ghcr.io/simpros/sprout:0.8.0`) is pinned on
+- **Pinned image.** The tag (`ghcr.io/simpros/sprout:0.8.1`) is pinned on
   purpose and a Coolify resource copies this file at creation time — it
   does not follow upstream updates. Bump the pin deliberately.
 - The gateway ensures the `sprout_preview` role itself from the superuser
