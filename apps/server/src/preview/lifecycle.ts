@@ -428,6 +428,14 @@ async function destroyPreviewRow(
     );
   }
 
+  try {
+    await deps.app.removeDataVolumes(existing.slug, existing.prId);
+  } catch {
+    console.warn(
+      `preview data volume remove failed for ${existing.slug} pr=${prId}; continuing with DROP`,
+    );
+  }
+
   // Previews without a named resource skip the catalog lock and drop call;
   // a named resource holds the lock through DROP and finalize.
   async function finalizeDestroy(): Promise<Result<TeardownSnapshot>> {
@@ -584,6 +592,28 @@ export function dropOrphanDatabase(
       .limit(1);
     if (claim) return false;
     await deps.previewDb.forDrop(undefined).dropDatabase(dbName);
+    return true;
+  });
+}
+
+export function dropOrphanDataVolume(
+  deps: TeardownDeps,
+  volume: { name: string; slug: string; prId: number },
+): Promise<boolean> {
+  return withDbNameLock(volume.name, async () => {
+    const [claim] = await deps.db
+      .select()
+      .from(previews)
+      .where(
+        and(
+          eq(previews.slug, volume.slug),
+          eq(previews.prId, volume.prId),
+          ne(previews.status, "removed"),
+        ),
+      )
+      .limit(1);
+    if (claim) return false;
+    await deps.app.removeDataVolume(volume.name);
     return true;
   });
 }

@@ -5,6 +5,7 @@ import { parseUnambiguousUtcMs } from "../infrastructure/db/instant.ts";
 import { previews } from "../infrastructure/db/schema.ts";
 import {
   dropOrphanDatabase,
+  dropOrphanDataVolume,
   removePreview,
   type TeardownDeps,
 } from "../preview/lifecycle.ts";
@@ -18,7 +19,10 @@ import type {
 export type LiveSweepDeps = {
   db: StateDb;
   previewDb: PreviewDbRouter;
-  app: Pick<PreviewAppOps, "list" | "remove">;
+  app: Pick<
+    PreviewAppOps,
+    "list" | "remove" | "removeDataVolumes" | "removeDataVolume" | "listDataVolumes"
+  >;
   forge: ForgeClient;
   ttlHours: number;
   log?: SweepPorts["log"];
@@ -82,6 +86,13 @@ export function createLiveSweepPorts(deps: LiveSweepDeps): SweepPorts {
       (await deps.previewDb.listPreviewDatabases()).map(
         ({ slug, prId, dbName }) => ({ slug, prId, dbName }),
       ),
+    listDataVolumes: async () =>
+      (await deps.app.listDataVolumes()).map(({ name, slug, prId, index }) => ({
+        volumeName: name,
+        slug,
+        prId,
+        index,
+      })),
     listPreviewContainers: async () =>
       (await deps.app.list()).map(({ slug, prId }) => ({
         slug,
@@ -126,6 +137,21 @@ export function createLiveSweepPorts(deps: LiveSweepDeps): SweepPorts {
             throw new Error(
               `teardown incomplete: ${deletion.slug}:${deletion.prId}`,
             );
+          }
+        }
+        case "sweep:orphan-data-volume": {
+          try {
+            return await dropOrphanDataVolume(teardownDeps(deps), {
+              name: deletion.volumeName,
+              slug: deletion.slug,
+              prId: deletion.prId,
+            });
+          } catch (error) {
+            deps.log?.(
+              `sweep drop data volume failed: ${String(error)}`,
+              deletion,
+            );
+            throw new Error(`teardown incomplete: ${deletion.volumeName}`);
           }
         }
       }

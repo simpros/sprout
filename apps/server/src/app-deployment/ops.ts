@@ -27,12 +27,20 @@ import {
   previewContainerName,
   seedImageRunName,
 } from "../preview/naming.ts";
+import { parseDataVolumeName } from "@sprout/preview-env";
 
 export type { PreviewServiceSpec };
 
 export type LiveContainerLogs = {
   app: string | null;
   seed: string | null;
+};
+
+export type DataVolumeRef = {
+  name: string;
+  slug: string;
+  prId: number;
+  index: number;
 };
 
 export type PreviewAppOps = {
@@ -50,6 +58,10 @@ export type PreviewAppOps = {
   runSeed: (input: SeedImageInput) => Promise<SeedImageResult>;
   remove: (slug: string, prId: number) => Promise<void>;
   list: () => Promise<CatalogContainer[]>;
+  ensureDataVolumes: (names: string[]) => Promise<void>;
+  removeDataVolumes: (slug: string, prId: number) => Promise<void>;
+  removeDataVolume: (name: string) => Promise<void>;
+  listDataVolumes: () => Promise<DataVolumeRef[]>;
   liveLogs: (input: {
     slug: string;
     prId: number;
@@ -113,6 +125,29 @@ export function bindPreviewOps(deps: BindPreviewOpsDeps): PreviewAppOps {
       ),
     remove: (slug, prId) => removePreviewFleet(deps.docker, slug, prId),
     list: () => deps.docker.listPreviewContainers(),
+    ensureDataVolumes: async (names) => {
+      for (const name of names) {
+        await deps.docker.createVolume(name);
+      }
+    },
+    removeDataVolumes: async (slug, prId) => {
+      const volumes = await deps.docker.listVolumes();
+      const owned = volumes.filter((name) => {
+        const parsed = parseDataVolumeName(name);
+        return parsed !== null && parsed.slug === slug && parsed.prId === prId;
+      });
+      await Promise.all(owned.map((name) => deps.docker.removeVolume(name)));
+    },
+    removeDataVolume: (name) => deps.docker.removeVolume(name),
+    listDataVolumes: async () => {
+      const out: DataVolumeRef[] = [];
+      for (const name of await deps.docker.listVolumes()) {
+        const parsed = parseDataVolumeName(name);
+        if (!parsed) continue;
+        out.push({ name, ...parsed });
+      }
+      return out;
+    },
     liveLogs: (input) => fetchLiveContainerLogs(deps.docker, input),
   };
 }

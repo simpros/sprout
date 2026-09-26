@@ -1,6 +1,11 @@
 import type { CatalogContainer } from "../docker/port.ts";
 
-export { parseSqliteVolumeName, sqliteVolumeName } from "@sprout/preview-env";
+export {
+  dataVolumeName,
+  parseDataVolumeName,
+  parseSqliteVolumeName,
+  sqliteVolumeName,
+} from "@sprout/preview-env";
 
 const PREVIEW_APP_CONTAINER_RE = /^sprout-([a-zA-Z0-9]+)-pr-(\d+)$/;
 const PREVIEW_SERVICE_CONTAINER_RE =

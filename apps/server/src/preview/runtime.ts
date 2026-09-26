@@ -1,4 +1,5 @@
 import {
+  dataVolumeName,
   mailIntent,
   requiresDatabase,
   sqliteDatabaseUrl,
@@ -45,6 +46,7 @@ export type PreviewDbPlan = {
   dbName: string | null;
   gatewayEnv: string[];
   volumes: string[];
+  dataVolumeNames: string[];
   appNetworks: string[];
   seedNetworks: string[];
   mailFrom?: string;
@@ -93,10 +95,26 @@ export function resolvePreviewPlan(
     prId: number;
     connectionEnv?: PreviewEnvMap;
     mail?: MailSpec;
+    /** Opt-in per-preview app-data container paths (`preview.volumes`). */
+    volumes?: string[];
     /** Test override; deploy omits it so identity resolves in one place. */
     dbName?: string | null;
   },
 ): PreviewDbPlan {
+  function dataVolumePart(volumeInput: {
+    slug: string;
+    prId: number;
+    volumes?: string[];
+  }): Pick<PreviewDbPlan, "volumes" | "dataVolumeNames"> {
+    const paths = volumeInput.volumes ?? [];
+    const dataVolumeNames = paths.map((_, index) =>
+      dataVolumeName(volumeInput.slug, volumeInput.prId, index),
+    );
+    return {
+      volumes: dataVolumeNames.map((name, index) => `${name}:${paths[index]}`),
+      dataVolumeNames,
+    };
+  }
   const dbName =
     input.dbName !== undefined
       ? input.dbName
@@ -126,20 +144,25 @@ export function resolvePreviewPlan(
       provider: "none",
       dbName,
       gatewayEnv: [],
-      volumes: [],
+      ...dataVolumePart(input),
       appNetworks: [ctx.traefikNetwork],
       seedNetworks: [],
     });
   }
   if (input.spec.provider === "sqlite") {
     const target = input.connectionEnv?.DATABASE_URL ?? "DATABASE_URL";
+    const data = dataVolumePart(input);
     return withMail({
       provider: "sqlite",
       dbName,
       gatewayEnv: [
         `${target}=${sqliteDatabaseUrl(input.spec.path, input.spec.file)}`,
       ],
-      volumes: [`${sqliteVolumeName(input.slug, input.prId)}:${input.spec.path}`],
+      volumes: [
+        `${sqliteVolumeName(input.slug, input.prId)}:${input.spec.path}`,
+        ...data.volumes,
+      ],
+      dataVolumeNames: data.dataVolumeNames,
       appNetworks: [ctx.traefikNetwork],
       // Seed needs no postgres data; traefik is the network that always exists.
       seedNetworks: [ctx.traefikNetwork],
@@ -160,7 +183,7 @@ export function resolvePreviewPlan(
     gatewayEnv: [
       ...pgConnectionEnv(postgres.pg, dbName, input.connectionEnv),
     ],
-    volumes: [],
+    ...dataVolumePart(input),
     appNetworks: [ctx.traefikNetwork, postgres.network],
     seedNetworks: [postgres.network],
   });

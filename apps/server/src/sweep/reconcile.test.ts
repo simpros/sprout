@@ -3,6 +3,7 @@ import { createForgeClient } from "../forge/client.ts";
 import { forgeApiError } from "../forge/types.ts";
 import {
   runSweepPass,
+  type CatalogDataVolumeRef,
   type CatalogDbRef,
   type PreviewRef,
   type SweepDeletion,
@@ -13,6 +14,7 @@ import {
 function memoryPorts(seed: {
   previews?: SweepPreview[];
   catalog?: CatalogDbRef[] | Error;
+  dataVolumes?: CatalogDataVolumeRef[] | Error;
   containers?: PreviewRef[] | Error;
   openPrs?: Record<string, number[] | Error>;
   dropErrorFor?: (deletion: SweepDeletion) => Error | undefined;
@@ -28,6 +30,7 @@ function memoryPorts(seed: {
   const logs: string[] = [];
   const previews = seed.previews ?? [];
   const catalog = seed.catalog ?? [];
+  const dataVolumes = seed.dataVolumes ?? [];
   const containers = seed.containers ?? [];
   const openPrs = seed.openPrs ?? {};
 
@@ -36,6 +39,10 @@ function memoryPorts(seed: {
     listCatalogDatabases: async () => {
       if (catalog instanceof Error) throw catalog;
       return [...catalog];
+    },
+    listDataVolumes: async () => {
+      if (dataVolumes instanceof Error) throw dataVolumes;
+      return [...dataVolumes];
     },
     listPreviewContainers: async () => {
       if (containers instanceof Error) throw containers;

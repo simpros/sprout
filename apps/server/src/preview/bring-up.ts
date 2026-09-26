@@ -324,6 +324,17 @@ async function ensureThenAttach(
     );
     return ensured;
   }
+  try {
+    await deps.app.ensureDataVolumes(input.plan.dataVolumeNames);
+  } catch {
+    await markPreviewFailed(
+      deps.db,
+      row.canonicalRepoId,
+      row.prId,
+      "preview_data_volume_create_failed",
+    );
+    return { ok: false, status: 500, error: "preview_data_volume_create_failed" };
+  }
   return attachThenPromote(deps, row, input);
 }
 

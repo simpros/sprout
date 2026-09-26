@@ -9,7 +9,9 @@ import {
   parseLabelMap,
   parseMailSpec,
   parsePreviewEnvForProvider,
+  parsePreviewVolumes,
   parseServiceEnvMap,
+  previewVolumeIssueMessage,
   requiresDatabase,
   resolveHealthSpec,
   seedRequiresDatabaseMessage,
@@ -103,6 +105,7 @@ export const deployBody = t.Object({
   app_env: t.Optional(t.Array(t.String())),
   services: t.Optional(t.Array(serviceBody)),
   labels: t.Optional(t.Record(t.String(), t.String())),
+  volumes: t.Optional(t.Array(t.String())),
   reseed: t.Optional(t.Boolean()),
 });
 
@@ -138,6 +141,7 @@ export type DeployBody = {
   app_env?: string[];
   services?: PreviewServiceSpec[];
   labels?: PreviewLabels;
+  volumes?: string[];
   reseed?: boolean;
 };
 
@@ -392,6 +396,24 @@ export function resolvePreviewLabelsRequest(
   return { ok: true, value: parsed.value };
 }
 
+export function resolvePreviewVolumesRequest(
+  body: Pick<DeployBody, "volumes">,
+  spec: DbSpec,
+):
+  | { ok: true; value: string[] | undefined }
+  | { ok: false; error: string; detail?: string } {
+  const parsed = parsePreviewVolumes(
+    body.volumes,
+    spec.provider === "sqlite" ? { dbPath: spec.path } : {},
+  );
+  if (parsed.ok) return parsed;
+  return {
+    ok: false,
+    error: "invalid_volumes",
+    detail: previewVolumeIssueMessage("preview.volumes", parsed.issue),
+  };
+}
+
 export type TeardownBody = {
   canonical_repo_id: string;
   pr_id: number;
@@ -456,13 +478,6 @@ export function deploy(
         ? { error: deploySpecs.error, detail: deploySpecs.detail }
         : { error: deploySpecs.error };
     }
-    const plan = resolvePreviewPlan(deps.materialization, {
-      spec: deploySpecs.value.spec,
-      slug: body.slug,
-      prId: target.value.prId,
-      connectionEnv: deploySpecs.value.connectionEnv,
-      mail: deploySpecs.value.mail,
-    });
     const seed = resolveSeedRequest(body, deploySpecs.value.spec.provider);
     if (!seed.ok) {
       return unprocessable(set, seed);
@@ -480,6 +495,18 @@ export function deploy(
     if (!labels.ok) {
       return unprocessable(set, labels);
     }
+    const volumes = resolvePreviewVolumesRequest(body, deploySpecs.value.spec);
+    if (!volumes.ok) {
+      return unprocessable(set, volumes);
+    }
+    const plan = resolvePreviewPlan(deps.materialization, {
+      spec: deploySpecs.value.spec,
+      slug: body.slug,
+      prId: target.value.prId,
+      connectionEnv: deploySpecs.value.connectionEnv,
+      mail: deploySpecs.value.mail,
+      ...(volumes.value !== undefined ? { volumes: volumes.value } : {}),
+    });
     const collisions = resolveLabelCollisions({
       slug: body.slug,
       prId: target.value.prId,

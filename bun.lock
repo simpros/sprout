@@ -12,7 +12,7 @@
     },
     "apps/cli": {
       "name": "@sprout/cli",
-      "version": "0.3.1",
+      "version": "0.7.0",
       "bin": {
         "sprout": "./src/index.ts",
       },
@@ -28,7 +28,7 @@
     },
     "apps/server": {
       "name": "@sprout/server",
-      "version": "0.3.1",
+      "version": "0.5.0",
       "dependencies": {
         "@sprout/preview-db": "workspace:*",
         "@sprout/preview-env": "workspace:*",
@@ -43,7 +43,7 @@
     },
     "packages/api-client": {
       "name": "@sprout/api-client",
-      "version": "0.3.1",
+      "version": "0.5.0",
       "dependencies": {
         "@elysia/eden": "1.4.10",
         "@sprout/server": "workspace:*",

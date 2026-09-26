@@ -4,11 +4,17 @@ export type SweepReason =
   | "sweep:pr-not-open"
   | "sweep:ttl-expired"
   | "sweep:orphan-db"
-  | "sweep:orphan-container";
+  | "sweep:orphan-container"
+  | "sweep:orphan-data-volume";
 
 export type PreviewRef = { slug: string; prId: number };
 
 export type CatalogDbRef = PreviewRef & { dbName: string };
+
+export type CatalogDataVolumeRef = PreviewRef & {
+  volumeName: string;
+  index: number;
+};
 
 export type SweepPreview = {
   canonicalRepoId: string;
@@ -34,11 +40,18 @@ export type SweepDeletion =
       reason: "sweep:orphan-container";
       slug: string;
       prId: number;
+    }
+  | {
+      reason: "sweep:orphan-data-volume";
+      slug: string;
+      prId: number;
+      volumeName: string;
     };
 
 export type SweepPorts = {
   listPreviews: () => Promise<SweepPreview[]>;
   listCatalogDatabases: () => Promise<CatalogDbRef[]>;
+  listDataVolumes: () => Promise<CatalogDataVolumeRef[]>;
   listPreviewContainers: () => Promise<PreviewRef[]>;
   listOpenPrIds: (canonicalRepoId: string) => Promise<number[]>;
   /** True if resources were removed; false if the plan was stale. */
@@ -85,13 +98,16 @@ async function dropSettled(
 
 export type OrphanDeletion = Extract<
   SweepDeletion,
-  { reason: "sweep:orphan-db" | "sweep:orphan-container" }
+  {
+    reason: "sweep:orphan-db" | "sweep:orphan-container" | "sweep:orphan-data-volume";
+  }
 >;
 
 export function planOrphans(
   previewKeys: Set<string>,
   catalog: CatalogDbRef[],
   containers: PreviewRef[],
+  dataVolumes: CatalogDataVolumeRef[] = [],
 ): OrphanDeletion[] {
   const out: OrphanDeletion[] = [];
   for (const db of catalog) {
@@ -114,14 +130,24 @@ export function planOrphans(
       prId: container.prId,
     });
   }
+  for (const volume of dataVolumes) {
+    if (previewKeys.has(`${volume.slug}:${volume.prId}`)) continue;
+    out.push({
+      reason: "sweep:orphan-data-volume",
+      slug: volume.slug,
+      prId: volume.prId,
+      volumeName: volume.volumeName,
+    });
+  }
   return out;
 }
 
 export async function runSweepPass(ports: SweepPorts): Promise<SweepPassResult> {
-  const [previewsResult, catalogResult, containersResult] =
+  const [previewsResult, catalogResult, dataVolumesResult, containersResult] =
     await Promise.allSettled([
       ports.listPreviews(),
       ports.listCatalogDatabases(),
+      ports.listDataVolumes(),
       ports.listPreviewContainers(),
     ]);
 
@@ -140,6 +166,13 @@ export async function runSweepPass(ports: SweepPorts): Promise<SweepPassResult> 
   if (containersResult.status === "rejected") {
     ports.log?.(
       `sweep preview containers failed: ${String(containersResult.reason)}`,
+    );
+  }
+  const dataVolumes =
+    dataVolumesResult.status === "fulfilled" ? dataVolumesResult.value : [];
+  if (dataVolumesResult.status === "rejected") {
+    ports.log?.(
+      `sweep data volumes failed: ${String(dataVolumesResult.reason)}`,
     );
   }
 
@@ -166,7 +199,7 @@ export async function runSweepPass(ports: SweepPorts): Promise<SweepPassResult> 
     }
   }
 
-  const orphanDeletions = planOrphans(previewKeys, catalog, containers);
+  const orphanDeletions = planOrphans(previewKeys, catalog, containers, dataVolumes);
 
   const candidateRepos = [
     ...new Set(remainingPreviews.map((p) => p.canonicalRepoId)),
