@@ -175,6 +175,76 @@ describe("runSweepPass", () => {
     expect(logs).toContain("deleted (sweep:orphan-container)");
   });
 
+  test("drops each orphan data volume with sweep:orphan-data-volume", async () => {
+    setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
+    const { ports, deletions, logs } = memoryPorts({
+      previews: [],
+      dataVolumes: [
+        {
+          volumeName: "sprout-widgets-pr-42-data-0",
+          slug: "widgets",
+          prId: 42,
+          index: 0,
+        },
+        {
+          volumeName: "sprout-widgets-pr-42-data-1",
+          slug: "widgets",
+          prId: 42,
+          index: 1,
+        },
+      ],
+    });
+
+    await runSweepPass(ports);
+    expect(deletions).toEqual([
+      {
+        reason: "sweep:orphan-data-volume",
+        prId: 42,
+        slug: "widgets",
+        volumeName: "sprout-widgets-pr-42-data-0",
+      },
+      {
+        reason: "sweep:orphan-data-volume",
+        prId: 42,
+        slug: "widgets",
+        volumeName: "sprout-widgets-pr-42-data-1",
+      },
+    ]);
+    expect(logs).toContain("deleted (sweep:orphan-data-volume)");
+  });
+
+  test("keeps data volumes owned by a live preview", async () => {
+    setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
+    const { ports, deletions } = memoryPorts({
+      previews: [
+        {
+          canonicalRepoId: "https://github.com/acme/widgets",
+          prId: 3,
+          slug: "widgets",
+          dbName: "sprout_widgets_pr3",
+          createdAt: "2026-09-02T12:00:00.000Z",
+          createdAtMs: Date.parse("2026-09-02T12:00:00.000Z"),
+          status: "running",
+        },
+      ],
+      catalog: [{ dbName: "sprout_widgets_pr3", slug: "widgets", prId: 3 }],
+      dataVolumes: [
+        {
+          volumeName: "sprout-widgets-pr-3-data-0",
+          slug: "widgets",
+          prId: 3,
+          index: 0,
+        },
+      ],
+      containers: [{ slug: "widgets", prId: 3 }],
+      openPrs: { "https://github.com/acme/widgets": [3] },
+    });
+
+    const result = await runSweepPass(ports);
+    expect(result.forgeRepoFailures).toEqual([]);
+    expect(deletions).toEqual([]);
+  });
+
   test("dedupes multi-container catalog to one orphan-container per preview", async () => {
     setSystemTime(new Date("2026-09-03T12:00:00.000Z"));
     const { ports, deletions, logs } = memoryPorts({
