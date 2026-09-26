@@ -210,6 +210,8 @@ export {
 } from "./db.ts";
 
 export {
+  dataVolumeName,
+  parseDataVolumeName,
   parseSqliteVolumeName,
   sqliteVolumeName,
 } from "./naming.ts";
@@ -232,6 +234,12 @@ export {
   type ServiceEnvIssue,
   type ServiceFields,
 } from "./services.ts";
+
+export {
+  parsePreviewVolumes,
+  previewVolumeIssueMessage,
+  type PreviewVolumeIssue,
+} from "./volumes.ts";
 
 export {
   MAIL_MODES,
