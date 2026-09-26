@@ -1012,4 +1012,80 @@ preview:
 `),
     ).toEqual({ ok: false, error: "unknown key: preview.foo" });
   });
+
+  test("parses preview.volumes", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  volumes:
+    - /data/documents
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: {
+          hostname: "pr-{pr_id}.example.com",
+          volumes: ["/data/documents"],
+        },
+      },
+    });
+  });
+
+  test("treats empty preview.volumes as absent", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  volumes: []
+`),
+    ).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+      },
+    });
+  });
+
+  test("rejects malformed preview.volumes with the key named", () => {
+    const base = (volumes: string) =>
+      parseSproutYaml(
+        `slug: myapp\npreview:\n  hostname: "pr-{pr_id}.example.com"\n  volumes:${volumes}\n`,
+      );
+    expect(base(" not-a-list")).toEqual({
+      ok: false,
+      error: "preview.volumes must be a list",
+    });
+    expect(base("\n    - relative/path")).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("preview.volumes[0]"),
+    });
+    expect(base("\n    - /data\n    - /data/")).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("preview.volumes"),
+    });
+  });
+
+  test("rejects preview.volumes collision with sqlite db.path", () => {
+    expect(
+      parseSproutYaml(`
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+  volumes:
+    - /data
+db:
+  provider: sqlite
+  path: /data
+  file: preview.db
+`),
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("db.path"),
+    });
+  });
 });

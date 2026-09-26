@@ -46,6 +46,7 @@ export type DeployRequest = {
   app_env?: string[];
   services?: DeployService[];
   labels?: PreviewLabels;
+  volumes?: string[];
   env?: PreviewEnvMap;
   db?: DbSpec;
   mail?: MailSpec;
@@ -309,6 +310,7 @@ export function buildDeployRequest(
   if (inputs.reseed) body.reseed = true;
   if (yaml.preview.env) body.env = yaml.preview.env;
   if (yaml.preview.labels) body.labels = { ...yaml.preview.labels };
+  if (yaml.preview.volumes) body.volumes = [...yaml.preview.volumes];
   if (yaml.db) body.db = yaml.db;
   if (yaml.mail) body.mail = { ...yaml.mail };
 

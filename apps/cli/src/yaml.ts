@@ -8,7 +8,9 @@ import {
   parseLabelMap,
   parseMailSpec,
   parsePreviewEnvForProvider,
+  parsePreviewVolumes,
   parseServiceEnvMap,
+  previewVolumeIssueMessage,
   requiresDatabase,
   resolveHealthSpec,
   seedRequiresDatabaseMessage,
@@ -71,6 +73,7 @@ export type SproutYaml = {
     app_env?: Record<string, ManifestEnvValue>;
     services?: SproutYamlService[];
     labels?: PreviewLabels;
+    volumes?: string[];
   };
   db?: DbSpec;
   mail?: MailSpec;
@@ -80,7 +83,7 @@ export type SproutYaml = {
 };
 
 const TOP_KEYS = new Set(["slug", "preview", "health", "build", "seed", "db", "mail"]);
-const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services", "labels"]);
+const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services", "labels", "volumes"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 const SERVICE_KEYS = new Set(["name", "image", "hostname", "path", "port", "env", "labels"]);
 const DOCKERFILE_KEYS = new Set(["dockerfile"]);
@@ -376,6 +379,18 @@ function parseLabels(
   return { ok: false, error: labelIssueMessage(path, parsed.issue) };
 }
 
+function parsePreviewVolumesField(
+  raw: unknown,
+  dbPath: string | undefined,
+): Result<string[] | undefined> {
+  const parsed = parsePreviewVolumes(raw, dbPath ? { dbPath } : {});
+  if (parsed.ok) return parsed;
+  return {
+    ok: false,
+    error: previewVolumeIssueMessage("preview.volumes", parsed.issue),
+  };
+}
+
 function parseServices(
   raw: unknown,
 ): Result<SproutYamlService[] | undefined> {
@@ -509,6 +524,13 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   const labels = parseLabels(parsed.preview.labels, "preview.labels");
   if (!labels.ok) return labels;
 
+  const normalizedDb = normalizeDbSpec(db.value);
+  const volumes = parsePreviewVolumesField(
+    parsed.preview.volumes,
+    normalizedDb.provider === "sqlite" ? normalizedDb.path : undefined,
+  );
+  if (!volumes.ok) return volumes;
+
   const build = parseDockerfileBlock(parsed.build, "build", "Dockerfile");
   if (!build.ok) return build;
 
@@ -531,6 +553,7 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   if (appEnv.value) value.preview.app_env = appEnv.value;
   if (services.value) value.preview.services = services.value;
   if (labels.value) value.preview.labels = labels.value;
+  if (volumes.value) value.preview.volumes = volumes.value;
   if (db.value) value.db = db.value;
   if (mail.value) value.mail = mail.value;
   if (build.value) value.build = build.value;
