@@ -39,6 +39,7 @@ pointers live in [CLI reference](cli-reference.md#test-coverage-maintainers).
 | `preview.services[].env` | no | — | Literal `NAME: value` string map injected into the service container only (keys must match `[A-Za-z_][A-Za-z0-9_]*`). |
 | `preview.labels` | no | — | Adopter container labels applied to the app container and every service container (see [Preview labels](previews.md#preview-labels-adopter-supplied-container-labels)). |
 | `preview.services[].labels` | no | — | Adopter container labels for that service container only; same key at both levels resolves to the per-service value (see [Preview labels](previews.md#preview-labels-adopter-supplied-container-labels)). |
+| `preview.volumes` | no | — | Per-preview named volumes for files the app writes at runtime (see [Previews](previews.md#preview-app-data-volumes)). |
 | `db.provider` | no | `postgres` | Preview database provider: `postgres` (shared instance), `sqlite` (named volume), or `none` (no database). See [Previews](previews.md#sqlite-previews) and [Previews](previews.md#no-database-previews). |
 | `mail` | no | opportunistic (follows the gateway) | `enabled` (require mail) or `none` (opt out). See [Previews](previews.md#email-from-a-preview). |
 | `mail.from` | no | `<slug>-pr<pr_id>@<from-domain>` | Send-from override; must be an address template containing `{pr_id}` (only that placeholder). Rejected with `mail: none`. See [Previews](previews.md#email-from-a-preview). |

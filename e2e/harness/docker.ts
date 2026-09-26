@@ -1,7 +1,7 @@
-import { sqliteVolumeName } from "@sprout/preview-env";
+import { dataVolumeName, sqliteVolumeName } from "@sprout/preview-env";
 import { run } from "./exec.ts";
 
-export { sqliteVolumeName };
+export { dataVolumeName, sqliteVolumeName };
 
 export function previewAppContainerName(slug: string, prId: number): string {
   return `sprout-${slug}-pr-${prId}`;

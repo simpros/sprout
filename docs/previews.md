@@ -311,6 +311,49 @@ requirement as SQLite). Switching a repo between `none` and a database
 provider redeploys as a fresh generation: the old backend is dropped
 before the row is rewritten, so no resource strands.
 
+## Preview app-data volumes
+
+A preview's writable container filesystem is thrown away on every
+replace (any push) — but a per-PR Postgres database survives, because it
+lives on the shared instance. Anything the app writes at runtime into
+its container is lost while its database rows survive, so the app can
+boot into an inconsistent state no CI signal shows. `preview.volumes`
+opts container paths into the same lifetime the database already has:
+
+```yaml
+slug: myapp
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+  volumes:
+    - /data/documents
+```
+
+Each entry gets one named per-preview Docker volume
+(`sprout-<slug>-pr-<id>-data-<n>`, indexed in manifest order), mounted
+at that path in the app, companion-service, and seed containers. The
+contract:
+
+- **Replace keeps.** Synchronize re-deploys mount the same volume, so
+  files written by the app are still readable after a push.
+- **Reset wipes.** `sprout ci reset` (teardown + redeploy) drops and
+  recreates the volume: the same name comes back empty.
+- **Teardown removes.** `sprout teardown`, sweep expiry, and the sweep's
+  orphan pass remove the volumes, so no `sprout-<slug>-pr-<id>-data-*`
+  volume outlives its preview.
+- **Inert by default.** Without the key no volume is created and
+  containers are byte-identical to today's.
+
+Validation fails at manifest parse, naming `preview.volumes`: relative
+paths, `..` segments, duplicates, and a collision with the SQLite
+`db.path` are each rejected.
+
+Writability rule: a fresh named volume starts empty. Docker copies the
+image's content and ownership at that path into the volume only when
+the path exists in the image. An app running as a non-root user must
+therefore create the path in the image with the right ownership (or
+chown it in the entrypoint) — otherwise the runtime user cannot write
+the root-owned directory it gets.
+
 ## Email from a preview
 
 Previews can send mail through a gateway-configured Mailpit. The operator

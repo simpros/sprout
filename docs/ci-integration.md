@@ -232,7 +232,8 @@ One command wipes the preview database and redeploys + seeds from scratch:
 sprout ci reset
 ```
 
-It tears down this MR's preview (container + database), then deploys again
+It tears down this MR's preview (containers + database + any
+`preview.volumes` data volumes), then deploys again
 with the already pushed images for the commit — no rebuild — re-running
 migrations and the seed behind the health gate, then printing `preview_url=`
 like `sprout ci preview`. The MR/PR note gains a `Reset: <actor> at <utc>`
