@@ -1,5 +1,8 @@
 # Preview database providers: Postgres, SQLite, none
 
+*Folds ADR-0009: `none` is the third provider value below, so ADR-0009 stays
+as a stub pointer.*
+
 `db.provider` in `.sprout.yaml` (`postgres` default | `sqlite` | `none`) selects
 the backend per repo, not per gateway, so one gateway serves mixed fleets and a
 sqlite-only gateway boots without Postgres env. The deploy route resolves the

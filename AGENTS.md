@@ -39,3 +39,4 @@ bun run db:migrate   # runtime migrator (apps/server; same as boot)
 - Domain vocabulary: `CONTEXT.md`. Decisions: `docs/adr/` (only hard-to-reverse, hard-to-understand ones).
 - Issues: GitHub issues on `simpros/sprout` via `gh`. Labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
 - PRs: always describe with the `visual-pr` skill (`.agents/skills/visual-pr/`), even though it is explicit-invoke by default. `show-me` goes in a comment, never the body.
+- Agent tooling (vendored skill index, tracker redirect): `.agents/README.md`.
