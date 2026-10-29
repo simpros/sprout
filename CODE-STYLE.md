@@ -1,0 +1,19 @@
+# Code style
+
+- Plain functions, no classes.
+- Periodic work uses `Bun.cron`, never `setTimeout`/`setInterval`.
+- Keep modules small and focused.
+- Fail fast at config load for required env vars.
+- DB schema lives in `apps/server/src/infrastructure/db/`; migrations in `apps/server/drizzle/`.
+
+## Comments
+
+State the why only, and only when the code cannot say it.
+
+- No restating code, signatures or types.
+- No tickets, PRs, review feedback or people. No history ("previously", "now uses").
+- No commented-out code. No "hack" / "for now" / emoji.
+- Keep real whys: invariants, ordering/locking, observed external behaviour,
+  security tradeoffs, magic constants.
+- One line, not a paragraph. A paragraph is a decision: put it in `CONTEXT.md` or an ADR.
+- A comment that contradicts the code is a bug; fix one of them.
