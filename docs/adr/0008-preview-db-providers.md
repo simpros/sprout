@@ -16,3 +16,10 @@ the plan and never branch on provider.
   `sqlite`) fail fast at manifest parse and at the deploy route.
 - Switching provider redeploys as a fresh generation: the old backend is dropped
   before the new one is created.
+
+`db.roles` selects the Postgres credential axis (`single` | `dual`; contract in
+`docs/adopting-a-repo.md`, derivation in `resolveDbRoles`). Name validation is
+mode-scoped — `dual` reserves budget for the `<dbName>_app` companion role —
+while catalog reads stay permissive at the full identifier budget, so flipping
+a repo to `single` never makes existing previews unlistable or undeletable and
+teardown still drops a companion role left over from `dual`.

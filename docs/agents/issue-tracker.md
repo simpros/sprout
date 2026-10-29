@@ -1,5 +1,7 @@
 # Issue tracker: GitHub
 
+This file is what `/setup-matt-pocock-skills` would have generated; when a skill asks for that setup, read this file instead.
+
 Issues for this repo live as GitHub issues on `simpros/sprout`. Use `gh` for all operations.
 
 PRs as a request surface: no. Triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.

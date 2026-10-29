@@ -1,6 +1,6 @@
 # Shared instance with logical per-PR databases
 
-Each preview gets its own **logical database** (`prev_<slug>_pr<id>`) on one
+Each preview gets its own **logical database** (`sprout_<slug>_pr<id>`) on one
 shared Postgres instance. sprout does not spawn Postgres containers per
 PR in v0.1.
 

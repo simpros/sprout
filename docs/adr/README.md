@@ -15,7 +15,7 @@ normative spec issue. ADR numbers are immutable: never reuse a number.
 | 0007 | Retired → `docs/adopting-a-repo.md` (`preview.env` remap grammar) |
 | [0008](0008-preview-db-providers.md) | Preview database providers: Postgres, SQLite, none (folds 0009) |
 | 0009 | Retired → ADR-0008 |
-| 0010 | Retired → `apps/server/src/app-deployment/label-collisions.ts` (reserved set derived from the emission seam) |
-| 0011 | Retired → `docs/site/assemble.ts` (`publishFiles`) and `docs/onboarding-prompt.md` |
-| 0012 | Retired → `docs/adopting-a-repo.md` (`db.roles` contract) and `packages/preview-env/src/db.ts` |
+| 0010 | Retired → `docs/previews.md` (Preview labels: reserved set derived from the gateway's label emission) |
+| 0011 | Retired → `docs/onboarding-prompt.md` (page set lives in `docs/site/assemble.ts` `publishFiles`) |
+| 0012 | Retired → ADR-0008 (`db.roles` invariant) and `docs/adopting-a-repo.md` (`db.roles` contract) |
 | [0013](0013-preview-access-gate.md) | Preview access gate: per-preview `none` default \| `basic` \| `link`, gateway-native |

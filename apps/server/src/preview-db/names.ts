@@ -50,6 +50,7 @@ export function validatePreviewIdentity(
   return null;
 }
 
+/** Reads stay permissive at the full identifier budget on purpose: a repo flipped to single must still list and drop previews created while dual. */
 export function isPreviewDbName(dbName: string): boolean {
   return (
     PREVIEW_DB_NAME_RE.test(dbName) &&
@@ -63,6 +64,7 @@ export function assertPreviewDbName(dbName: string): void {
   }
 }
 
+/** Same permissive read budget as isPreviewDbName: never strand historical rows on a mode flip. */
 export function parsePreviewDatabaseName(
   datname: string,
 ): { slug: string; prId: number } | null {
