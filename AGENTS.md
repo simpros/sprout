@@ -38,5 +38,5 @@ bun run db:migrate   # runtime migrator (apps/server; same as boot)
 - Code and comment style: `CODE-STYLE.md`.
 - Domain vocabulary: `CONTEXT.md`. Decisions: `docs/adr/` (only hard-to-reverse, hard-to-understand ones).
 - Issues: GitHub issues on `simpros/sprout` via `gh`; tracker spec and triage labels: `docs/agents/issue-tracker.md`.
-- PRs: always describe with the `visual-pr` skill (`.agents/skills/visual-pr/`), even though it is explicit-invoke by default. `show-me` goes in a comment, never the body.
-- Agent tooling (vendored skill index): `.agents/README.md`. Issue tracker operations: `docs/agents/issue-tracker.md`.
+- PRs: always describe with the `visual-pr` skill (`.agents/skills/visual-pr/`). `show-me` goes in a comment, never the body.
+- Agent tooling (vendored skill index): `.agents/README.md`.

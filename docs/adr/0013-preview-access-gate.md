@@ -1,6 +1,6 @@
 # Preview access gate is gateway-native (`preview.auth`)
 
-Previews are open by default; `preview.auth` (`basic` | `link`) gates one
+Previews are open by default (`preview.auth: none`); `basic` | `link` gates one
 preview via a per-preview Traefik middleware on the app router only.
 
 The gate lives in the gateway, not an external forward-auth service. That was

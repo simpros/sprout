@@ -12,6 +12,7 @@ State the why only, and only when the code cannot say it.
 
 - No restating code, signatures or types.
 - No tickets, PRs, review feedback or people. No history ("previously", "now uses").
+- No ADR numbers in comments or test names; if the deviation matters, name the deviation.
 - No commented-out code. No "hack" / "for now" / emoji.
 - Keep real whys: invariants, ordering/locking, observed external behaviour,
   security tradeoffs, magic constants.
