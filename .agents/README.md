@@ -2,22 +2,14 @@
 
 Vendored skills live in `.agents/skills/`; invoke by trigger:
 
-- `code-review`, `to-spec`, `to-tickets`, `triage`, `wayfinder` — tracker-backed workflow (redirect below).
+- `code-review`, `to-spec`, `to-tickets`, `triage`, `wayfinder` — tracker-backed workflow (see `docs/agents/issue-tracker.md`).
 - `documentation-writer` — every docs/prose task.
 - `emil-design-eng` — building or reviewing UI.
 - `review-animations` — reviewing motion code; defaults to flagging.
 - `visual-pr` — PR bodies (policy in `AGENTS.md`).
 
+Everything else in `.agents/skills/` is generic; invoke from its own description (or explicitly, where its frontmatter disables model invocation).
+
 ### Tracker
 
-Tracker: the one `AGENTS.md` names. Any vendored reference to
-`docs/agents/*` or `/setup-matt-pocock-skills` resolves to it.
-Operations: `gh issue view|comment|close|edit`; tickets =
-`gh issue create`. PRs as a request surface: no.
-
-### Wayfinding operations
-
-Parent map = one open issue titled `Map: <destination>`; child =
-native sub-issue (`Part of #<map>` in the body only where sub-issues
-are unavailable); blocking = `Blocked by: #<n>` (or native
-dependencies); frontier = open unassigned unblocked children.
+Tracker operations live in `docs/agents/issue-tracker.md` (canonical — any vendored reference to `docs/agents/*` or `/setup-matt-pocock-skills` resolves to it).
