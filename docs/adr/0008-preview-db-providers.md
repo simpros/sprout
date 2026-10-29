@@ -18,8 +18,10 @@ the plan and never branch on provider.
   before the new one is created.
 
 `db.roles` selects the Postgres credential axis (`single` | `dual`; contract in
-`docs/adopting-a-repo.md`, derivation in `resolveDbRoles`). Name validation is
-mode-scoped — `dual` reserves budget for the `<dbName>_app` companion role —
-while catalog reads stay permissive at the full identifier budget, so flipping
-a repo to `single` never makes existing previews unlistable or undeletable and
-teardown still drops a companion role left over from `dual`.
+`docs/adopting-a-repo.md`, derivation in `@sprout/preview-env` `resolveDbRoles`).
+Name validation is mode-scoped — `dual` reserves budget for the `<dbName>_app`
+companion role — while catalog reads (`isPreviewDbName`/`parsePreviewDatabaseName`)
+take no mode and accept the full identifier budget: a row created while `single`
+may run to `PG_IDENT_MAX`, so a later flip to `dual` must not make it unlistable.
+Teardown drops the companion role unconditionally, so a preview created while
+`dual` still cleans up after the repo flips to `single`.
