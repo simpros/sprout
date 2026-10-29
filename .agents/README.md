@@ -9,7 +9,3 @@ Vendored skills live in `.agents/skills/`; invoke by trigger:
 - `visual-pr` — PR bodies (policy in `AGENTS.md`).
 
 Everything else in `.agents/skills/` is generic; invoke from its own description (or explicitly, where its frontmatter disables model invocation).
-
-### Tracker
-
-Tracker operations live in `docs/agents/issue-tracker.md` (canonical — any vendored reference to `docs/agents/*` or `/setup-matt-pocock-skills` resolves to it).

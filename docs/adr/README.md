@@ -11,16 +11,15 @@ normative spec issue.
 | [0003](0003-seed-as-user-image.md) | Seeding via user-built one-shot seed image, no gateway clone |
 | [0004](0004-ci-driven-lifecycle-no-webhooks.md) | Symmetric CI lifecycle; no forge webhooks in v0.1 |
 | [0005](0005-self-made-bearer-tokens.md) | Self-made bearer tokens in SQLite, not better-auth |
-| [0006](0006-sprout-durable-identity.md) | `sprout*` durable identity (accepted, implemented) |
+| [0006](0006-sprout-durable-identity.md) | `sprout*` durable identity |
 | [0007](0007-preview-env-injection-names.md) | Stub: superseded by `docs/adopting-a-repo.md` |
 | [0008](0008-preview-db-providers.md) | Preview database providers: Postgres, SQLite, none (folds 0009) |
 | [0009](0009-preview-db-provider-none.md) | Stub: folded into 0008 |
+| [0010](0010-preview-label-ownership.md) | Stub: invariant in `apps/server/src/app-deployment/label-collisions.ts` |
+| [0011](0011-agent-first-docs.md) | Stub: page set in `docs/site/assemble.ts`, prompt in `docs/onboarding-prompt.md` |
 | [0012](0012-preview-db-roles-opt-in.md) | Stub: contract in `docs/adopting-a-repo.md`, invariants in code |
 | [0013](0013-preview-access-gate.md) | Preview access gate: per-preview `basic` / `link`, gateway-native |
 
-History: ADR numbers are immutable. 0010 (label ownership) and 0011
-(agent-first docs) were dropped outright — the label-collision invariant
-lives in `apps/server/src/app-deployment/label-collisions.ts`, the page set
-and onboarding prompt in `docs/site/assemble.ts` (`publishFiles`) and
-`docs/onboarding-prompt.md`, the ADR-hygiene rules in
-`docs/site/adr-policy.ts`.
+History: ADR numbers are immutable. 0010/0011 survive as stubs above; the
+label-collision invariant lives in code, the page set and onboarding prompt
+where the 0011 stub points.
