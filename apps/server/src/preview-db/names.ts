@@ -50,6 +50,7 @@ export function validatePreviewIdentity(
   return null;
 }
 
+/** Reads take no mode: a row created while `single` may run to `PG_IDENT_MAX`, so list/teardown must accept the full budget or a later flip to `dual` strands it. */
 export function isPreviewDbName(dbName: string): boolean {
   return (
     PREVIEW_DB_NAME_RE.test(dbName) &&
@@ -63,6 +64,7 @@ export function assertPreviewDbName(dbName: string): void {
   }
 }
 
+/** Same permissive budget as isPreviewDbName (see above): reads take no mode. */
 export function parsePreviewDatabaseName(
   datname: string,
 ): { slug: string; prId: number } | null {

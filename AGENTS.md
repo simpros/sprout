@@ -31,50 +31,12 @@ bun run db:migrate   # runtime migrator (apps/server; same as boot)
 - `apps/cli` — `sprout` CLI (uses api-client)
 - `packages/api-client` — typed Eden client against `@sprout/server/api-type`
 - `packages/preview-db` — shared Postgres catalog DDL (ensure-role, worktree provision/drop)
-- `packages/preview-env` — preview wire grammar: PG* env remap (ADR-0007), hostname templates, health request-shape
+- `packages/preview-env` — preview wire grammar: PG* env remap, hostname templates, health request-shape
 
-## Style
+## Conventions
 
-- Plain functions, no classes.
-- Periodic work uses `Bun.cron`, never `setTimeout`/`setInterval`.
-- Keep modules small and focused.
-- Fail fast at config load for required env vars.
-- DB schema lives in `apps/server/src/infrastructure/db/`; migrations in `apps/server/drizzle/`.
-
-## Comment style
-
-Comments state the why only — never tickets, history, or restatements.
-See `docs/agents/comment-style.md`.
-
-## Agent skills
-
-### Issue tracker
-
-Issues are tracked as GitHub issues on `simpros/sprout`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-
-### Pull requests
-
-Open and describe every PR with the `visual-pr` skill vendored in this repo at
-`.agents/skills/visual-pr/` — Why in one sentence, 1-3 special notes, and a
-structural Change outline. Its frontmatter says explicit-invoke-only; that
-default is overridden here: use it for every PR body. See
-`docs/agents/pull-requests.md` for the publishing steps and the show-me-comment
-rule.
-
-### Vendored skills
-
-- `documentation-writer` (`.agents/skills/documentation-writer/`) — every docs or
-  prose task: Diátaxis page types (tutorial / how-to / reference / explanation) and
-  its clarify → outline → write workflow.
-- `emil-design-eng` (`.agents/skills/emil-design-eng/`) — building or reviewing UI:
-  animation decisions, easing and duration, component feel, motion performance, a11y.
-- `review-animations` (`.agents/skills/review-animations/`) — reviewing animation and
-  motion code against the craft bar; it defaults to flagging.
+- Code and comment style: `CODE-STYLE.md`.
+- Domain vocabulary: `CONTEXT.md`. Decisions: `docs/adr/` (only hard-to-reverse, hard-to-understand ones).
+- Issues: GitHub issues on `simpros/sprout` via `gh`; tracker spec and triage labels: `docs/agents/issue-tracker.md`.
+- PRs: always describe with the `visual-pr` skill (`.agents/skills/visual-pr/`). `show-me` goes in a comment, never the body.
+- Agent tooling (vendored skill index): `.agents/README.md`.

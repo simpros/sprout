@@ -1,8 +1,8 @@
 # Architecture decision records
 
-Flat numbering. All three ADR criteria (hard to reverse, surprising, real
-trade-off) were applied — most v0.1 choices are documented in the normative spec issue
-only.
+Record a decision here only when it is hard to reverse *and* hard to
+understand — everything else lives in `CONTEXT.md`, code docstrings, or the
+normative spec issue. ADR numbers are immutable: never reuse a number.
 
 | ADR | Decision |
 |---|---|
@@ -11,11 +11,11 @@ only.
 | [0003](0003-seed-as-user-image.md) | Seeding via user-built one-shot seed image, no gateway clone |
 | [0004](0004-ci-driven-lifecycle-no-webhooks.md) | Symmetric CI lifecycle; no forge webhooks in v0.1 |
 | [0005](0005-self-made-bearer-tokens.md) | Self-made bearer tokens in SQLite, not better-auth |
-| [0006](0006-sprout-durable-identity.md) | `sprout*` durable identity (accepted, implemented) |
-| [0007](0007-preview-env-injection-names.md) | Adopter `preview.env` remaps injection names (accepted, implemented) |
-| [0008](0008-preview-db-providers.md) | Preview database providers: Postgres + SQLite behind one port (accepted, implemented) |
-| [0009](0009-preview-db-provider-none.md) | Previews without a database: `db.provider: none` (accepted, implemented) |
-| [0010](0010-preview-label-ownership.md) | Preview label ownership: gateway Traefik set vs adopter `preview.labels`, fail-fast collision (accepted, implemented) |
-| [0011](0011-agent-first-docs.md) | Agent-first multi-page docs + onboarding prompt (accepted, implemented) |
-| [0012](0012-preview-db-roles-opt-in.md) | Preview DB roles: restricted companion opt-in (`db.roles`) |
-| [0013](0013-preview-access-gate.md) | Preview access gate: per-preview `basic` / `link`, gateway-native (`preview.auth`) |
+| [0006](0006-sprout-durable-identity.md) | `sprout*` durable identity |
+| 0007 | Retired → `docs/adopting-a-repo.md` (`preview.env` remap grammar) |
+| [0008](0008-preview-db-providers.md) | Preview database providers: Postgres, SQLite, none (folds 0009) |
+| 0009 | Retired → ADR-0008 |
+| 0010 | Retired → `docs/previews.md` (Preview labels: reserved set derived from the gateway's label emission) |
+| 0011 | Retired → `docs/onboarding-prompt.md` (page set lives in `docs/site/assemble.ts` `publishFiles`) |
+| 0012 | Retired → ADR-0008 (`db.roles` invariant) and `docs/adopting-a-repo.md` (`db.roles` contract) |
+| [0013](0013-preview-access-gate.md) | Preview access gate: per-preview `none` default \| `basic` \| `link`, gateway-native |

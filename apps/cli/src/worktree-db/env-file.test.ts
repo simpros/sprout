@@ -70,7 +70,7 @@ describe("parseEnvRenames", () => {
     expect(parseEnvRenames(["databaseUrl=X"]).ok).toBe(false);
   });
 
-  test("rejects target collisions (ADR-0007)", () => {
+  test("rejects target collisions", () => {
     const result = parseEnvRenames(["PGHOST=FOO", "PGUSER=FOO"]);
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected failure");
