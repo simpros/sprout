@@ -20,5 +20,7 @@ normative spec issue.
 
 History: ADR numbers are immutable. 0010 (label ownership) and 0011
 (agent-first docs) were dropped outright — the label-collision invariant
-lives in `apps/server/src/app-deployment/label-collisions.ts`, the docs-site
-rules in `docs/site/adr-policy.ts`.
+lives in `apps/server/src/app-deployment/label-collisions.ts`, the page set
+and onboarding prompt in `docs/site/assemble.ts` (`publishFiles`) and
+`docs/onboarding-prompt.md`, the ADR-hygiene rules in
+`docs/site/adr-policy.ts`.

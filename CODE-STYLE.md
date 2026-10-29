@@ -15,5 +15,5 @@ State the why only, and only when the code cannot say it.
 - No commented-out code. No "hack" / "for now" / emoji.
 - Keep real whys: invariants, ordering/locking, observed external behaviour,
   security tradeoffs, magic constants.
-- Inline comments: one line. Module/function docstrings: one invariant, ≤3 lines. Longer reasoning is a decision: put it in `CONTEXT.md` or an ADR.
+- Inline comments: one line. Module/function docstrings: one invariant, no headings or bullet lists. Longer reasoning is a decision: put it in `CONTEXT.md` or an ADR.
 - A comment that contradicts the code is a bug; fix one of them.
