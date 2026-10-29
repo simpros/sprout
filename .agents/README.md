@@ -8,12 +8,16 @@ Vendored skills live in `.agents/skills/`; invoke by trigger:
 - `review-animations` — reviewing motion code; defaults to flagging.
 - `visual-pr` — PR bodies (policy in `AGENTS.md`).
 
-Tracker redirect: any vendored reference to `docs/agents/*` or
-`/setup-matt-pocock-skills` resolves to GitHub issues/PRs on
-`simpros/sprout` via `gh`; labels: `needs-triage`, `needs-info`,
-`ready-for-agent`, `ready-for-human`, `wontfix`.
-PRs as a request surface: no. Tickets: `gh issue create`, parent map =
-issue labelled `wayfinder:map`, child = sub-issue with `Part of #<map>`,
-blocking = `Blocked by: #<n>` (or native dependencies), frontier = open
-unassigned unblocked children. Read/fetch/comment/close via
-`gh issue view|comment|close`.
+### Tracker
+
+Tracker: the one `AGENTS.md` names. Any vendored reference to
+`docs/agents/*` or `/setup-matt-pocock-skills` resolves to it.
+Operations: `gh issue view|comment|close|edit`; tickets =
+`gh issue create`. PRs as a request surface: no.
+
+### Wayfinding operations
+
+Parent map = one open issue titled `Map: <destination>`; child =
+native sub-issue (`Part of #<map>` in the body only where sub-issues
+are unavailable); blocking = `Blocked by: #<n>` (or native
+dependencies); frontier = open unassigned unblocked children.
