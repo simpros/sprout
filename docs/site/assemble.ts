@@ -162,7 +162,7 @@ export function renderLlmsTxt(): string {
 // indexes join via docsPages below.
 const copyOnlyFiles = [
   "README.md",
-  "CONTEXT.md",
+  "GLOSSARY.md",
   "LICENSE",
   "compose.env.example",
   ".env.example",

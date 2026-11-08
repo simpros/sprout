@@ -7,7 +7,7 @@ on:
     paths:
       - "docs/**"
       - "README.md"
-      - "CONTEXT.md"
+      - "GLOSSARY.md"
       - "LICENSE"
       - "llms.txt"
       - "e2e/README.md"
