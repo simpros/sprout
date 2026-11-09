@@ -263,13 +263,13 @@ async function cleanupGitlab(
   return { deleted, warnings };
 }
 
-type GithubTarget = { api: string; token: string };
+type GithubTarget = { api: string; token: string; fallbackToken?: string };
 
 function resolveGithubTarget(env: NodeJS.ProcessEnv): Result<GithubTarget> {
-  const token =
-    env.GHCR_DELETE_TOKEN?.trim() ||
-    env.GITHUB_TOKEN?.trim() ||
-    env.GH_TOKEN?.trim();
+  const deleteToken = env.GHCR_DELETE_TOKEN?.trim();
+  const githubToken = env.GITHUB_TOKEN?.trim();
+  const ghToken = env.GH_TOKEN?.trim();
+  const token = deleteToken || githubToken || ghToken;
   if (!token) {
     return {
       ok: false,
@@ -277,6 +277,10 @@ function resolveGithubTarget(env: NodeJS.ProcessEnv): Result<GithubTarget> {
         "no GitHub token available (set GITHUB_TOKEN with delete:packages or package admin)",
     };
   }
+  const fallbackToken =
+    deleteToken && deleteToken !== githubToken && deleteToken !== ghToken
+      ? githubToken || ghToken
+      : undefined;
   return {
     ok: true,
     value: {
@@ -284,13 +288,14 @@ function resolveGithubTarget(env: NodeJS.ProcessEnv): Result<GithubTarget> {
         env.GITHUB_API_URL?.trim() || "https://api.github.com",
       ),
       token,
+      ...(fallbackToken ? { fallbackToken } : {}),
     },
   };
 }
 
-function githubHeaders(target: GithubTarget): Record<string, string> {
+function githubHeaders(token: string): Record<string, string> {
   return {
-    Authorization: `Bearer ${target.token}`,
+    Authorization: `Bearer ${token}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
   };
@@ -317,7 +322,7 @@ async function resolveGithubPackage(
   try {
     res = await doFetch(
       `${target.api}/users/${encodeURIComponent(owner)}`,
-      { method: "GET", headers: githubHeaders(target) },
+      { method: "GET", headers: githubHeaders(target.token) },
     );
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -373,7 +378,7 @@ async function findGithubVersion(
   for (let page = 0; page < MAX_GHCR_VERSION_PAGES; page++) {
     let res: Response;
     try {
-      res = await doFetch(url, { method: "GET", headers: githubHeaders(target) });
+      res = await doFetch(url, { method: "GET", headers: githubHeaders(target.token) });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       return { ok: false, error: `GHCR version list failed: ${detail}` };
@@ -425,9 +430,10 @@ async function findGithubVersion(
   return { ok: true, value: null };
 }
 
-async function deleteGithubVersion(
+async function deleteGithubVersionWithToken(
   doFetch: (url: string, init?: RequestInit) => Promise<Response>,
   target: GithubTarget,
+  token: string,
   pkg: GithubPackage,
   versionId: number,
 ): Promise<DeleteOutcome> {
@@ -435,7 +441,7 @@ async function deleteGithubVersion(
   try {
     res = await doFetch(
       `${target.api}/${pkg.packageBase}/${encodeURIComponent(pkg.packageName)}/versions/${versionId}`,
-      { method: "DELETE", headers: githubHeaders(target) },
+      { method: "DELETE", headers: githubHeaders(token) },
     );
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -448,6 +454,30 @@ async function deleteGithubVersion(
     status: "failed",
     detail: `${res.status} ${await readErrorBody(res)}`,
   };
+}
+
+/** The registry login token often lacks delete:packages; the job token can delete. */
+async function deleteGithubVersion(
+  doFetch: (url: string, init?: RequestInit) => Promise<Response>,
+  target: GithubTarget,
+  pkg: GithubPackage,
+  versionId: number,
+): Promise<DeleteOutcome> {
+  const outcome = await deleteGithubVersionWithToken(
+    doFetch,
+    target,
+    target.token,
+    pkg,
+    versionId,
+  );
+  if (outcome.status !== "unauthorized" || !target.fallbackToken) return outcome;
+  return deleteGithubVersionWithToken(
+    doFetch,
+    target,
+    target.fallbackToken,
+    pkg,
+    versionId,
+  );
 }
 
 async function cleanupGithub(

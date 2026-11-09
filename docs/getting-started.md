@@ -80,7 +80,8 @@ preview URL.
 - Open / synchronize: the job deploys and writes `PREVIEW_URL=`. Read the
   URL from the CLI output — never reconstruct the hostname in CI.
 - Close / merge: `sprout ci teardown` runs via `on_stop` (idempotent —
-  exit 0 when already gone) and deletes the commit's app + seed image tags.
+  exit 0 when already gone) and deletes the commit's app + commit-scoped
+  seed image tags.
 - Manual wipe + redeploy: `sprout ci reset` (data wiped).
 - A missed teardown is recovered by the gateway sweep.
 - The gateway reports anonymous [install telemetry](telemetry.md) by

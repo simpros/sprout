@@ -178,7 +178,7 @@ export type CiPushedImageRefs = {
   warnings: string[];
 };
 
-/** Re-resolves the exact app + seed refs the preview build pushed for this commit. */
+/** Re-resolves the exact app + per-run seed refs the preview build pushed for this commit. */
 export async function resolveCiPushedImageRefs(
   deps: CliDeps,
   identity: CiIdentity,
@@ -207,5 +207,8 @@ export async function resolveCiPushedImageRefs(
       warnings: [`registry cleanup: seed tag not resolved (${seed.error})`],
     };
   }
+  // Content-addressed seed tags are shared cache across previews, so only the
+  // commit-scoped seed tag is a per-run artifact this teardown may delete.
+  if (seed.value.allowReuse) return { refs: [app.value], warnings: [] };
   return { refs: [app.value, seed.value.ref], warnings: [] };
 }

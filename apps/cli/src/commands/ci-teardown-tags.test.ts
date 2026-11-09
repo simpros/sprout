@@ -253,6 +253,67 @@ describe("ci teardown image tags", () => {
     expect(deletes[0]?.headers.authorization).toBe("Bearer gh-token");
   });
 
+  test("GHCR retries a refused delete with the job token", async () => {
+    const calls: FetchCall[] = [];
+    const baseUrl = startGateway();
+    const fetchFn = async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const headers = headersOf(init);
+      calls.push({ url, method, headers });
+      if (url.includes("/issues/42/comments")) {
+        if (method === "GET") return Response.json([]);
+        return Response.json({ id: 1 });
+      }
+      if (url === "https://api.github.com/users/org") {
+        return Response.json({ type: "Organization" });
+      }
+      if (
+        method === "GET" &&
+        url.includes("/orgs/org/packages/container/repo/versions")
+      ) {
+        return Response.json([
+          { id: 11, metadata: { container: { tags: ["def456"] } } },
+          { id: 12, metadata: { container: { tags: ["def456-seed"] } } },
+        ]);
+      }
+      if (method === "DELETE") {
+        return new Response(null, {
+          status:
+            headers.authorization === "Bearer delete-token" ? 403 : 204,
+        });
+      }
+      return new Response("not found", { status: 404 });
+    };
+
+    const code = await runCli(
+      ["ci", "teardown"],
+      deps(
+        {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_REF: "refs/pull/42/merge",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_SHA: "def456",
+          GITHUB_TOKEN: "gh-token",
+          GHCR_DELETE_TOKEN: "delete-token",
+          CI_REGISTRY_IMAGE: "ghcr.io/org/repo",
+        },
+        fetchFn,
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(stderr).toEqual([]);
+    const deletes = calls.filter((call) => call.method === "DELETE");
+    expect(deletes.map((call) => call.headers.authorization)).toEqual([
+      "Bearer delete-token",
+      "Bearer gh-token",
+      "Bearer delete-token",
+      "Bearer gh-token",
+    ]);
+  });
+
   test("GHCR missing delete permission names delete:packages once", async () => {
     const calls: FetchCall[] = [];
     const baseUrl = startGateway();

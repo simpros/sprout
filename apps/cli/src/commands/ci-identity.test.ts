@@ -614,7 +614,7 @@ seed:
     });
   });
 
-  test("resolves the content-addressed seed tag from the same inputs", async () => {
+  test("never treats content-addressed seed tags as cleanup targets", async () => {
     const result = await resolveCiPushedImageRefs(
       deps(
         env,
@@ -638,10 +638,7 @@ seed:
       identity,
     );
     expect(result.warnings).toEqual([]);
-    expect(result.refs[0]).toBe("registry.gitlab.com/group/repo:abc123");
-    expect(result.refs[1]).toMatch(
-      /^registry\.gitlab\.com\/group\/repo:seed-[0-9a-f]{12}$/,
-    );
+    expect(result.refs).toEqual(["registry.gitlab.com/group/repo:abc123"]);
   });
 
   test("skips silently when the commit's image ref cannot be derived", async () => {
