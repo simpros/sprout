@@ -124,6 +124,8 @@ sprout-stop-preview:
   script:
     - |
       set -eu
+      APP_CONTEXT="$[[ inputs.app_context ]]"
+      cd "$APP_CONTEXT"
       sprout ci teardown
 
 sprout-reset:

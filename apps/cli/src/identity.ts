@@ -173,6 +173,19 @@ export function resolveCommitSha(
   return env[commitShaEnvVar(forge)]?.trim() || undefined;
 }
 
+/** The head SHA survives a merged pull_request closed event; GITHUB_SHA does not. */
+export function resolvePullRequestHeadSha(
+  eventPayload: unknown,
+): string | undefined {
+  if (typeof eventPayload !== "object" || eventPayload === null) return undefined;
+  const pullRequest = (eventPayload as { pull_request?: unknown }).pull_request;
+  if (typeof pullRequest !== "object" || pullRequest === null) return undefined;
+  const head = (pullRequest as { head?: unknown }).head;
+  if (typeof head !== "object" || head === null) return undefined;
+  const sha = (head as { sha?: unknown }).sha;
+  return typeof sha === "string" ? sha.trim() || undefined : undefined;
+}
+
 export function resolveCommitShaAny(env: NodeJS.ProcessEnv): string | undefined {
   return resolveCommitSha(env, "github") ?? resolveCommitSha(env, "gitlab");
 }

@@ -3,10 +3,10 @@ name: sprout preview (reusable)
 # Thin bootstrapper for GitHub pull-request previews: installs the pinned,
 # checksum-verified `sprout` binary and calls `sprout ci preview` /
 # `sprout ci teardown`. All preview behaviour (image build and push, seed
-# image, deploy, PR comment, dotenv emission, log dump on failure) lives in
-# the CLI. A reset is an ordinary action: run `sprout ci reset` from a
-# hand-rolled job or laptop (same env as below) — no ticked box, no marker
-# token, no server-side bookkeeping.
+# image, deploy, PR comment, dotenv emission, teardown image-tag cleanup,
+# log dump on failure) lives in the CLI. A reset is an ordinary action: run
+# `sprout ci reset` from a hand-rolled job or laptop (same env as below) —
+# no ticked box, no marker token, no server-side bookkeeping.
 #
 # Caller (`.github/workflows/sprout.yml` in the adopting repo):
 #
@@ -154,7 +154,6 @@ jobs:
 
       - name: Prepare image ref and env blobs
         id: prep
-        if: github.event.action != 'closed'
         env:
           APP_ENV_BLOB: ${{ secrets.SPROUT_APP_ENV }}
           SEED_ENV_BLOB: ${{ secrets.SPROUT_SEED_ENV }}
@@ -203,6 +202,7 @@ jobs:
           SPROUT_URL: ${{ secrets.SPROUT_URL }}
           SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
+          GHCR_DELETE_TOKEN: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
           set -eu
           sprout ci teardown

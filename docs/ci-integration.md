@@ -46,7 +46,10 @@ What the three jobs do:
   comes from the CLI's output only — never reconstruct the hostname in CI.
 - `sprout-stop-preview` (`on_stop`, Stop button / MR close / merge /
   `auto_stop_in` expiry): `sprout ci teardown` (idempotent — exit 0 when
-  already gone).
+  already gone). Once the preview is gone it also deletes the commit's app
+  and commit-scoped seed tags from the project registry, using the same CI
+  job token / credentials the push used. Missing tags and missing delete
+  permission only warn (the forge expiration policy remains the backstop).
 - `sprout-reset` (manual, instant): `sprout ci reset` — wipe the preview
   database and redeploy + seed from scratch (data wiped). Press **Run** on it
   inside the MR pipeline for the reset *now* (GitLab has no
@@ -73,7 +76,7 @@ Flag details live in [CLI reference](cli-reference.md#ci-commands).
 | Component job | CLI call | Owns |
 |---|---|---|
 | `sprout-preview` | `sprout ci preview --tail … --dotenv-file … [--app-env-file …] [--seed-env-file …] [--reseed]` | Builds + pushes the app image and — when `.sprout.yaml` sets `seed` — the seed image (always rebuilt, unless explicit `seed.inputs` opt into content-addressed reuse: an existing tag skips the rebuild, reuse is logged, a failed check rebuilds), deploys (with `--reseed` when the flag is passed), writes `PREVIEW_URL=` to the dotenv artifact, dumps the gateway log tail on failure, and posts/updates the MR note (best-effort). |
-| `sprout-stop-preview` | `sprout ci teardown` (no flags) | Idempotent teardown; rewrites the MR note in place ("preview was removed"). No Docker daemon, no registry login on this path. |
+| `sprout-stop-preview` | `sprout ci teardown` (no flags) | Idempotent teardown; rewrites the MR note in place ("preview was removed"). Deletes the commit's app + commit-scoped seed registry tags through the GitLab API (best-effort warnings only). No Docker daemon, no registry login on this path. |
 | `sprout-reset` | `sprout ci reset --tail … --dotenv-file … [--app-env-file …] [--seed-env-file …]` | Wipe the preview database and redeploy + seed from scratch (data wiped). No rebuild: reuses the already pushed images for the commit, so no Docker daemon and no registry login on this path. |
 
 Manual helpers (never called by the component): `sprout ci reseed -s …`
@@ -146,19 +149,31 @@ bootstrapper over `sprout ci preview` / `sprout ci teardown`) does:
 
 - Preview on `opened` / `synchronize` / `reopened`: installs the pinned,
   checksum-verified `sprout` binary, builds + pushes images
-  (`<registry>/<repo>:<SHA>`, seed image driven by `.sprout.yaml` as on
-  GitLab), deploys, and posts/updates the PR comment with the preview URL.
+  (`<registry>/<repo>:<PR head SHA>`, seed image driven by `.sprout.yaml`
+  as on GitLab; the head SHA stays stable across the `closed` event so
+  teardown can find the same tags), deploys, and posts/updates the PR
+  comment with the preview URL.
   The URL is also exposed as the `preview_url` output and feeds
   `environment: url`.
 - Teardown on `closed`: `sprout ci teardown` (idempotent — exit 0 if
-  already gone).
+  already gone). It also deletes the commit's app and commit-scoped
+  (`<SHA>-seed`) seed tags from GHCR through the GitHub Packages API;
+  content-addressed `seed-<hash>` tags are shared cache and are left in
+  place. Deletion tries `REGISTRY_PASSWORD` first and retries with
+  `GITHUB_TOKEN` if the delete is refused; if both are refused, a single
+  warning names the missing `delete:packages` scope and leaves cleanup to
+  the package expiration policy.
 - Reset is an ordinary action: run `sprout ci reset` from a hand-rolled job
   or laptop with the same secrets — no ticked box, no marker token.
 - Per-PR serial runs via a `sprout-preview-<PR>` concurrency group.
 
 The caller must grant `contents: read` (checkout), `pull-requests: write`
 (PR comment), and `packages: write` (image push to `ghcr.io`) — a reusable
-workflow cannot elevate permissions.
+workflow cannot elevate permissions. Tag cleanup on teardown uses the
+repository's `GITHUB_TOKEN` by default; if GitHub refuses the package
+delete, set the optional `REGISTRY_PASSWORD` secret to a token with
+`delete:packages` (and package admin) to let cleanup run without waiting
+for the expiration policy.
 
 Secrets (repo settings):
 
