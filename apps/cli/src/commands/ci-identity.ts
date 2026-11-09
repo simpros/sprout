@@ -4,10 +4,12 @@ import {
   commitShaEnvVar,
   resolveCommitSha,
   resolvePrId,
+  resolvePullRequestHeadSha,
   resolveRepoForForge,
 } from "../identity.ts";
 import { resolveDeployHostname } from "../hostname.ts";
 import type { Result } from "../result.ts";
+import { resolveSeedTarget } from "./seed-image.ts";
 
 export type CiSource =
   | { forge: "gitlab"; pipelineSource: "merge_request_event" }
@@ -107,14 +109,16 @@ export async function resolveCiIdentity(
   if (!repo.ok) return repo;
 
   let prId: Result<number>;
+  let eventPayload: unknown;
   if (source.value.forge === "gitlab") {
     prId = resolvePrId({ env: deps.env, forge: "gitlab" });
   } else {
     const event = await loadEventPayload(deps);
     if (!event.ok) return event;
+    eventPayload = event.value;
     prId = resolvePrId({
       env: deps.env,
-      eventPayload: event.value,
+      eventPayload,
       forge: "github",
     });
   }
@@ -122,13 +126,19 @@ export async function resolveCiIdentity(
     return prId;
   }
 
+  const commitSha =
+    source.value.forge === "github"
+      ? resolvePullRequestHeadSha(eventPayload) ??
+        resolveCommitSha(deps.env, "github")
+      : resolveCommitSha(deps.env, "gitlab");
+
   return {
     ok: true,
     value: {
       ...source.value,
       repo: repo.value,
       prId: prId.value,
-      commitSha: resolveCommitSha(deps.env, source.value.forge),
+      commitSha,
     },
   };
 }
@@ -161,4 +171,41 @@ export async function resolveCiPreviewIdentity(
       hostname: hostname.value,
     },
   };
+}
+
+export type CiPushedImageRefs = {
+  refs: string[];
+  warnings: string[];
+};
+
+/** Re-resolves the exact app + seed refs the preview build pushed for this commit. */
+export async function resolveCiPushedImageRefs(
+  deps: CliDeps,
+  identity: CiIdentity,
+): Promise<CiPushedImageRefs> {
+  const app = resolveImageRef(deps.env, identity);
+  if (!app.ok) return { refs: [], warnings: [] };
+
+  const yaml = await loadYaml(deps);
+  if (!yaml.ok) {
+    return {
+      refs: [app.value],
+      warnings: [`registry cleanup: seed tag not resolved (${yaml.error})`],
+    };
+  }
+  if (!yaml.value.seed) return { refs: [app.value], warnings: [] };
+
+  const seed = await resolveSeedTarget(
+    yaml.value.seed,
+    app.value,
+    deps.cwd,
+    deps.readTextFile,
+  );
+  if (!seed.ok) {
+    return {
+      refs: [app.value],
+      warnings: [`registry cleanup: seed tag not resolved (${seed.error})`],
+    };
+  }
+  return { refs: [app.value, seed.value.ref], warnings: [] };
 }

@@ -105,7 +105,9 @@ describe("sprout ci teardown", () => {
       }),
     );
     expect(code).toBe(0);
-    expect(stderr).toEqual([]);
+    expect(stderr).toEqual([
+      "warning: registry tag cleanup skipped: no GitLab token available (set GITLAB_TOKEN with api scope, or run in a CI job with CI_JOB_TOKEN)",
+    ]);
     expect(captured).toEqual([
       {
         method: "POST",
@@ -130,7 +132,9 @@ describe("sprout ci teardown", () => {
       }),
     );
     expect(code).toBe(0);
-    expect(stderr).toEqual([]);
+    expect(stderr).toEqual([
+      "warning: registry tag cleanup skipped: no GitLab token available (set GITLAB_TOKEN with api scope, or run in a CI job with CI_JOB_TOKEN)",
+    ]);
   });
 
   test("surfaces the gateway error code on failure", async () => {

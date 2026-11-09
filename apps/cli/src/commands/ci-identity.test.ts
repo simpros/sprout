@@ -3,6 +3,7 @@ import {
   requireCiSource,
   resolveCiIdentity,
   resolveCiPreviewIdentity,
+  resolveCiPushedImageRefs,
   resolveImageRef,
 } from "./ci-identity.ts";
 import type { CliDeps } from "../context.ts";
@@ -437,6 +438,37 @@ describe("resolveCiIdentity", () => {
     });
   });
 
+  test("GitHub locks the pull request head SHA so teardown matches the preview build", async () => {
+    const event = {
+      pull_request: { number: 42, head: { sha: "headsha" } },
+    };
+    expect(
+      await resolveCiIdentity(
+        deps(
+          {
+            GITHUB_REPOSITORY: "org/repo",
+            GITHUB_EVENT_NAME: "pull_request",
+            GITHUB_EVENT_PATH: "/event.json",
+            GITHUB_SHA: "basesha",
+          },
+          {
+            readTextFile: async (path) =>
+              path === "/event.json" ? JSON.stringify(event) : null,
+          },
+        ),
+      ),
+    ).toEqual({
+      ok: true,
+      value: {
+        forge: "github",
+        repo: "https://github.com/org/repo",
+        prId: 42,
+        pipelineSource: "pull_request",
+        commitSha: "headsha",
+      },
+    });
+  });
+
   test("leaves commitSha undefined when the forge's var is missing", async () => {
     expect(
       await resolveCiIdentity(
@@ -538,5 +570,86 @@ describe("resolveCiPreviewIdentity", () => {
       ok: false,
       error: "missing /work/.sprout.yaml",
     });
+  });
+});
+
+describe("resolveCiPushedImageRefs", () => {
+  const identity = {
+    forge: "gitlab" as const,
+    pipelineSource: "merge_request_event" as const,
+    repo: "https://gitlab.com/group/repo",
+    prId: 17,
+    commitSha: "abc123",
+  };
+  const env = {
+    CI_REGISTRY_IMAGE: "registry.gitlab.com/group/repo",
+    CI_COMMIT_SHA: "abc123",
+  };
+
+  test("resolves the app ref and the commit-scoped seed ref", async () => {
+    expect(
+      await resolveCiPushedImageRefs(
+        deps(
+          env,
+          {
+            readTextFile: async (path) =>
+              path.endsWith(".sprout.yaml")
+                ? `slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+seed:
+  dockerfile: Dockerfile.seed
+`
+                : null,
+          },
+        ),
+        identity,
+      ),
+    ).toEqual({
+      refs: [
+        "registry.gitlab.com/group/repo:abc123",
+        "registry.gitlab.com/group/repo:abc123-seed",
+      ],
+      warnings: [],
+    });
+  });
+
+  test("resolves the content-addressed seed tag from the same inputs", async () => {
+    const result = await resolveCiPushedImageRefs(
+      deps(
+        env,
+        {
+          readTextFile: async (path) => {
+            if (path.endsWith(".sprout.yaml")) {
+              return `slug: myapp
+preview:
+  hostname: "pr-{pr_id}.example.com"
+seed:
+  dockerfile: Dockerfile.seed
+  inputs:
+    - Dockerfile.seed
+`;
+            }
+            if (path.endsWith("Dockerfile.seed")) return "FROM oven/bun:1\n";
+            return null;
+          },
+        },
+      ),
+      identity,
+    );
+    expect(result.warnings).toEqual([]);
+    expect(result.refs[0]).toBe("registry.gitlab.com/group/repo:abc123");
+    expect(result.refs[1]).toMatch(
+      /^registry\.gitlab\.com\/group\/repo:seed-[0-9a-f]{12}$/,
+    );
+  });
+
+  test("skips silently when the commit's image ref cannot be derived", async () => {
+    expect(
+      await resolveCiPushedImageRefs(
+        deps({ CI_COMMIT_SHA: "abc123" }, { readTextFile: async () => null }),
+        identity,
+      ),
+    ).toEqual({ refs: [], warnings: [] });
   });
 });

@@ -25,7 +25,9 @@ instance. The component declares three jobs:
 - `sprout-preview` — builds + pushes images, deploys, writes
   `PREVIEW_URL=` to the dotenv artifact that feeds `environment:url`.
 - `sprout-stop-preview` — `on_stop` teardown (environment Stop button, MR
-  close/merge, `auto_stop_in` expiry).
+  close/merge, `auto_stop_in` expiry), deleting the commit's app + seed
+  registry tags after the preview is gone (best-effort; missing tags or
+  delete permission only warn).
 - `sprout-reset` — manual one-click wipe + redeploy + seed
   (`sprout ci reset`, data wiped). Play it from the MR pipeline when you
   want the reset *now*.
@@ -70,7 +72,10 @@ Prerequisites on the GitLab side:
 - Container registry credentials come from the predefined
   `CI_REGISTRY_USER` / `CI_REGISTRY_PASSWORD`; the component logs in
   automatically when they are present. The app tag is always
-  `CI_REGISTRY_IMAGE:<SHA>`.
+  `CI_REGISTRY_IMAGE:<SHA>`. Teardown deletes that tag and the seed tag
+  through the GitLab container registry API using `CI_JOB_TOKEN` (or
+  `GITLAB_TOKEN` with `api` scope when set); an instance that refuses the
+  delete only produces a warning.
 
 ## Reset: manual job
 

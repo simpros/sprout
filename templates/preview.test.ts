@@ -56,10 +56,11 @@ describe("preview component contract", () => {
     expect(previewScript()).toContain("docker login");
   });
 
-  test("stop runs teardown at the project dir with no app_context coupling", () => {
+  test("stop runs teardown in app_context so seed tags resolve from the manifest", () => {
     const stop = stopScript();
     expect(stop).toContain("sprout ci teardown");
-    expect(stop).not.toContain("app_context");
+    expect(stop).toContain('$[[ inputs.app_context ]]');
+    expect(stop).toContain('\ncd "$APP_CONTEXT"');
   });
 
   test("all path-shaped inputs resolve project-root-relative, before cd into app_context", () => {
