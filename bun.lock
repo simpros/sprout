@@ -13,7 +13,7 @@
     },
     "apps/cli": {
       "name": "@sprout/cli",
-      "version": "0.9.0",
+      "version": "0.9.1",
       "bin": {
         "sprout": "./src/index.ts",
       },
@@ -29,7 +29,7 @@
     },
     "apps/server": {
       "name": "@sprout/server",
-      "version": "0.9.0",
+      "version": "0.9.1",
       "dependencies": {
         "@elysiajs/opentelemetry": "1.4.11",
         "@opentelemetry/api": "1.9.0",
@@ -51,7 +51,7 @@
     },
     "packages/api-client": {
       "name": "@sprout/api-client",
-      "version": "0.9.0",
+      "version": "0.9.1",
       "dependencies": {
         "@elysia/eden": "1.4.10",
         "@sprout/server": "workspace:*",

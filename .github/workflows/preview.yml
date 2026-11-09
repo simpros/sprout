@@ -20,9 +20,9 @@ name: sprout preview (reusable)
 #     packages: write
 #   jobs:
 #     preview:
-#       uses: simpros/sprout/.github/workflows/preview.yml@v0.9.0
+#       uses: simpros/sprout/.github/workflows/preview.yml@v0.9.1
 #       with:
-#         sprout_version: v0.9.0
+#         sprout_version: v0.9.1
 #       secrets:
 #         SPROUT_URL: ${{ secrets.SPROUT_URL }}
 #         SPROUT_TOKEN: ${{ secrets.SPROUT_TOKEN }}
@@ -48,7 +48,7 @@ on:
   workflow_call:
     inputs:
       sprout_version:
-        description: "sprout release tag to install (e.g. v0.9.0). Set explicitly to the tag in the caller's uses: ref."
+        description: "sprout release tag to install (e.g. v0.9.1). Set explicitly to the tag in the caller's uses: ref."
         type: string
         required: true
       app_context:
