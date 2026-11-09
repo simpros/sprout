@@ -62,12 +62,12 @@ variables (`SPROUT_APP_ENV` / `SPROUT_SEED_ENV` dotenv blobs).
 ## 3. CI wiring (one include)
 
 Add the include to `.gitlab-ci.yml`. Replace `<group>/sprout-ci` with the
-component project path on the instance and `v0.9.0` with the adopted
+component project path on the instance and `v0.9.1` with the adopted
 release:
 
 ```yaml
 include:
-  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.9.0
+  - component: $CI_SERVER_FQDN/<group>/sprout-ci/preview@v0.9.1
     inputs: { stage: deploy }
 ```
 

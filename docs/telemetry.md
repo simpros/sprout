@@ -31,7 +31,7 @@ state database:
 {
   "event": "install",
   "install_id": "3f9d7a1e-8b2c-4d5e-9f01-23456789abcd",
-  "sprout_version": "0.9.0",
+  "sprout_version": "0.9.1",
   "runtime": "bun 1.4.0",
   "platform": "linux/x64",
   "db_provider": "sqlite",
@@ -50,7 +50,7 @@ bring-up plan, whether the preview ended seeded, and measured timings
 {
   "event": "deploy",
   "install_id": "3f9d7a1e-8b2c-4d5e-9f01-23456789abcd",
-  "sprout_version": "0.9.0",
+  "sprout_version": "0.9.1",
   "runtime": "bun 1.4.0",
   "platform": "linux/x64",
   "db_provider": "postgres",
@@ -71,7 +71,7 @@ means the row never recorded a code:
 {
   "event": "deploy",
   "install_id": "3f9d7a1e-8b2c-4d5e-9f01-23456789abcd",
-  "sprout_version": "0.9.0",
+  "sprout_version": "0.9.1",
   "runtime": "bun 1.4.0",
   "platform": "linux/x64",
   "db_provider": "postgres",
