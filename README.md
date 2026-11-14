@@ -48,7 +48,7 @@ wires the repo. Live pitch:
 - [Telemetry](docs/telemetry.md) — what is sent, what it costs, off switch
 - [Onboarding prompt](docs/onboarding-prompt.md) — paste into a coding harness
 - [`examples/adopting-repo/README.md`](examples/adopting-repo/README.md) — copy-paste starter
-- [`CONTEXT.md`](CONTEXT.md) — domain vocabulary
+- [`GLOSSARY.md`](GLOSSARY.md) — domain vocabulary
 - [`e2e/README.md`](e2e/README.md) — acceptance harness (`bun run test:e2e`)
 
 ## Develop

@@ -6,12 +6,12 @@ Issues for this repo live as GitHub issues on `simpros/sprout`. Use `gh` for all
 
 PRs as a request surface: no. Triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
 
-Operations: `gh issue view|comment|close|edit`; tickets = `gh issue create`.
+Operations: `gh issue view|comment|close|edit`; tickets = `gh issue create`. This repo models a sub-issue as a `Part of #<parent>` line in the child's body, not a separate operation: when a skill says to make a ticket a sub-issue, write that line.
 
 ## Wayfinding operations
 
 - Parent map = one open issue titled `Map: <destination>`.
-- The skill's `wayfinder:map` and `wayfinder:<type>` labels do not exist in this repo — omit `--label`, name the ticket type in the body instead.
+- The skill's `wayfinder:map` and `wayfinder:<type>` labels do not exist in this repo — omit `--label`. Name the ticket type in the body instead (`Type: research`, `Type: prototype`, `Type: grilling`, or `Type: task`); the body is where the type lives, so the skill's "read the label" step is served by that line.
 - Child = issue with `Part of #<map>` in the body.
 - Blocking = `Blocked by: #<n>` line in the body (not a comment).
 - Frontier = open unassigned child with no open issue in its `Blocked by` line.

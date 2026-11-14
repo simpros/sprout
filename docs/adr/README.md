@@ -1,7 +1,7 @@
 # Architecture decision records
 
 Record a decision here only when it is hard to reverse *and* hard to
-understand — everything else lives in `CONTEXT.md`, code docstrings, or the
+understand — everything else lives in `GLOSSARY.md`, code docstrings, or the
 normative spec issue. ADR numbers are immutable: never reuse a number.
 
 | ADR | Decision |

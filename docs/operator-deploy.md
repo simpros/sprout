@@ -879,4 +879,4 @@ Operator symptoms below. The full catalogue (adopter + operator) lives in
 - [`deploy/traefik/README.md`](../deploy/traefik/README.md) — wildcard DNS-01 resolver fragment + one-shot bootstrap compose
 - [`deploy/coolify/README.md`](../deploy/coolify/README.md) + [`deploy/coolify/gateway.compose.yml`](../deploy/coolify/gateway.compose.yml) — one-click Coolify Docker Compose Empty stack (bundled Postgres)
 - [`deploy/postgres/ensure-preview-role.sh`](../deploy/postgres/ensure-preview-role.sh) — optional manual role helper
-- [`CONTEXT.md`](../CONTEXT.md) — domain vocabulary
+- [`GLOSSARY.md`](../GLOSSARY.md) — domain vocabulary
