@@ -33,11 +33,15 @@ export async function runCiReseed(
     return fail(ctx.deps.io, "ci reseed requires -s <seed-image>");
   }
 
-  const imageRef = resolveImageRef(ctx.deps.env, identity);
-  if (!imageRef.ok) return fail(ctx.deps.io, imageRef.error);
-
   const yaml = await loadYaml(ctx.deps);
   if (!yaml.ok) return fail(ctx.deps.io, yaml.error);
+
+  const imageRef = resolveImageRef(
+    ctx.deps.env,
+    identity,
+    yaml.value.build?.image_repo,
+  );
+  if (!imageRef.ok) return fail(ctx.deps.io, imageRef.error);
 
   const assembled = buildReseedRequest(yaml.value, identity, {
     appImage: imageRef.value,

@@ -110,6 +110,21 @@ health:
   expect: 200
 `;
 
+const OVERRIDE_YAML = `slug: myapp
+build:
+  dockerfile: Dockerfile
+  image_repo: registry.gitlab.com/toptiere/dcos/product
+seed:
+  dockerfile: Dockerfile.seed
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+`;
+
 const GITLAB_MR_ENV = {
   CI_PROJECT_URL: "https://gitlab.com/group/repo",
   CI_MERGE_REQUEST_IID: "17",
@@ -217,6 +232,32 @@ describe("sprout ci reset", () => {
     expect(posted).toContain("https://pr-17.myapp.preview.example.com");
     expect(posted).toContain("Reset: ada at 2026-09-19T12:00:00.000Z");
     expect(posted).toContain("data wiped");
+  });
+
+  test("with build.image_repo deploys from the override refs without rebuilding", async () => {
+    const baseUrl = resetGateway();
+    const cwd = await withWorkspace(OVERRIDE_YAML, {
+      "Dockerfile.seed": "FROM oven/bun:1.4.0\n",
+    });
+    const code = await runCli(
+      ["ci", "reset"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: readRealFile,
+        fetchFn: async (_url, init) =>
+          (init?.method ?? "GET") === "GET"
+            ? Response.json([])
+            : Response.json({ id: 1 }),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(stderr).toEqual([]);
+    expect(dockerCalls).toEqual([]);
+    expect(captured[1]?.body).toMatchObject({
+      app_image: "registry.gitlab.com/toptiere/dcos/product:abc123",
+      seed_image: "registry.gitlab.com/toptiere/dcos/product:abc123-seed",
+    });
   });
 
   test("second reset on a healthy preview succeeds", async () => {

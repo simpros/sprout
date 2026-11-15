@@ -86,14 +86,18 @@ export function requireCiSource(env: NodeJS.ProcessEnv): Result<CiSource> {
 export function resolveImageRef(
   env: NodeJS.ProcessEnv,
   identity: Pick<CiIdentity, "forge" | "commitSha">,
+  imageRepo?: string,
 ): Result<string> {
-  const registry = env.CI_REGISTRY_IMAGE?.trim();
+  const override = imageRepo?.trim();
+  const registry = override || env.CI_REGISTRY_IMAGE?.trim();
   const sha = identity.commitSha;
   if (!registry || !sha) {
     const shaVar = commitShaEnvVar(identity.forge);
     return {
       ok: false,
-      error: `cannot derive image ref (set CI_REGISTRY_IMAGE and ${shaVar})`,
+      error: override
+        ? `cannot derive image ref (set ${shaVar})`
+        : `cannot derive image ref (set CI_REGISTRY_IMAGE and ${shaVar})`,
     };
   }
   return { ok: true, value: `${registry}:${sha}` };
@@ -149,11 +153,15 @@ export async function resolveCiPreviewIdentity(
   const base = await resolveCiIdentity(deps);
   if (!base.ok) return base;
 
-  const imageRef = resolveImageRef(deps.env, base.value);
-  if (!imageRef.ok) return imageRef;
-
   const yaml = await loadYaml(deps);
   if (!yaml.ok) return yaml;
+
+  const imageRef = resolveImageRef(
+    deps.env,
+    base.value,
+    yaml.value.build?.image_repo,
+  );
+  if (!imageRef.ok) return imageRef;
 
   const hostname = resolveDeployHostname(
     yaml.value.preview.hostname,
@@ -183,10 +191,16 @@ export async function resolveCiPushedImageRefs(
   deps: CliDeps,
   identity: CiIdentity,
 ): Promise<CiPushedImageRefs> {
-  const app = resolveImageRef(deps.env, identity);
+  const yaml = await loadYaml(deps);
+  // An unreadable manifest cannot name an override repository, so fall back to
+  // the registry root exactly as a repo without `build.image_repo` does.
+  const app = resolveImageRef(
+    deps.env,
+    identity,
+    yaml.ok ? yaml.value.build?.image_repo : undefined,
+  );
   if (!app.ok) return { refs: [], warnings: [] };
 
-  const yaml = await loadYaml(deps);
   if (!yaml.ok) {
     return {
       refs: [app.value],

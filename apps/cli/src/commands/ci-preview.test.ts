@@ -118,6 +118,24 @@ health:
   expect: 200
 `;
 
+const OVERRIDE_YAML = `slug: myapp
+build:
+  dockerfile: Dockerfile
+  image_repo: registry.gitlab.com/toptiere/dcos/product
+seed:
+  dockerfile: Dockerfile.seed
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+`;
+
+const OVERRIDE_APP_REF = "registry.gitlab.com/toptiere/dcos/product:abc123";
+const OVERRIDE_SEED_REF = `${OVERRIDE_APP_REF}-seed`;
+
 const SEEDED_INPUTS_YAML = `slug: myapp
 build:
   dockerfile: Dockerfile
@@ -215,6 +233,34 @@ describe("sprout ci preview", () => {
     expect(written).toEqual({
       [`${cwd}/sprout-preview.env`]:
         "PREVIEW_URL=https://pr-17.myapp.preview.example.com\n",
+    });
+  });
+
+  test("build.image_repo pushes app and seed to the override repository", async () => {
+    const baseUrl = healthyGateway();
+    const cwd = await withWorkspace(OVERRIDE_YAML, {
+      "Dockerfile.seed": SEED_DOCKERFILE,
+    });
+    const code = await runCli(
+      ["ci", "preview"],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: readRealFile,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(stderr).toEqual([]);
+    expect(dockerCalls).toEqual([
+      ["docker", "build", "-f", "Dockerfile.seed", "-t", OVERRIDE_SEED_REF, "."],
+      ["docker", "push", OVERRIDE_SEED_REF],
+      ["docker", "build", "-f", "Dockerfile", "-t", OVERRIDE_APP_REF, "."],
+      ["docker", "push", OVERRIDE_APP_REF],
+    ]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      app_image: OVERRIDE_APP_REF,
+      seed_image: OVERRIDE_SEED_REF,
     });
   });
 

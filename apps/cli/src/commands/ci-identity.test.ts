@@ -178,6 +178,42 @@ describe("resolveImageRef", () => {
       error: "cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA)",
     });
   });
+
+  test("uses the repository override in place of CI_REGISTRY_IMAGE", () => {
+    expect(
+      resolveImageRef(
+        { CI_REGISTRY_IMAGE: "registry.gitlab.com/group/repo" },
+        { forge: "gitlab", commitSha: "abc" },
+        "registry.gitlab.com/toptiere/dcos/product",
+      ),
+    ).toEqual({
+      ok: true,
+      value: "registry.gitlab.com/toptiere/dcos/product:abc",
+    });
+  });
+
+  test("uses the repository override without CI_REGISTRY_IMAGE set", () => {
+    expect(
+      resolveImageRef(
+        {},
+        { forge: "github", commitSha: "def" },
+        "ghcr.io/org/sub/app",
+      ),
+    ).toEqual({ ok: true, value: "ghcr.io/org/sub/app:def" });
+  });
+
+  test("override still requires the forge SHA and names only that var", () => {
+    expect(
+      resolveImageRef(
+        { CI_REGISTRY_IMAGE: "registry.example/app" },
+        { forge: "gitlab", commitSha: undefined },
+        "registry.example/team/app",
+      ),
+    ).toEqual({
+      ok: false,
+      error: "cannot derive image ref (set CI_COMMIT_SHA)",
+    });
+  });
 });
 
 describe("resolveCiIdentity", () => {
@@ -537,6 +573,38 @@ describe("resolveCiPreviewIdentity", () => {
     });
   });
 
+  test("resolves the image ref through build.image_repo", async () => {
+    expect(
+      await resolveCiPreviewIdentity(
+        deps(
+          {
+            CI_PROJECT_URL: "https://gitlab.com/group/repo",
+            CI_MERGE_REQUEST_IID: "17",
+            CI_PIPELINE_SOURCE: "merge_request_event",
+            CI_COMMIT_SHA: "abc123",
+          },
+          {
+            readTextFile: async (path) =>
+              path.endsWith(".sprout.yaml")
+                ? `slug: myapp
+build:
+  image_repo: registry.gitlab.com/toptiere/dcos/product
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`
+                : null,
+          },
+        ),
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        imageRef: "registry.gitlab.com/toptiere/dcos/product:abc123",
+        hostname: "pr-17.example.com",
+      },
+    });
+  });
+
   test("errors when image ref cannot be derived", async () => {
     expect(
       await resolveCiPreviewIdentity(
@@ -609,6 +677,36 @@ seed:
       refs: [
         "registry.gitlab.com/group/repo:abc123",
         "registry.gitlab.com/group/repo:abc123-seed",
+      ],
+      warnings: [],
+    });
+  });
+
+  test("resolves push refs under build.image_repo when set", async () => {
+    expect(
+      await resolveCiPushedImageRefs(
+        deps(
+          env,
+          {
+            readTextFile: async (path) =>
+              path.endsWith(".sprout.yaml")
+                ? `slug: myapp
+build:
+  image_repo: registry.gitlab.com/toptiere/dcos/product
+preview:
+  hostname: "pr-{pr_id}.example.com"
+seed:
+  dockerfile: Dockerfile.seed
+`
+                : null,
+          },
+        ),
+        identity,
+      ),
+    ).toEqual({
+      refs: [
+        "registry.gitlab.com/toptiere/dcos/product:abc123",
+        "registry.gitlab.com/toptiere/dcos/product:abc123-seed",
       ],
       warnings: [],
     });

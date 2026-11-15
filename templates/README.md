@@ -71,11 +71,13 @@ Prerequisites on the GitLab side:
   the bootstrap installs prerequisites with `apk`.
 - Container registry credentials come from the predefined
   `CI_REGISTRY_USER` / `CI_REGISTRY_PASSWORD`; the component logs in
-  automatically when they are present. The app tag is always
-  `CI_REGISTRY_IMAGE:<SHA>`. Teardown deletes that tag and the seed tag
-  through the GitLab container registry API using `CI_JOB_TOKEN` (or
-  `GITLAB_TOKEN` with `api` scope when set); an instance that refuses the
-  delete only produces a warning.
+  automatically when they are present. The app tag is
+  `CI_REGISTRY_IMAGE:<SHA>` unless `.sprout.yaml` sets
+  `build.image_repo`, which retargets both the app tag (`<image_repo>:<SHA>`)
+  and the seed tag to that repository. Teardown deletes those tags from the
+  same repository through the GitLab container registry API using
+  `CI_JOB_TOKEN` (or `GITLAB_TOKEN` with `api` scope when set); an instance
+  that refuses the delete only produces a warning.
 
 ## Reset: manual job
 
@@ -118,10 +120,10 @@ per-preview volume).
 | `tail` | `200` | Gateway log lines printed when `sprout ci preview` fails. |
 
 Image builds are driven by `.sprout.yaml` (`build.dockerfile`,
-`seed.dockerfile` + `seed.env`/`seed.args`); the CLI owns Dockerfile
-resolution — the component passes no Dockerfile paths and no free-form
-extra args. Gaps belong behind explicit typed inputs (or CLI flags), not
-shell guards or argv appenders.
+`build.image_repo`, `seed.dockerfile` + `seed.env`/`seed.args`); the CLI
+owns Dockerfile resolution and the push target — the component passes no
+Dockerfile paths and no free-form extra args. Gaps belong behind explicit
+typed inputs (or CLI flags), not shell guards or argv appenders.
 
 ## Troubleshooting
 

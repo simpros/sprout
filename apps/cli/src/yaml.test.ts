@@ -801,6 +801,66 @@ preview:
     });
   });
 
+  test("parses build.image_repo as the preview push target", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+build:
+  dockerfile: docker/Dockerfile
+  image_repo: registry.gitlab.com/toptiere/dcos/product
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        slug: "myapp",
+        preview: { hostname: "pr-{pr_id}.example.com" },
+        build: {
+          dockerfile: "docker/Dockerfile",
+          image_repo: "registry.gitlab.com/toptiere/dcos/product",
+        },
+      },
+    });
+  });
+
+  test("parses build.image_repo with a registry port", () => {
+    const result = parseSproutYaml(`
+slug: myapp
+build:
+  image_repo: localhost:5000/team/app
+preview:
+  hostname: "pr-{pr_id}.example.com"
+`);
+    expect(result).toMatchObject({
+      ok: true,
+      value: { build: { image_repo: "localhost:5000/team/app" } },
+    });
+  });
+
+  test("rejects a build.image_repo carrying a tag, digest, or bare path", () => {
+    const base = (repo: string) =>
+      parseSproutYaml(
+        `slug: myapp\npreview:\n  hostname: "pr-{pr_id}.example.com"\nbuild:\n  image_repo: "${repo}"\n`,
+      );
+    const hint =
+      "build.image_repo must be a full repository (registry host + path, no tag or digest)";
+    expect(base("registry.gitlab.com/team/app:abc123")).toEqual({
+      ok: false,
+      error: hint,
+    });
+    expect(
+      base(
+        "registry.gitlab.com/team/app@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      ),
+    ).toEqual({ ok: false, error: hint });
+    expect(base("team/app")).toEqual({ ok: false, error: hint });
+    expect(base("registry.gitlab.com/team/")).toEqual({ ok: false, error: hint });
+    expect(base("")).toEqual({
+      ok: false,
+      error: "build.image_repo is required",
+    });
+  });
+
   test("empty build and seed blocks take conventional defaults", () => {
     const result = parseSproutYaml(`
 slug: myapp

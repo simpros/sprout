@@ -27,6 +27,15 @@ seed:
   dockerfile: Dockerfile.seed
 `;
 
+const OVERRIDE_YAML = `slug: myapp
+build:
+  image_repo: registry.gitlab.com/toptiere/dcos/product
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+seed:
+  dockerfile: Dockerfile.seed
+`;
+
 function startGateway(): string {
   server = Bun.serve({
     port: 0,
@@ -40,10 +49,11 @@ function startGateway(): string {
 function deps(
   env: NodeJS.ProcessEnv,
   fetchFn: (url: string, init?: RequestInit) => Promise<Response>,
+  yaml: string = YAML,
 ): CliDeps {
   return {
     cwd: "/",
-    readTextFile: async (path) => (path.endsWith(".sprout.yaml") ? YAML : null),
+    readTextFile: async (path) => (path.endsWith(".sprout.yaml") ? yaml : null),
     getGitRemoteUrl: () => null,
     createClient: (baseUrl, token) =>
       createApiClient(baseUrl, {
@@ -76,18 +86,19 @@ const GITLAB_ENV: NodeJS.ProcessEnv = {
 function gitlabFetch(
   calls: FetchCall[],
   deleteStatus: (url: string) => number = () => 204,
+  repositories: { id: number; path: string }[] = [{ id: 5, path: "group/repo" }],
 ) {
   return async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     calls.push({ url, method, headers: headersOf(init) });
     if (url.includes("/registry/repositories?")) {
-      return Response.json([{ id: 5, path: "group/repo" }]);
+      return Response.json(repositories);
     }
     if (url.includes("/merge_requests/")) {
       if (method === "GET") return Response.json([]);
       return Response.json({ id: 1 });
     }
-    if (method === "DELETE" && url.includes("/registry/repositories/5/tags/")) {
+    if (method === "DELETE" && url.includes("/registry/repositories/")) {
       return new Response(null, { status: deleteStatus(url) });
     }
     return new Response("not found", { status: 404 });
@@ -114,6 +125,30 @@ describe("ci teardown image tags", () => {
       "https://gitlab.com/api/v4/projects/99/registry/repositories/5/tags/abc123-seed",
     ]);
     expect(deletes[0]?.headers["job-token"]).toBe("job-token");
+  });
+
+  test("with build.image_repo deletes exactly the override-pushed tags", async () => {
+    const calls: FetchCall[] = [];
+    const baseUrl = startGateway();
+    const code = await runCli(
+      ["ci", "teardown"],
+      deps(
+        { ...GITLAB_ENV, SPROUT_URL: baseUrl },
+        gitlabFetch(calls, () => 204, [
+          { id: 5, path: "group/repo" },
+          { id: 7, path: "toptiere/dcos/product" },
+        ]),
+        OVERRIDE_YAML,
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(stderr).toEqual([]);
+    const deletes = calls.filter((call) => call.method === "DELETE");
+    expect(deletes.map((call) => call.url)).toEqual([
+      "https://gitlab.com/api/v4/projects/99/registry/repositories/7/tags/abc123",
+      "https://gitlab.com/api/v4/projects/99/registry/repositories/7/tags/abc123-seed",
+    ]);
   });
 
   test("already-deleted tags warn and still exit 0", async () => {

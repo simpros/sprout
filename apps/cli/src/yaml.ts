@@ -60,7 +60,13 @@ export type SproutDockerfileBlock = {
   dockerfile: string;
 };
 
-export type SproutBuild = SproutDockerfileBlock;
+export type SproutBuild = SproutDockerfileBlock & {
+  /**
+   * Full image repository (registry host + path, no tag) the preview app and
+   * seed tags are pushed to and deleted from; defaults to `CI_REGISTRY_IMAGE`.
+   */
+  image_repo?: string;
+};
 
 export type SproutSeed = SproutDockerfileBlock & {
   inputs?: string[];
@@ -97,7 +103,7 @@ const TOP_KEYS = new Set(["slug", "preview", "health", "build", "seed", "db", "m
 const PREVIEW_KEYS = new Set(["hostname", "env", "app_env", "services", "labels", "volumes", "auth", "ttl", "idle_teardown"]);
 const HEALTH_KEYS = new Set(["path", "interval", "timeout", "expect"]);
 const SERVICE_KEYS = new Set(["name", "image", "hostname", "path", "port", "env", "labels"]);
-const DOCKERFILE_KEYS = new Set(["dockerfile"]);
+const BUILD_KEYS = new Set(["dockerfile", "image_repo"]);
 const SEED_KEYS = new Set(["dockerfile", "inputs", "env", "args"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -263,25 +269,48 @@ function parseDockerfileField(
   return requireString(rawDockerfile, `${path}.dockerfile`);
 }
 
-function parseDockerfileBlock(
-  raw: unknown,
-  path: string,
-  defaultDockerfile: string,
-): Result<SproutDockerfileBlock | undefined> {
+const IMAGE_REPO_HINT =
+  "build.image_repo must be a full repository (registry host + path, no tag or digest)";
+
+function parseImageRepoField(raw: unknown): Result<string | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined };
+  const value = requireString(raw, "build.image_repo");
+  if (!value.ok) return value;
+  const repo = value.value;
+  const hostEnd = repo.indexOf("/");
+  const host = repo.slice(0, hostEnd);
+  const lastSlash = repo.lastIndexOf("/");
+  const lastSegment = repo.slice(lastSlash + 1);
+  const registryHost =
+    host.includes(".") || host.includes(":") || host === "localhost";
+  if (
+    /\s/.test(repo) ||
+    repo.includes("@") ||
+    hostEnd <= 0 ||
+    lastSlash === repo.length - 1 ||
+    lastSegment.includes(":") ||
+    !registryHost
+  ) {
+    return { ok: false, error: IMAGE_REPO_HINT };
+  }
+  return { ok: true, value: repo };
+}
+
+function parseBuildBlock(raw: unknown): Result<SproutBuild | undefined> {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!isPlainObject(raw)) {
-    return { ok: false, error: `${path} must be a mapping` };
+    return { ok: false, error: "build must be a mapping" };
   }
   for (const key of Object.keys(raw)) {
-    if (!DOCKERFILE_KEYS.has(key)) return unknownKey(`${path}.${key}`);
+    if (!BUILD_KEYS.has(key)) return unknownKey(`build.${key}`);
   }
-  const dockerfile = parseDockerfileField(
-    raw.dockerfile,
-    path,
-    defaultDockerfile,
-  );
+  const dockerfile = parseDockerfileField(raw.dockerfile, "build", "Dockerfile");
   if (!dockerfile.ok) return dockerfile;
-  return { ok: true, value: { dockerfile: dockerfile.value } };
+  const imageRepo = parseImageRepoField(raw.image_repo);
+  if (!imageRepo.ok) return imageRepo;
+  const value: SproutBuild = { dockerfile: dockerfile.value };
+  if (imageRepo.value !== undefined) value.image_repo = imageRepo.value;
+  return { ok: true, value };
 }
 
 function parseStringList(
@@ -548,7 +577,7 @@ export function parseSproutYaml(raw: string): Result<SproutYaml> {
   );
   if (!idleTeardown.ok) return idleTeardown;
 
-  const build = parseDockerfileBlock(parsed.build, "build", "Dockerfile");
+  const build = parseBuildBlock(parsed.build);
   if (!build.ok) return build;
 
   const seed = parseSeedBlock(parsed.seed);

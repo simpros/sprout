@@ -275,6 +275,59 @@ health:
     expect(captured[0]?.body).not.toHaveProperty("services");
   });
 
+  test("reseed deploys the app image from build.image_repo", async () => {
+    const baseUrl = startGateway(async (req, url) => {
+      if (url.pathname === "/v1/deploy" && req.method === "POST") {
+        captured.push({
+          method: req.method,
+          path: url.pathname,
+          body: await req.json(),
+          authorization: req.headers.get("authorization"),
+        });
+      }
+      return Response.json({
+        ok: true,
+        status: "running",
+        preview_url: "https://pr-17.myapp.preview.example.com",
+        canonical_repo_id: "https://gitlab.com/group/repo",
+        pr_id: 17,
+        slug: "myapp",
+        db_name: "sprout_myapp_pr17",
+        hostname: "pr-17.myapp.preview.example.com",
+      });
+    });
+    const cwd = await withWorkspace(`slug: myapp
+build:
+  image_repo: registry.gitlab.com/toptiere/dcos/product
+preview:
+  hostname: "pr-{pr_id}.myapp.preview.example.com"
+health:
+  path: /health
+  interval: 2s
+  timeout: 120s
+  expect: 200
+`);
+    const code = await runCli(
+      [
+        "ci",
+        "reseed",
+        "-s",
+        "registry.gitlab.com/toptiere/dcos/product:abc123-seed",
+      ],
+      deps({
+        cwd,
+        env: { SPROUT_URL: baseUrl, SPROUT_TOKEN: "t", ...GITLAB_MR_ENV },
+        readTextFile: async (path) => Bun.file(path).text(),
+      }),
+    );
+    expect(code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.body).toMatchObject({
+      app_image: "registry.gitlab.com/toptiere/dcos/product:abc123",
+      seed_image: "registry.gitlab.com/toptiere/dcos/product:abc123-seed",
+    });
+  });
+
   test("reseed reads SPROUT_APP_ENV blob and --seed-env-file like deploy", async () => {
     let polls = 0;
     const baseUrl = startGateway(async (req, url) => {

@@ -34,7 +34,8 @@ What the three jobs do:
 
 - `sprout-preview` (merge-request pipelines only): installs the pinned,
   checksum-verified `sprout` binary (version = component version), builds +
-  pushes the app image (`CI_REGISTRY_IMAGE:<SHA>`) and — when `.sprout.yaml`
+  pushes the app image (`CI_REGISTRY_IMAGE:<SHA>`, or `<build.image_repo>:<SHA>`
+  when `.sprout.yaml` sets that key) and — when `.sprout.yaml`
   sets `seed` — the seed image (commit-scoped `<SHA>-seed` tag rebuilt on
   every run, or — with explicit `seed.inputs` — a `seed-<shorthash>` tag
   content-addressed over those inputs, where an authenticated
@@ -47,9 +48,11 @@ What the three jobs do:
 - `sprout-stop-preview` (`on_stop`, Stop button / MR close / merge /
   `auto_stop_in` expiry): `sprout ci teardown` (idempotent — exit 0 when
   already gone). Once the preview is gone it also deletes the commit's app
-  and commit-scoped seed tags from the project registry, using the same CI
-  job token / credentials the push used. Missing tags and missing delete
-  permission only warn (the forge expiration policy remains the backstop).
+  and commit-scoped seed tags from the repository the push used
+  (`build.image_repo` when set, else the project registry root), using the
+  same CI job token / credentials the push used. Missing tags and missing
+  delete permission only warn (the forge expiration policy remains the
+  backstop).
 - `sprout-reset` (manual, instant): `sprout ci reset` — wipe the preview
   database and redeploy + seed from scratch (data wiped). Press **Run** on it
   inside the MR pipeline for the reset *now* (GitLab has no
@@ -58,6 +61,18 @@ What the three jobs do:
   lives inside the existing MR pipeline).
 - Prerequisites owned by the component: dind service, registry login,
   `apk` packages. Adopters declare no packages and no Docker setup.
+
+### Image repository override
+
+By default the preview app and seed tags land in the project's registry
+root (`CI_REGISTRY_IMAGE`). Set `build.image_repo` in `.sprout.yaml` to
+push them into a sub-repository instead — e.g.
+`registry.gitlab.com/toptiere/dcos/product` — when the root repository
+holds nothing but throwaway preview tags. The value is a full repository
+path with no tag or digest; the CLI appends `:<SHA>` (and `:<SHA>-seed`
+for a commit-scoped seed), and teardown deletes from the same repository.
+The key is manifest config, not a component input, so the preview,
+teardown, reseed, and reset jobs all agree without extra CI wiring.
 
 Prerequisites on the GitLab side: merge-request pipelines
 (`CI_PIPELINE_SOURCE=merge_request_event`; branch pipelines are refused
