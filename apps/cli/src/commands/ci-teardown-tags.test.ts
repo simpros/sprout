@@ -116,6 +116,44 @@ describe("ci teardown image tags", () => {
     expect(deletes[0]?.headers["job-token"]).toBe("job-token");
   });
 
+  test("lists the GitLab repository index once and reports what it deleted", async () => {
+    const calls: FetchCall[] = [];
+    const baseUrl = startGateway();
+    const code = await runCli(
+      ["ci", "teardown"],
+      deps({ ...GITLAB_ENV, SPROUT_URL: baseUrl }, gitlabFetch(calls)),
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toEqual(["deleted 2 registry tag(s)"]);
+    expect(
+      calls.filter((call) => call.url.includes("/registry/repositories?")),
+    ).toHaveLength(1);
+    expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(2);
+  });
+
+  test("warns when the image ref cannot be resolved instead of exiting silently", async () => {
+    const calls: FetchCall[] = [];
+    const baseUrl = startGateway();
+    const code = await runCli(
+      ["ci", "teardown"],
+      deps(
+        {
+          ...GITLAB_ENV,
+          CI_REGISTRY_IMAGE: undefined,
+          SPROUT_URL: baseUrl,
+        },
+        gitlabFetch(calls),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(stderr).toEqual([
+      "warning: registry cleanup: image ref not resolved (cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA))",
+    ]);
+    expect(calls.filter((call) => call.method === "DELETE")).toEqual([]);
+  });
+
   test("already-deleted tags warn and still exit 0", async () => {
     const calls: FetchCall[] = [];
     const baseUrl = startGateway();
@@ -251,6 +289,66 @@ describe("ci teardown image tags", () => {
       "https://api.github.com/orgs/org/packages/container/repo/versions/12",
     ]);
     expect(deletes[0]?.headers.authorization).toBe("Bearer gh-token");
+  });
+
+  test("resolves each GHCR package and version list once for the run's tags", async () => {
+    const calls: FetchCall[] = [];
+    const baseUrl = startGateway();
+    const fetchFn = async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ url, method, headers: headersOf(init) });
+      if (url.includes("/issues/42/comments")) {
+        if (method === "GET") return Response.json([]);
+        return Response.json({ id: 1 });
+      }
+      if (url === "https://api.github.com/users/org") {
+        return Response.json({ type: "Organization" });
+      }
+      if (
+        method === "GET" &&
+        url.includes("/orgs/org/packages/container/repo/versions")
+      ) {
+        return Response.json([
+          { id: 11, metadata: { container: { tags: ["def456"] } } },
+          { id: 12, metadata: { container: { tags: ["def456-seed"] } } },
+        ]);
+      }
+      if (method === "DELETE" && url.includes("/versions/")) {
+        return new Response(null, { status: 204 });
+      }
+      return new Response("not found", { status: 404 });
+    };
+
+    const code = await runCli(
+      ["ci", "teardown"],
+      deps(
+        {
+          SPROUT_URL: baseUrl,
+          SPROUT_TOKEN: "t",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_REF: "refs/pull/42/merge",
+          GITHUB_REPOSITORY: "org/repo",
+          GITHUB_SHA: "def456",
+          GITHUB_TOKEN: "gh-token",
+          CI_REGISTRY_IMAGE: "ghcr.io/org/repo",
+        },
+        fetchFn,
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toEqual(["deleted 2 registry tag(s)"]);
+    expect(
+      calls.filter((call) => call.url === "https://api.github.com/users/org"),
+    ).toHaveLength(1);
+    expect(
+      calls.filter(
+        (call) =>
+          call.method === "GET" &&
+          call.url.includes("/packages/container/"),
+      ),
+    ).toHaveLength(1);
+    expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(2);
   });
 
   test("GHCR retries a refused delete with the job token", async () => {

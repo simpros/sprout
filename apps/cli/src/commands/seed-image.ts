@@ -104,13 +104,20 @@ async function seedImageExists(
 
 export type SeedTarget = { ref: string; allowReuse: boolean };
 
+/** Content-addressed seeds (`inputs`) are shared cache; only commit-scoped tags are per-run. */
+export function isSharedSeedTarget(
+  seed: Pick<SproutSeed, "inputs">,
+): seed is Pick<SproutSeed, "inputs"> & { inputs: string[] } {
+  return seed.inputs !== undefined;
+}
+
 export async function resolveSeedTarget(
   seed: SproutSeed,
   appImageRef: string,
   cwd: string,
   readFile: (path: string) => Promise<string | null>,
 ): Promise<Result<SeedTarget>> {
-  if (seed.inputs === undefined) {
+  if (!isSharedSeedTarget(seed)) {
     const ref = resolveCommitSeedImageRef(appImageRef);
     if (!ref.ok) return ref;
     return { ok: true, value: { ref: ref.value, allowReuse: false } };

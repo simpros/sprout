@@ -211,7 +211,9 @@ preview:
         },
       );
       expect(code).toBe(0);
-      expect(stderr).toEqual([]);
+      expect(stderr).toEqual([
+        "warning: registry cleanup: image ref not resolved (cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA))",
+      ]);
       expect(forgeCalls[1]?.method).toBe("PUT");
       const posted = JSON.stringify(forgeCalls[1]?.body ?? "");
       expect(posted).toContain("removed");

@@ -9,7 +9,7 @@ import {
 } from "../identity.ts";
 import { resolveDeployHostname } from "../hostname.ts";
 import type { Result } from "../result.ts";
-import { resolveSeedTarget } from "./seed-image.ts";
+import { resolveSeedTarget, isSharedSeedTarget } from "./seed-image.ts";
 
 export type CiSource =
   | { forge: "gitlab"; pipelineSource: "merge_request_event" }
@@ -184,7 +184,12 @@ export async function resolveCiPushedImageRefs(
   identity: CiIdentity,
 ): Promise<CiPushedImageRefs> {
   const app = resolveImageRef(deps.env, identity);
-  if (!app.ok) return { refs: [], warnings: [] };
+  if (!app.ok) {
+    return {
+      refs: [],
+      warnings: [`registry cleanup: image ref not resolved (${app.error})`],
+    };
+  }
 
   const yaml = await loadYaml(deps);
   if (!yaml.ok) {
@@ -195,6 +200,9 @@ export async function resolveCiPushedImageRefs(
   }
   if (!yaml.value.seed) return { refs: [app.value], warnings: [] };
 
+  if (isSharedSeedTarget(yaml.value.seed)) {
+    return { refs: [app.value], warnings: [] };
+  }
   const seed = await resolveSeedTarget(
     yaml.value.seed,
     app.value,
@@ -207,8 +215,5 @@ export async function resolveCiPushedImageRefs(
       warnings: [`registry cleanup: seed tag not resolved (${seed.error})`],
     };
   }
-  // Content-addressed seed tags are shared cache across previews, so only the
-  // commit-scoped seed tag is a per-run artifact this teardown may delete.
-  if (seed.value.allowReuse) return { refs: [app.value], warnings: [] };
   return { refs: [app.value, seed.value.ref], warnings: [] };
 }
