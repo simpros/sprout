@@ -1,6 +1,12 @@
 import type { CliDeps } from "../context.ts";
 import type { CiIdentity } from "./ci-identity.ts";
 import type { Result } from "../result.ts";
+import {
+  fetchFor,
+  githubHeaders,
+  readErrorBody,
+  stripTrailingSlash,
+} from "./forge-http.ts";
 
 export type ParsedImageRef = {
   registry: string;
@@ -16,14 +22,6 @@ export type ImageCleanupReport = {
 const MAX_GITLAB_REPOSITORIES_PAGES = 10;
 const MAX_GHCR_VERSION_PAGES = 100;
 
-function fetchFor(deps: CliDeps): (url: string, init?: RequestInit) => Promise<Response> {
-  return deps.fetchFn ?? globalThis.fetch;
-}
-
-function stripTrailingSlash(url: string): string {
-  return url.replace(/\/+$/, "");
-}
-
 export function parseImageRef(ref: string): ParsedImageRef | null {
   const trimmed = ref.trim();
   const slash = trimmed.lastIndexOf("/");
@@ -35,25 +33,12 @@ export function parseImageRef(ref: string): ParsedImageRef | null {
   const hostEnd = name.indexOf("/");
   if (hostEnd <= 0) return null;
   const registry = name.slice(0, hostEnd);
-  if (
-    !registry.includes(".") &&
-    !registry.includes(":") &&
-    registry !== "localhost"
-  ) {
-    return null;
-  }
+  const namedRegistry =
+    registry.includes(".") || registry.includes(":") || registry === "localhost";
+  if (!namedRegistry) return null;
   const repository = name.slice(hostEnd + 1);
-  if (!repository || tag.includes("/")) return null;
+  if (!repository) return null;
   return { registry, repository, tag };
-}
-
-async function readErrorBody(res: Response): Promise<string> {
-  try {
-    const text = (await res.text()).trim();
-    return text ? text.slice(0, 300) : res.statusText || "unknown error";
-  } catch {
-    return res.statusText || "unknown error";
-  }
 }
 
 function unauthorizedStatus(status: number): boolean {
@@ -117,7 +102,8 @@ function gitlabHeaders(target: GitlabTarget): Record<string, string> {
 async function listGitlabRepositories(
   doFetch: (url: string, init?: RequestInit) => Promise<Response>,
   target: GitlabTarget,
-): Promise<Result<Map<string, number>>> {
+  wanted: ReadonlySet<string>,
+): Promise<Result<{ repositories: Map<string, number>; exhausted: boolean }>> {
   const repositories = new Map<string, number>();
   for (let page = 1; page <= MAX_GITLAB_REPOSITORIES_PAGES; page++) {
     let res: Response;
@@ -161,9 +147,14 @@ async function listGitlabRepositories(
         repositories.set(record.path.toLowerCase(), record.id);
       }
     }
-    if (data.length < 100) break;
+    if ([...wanted].every((path) => repositories.has(path))) {
+      return { ok: true, value: { repositories, exhausted: false } };
+    }
+    if (data.length < 100) {
+      return { ok: true, value: { repositories, exhausted: false } };
+    }
   }
-  return { ok: true, value: repositories };
+  return { ok: true, value: { repositories, exhausted: true } };
 }
 
 type DeleteOutcome =
@@ -172,23 +163,19 @@ type DeleteOutcome =
   | { status: "unauthorized" }
   | { status: "failed"; detail: string };
 
-async function deleteGitlabTag(
+async function deleteResource(
   doFetch: (url: string, init?: RequestInit) => Promise<Response>,
-  target: GitlabTarget,
-  repositoryId: number,
-  tag: string,
+  url: string,
+  headers: Record<string, string>,
 ): Promise<DeleteOutcome> {
   let res: Response;
   try {
-    res = await doFetch(
-      `${target.api}/projects/${target.project}/registry/repositories/${repositoryId}/tags/${encodeURIComponent(tag)}`,
-      { method: "DELETE", headers: gitlabHeaders(target) },
-    );
+    res = await doFetch(url, { method: "DELETE", headers });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     return { status: "failed", detail };
   }
-  if (res.ok || res.status === 202) return { status: "deleted" };
+  if (res.ok) return { status: "deleted" };
   if (res.status === 404) return { status: "missing" };
   if (unauthorizedStatus(res.status)) return { status: "unauthorized" };
   return {
@@ -197,8 +184,44 @@ async function deleteGitlabTag(
   };
 }
 
+function deleteGitlabTag(
+  doFetch: (url: string, init?: RequestInit) => Promise<Response>,
+  target: GitlabTarget,
+  repositoryId: number,
+  tag: string,
+): Promise<DeleteOutcome> {
+  return deleteResource(
+    doFetch,
+    `${target.api}/projects/${target.project}/registry/repositories/${repositoryId}/tags/${encodeURIComponent(tag)}`,
+    gitlabHeaders(target),
+  );
+}
+
 function unauthorizedWarning(scope: string): string {
   return `registry tag delete is not authorized (missing ${scope} scope); leaving the tags to the forge expiration policy`;
+}
+
+type CleanupTally = ImageCleanupReport & { sawUnauthorized: boolean };
+
+function recordOutcome(
+  tally: CleanupTally,
+  ref: string,
+  outcome: DeleteOutcome,
+): void {
+  switch (outcome.status) {
+    case "deleted":
+      tally.deleted.push(ref);
+      break;
+    case "missing":
+      tally.warnings.push(`registry tag already absent: ${ref}`);
+      break;
+    case "unauthorized":
+      tally.sawUnauthorized = true;
+      break;
+    case "failed":
+      tally.warnings.push(`registry tag delete failed for ${ref}: ${outcome.detail}`);
+      break;
+  }
 }
 
 async function cleanupGitlab(
@@ -216,7 +239,9 @@ async function cleanupGitlab(
   });
   if (parsed.length === 0) return { deleted: [], warnings: [] };
 
-  const repositories = await listGitlabRepositories(fetchFor(deps), target.value);
+  const doFetch = fetchFor(deps);
+  const wanted = new Set(parsed.map(({ image }) => image.repository.toLowerCase()));
+  const repositories = await listGitlabRepositories(doFetch, target.value, wanted);
   if (!repositories.ok) {
     const unauthorized = repositories.error.includes("unauthorized");
     return {
@@ -229,38 +254,27 @@ async function cleanupGitlab(
     };
   }
 
-  const deleted: string[] = [];
-  const warnings: string[] = [];
-  let sawUnauthorized = false;
-  for (const { ref, image } of parsed) {
-    const repositoryId = repositories.value.get(image.repository.toLowerCase());
-    if (repositoryId === undefined) {
-      warnings.push(`registry tag already absent: ${ref}`);
+  const tally: CleanupTally = { deleted: [], warnings: [], sawUnauthorized: false };
+  const index = repositories.value;
+  const deletions = parsed.map(async ({ ref, image }) => {
+    const repositoryId = index.repositories.get(image.repository.toLowerCase());
+    if (repositoryId === undefined) return { ref, image, outcome: null };
+    const outcome = await deleteGitlabTag(doFetch, target.value, repositoryId, image.tag);
+    return { ref, image, outcome };
+  });
+  for (const { ref, image, outcome } of await Promise.all(deletions)) {
+    if (outcome === null) {
+      tally.warnings.push(
+        index.exhausted
+          ? `GitLab registry repository list page cap reached for ${image.repository}; ${image.tag} not resolved`
+          : `registry tag already absent: ${ref}`,
+      );
       continue;
     }
-    const outcome = await deleteGitlabTag(
-      fetchFor(deps),
-      target.value,
-      repositoryId,
-      image.tag,
-    );
-    switch (outcome.status) {
-      case "deleted":
-        deleted.push(ref);
-        break;
-      case "missing":
-        warnings.push(`registry tag already absent: ${ref}`);
-        break;
-      case "unauthorized":
-        sawUnauthorized = true;
-        break;
-      case "failed":
-        warnings.push(`registry tag delete failed for ${ref}: ${outcome.detail}`);
-        break;
-    }
+    recordOutcome(tally, ref, outcome);
   }
-  if (sawUnauthorized) warnings.push(unauthorizedWarning("api"));
-  return { deleted, warnings };
+  if (tally.sawUnauthorized) tally.warnings.push(unauthorizedWarning("api"));
+  return { deleted: tally.deleted, warnings: tally.warnings };
 }
 
 type GithubTarget = { api: string; token: string; fallbackToken?: string };
@@ -290,14 +304,6 @@ function resolveGithubTarget(env: NodeJS.ProcessEnv): Result<GithubTarget> {
       token,
       ...(fallbackToken ? { fallbackToken } : {}),
     },
-  };
-}
-
-function githubHeaders(token: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
   };
 }
 
@@ -368,12 +374,15 @@ function nextLink(link: string | null): string | null {
 
 type GithubVersion = { id: number; tags: string[] };
 
-async function findGithubVersion(
+async function findGithubVersions(
   doFetch: (url: string, init?: RequestInit) => Promise<Response>,
   target: GithubTarget,
   pkg: GithubPackage,
-  tag: string,
-): Promise<Result<GithubVersion | null>> {
+  wanted: ReadonlySet<string>,
+): Promise<
+  Result<{ versions: Map<string, GithubVersion>; exhausted: boolean }>
+> {
+  const versions = new Map<string, GithubVersion>();
   let url = `${target.api}/${pkg.packageBase}/${encodeURIComponent(pkg.packageName)}/versions?per_page=100`;
   for (let page = 0; page < MAX_GHCR_VERSION_PAGES; page++) {
     let res: Response;
@@ -408,52 +417,36 @@ async function findGithubVersion(
         metadata?: { container?: { tags?: unknown } };
       };
       const tags = record.metadata?.container?.tags;
-      if (
-        typeof record.id === "number" &&
-        Array.isArray(tags) &&
-        tags.includes(tag)
-      ) {
-        return {
-          ok: true,
-          value: {
-            id: record.id,
-            tags: tags.filter((item): item is string => typeof item === "string"),
-          },
-        };
+      if (typeof record.id !== "number" || !Array.isArray(tags)) continue;
+      const tagList = tags.filter((tag): tag is string => typeof tag === "string");
+      for (const tag of tagList) {
+        if (!wanted.has(tag) || versions.has(tag)) continue;
+        versions.set(tag, { id: record.id, tags: tagList });
       }
+    }
+    if (versions.size === wanted.size) {
+      return { ok: true, value: { versions, exhausted: false } };
     }
 
     const next = nextLink(res.headers.get("link"));
-    if (!next) return { ok: true, value: null };
+    if (!next) return { ok: true, value: { versions, exhausted: false } };
     url = next;
   }
-  return { ok: true, value: null };
+  return { ok: true, value: { versions, exhausted: true } };
 }
 
-async function deleteGithubVersionWithToken(
+function deleteGithubVersionWithToken(
   doFetch: (url: string, init?: RequestInit) => Promise<Response>,
   target: GithubTarget,
   token: string,
   pkg: GithubPackage,
   versionId: number,
 ): Promise<DeleteOutcome> {
-  let res: Response;
-  try {
-    res = await doFetch(
-      `${target.api}/${pkg.packageBase}/${encodeURIComponent(pkg.packageName)}/versions/${versionId}`,
-      { method: "DELETE", headers: githubHeaders(token) },
-    );
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    return { status: "failed", detail };
-  }
-  if (res.ok || res.status === 204) return { status: "deleted" };
-  if (res.status === 404) return { status: "missing" };
-  if (unauthorizedStatus(res.status)) return { status: "unauthorized" };
-  return {
-    status: "failed",
-    detail: `${res.status} ${await readErrorBody(res)}`,
-  };
+  return deleteResource(
+    doFetch,
+    `${target.api}/${pkg.packageBase}/${encodeURIComponent(pkg.packageName)}/versions/${versionId}`,
+    githubHeaders(token),
+  );
 }
 
 /** The registry login token often lacks delete:packages; the job token can delete. */
@@ -480,6 +473,12 @@ async function deleteGithubVersion(
   );
 }
 
+type GithubGroup = {
+  image: ParsedImageRef;
+  tags: Set<string>;
+  refs: Array<{ ref: string; tag: string }>;
+};
+
 async function cleanupGithub(
   deps: CliDeps,
   refs: string[],
@@ -489,110 +488,98 @@ async function cleanupGithub(
     return { deleted: [], warnings: [`registry tag cleanup skipped: ${target.error}`] };
   }
 
-  type GithubEntry =
-    | { ref: string; warning: string }
-    | { ref: string; image: ParsedImageRef };
-  const parsed: GithubEntry[] = refs.map((ref) => {
+  const tally: CleanupTally = { deleted: [], warnings: [], sawUnauthorized: false };
+  const groups = new Map<string, GithubGroup>();
+  for (const ref of refs) {
     const image = parseImageRef(ref);
     if (!image) {
-      return {
-        ref,
-        warning: `registry tag cleanup skipped for ${ref}: unsupported image reference`,
-      };
-    }
-    if (image.registry.toLowerCase() !== "ghcr.io") {
-      return {
-        ref,
-        warning: `registry tag cleanup skipped for ${ref}: only ghcr.io is supported on GitHub`,
-      };
-    }
-    return { ref, image };
-  });
-
-  const targetTags = new Map<string, Set<string>>();
-  for (const entry of parsed) {
-    if (!("image" in entry)) continue;
-    const tags = targetTags.get(entry.image.repository) ?? new Set<string>();
-    tags.add(entry.image.tag);
-    targetTags.set(entry.image.repository, tags);
-  }
-
-  const deleted: string[] = [];
-  const warnings: string[] = [];
-  let sawUnauthorized = false;
-  for (const entry of parsed) {
-    if ("warning" in entry) {
-      warnings.push(entry.warning);
-      continue;
-    }
-    const pkg = await resolveGithubPackage(
-      fetchFor(deps),
-      target.value,
-      entry.image,
-    );
-    if (!pkg.ok) {
-      if (unauthorizedDetail(pkg.error)) {
-        sawUnauthorized = true;
-      } else {
-        warnings.push(
-          `registry tag cleanup skipped for ${entry.ref}: ${pkg.error}`,
-        );
-      }
-      continue;
-    }
-    const version = await findGithubVersion(
-      fetchFor(deps),
-      target.value,
-      pkg.value,
-      entry.image.tag,
-    );
-    if (!version.ok) {
-      if (unauthorizedDetail(version.error)) {
-        sawUnauthorized = true;
-      } else {
-        warnings.push(
-          `registry tag cleanup skipped for ${entry.ref}: ${version.error}`,
-        );
-      }
-      continue;
-    }
-    if (version.value === null) {
-      warnings.push(`registry tag already absent: ${entry.ref}`);
-      continue;
-    }
-    const wanted = targetTags.get(entry.image.repository) ?? new Set<string>();
-    const extraTags = version.value.tags.filter((tag) => !wanted.has(tag));
-    if (extraTags.length > 0) {
-      warnings.push(
-        `registry tag delete skipped for ${entry.ref}: GHCR version ${version.value.id} also carries ${extraTags.join(", ")}`,
+      tally.warnings.push(
+        `registry tag cleanup skipped for ${ref}: unsupported image reference`,
       );
       continue;
     }
-    const outcome = await deleteGithubVersion(
-      fetchFor(deps),
-      target.value,
-      pkg.value,
-      version.value.id,
-    );
-    switch (outcome.status) {
-      case "deleted":
-        deleted.push(entry.ref);
-        break;
-      case "missing":
-        warnings.push(`registry tag already absent: ${entry.ref}`);
-        break;
-      case "unauthorized":
-        sawUnauthorized = true;
-        break;
-      case "failed":
-        warnings.push(
-          `registry tag delete failed for ${entry.ref}: ${outcome.detail}`,
-        );
-        break;
+    if (image.registry.toLowerCase() !== "ghcr.io") {
+      tally.warnings.push(
+        `registry tag cleanup skipped for ${ref}: only ghcr.io is supported on GitHub`,
+      );
+      continue;
+    }
+    const group = groups.get(image.repository);
+    if (group) {
+      group.tags.add(image.tag);
+      group.refs.push({ ref, tag: image.tag });
+    } else {
+      groups.set(image.repository, {
+        image,
+        tags: new Set([image.tag]),
+        refs: [{ ref, tag: image.tag }],
+      });
     }
   }
-  if (sawUnauthorized) warnings.push(unauthorizedWarning("delete:packages"));
-  return { deleted, warnings };
+
+  const doFetch = fetchFor(deps);
+  const packages = await Promise.all(
+    [...groups].map(async ([repository, group]) => ({
+      repository,
+      group,
+      pkg: await resolveGithubPackage(doFetch, target.value, group.image),
+    })),
+  );
+
+  for (const { repository, group, pkg } of packages) {
+    const skip = (error: string) => {
+      if (unauthorizedDetail(error)) {
+        tally.sawUnauthorized = true;
+        return;
+      }
+      for (const { ref } of group.refs) {
+        tally.warnings.push(`registry tag cleanup skipped for ${ref}: ${error}`);
+      }
+    };
+    if (!pkg.ok) {
+      skip(pkg.error);
+      continue;
+    }
+    const versions = await findGithubVersions(
+      doFetch,
+      target.value,
+      pkg.value,
+      group.tags,
+    );
+    if (!versions.ok) {
+      skip(versions.error);
+      continue;
+    }
+    for (const { ref, tag } of group.refs) {
+      const version = versions.value.versions.get(tag);
+      if (!version) {
+        tally.warnings.push(
+          versions.value.exhausted
+            ? `GHCR version list page cap reached for ${repository}; ${tag} not resolved`
+            : `registry tag already absent: ${ref}`,
+        );
+        continue;
+      }
+      const extraTags = version.tags.filter((item) => !group.tags.has(item));
+      if (extraTags.length > 0) {
+        tally.warnings.push(
+          `registry tag delete skipped for ${ref}: GHCR version ${version.id} also carries ${extraTags.join(", ")}`,
+        );
+        continue;
+      }
+      const outcome = await deleteGithubVersion(
+        doFetch,
+        target.value,
+        pkg.value,
+        version.id,
+      );
+      recordOutcome(tally, ref, outcome);
+    }
+  }
+  if (tally.sawUnauthorized) {
+    tally.warnings.push(unauthorizedWarning("delete:packages"));
+  }
+  return { deleted: tally.deleted, warnings: tally.warnings };
 }
 
 export async function cleanupPushedImageRefs(

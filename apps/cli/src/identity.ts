@@ -98,18 +98,28 @@ export function resolveCanonicalRepoId(input: {
   };
 }
 
+function pullRequestRecord(
+  eventPayload: unknown,
+): Record<string, unknown> | null {
+  if (typeof eventPayload !== "object" || eventPayload === null) return null;
+  const pullRequest = (eventPayload as { pull_request?: unknown }).pull_request;
+  if (typeof pullRequest !== "object" || pullRequest === null) return null;
+  return pullRequest as Record<string, unknown>;
+}
+
 function readGithubPrId(
   env: NodeJS.ProcessEnv,
   eventPayload?: unknown,
 ): number | null {
-  if (eventPayload && typeof eventPayload === "object") {
-    const record = eventPayload as Record<string, unknown>;
-    const fromPr = record.pull_request;
-    if (fromPr && typeof fromPr === "object") {
-      const n = positiveInt((fromPr as { number?: unknown }).number);
-      if (n !== null) return n;
-    }
-    const fromNumber = positiveInt(record.number);
+  const pullRequest = pullRequestRecord(eventPayload);
+  if (pullRequest) {
+    const fromPr = positiveInt(pullRequest.number);
+    if (fromPr !== null) return fromPr;
+  }
+  if (typeof eventPayload === "object" && eventPayload !== null) {
+    const fromNumber = positiveInt(
+      (eventPayload as Record<string, unknown>).number,
+    );
     if (fromNumber !== null) return fromNumber;
   }
 
@@ -177,10 +187,9 @@ export function resolveCommitSha(
 export function resolvePullRequestHeadSha(
   eventPayload: unknown,
 ): string | undefined {
-  if (typeof eventPayload !== "object" || eventPayload === null) return undefined;
-  const pullRequest = (eventPayload as { pull_request?: unknown }).pull_request;
-  if (typeof pullRequest !== "object" || pullRequest === null) return undefined;
-  const head = (pullRequest as { head?: unknown }).head;
+  const pullRequest = pullRequestRecord(eventPayload);
+  if (!pullRequest) return undefined;
+  const head = pullRequest.head;
   if (typeof head !== "object" || head === null) return undefined;
   const sha = (head as { sha?: unknown }).sha;
   return typeof sha === "string" ? sha.trim() || undefined : undefined;

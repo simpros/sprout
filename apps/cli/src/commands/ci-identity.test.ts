@@ -641,12 +641,17 @@ seed:
     expect(result.refs).toEqual(["registry.gitlab.com/group/repo:abc123"]);
   });
 
-  test("skips silently when the commit's image ref cannot be derived", async () => {
+  test("warns instead of skipping silently when the commit's image ref cannot be derived", async () => {
     expect(
       await resolveCiPushedImageRefs(
         deps({ CI_COMMIT_SHA: "abc123" }, { readTextFile: async () => null }),
         identity,
       ),
-    ).toEqual({ refs: [], warnings: [] });
+    ).toEqual({
+      refs: [],
+      warnings: [
+        "registry cleanup: image ref not resolved (cannot derive image ref (set CI_REGISTRY_IMAGE and CI_COMMIT_SHA))",
+      ],
+    });
   });
 });

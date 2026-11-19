@@ -2,17 +2,15 @@ import type { CliDeps, CliIo } from "../context.ts";
 import type { Result } from "../result.ts";
 import type { DeploySettled } from "./deploy-outcome.ts";
 import type { CiIdentity } from "./ci-identity.ts";
+import {
+  fetchFor as fetchFn,
+  githubHeaders as githubWriteHeaders,
+  readErrorBody,
+  stripTrailingSlash,
+} from "./forge-http.ts";
 
 /** Hidden marker keying one sprout note per MR; re-runs edit in place. */
 export const SPROUT_NOTE_MARKER = "<!-- sprout-preview-note -->";
-
-function fetchFn(deps: CliDeps): (url: string, init?: RequestInit) => Promise<Response> {
-  return deps.fetchFn ?? globalThis.fetch;
-}
-
-function stripTrailingSlash(url: string): string {
-  return url.replace(/\/+$/, "");
-}
 
 function shortSha(sha: string | undefined): string | undefined {
   const trimmed = sha?.trim();
@@ -124,14 +122,6 @@ function repoPathFromCanonical(repo: string, host: string): string | null {
   }
 }
 
-function githubWriteHeaders(token: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-}
-
 function resolveForgeTarget(
   env: NodeJS.ProcessEnv,
   identity: CiIdentity,
@@ -195,16 +185,6 @@ function resolveForgeTarget(
       target: { forge: "github", base, repoPath, prId: identity.prId, token },
     },
   };
-}
-
-async function readErrorBody(res: Response): Promise<string> {
-  try {
-    const text = await res.text();
-    const trimmed = text.trim();
-    return trimmed ? trimmed.slice(0, 500) : res.statusText || "unknown error";
-  } catch {
-    return res.statusText || "unknown error";
-  }
 }
 
 type ForgeNote = { id: number; body: string };
